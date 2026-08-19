@@ -144,6 +144,9 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .7rem;font-size:.87rem}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
 .excerpt{background:#f7f9fa;border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-size:.84rem;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+[hidden]{display:none!important}   /* คลาสที่กำหนด display เองต้องไม่ลบล้างแอตทริบิวต์ hidden */
+.gate{position:fixed;inset:0;z-index:120;background:var(--bg);display:grid;place-items:center;padding:1rem;overflow:auto}
+.gate-card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:1.3rem;max-width:440px;width:100%}
 .seg{gap:.3rem;margin-bottom:1rem}
 .seg button{border-radius:999px;padding:.4rem .9rem;font-size:.88rem}
 .seg button[aria-current="true"]{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
@@ -187,6 +190,25 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 </style>
 </head>
 <body>
+<div id="loginGate" class="gate" hidden>
+  <div class="gate-card">
+    <div class="brandmark" style="margin-bottom:.9rem">
+      <div class="dot">OR</div>
+      <div class="t"><b>แฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์</b>
+        <span>กลุ่มงานออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</span></div>
+    </div>
+    <h2>เข้าสู่ระบบ</h2>
+    <p class="muted small">เลือกบัญชีและใส่รหัสผ่าน · ระบบจะแสดงเฉพาะข้อมูลที่บัญชีนั้นมีสิทธิ์เห็น</p>
+    <label class="f"><span>บัญชีผู้ใช้</span><select id="loginUser"></select></label>
+    <label class="f"><span>รหัสผ่าน</span><input type="password" id="loginPin" autocomplete="current-password" /></label>
+    <div id="loginError"></div>
+    <button class="btn-primary" id="loginGo" style="width:100%">เข้าสู่ระบบ</button>
+    <p class="notice warn small" style="margin-top:.9rem">หน้าสาธิต: รหัสผ่านทุกบัญชีคือ <b>1234</b> ·
+      การตรวจสิทธิ์ทั้งหมดทำในเบราว์เซอร์ จึงเป็นการแบ่งมุมมองบนเครื่องที่ใช้ร่วมกัน <b>ยังไม่ใช่ระบบยืนยันตัวตนจริง</b>
+      ของจริงต้องผูกกับบัญชีของโรงพยาบาลและตรวจสิทธิ์ที่เซิร์ฟเวอร์</p>
+  </div>
+</div>
+
 <header class="topbar no-print">
   <div class="topbar-in">
     <div class="brandmark">
@@ -198,6 +220,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
     <div class="spacer"></div>
     <div class="row">
+      <span class="tag b" id="whoami" hidden>—</span>
+      <button class="btn-sm" id="btnSignOut" hidden>ออกจากระบบ</button>
       <span class="tag" id="syncState" hidden>—</span>
       <span class="tag bad" id="netState" hidden>ออฟไลน์</span>
       <button class="btn-sm btn-primary" id="btnInstall" hidden>ติดตั้งแอป</button>
@@ -212,10 +236,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <button data-view="residents">แพทย์ประจำบ้าน</button>
     <button data-view="activities">กิจกรรมทั้งหมด</button>
     <button data-view="logbook">Logbook เคสผ่าตัด</button>
+    <button data-view="epa">EPA</button>
     <button data-view="research">งานวิจัย</button>
-    <button data-view="coverage">ความครอบคลุมอนุสาขา</button>
-    <button data-view="wfme">มาตรฐาน WFME</button>
-    <button data-view="settings">ตั้งค่า &amp; ข้อมูล</button>
+    <button data-view="coverage" data-perm="staff">ความครอบคลุมอนุสาขา</button>
+    <button data-view="wfme" data-perm="staff">มาตรฐาน WFME</button>
+    <button data-view="settings" data-perm="admin">ตั้งค่า &amp; ข้อมูล</button>
   </nav>
 </header>
 
@@ -254,7 +279,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <p class="muted small" id="nowStamp">—</p>
         </div>
         <div class="row no-print">
-          <button class="btn-sm" id="btnAddRotation">+ กำหนดช่วงหมุนเวียน</button>
+          <button class="btn-sm" id="btnAddRotation" data-perm="admin">+ กำหนดช่วงหมุนเวียน</button>
           <button class="btn-sm" id="btnPrintRoster">พิมพ์ตารางสัปดาห์</button>
         </div>
       </div>
@@ -278,7 +303,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           </div>
           <div class="row no-print">
             <select id="ayPick"></select>
-            <button class="btn-sm btn-primary" id="btnGeneratePlan">สร้างแผนอัตโนมัติ</button>
+            <button class="btn-sm btn-primary" id="btnGeneratePlan" data-perm="admin">สร้างแผนอัตโนมัติ</button>
             <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
             <button class="btn-sm" id="btnMonthCsv">CSV</button>
           </div>
@@ -349,7 +374,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
               · เมื่อบันทึกสไลด์เข้าแฟ้ม ระบบจะจับคู่กับรายการในตารางนี้ให้เอง</p>
           </div>
           <div class="row no-print">
-            <button class="btn-sm btn-primary" id="btnAddTalk">+ ลงตารางนำเสนอ</button>
+            <button class="btn-sm btn-primary" id="btnAddTalk" data-perm="admin">+ ลงตารางนำเสนอ</button>
             <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
             <button class="btn-sm" id="btnTalkCsv">CSV</button>
           </div>
@@ -370,7 +395,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div class="between">
         <h1>แพทย์ประจำบ้าน</h1>
         <div class="row">
-          <button class="btn-sm" id="btnAddResident">+ เพิ่มแพทย์ประจำบ้าน</button>
+          <button class="btn-sm" id="btnAddResident" data-perm="admin">+ เพิ่มแพทย์ประจำบ้าน</button>
           <button class="btn-sm" id="btnPrintPortfolio">พิมพ์แฟ้มรายบุคคล</button>
         </div>
       </div>
@@ -398,10 +423,10 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
             เพื่อใช้เป็น logbook · <b>ระบบไม่นำชื่อผู้ป่วยเข้ามา</b> และข้อมูลทั้งหมดอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น</p>
         </div>
         <div class="row no-print">
-          <button class="btn-sm btn-primary" id="btnImportQueue">ดึงจากหน้าระบบคิว</button>
-          <button class="btn-sm" id="btnImportCaseFile">นำเข้าไฟล์</button>
-          <button class="btn-sm" id="btnImportApi">ดึงจาก API</button>
-          <button class="btn-sm" id="btnCaseSettings">ตั้งค่าการเชื่อมต่อ</button>
+          <button class="btn-sm btn-primary" id="btnImportQueue" data-perm="staff">ดึงจากหน้าระบบคิว</button>
+          <button class="btn-sm" id="btnImportCaseFile" data-perm="staff">นำเข้าไฟล์</button>
+          <button class="btn-sm" id="btnImportApi" data-perm="staff">ดึงจาก API</button>
+          <button class="btn-sm" id="btnCaseSettings" data-perm="admin">ตั้งค่าการเชื่อมต่อ</button>
           <button class="btn-sm" id="btnSyncSettings">ซิงก์ระบบกลาง</button>
         </div>
       </div>
@@ -437,12 +462,36 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
   </section>
 
+  <!-- ============ EPA ============ -->
+  <section class="view" id="view-epa">
+    <div class="card">
+      <div class="between">
+        <div>
+          <h1>การประเมิน EPA</h1>
+          <p class="muted small">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
+            · เทียบกับเป้าหมายของแต่ละชั้นปีที่หลักสูตรกำหนด</p>
+        </div>
+        <div class="row no-print">
+          <select id="epaResident"></select>
+          <button class="btn-sm btn-primary" id="btnEpaAssess" data-perm="staff">+ บันทึกการประเมิน</button>
+        </div>
+      </div>
+      <div class="notice warn small" id="epaCaveat"></div>
+      <div id="epaBoard"></div>
+    </div>
+    <div class="card" data-perm="staff">
+      <h2>ภาพรวมทั้งกลุ่มงาน</h2>
+      <p class="muted small">ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · สีเขียวคือถึงเป้าหมายของชั้นปีแล้ว</p>
+      <div id="epaMatrix"></div>
+    </div>
+  </section>
+
   <!-- ============ RESEARCH ============ -->
   <section class="view" id="view-research">
     <div class="card">
       <div class="between">
         <h1>ความก้าวหน้างานวิจัย</h1>
-        <button class="btn-sm no-print" id="btnAddResearch">+ เพิ่มโครงการ</button>
+        <button class="btn-sm no-print" id="btnAddResearch" data-perm="staff">+ เพิ่มโครงการ</button>
       </div>
       <p class="muted small">แต่ละโครงการติดตามเป็นขั้น ระบบเตือนเมื่อขั้นใดเลยกำหนด และนับการนำเสนอความก้าวหน้าที่บันทึกจากสไลด์เข้ามาให้เอง</p>
       <div id="researchList"></div>
@@ -485,6 +534,30 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
         ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
       <div id="programmeEditor"></div>
+    </div>
+    <div class="card">
+      <div class="between"><h2>หัวข้อ EPA และเป้าหมายรายชั้นปี</h2>
+        <div class="row no-print">
+          <button class="btn-sm" id="btnEpaAdd">+ เพิ่มหัวข้อ</button>
+          <button class="btn-sm" id="btnEpaImport">นำเข้าไฟล์</button>
+          <button class="btn-sm" id="btnEpaExport">ส่งออก CSV</button>
+        </div></div>
+      <p class="muted small">หัวข้อที่ใส่มาให้เป็น <b>ตัวอย่างสำหรับวางโครงเท่านั้น</b> — นำเข้ารายการจริงของกลุ่มงานได้ทั้งไฟล์ CSV
+        (คอลัมน์ <span class="mono">code, title, subspecialty, year1..year4</span>) หรือ JSON แล้วรายการเดิมจะถูกแทนที่</p>
+      <input type="file" id="epaPick" accept=".csv,.json,text/csv,application/json" hidden />
+      <div id="epaEditor"></div>
+    </div>
+    <div class="card">
+      <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
+        <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
+      <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะข้อมูลของตนเอง · อาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมินและรับรอง
+        · ผู้จัดหลักสูตรดูแลทะเบียน ตาราง เกณฑ์ และการเชื่อมต่อ</p>
+      <div id="userTable"></div>
+    </div>
+    <div class="card">
+      <h2>ร่องรอยการใช้งานล่าสุด</h2>
+      <p class="muted small">บันทึกไว้ในเครื่องนี้ 500 รายการล่าสุด เพื่อให้ตรวจย้อนได้ว่าใครแก้อะไร (หลักฐาน WFME 8.4)</p>
+      <div id="auditLog"></div>
     </div>
     <div class="card">
       <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
@@ -765,6 +838,17 @@ const EVAL_ITEMS = [
 const SERVICE_COLOURS = ["#1f6f8b","#7a4fa3","#1f7a4d","#a8630a","#a32d2d","#2b5fa8","#8a7015","#0f766e"];
 
 /* ---------------------------------------------------------------------
+   4c) ผู้ใช้ สิทธิ์ และการเข้าสู่ระบบ
+   --------------------------------------------------------------------- */
+const ROLES = [
+  { id:"resident", th:"แพทย์ประจำบ้าน", scope:"เห็นและแก้ไขข้อมูลของตนเอง · ดูตารางส่วนรวมได้" },
+  { id:"staff",    th:"อาจารย์แพทย์",   scope:"ประเมิน รับรอง และดูข้อมูลของแพทย์ประจำบ้านทุกคน" },
+  { id:"admin",    th:"ผู้จัดหลักสูตร", scope:"ดูแลทะเบียน ตารางหมุนเวียน เกณฑ์ การเชื่อมต่อ และข้อมูลทั้งหมด" }
+];
+const ROLE_BY_KEY = Object.fromEntries(ROLES.map(r => [r.id, r]));
+const SESSION_KEY = "mnrh_ortho_portfolio_session_v1";
+
+/* ---------------------------------------------------------------------
    5) เครื่องมือพื้นฐาน
    ===================================================================== */
 const $  = (sel, root = document) => root.querySelector(sel);
@@ -842,6 +926,9 @@ const store = {
     d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
     if (!d.orQueue.patientData) d.orQueue.patientData = d.orQueue.dropHn ? "nohn" : "full";
     d.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false };
+    d.users ||= []; d.audit ||= [];
+    d.epas ||= []; d.epaAssessments ||= [];
+    d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
     [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
@@ -870,6 +957,7 @@ const store = {
     this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[], schedule:[],
                   cases:[], orQueue:{ ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
                   sync:{ url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
+                  users:[], audit:[], epas:[], epaAssessments:[], epaTargets:{ 1:{}, 2:{}, 3:{}, 4:{} },
                   requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
@@ -882,6 +970,61 @@ const store = {
     return base.concat(extra);
   }
 };
+
+/* =====================================================================
+   6c) เซสชันผู้ใช้ สิทธิ์การเข้าถึง และร่องรอยการใช้งาน
+
+   ข้อจำกัดที่ต้องรู้: การตรวจสิทธิ์ทั้งหมดนี้อยู่ฝั่งเบราว์เซอร์ จึงเป็น "การแบ่งมุมมองและกันการแก้ผิดคน"
+   บนเครื่องที่ใช้ร่วมกัน ไม่ใช่การยืนยันตัวตนเชิงความปลอดภัย ของจริงต้องย้ายการตรวจไปฝั่งเซิร์ฟเวอร์
+   (ดูหัวข้อการซิงก์ใน README) โครงนี้ออกแบบให้เปลี่ยนไปใช้ session ของเซิร์ฟเวอร์ได้โดยไม่ต้องรื้อหน้าอื่น
+   ===================================================================== */
+let session = null;
+
+const currentUser = () => session ? (store.data.users || []).find(u => u.id === session.userId) : null;
+const myRole = () => currentUser()?.role || "";
+const isAdmin = () => myRole() === "admin";
+const isStaff = () => myRole() === "staff" || isAdmin();
+const isResident = () => myRole() === "resident";
+const myResidentId = () => currentUser()?.residentId || "";
+const myStaffId = () => currentUser()?.staffId || "";
+/* สิทธิ์ตามหลัก "เท่าที่จำเป็น": แพทย์ประจำบ้านเห็นเฉพาะของตนเอง อาจารย์เห็นของผู้เข้าฝึกอบรมเพื่อประเมิน */
+const canSeeResident = (rid) => isStaff() || (!!rid && rid === myResidentId());
+const canEditResidentData = (rid) => isStaff() || (!!rid && rid === myResidentId());
+const canAssess = () => isStaff();
+const canManage = () => isAdmin();
+const visibleResidents = () => (store.data.residents || []).filter(r => canSeeResident(r.id));
+
+function audit(action, detail) {
+  const u = currentUser();
+  (store.data.audit ||= []).push({
+    at: new Date().toISOString(),
+    by: u ? u.displayName + " (" + u.username + ")" : "—",
+    role: myRole(), action, detail: String(detail ?? "").slice(0, 200)
+  });
+  if (store.data.audit.length > 500) store.data.audit.splice(0, store.data.audit.length - 500);
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const sess = JSON.parse(raw);
+    return (store.data.users || []).some(u => u.id === sess.userId && u.active !== false) ? sess : null;
+  } catch { return null; }
+}
+function signIn(userId) {
+  session = { userId, at: new Date().toISOString() };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  audit("เข้าสู่ระบบ", currentUser()?.username || "");
+  store.save();
+}
+function signOut() {
+  audit("ออกจากระบบ", currentUser()?.username || "");
+  store.save();
+  session = null;
+  localStorage.removeItem(SESSION_KEY);
+  location.reload();
+}
 
 /* =====================================================================
    7) ข้อมูลสาธิต (สมมติทั้งหมด — ไม่มีบุคคลหรือผู้ป่วยจริง)
@@ -1409,6 +1552,46 @@ function seedData() {
     });
   }
 
+  /* --- EPA: โครงตัวอย่างไว้ก่อน รอรายการจริงของกลุ่มงานมาแทน (นำเข้าไฟล์หรือแก้ในหน้าตั้งค่าได้) --- */
+  const epaSeed = [
+    ["EPA 1", "ประเมินและดูแลผู้ป่วยกระดูกหักที่ห้องฉุกเฉิน", "trauma"],
+    ["EPA 2", "ประเมินและวางแผนการรักษาผู้ป่วยข้อเข่า/ข้อสะโพกเสื่อม", "arthroplasty"],
+    ["EPA 3", "ประเมินผู้ป่วยปวดหลังและระบุภาวะที่ต้องส่งต่อทันที", "spine"],
+    ["EPA 4", "ดูแลการบาดเจ็บจากการเล่นกีฬาและวางแผนการฟื้นฟู", "sports"],
+    ["EPA 5", "ดูแลการบาดเจ็บของมือเบื้องต้นและส่งต่ออย่างเหมาะสม", "hand"],
+    ["EPA 6", "ดูแลผู้ป่วยเด็กที่มีกระดูกหักและอธิบายแผนการรักษาแก่ผู้ปกครอง", "pediatric"]
+  ];
+  const epas = epaSeed.map(([code, title, sub]) => ({
+    id: uid("epa"), code, title, subspecialty: sub,
+    note: "ตัวอย่างสำหรับวางโครง — รอรายการจริงของกลุ่มงาน"
+  }));
+  const epaTargets = { 1:{}, 2:{}, 3:{}, 4:{} };
+  [1, 2, 3, 4].forEach(y => epas.forEach(e => { epaTargets[y][e.id] = Math.min(5, y + 1); }));
+  const epaAssessments = [];
+  residents.forEach((r, ri) => epas.forEach((e, ei) => {
+    if ((ri + ei) % 3 === 0) return;                       /* บางหัวข้อยังไม่ถูกประเมิน */
+    const level = Math.max(1, Math.min(5, r.year + ((ri + ei) % 2)));
+    epaAssessments.push({
+      id: uid("epaa"), residentId: r.id, epaId: e.id, level,
+      by: staffRoster[(ri + ei) % staffRoster.length].name, byUserId: "",
+      at: daysAgoISO(10 + ((ri * 7 + ei * 5) % 120)), caseId: "",
+      note: "ข้อมูลสาธิต"
+    });
+  }));
+
+  /* --- บัญชีผู้ใช้สาธิต — รหัสผ่านทุกบัญชีคือ 1234 --- */
+  const users = [
+    { id: uid("usr"), username:"admin", displayName:"ผู้จัดหลักสูตร (สาธิต)", role:"admin", pin:"1234", residentId:"", staffId:"", active:true }
+  ];
+  staffRoster.forEach((st, i) => users.push({
+    id: uid("usr"), username: "staff" + (i + 1), displayName: st.name, role:"staff", pin:"1234",
+    residentId:"", staffId: st.id, active:true
+  }));
+  residents.forEach((r, i) => users.push({
+    id: uid("usr"), username: "resident" + (i + 1), displayName: r.name, role:"resident", pin:"1234",
+    residentId: r.id, staffId:"", active:true
+  }));
+
   /* --- เคสผ่าตัดตัวอย่างสำหรับ logbook (ปกติจะนำเข้าจากระบบคิว) --- */
   const OPS = {
     trauma:[["Closed intertrochanteric fracture, right","Proximal femoral nail, right"],
@@ -1571,7 +1754,8 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
-    staff: staffRoster, services, rotations, sessionEvals, schedule, cases,
+    staff: staffRoster, services, rotations, sessionEvals, schedule, cases, users, audit: [],
+    epas, epaTargets, epaAssessments,
     sync: { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
     orQueue: { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
@@ -1987,6 +2171,7 @@ function importCaseList(list, sourceLabel) {
   });
   store.data.orQueue.lastImport = new Date().toISOString();
   store.data.orQueue.lastSource = sourceLabel;
+  audit("นำเข้าเคสผ่าตัด", "เพิ่ม " + added + " · อัปเดต " + updated + " · จาก " + sourceLabel);
   store.save();
   renderAll();
   return { added, updated, skipped, total: (list || []).length };
@@ -2446,7 +2631,7 @@ function renderRotation() {
   }).join("")}</div>` : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
 
   /* --- งานประเมินที่ค้างอยู่ แยกตามอาจารย์ผู้รับผิดชอบ --- */
-  const pend = pendingEvaluations(14);
+  const pend = isStaff() ? pendingEvaluations(14) : [];
   $("#pendingCount").textContent = pend.length + " เซสชัน";
   const byStaff = {};
   pend.forEach(ses => (byStaff[ses.staffId || "-"] ||= []).push(ses));
@@ -2814,7 +2999,7 @@ function openSession(key) {
       <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
     </div>
     <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
-      <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || myStaffId() || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <h4>ประเมินท้ายเซสชัน <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 5.2 / 7.2)</span></h4>
     <div class="grid g3">
       ${EVAL_ITEMS.map(it => `<label class="f"><span>${esc(it.th)}</span>
@@ -2831,6 +3016,10 @@ function openSession(key) {
       <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
     ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"}</p>` : ""}`;
 
+  if (!canAssess()) {
+    showDialog("รายละเอียดเซสชัน", body + `<p class="notice warn small">บัญชีนี้ดูได้อย่างเดียว — การประเมินท้ายเซสชันทำได้โดยอาจารย์ผู้รับผิดชอบ</p>`, []);
+    return;
+  }
   showDialog(ev ? "แก้ไขผลประเมินท้ายเซสชัน" : "ประเมินท้ายเซสชัน", body, [
     { label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
         const scores = {};
@@ -2844,6 +3033,7 @@ function openSession(key) {
           scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
         };
         if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
+        audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name);
         store.save(); renderAll(); toast("บันทึกผลประเมินแล้ว");
       }},
     ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
@@ -3055,8 +3245,8 @@ let selectedResident = null;
 
 function renderResidents() {
   const list = $("#residentList");
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
-  if (!rs.length) { list.innerHTML = `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`; $("#residentDetail").innerHTML = ""; return; }
+  const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  if (!rs.length) { list.innerHTML = `<p class="empty">ไม่มีข้อมูลที่บัญชีนี้มีสิทธิ์เห็น</p>`; $("#residentDetail").innerHTML = ""; return; }
   list.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th><th>ชั้นปี</th><th>อาจารย์ที่ปรึกษา</th><th style="min-width:150px">ความก้าวหน้าปีนี้</th><th>อนุสาขา</th><th>บันทึกล่าสุด</th><th>ส่วนขาด</th><th></th></tr></thead>
     <tbody>${rs.map(r => {
@@ -3245,6 +3435,7 @@ function renderActivityFilters() {
 function filterActivities() {
   const q = filters.q.trim().toLowerCase();
   return store.data.activities.filter(a =>
+    canSeeResident(a.residentId) &&
     (!filters.residentId || a.residentId === filters.residentId) &&
     (!filters.type || a.type === filters.type) &&
     (!filters.subspecialty || a.subspecialty === filters.subspecialty) &&
@@ -3375,6 +3566,8 @@ function setupSync() {
 
 function syncSettingsDialog() {
   const cfg = syncCfg();
+  if (!cfg.residentId && myResidentId()) cfg.residentId = myResidentId();
+  if (!cfg.user && currentUser()) cfg.user = currentUser().username;
   const preview = JSON.stringify(syncPayloadItems().slice(0, 3), null, 1);
   const body = `
     <p class="small muted">ซิงก์ logbook ขึ้นเซิร์ฟเวอร์กลางอัตโนมัติ แยกตามผู้ใช้ เพื่อให้เปิดเครื่องอื่นก็เห็นข้อมูลเดิม
@@ -3455,7 +3648,7 @@ function renderLogbook() {
     <div class="stat"><b>${cases.filter(c => c.participants?.length && !c.participants.some(p => p.rcost?.done)).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
 
   /* --- เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด --- */
-  const un = unassignedCases().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const un = isStaff() ? unassignedCases().sort((a, b) => (b.date || "").localeCompare(a.date || "")) : [];
   $("#unassignedCount").textContent = un.length + " เคส";
   $("#unassignedList").innerHTML = un.length ? `<div class="grid g2">${un.slice(0, 12).map(c => {
     const sug = suggestAttendees(c).slice(0, 3);
@@ -3480,7 +3673,7 @@ function renderLogbook() {
     : `<p class="empty">ทุกเคสที่นำเข้ามีผู้ร่วมผ่าตัดครบแล้ว</p>`;
 
   /* --- สรุปรายบุคคล --- */
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
   $("#logbookSummary").innerHTML = rs.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th>${CASE_ROLES.map(r => `<th>${esc(r.th)}</th>`).join("")}
@@ -3595,6 +3788,7 @@ function renderLogbook() {
 function filterCases() {
   const q = caseFilter.q.trim().toLowerCase();
   return (store.data.cases || []).filter(c =>
+    (isStaff() || c.participants?.some(p => p.residentId === myResidentId())) &&
     (!caseFilter.residentId || c.participants?.some(p => p.residentId === caseFilter.residentId &&
       (!caseFilter.role || p.role === caseFilter.role))) &&
     (caseFilter.residentId || !caseFilter.role || c.participants?.some(p => p.role === caseFilter.role)) &&
@@ -3767,6 +3961,236 @@ function printLogbook(residentId) {
     </div>
   </div>`;
   printReport(html);
+}
+
+/* =====================================================================
+   13c) หน้า EPA — ระดับความไว้วางใจรายหัวข้อ เทียบเป้าหมายของชั้นปี
+   ===================================================================== */
+let epaResidentId = "";
+
+const epaTargetFor = (year, epaId) => +(store.data.epaTargets?.[year]?.[epaId] || 0);
+const epaHistory = (residentId, epaId) => (store.data.epaAssessments || [])
+  .filter(a => a.residentId === residentId && a.epaId === epaId)
+  .sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+const epaLevel = (residentId, epaId) => epaHistory(residentId, epaId).slice(-1)[0]?.level ?? null;
+
+function renderEpa() {
+  const epas = store.data.epas || [];
+  $("#epaCaveat").innerHTML = epas.some(e => e.note)
+    ? `หัวข้อ EPA ในระบบตอนนี้เป็น <b>ตัวอย่างสำหรับวางโครง</b> ยังไม่ใช่รายการจริงของหลักสูตร
+       — นำรายการจริงเข้ามาแทนได้ที่หน้า “ตั้งค่า &amp; ข้อมูล” (นำเข้า CSV/JSON) แล้วข้อมูลการประเมินเดิมที่อ้างหัวข้อเก่าจะถูกตัดออก`
+    : `หัวข้อ EPA และเป้าหมายรายชั้นปีตั้งค่าไว้ที่หน้า “ตั้งค่า &amp; ข้อมูล”`;
+
+  const list = visibleResidents();
+  if (!list.some(r => r.id === epaResidentId)) epaResidentId = myResidentId() || list[0]?.id || "";
+  $("#epaResident").innerHTML = list.map(r =>
+    `<option value="${r.id}" ${epaResidentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("");
+  $("#epaResident").disabled = list.length <= 1;
+  $("#epaResident").onchange = (e) => { epaResidentId = e.target.value; renderEpa(); };
+
+  const r = store.resident(epaResidentId);
+  if (!r || !epas.length) {
+    $("#epaBoard").innerHTML = `<p class="empty">${epas.length ? "ไม่มีข้อมูลที่บัญชีนี้มีสิทธิ์เห็น" : "ยังไม่มีหัวข้อ EPA ในระบบ"}</p>`;
+    $("#epaMatrix").innerHTML = "";
+    return;
+  }
+
+  const bySub = {};
+  epas.forEach(e => (bySub[e.subspecialty] ||= []).push(e));
+  const done = epas.filter(e => (epaLevel(r.id, e.id) ?? 0) >= epaTargetFor(r.year, e.id) && epaTargetFor(r.year, e.id) > 0).length;
+  const withTarget = epas.filter(e => epaTargetFor(r.year, e.id) > 0).length;
+
+  $("#epaBoard").innerHTML = `
+    <div class="grid g4" style="margin:.8rem 0">
+      <div class="stat"><b>${done}/${withTarget || "—"}</b><span>หัวข้อที่ถึงเป้าหมายของชั้นปีที่ ${r.year}</span></div>
+      <div class="stat"><b>${(store.data.epaAssessments || []).filter(a => a.residentId === r.id).length}</b><span>ครั้งที่ถูกประเมิน</span></div>
+      <div class="stat"><b>${epas.filter(e => epaLevel(r.id, e.id) == null).length}</b><span>หัวข้อที่ยังไม่เคยประเมิน</span></div>
+      <div class="stat"><b>${epas.length}</b><span>หัวข้อทั้งหมด</span></div>
+    </div>
+    ${Object.entries(bySub).map(([sub, items]) => `
+      <h3 style="margin-top:.8rem">${esc(SUB_BY_ID[sub]?.en || sub)}</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>หัวข้อ</th><th>ระดับล่าสุด</th><th>เป้าหมายปี ${r.year}</th><th style="min-width:120px">สถานะ</th>
+          <th>ประเมินล่าสุด</th><th></th></tr></thead>
+        <tbody>${items.map(e => {
+          const lv = epaLevel(r.id, e.id), target = epaTargetFor(r.year, e.id);
+          const hist = epaHistory(r.id, e.id), last = hist.slice(-1)[0];
+          const ok = lv != null && target > 0 && lv >= target;
+          return `<tr>
+            <td><b>${esc(e.code)}</b> ${esc(e.title)}</td>
+            <td>${lv != null ? `<span class="tag ${ok ? "ok" : "warn"}">ระดับ ${lv}</span>` : `<span class="tag bad">ยังไม่ประเมิน</span>`}</td>
+            <td>${target || "—"}</td>
+            <td>${barFor(target ? pct(lv || 0, target) : 0)}</td>
+            <td class="small">${last ? fmtDate(last.at) + "<br /><span class='muted'>" + esc(last.by || "") + "</span>" : "—"}</td>
+            <td class="no-print">${canAssess() ? `<button class="btn-sm" data-epa-assess="${e.id}">ประเมิน</button>` : ""}
+              ${hist.length ? `<button class="btn-sm btn-ghost" data-epa-hist="${e.id}">ประวัติ (${hist.length})</button>` : ""}</td>
+          </tr>`;
+        }).join("")}</tbody></table></div>`).join("")}`;
+
+  $$("#epaBoard [data-epa-assess]").forEach(b => b.addEventListener("click", () => epaAssessDialog(r.id, b.dataset.epaAssess)));
+  $$("#epaBoard [data-epa-hist]").forEach(b => b.addEventListener("click", () => epaHistoryDialog(r.id, b.dataset.epaHist)));
+
+  /* ภาพรวมทั้งกลุ่มงาน */
+  if (!isStaff()) { $("#epaMatrix").innerHTML = ""; return; }
+  const rs = visibleResidents().sort((a, b) => b.year - a.year);
+  $("#epaMatrix").innerHTML = `<div class="tbl-wrap"><table class="month">
+    <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${epas.map(e => `<th title="${esc(e.title)}">${esc(e.code)}</th>`).join("")}</tr></thead>
+    <tbody>${rs.map(x => `<tr>
+      <th class="who">${esc(x.name)}<br /><span class="small muted">ปี ${x.year}</span></th>
+      ${epas.map(e => {
+        const lv = epaLevel(x.id, e.id), target = epaTargetFor(x.year, e.id);
+        const bg = lv == null ? "#f2f5f7" : (target && lv >= target) ? "var(--ok-soft)" : "var(--warn-soft)";
+        const ink = lv == null ? "var(--muted)" : (target && lv >= target) ? "var(--ok)" : "var(--warn)";
+        return `<td><div class="mcell" style="background:${bg};color:${ink};cursor:default"
+          title="${esc(x.name)} · ${esc(e.code)} ${esc(e.title)} · เป้าหมาย ${target || "—"}">${lv ?? "—"}</div></td>`;
+      }).join("")}
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+function epaAssessDialog(residentId, epaId) {
+  if (!canAssess()) { toast("บัญชีนี้ไม่มีสิทธิ์ประเมิน"); return; }
+  const r = store.resident(residentId), e = (store.data.epas || []).find(x => x.id === epaId);
+  if (!r || !e) return;
+  const lv = epaLevel(residentId, epaId), target = epaTargetFor(r.year, epaId);
+  const recentCases = casesOf(residentId).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 15);
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r.name)} (ชั้นปีที่ ${r.year})</dd>
+      <dt>หัวข้อ</dt><dd><b>${esc(e.code)}</b> ${esc(e.title)} · ${esc(SUB_BY_ID[e.subspecialty]?.en || "")}</dd>
+      <dt>ระดับล่าสุด</dt><dd>${lv != null ? "ระดับ " + lv : "ยังไม่เคยประเมิน"} · เป้าหมายชั้นปีนี้ ${target || "—"}</dd>
+    </div>
+    <label class="f"><span>ระดับที่ประเมินครั้งนี้</span>
+      <select name="level">${ENTRUST_LEVELS.map(l =>
+        `<option value="${l.v}" ${lv === l.v ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}</select></label>
+    <label class="f"><span>อ้างอิงเคสผ่าตัด (ถ้ามี)</span>
+      <select name="caseId"><option value="">—</option>${recentCases.map(c =>
+        `<option value="${c.id}">${fmtDate(c.date)} · ${esc((c.operation || "").slice(0, 50))}</option>`).join("")}</select></label>
+    <label class="f"><span>ข้อสังเกตและสิ่งที่ต้องพัฒนา</span><textarea name="note"></textarea></label>
+    <label class="f"><span>ผู้ประเมิน</span><input name="by" value="${esc(currentUser()?.displayName || "")}" /></label>`;
+  showDialog("บันทึกการประเมิน EPA", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        store.data.epaAssessments.push({
+          id: uid("epaa"), residentId, epaId, level: +dlgVal("level"),
+          by: dlgVal("by") || currentUser()?.displayName || "", byUserId: currentUser()?.id || "",
+          at: todayISO(), caseId: dlgVal("caseId"),
+          note: ($('#dlgBody [name="note"]')?.value || "").trim()
+        });
+        audit("ประเมิน EPA", r.name + " · " + e.code + " ระดับ " + dlgVal("level"));
+        store.save(); renderAll(); toast("บันทึกการประเมินแล้ว");
+      }}
+  ]);
+}
+
+function epaHistoryDialog(residentId, epaId) {
+  const e = (store.data.epas || []).find(x => x.id === epaId);
+  const hist = epaHistory(residentId, epaId).slice().reverse();
+  const body = `<h4>${esc(e?.code || "")} ${esc(e?.title || "")}</h4>
+    <div class="tbl-wrap"><table><thead><tr><th>วันที่</th><th>ระดับ</th><th>ผู้ประเมิน</th><th>บันทึก</th></tr></thead>
+      <tbody>${hist.map(a => `<tr><td class="small">${fmtDate(a.at)}</td><td>${a.level}</td>
+        <td class="small">${esc(a.by || "")}</td><td class="small">${esc(a.note || "")}</td></tr>`).join("")}</tbody></table></div>`;
+  showDialog("ประวัติการประเมิน EPA", body, []);
+}
+
+/* --- จัดการหัวข้อ EPA และเป้าหมายรายชั้นปี (ผู้จัดหลักสูตร) --- */
+function renderEpaEditor() {
+  const box = $("#epaEditor"); if (!box) return;
+  const epas = store.data.epas || [];
+  box.innerHTML = epas.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>รหัส</th><th>หัวข้อ</th><th>Subspecialty</th>${[1,2,3,4].map(y => `<th>เป้าปี ${y}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${epas.map(e => `<tr>
+      <td class="mono">${esc(e.code)}</td>
+      <td>${esc(e.title)}${e.note ? `<br /><span class="small muted">${esc(e.note)}</span>` : ""}</td>
+      <td class="small">${esc(SUB_BY_ID[e.subspecialty]?.en || e.subspecialty)}</td>
+      ${[1,2,3,4].map(y => `<td><input type="number" min="0" max="5" style="width:64px"
+        data-epatarget="${y}|${e.id}" value="${epaTargetFor(y, e.id) || 0}" /></td>`).join("")}
+      <td class="no-print"><button class="btn-sm" data-epa-edit="${e.id}">แก้ไข</button></td>
+    </tr>`).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีหัวข้อ EPA</p>`;
+  $$("#epaEditor [data-epatarget]").forEach(inp => inp.addEventListener("change", () => {
+    const [y, id] = inp.dataset.epatarget.split("|");
+    (store.data.epaTargets[y] ||= {})[id] = Math.max(0, Math.min(5, +inp.value || 0));
+    store.save(); renderEpa(); toast("ปรับเป้าหมายแล้ว");
+  }));
+  $$("#epaEditor [data-epa-edit]").forEach(b => b.addEventListener("click", () => editEpa(b.dataset.epaEdit)));
+}
+
+function editEpa(id) {
+  const e = id ? store.data.epas.find(x => x.id === id) : null;
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>รหัส</span><input name="code" value="${esc(e?.code || "")}" placeholder="เช่น EPA 7" /></label>
+      <label class="f"><span>Subspecialty</span><select name="subspecialty">${SUBSPECIALTIES.map(sp =>
+        `<option value="${sp.id}" ${e?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
+    </div>
+    <label class="f"><span>หัวข้อ</span><input name="title" value="${esc(e?.title || "")}" /></label>
+    <label class="f"><span>หมายเหตุ</span><input name="note" value="${esc(e?.note || "")}" /></label>`;
+  showDialog(e ? "แก้ไขหัวข้อ EPA" : "เพิ่มหัวข้อ EPA", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const code = dlgVal("code"), title = dlgVal("title");
+        if (!code || !title) { toast("กรุณาใส่รหัสและหัวข้อ"); return false; }
+        const rec = { code, title, subspecialty: dlgVal("subspecialty"), note: dlgVal("note") };
+        if (e) Object.assign(e, rec); else store.data.epas.push({ id: uid("epa"), ...rec });
+        audit(e ? "แก้ไขหัวข้อ EPA" : "เพิ่มหัวข้อ EPA", code);
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(e ? [{ label:"ลบหัวข้อ", cls:"btn-danger", onClick: () => {
+        const n = (store.data.epaAssessments || []).filter(a => a.epaId === e.id).length;
+        if (!confirm("ลบ " + e.code + " และผลประเมิน " + n + " รายการที่ผูกไว้?")) return false;
+        store.data.epas = store.data.epas.filter(x => x.id !== e.id);
+        store.data.epaAssessments = store.data.epaAssessments.filter(a => a.epaId !== e.id);
+        [1,2,3,4].forEach(y => delete store.data.epaTargets[y]?.[e.id]);
+        audit("ลบหัวข้อ EPA", e.code);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* นำเข้ารายการ EPA จริงมาแทนของเดิม — CSV: code,title,subspecialty,year1..year4 หรือ JSON */
+function importEpaFile(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const txt = String(fr.result);
+      let rows = [];
+      if (/^\s*[\[{]/.test(txt)) {
+        const data = JSON.parse(txt);
+        rows = (Array.isArray(data) ? data : data.epas || []).map(x => ({
+          code: x.code || x.id || "", title: x.title || x.name || "", subspecialty: x.subspecialty || "general",
+          targets: x.targets || {}
+        }));
+      } else {
+        const table = parseCsv(txt);
+        const head = table[0].map(h => String(h).trim().toLowerCase());
+        const col = (name) => head.findIndex(h => h === name);
+        rows = table.slice(1).map(r => ({
+          code: r[col("code")] || "", title: r[col("title")] || "", subspecialty: (r[col("subspecialty")] || "general").trim(),
+          targets: { 1: r[col("year1")], 2: r[col("year2")], 3: r[col("year3")], 4: r[col("year4")] }
+        }));
+      }
+      rows = rows.filter(x => x.code && x.title);
+      if (!rows.length) throw new Error("ไม่พบรายการ EPA ในไฟล์");
+      const epas = [], targets = { 1:{}, 2:{}, 3:{}, 4:{} };
+      rows.forEach(x => {
+        const id = uid("epa");
+        const sub = SUB_BY_ID[x.subspecialty] ? x.subspecialty : "general";
+        epas.push({ id, code: x.code, title: x.title, subspecialty: sub, note: "" });
+        [1,2,3,4].forEach(y => { const v = +(x.targets?.[y] || 0); if (v) targets[y][id] = Math.min(5, v); });
+      });
+      const dropped = (store.data.epaAssessments || []).length;
+      store.data.epas = epas;
+      store.data.epaTargets = targets;
+      store.data.epaAssessments = [];       /* ผลประเมินเดิมอ้างหัวข้อเก่า จึงถูกตัดออกพร้อมกัน */
+      audit("นำเข้าหัวข้อ EPA", rows.length + " หัวข้อ จาก " + file.name);
+      store.save(); renderAll();
+      toast("นำเข้าแล้ว " + epas.length + " หัวข้อ · ผลประเมินเดิมที่อ้างหัวข้อเก่าถูกล้าง " + dropped + " รายการ");
+    } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
+  };
+  fr.readAsText(file);
+}
+
+function epaCsvRows() {
+  const head = ["code", "title", "subspecialty", "year1", "year2", "year3", "year4"];
+  return [head].concat((store.data.epas || []).map(e =>
+    [e.code, e.title, e.subspecialty, ...[1,2,3,4].map(y => epaTargetFor(y, e.id) || "")]));
 }
 
 /* =====================================================================
@@ -4099,7 +4523,7 @@ function openActivity(id) {
     <hr />
     <h4>การประเมินหลังนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
     <div class="grid g2">
-      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || "")}" placeholder="ชื่ออาจารย์" /></label>
+      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || (isStaff() ? currentUser()?.displayName : "") || "")}" placeholder="ชื่ออาจารย์" /></label>
       <label class="f"><span>คะแนนรวม (0–5)</span><input type="number" name="assessScore" min="0" max="5" step="0.1" value="${a.assessment?.score ?? ""}" /></label>
     </div>
     <label class="f"><span>ข้อเสนอแนะ</span><textarea name="assessComment" placeholder="จุดเด่น จุดที่ควรพัฒนา และสิ่งที่ควรทำต่อ">${esc(a.assessment?.comment || "")}</textarea></label>
@@ -4114,10 +4538,11 @@ function openActivity(id) {
       </div>
       <div class="excerpt" style="margin-top:.5rem">${esc(e.excerpt || "—")}</div>` : ""}`;
 
-  showDialog("รายละเอียดกิจกรรม", body, [
-    { label: a.verified ? "ยกเลิกการรับรอง" : "อาจารย์รับรอง", cls: a.verified ? "" : "btn-primary", onClick: () => {
+  const buttons = [
+    { label: a.verified ? "ยกเลิกการรับรอง" : "อาจารย์รับรอง", cls: a.verified ? "" : "btn-primary", staffOnly: true, onClick: () => {
         a.verified = !a.verified;
-        a.verifiedBy = a.verified ? (dlgVal("assessBy") || "อาจารย์ผู้รับรอง") : "";
+        a.verifiedBy = a.verified ? (dlgVal("assessBy") || currentUser()?.displayName || "อาจารย์ผู้รับรอง") : "";
+        audit(a.verified ? "รับรองกิจกรรม" : "ยกเลิกการรับรอง", a.title);
         a.verifiedAt = a.verified ? new Date().toISOString() : "";
         applyActivityEdits(a); store.save(); renderAll(); toast(a.verified ? "รับรองแล้ว" : "ยกเลิกการรับรองแล้ว");
       }},
@@ -4125,9 +4550,11 @@ function openActivity(id) {
     { label:"ลบรายการ", cls:"btn-danger", onClick: () => {
         if (!confirm("ลบกิจกรรมนี้ออกจากแฟ้ม? การลบย้อนกลับไม่ได้")) return false;
         store.data.activities = store.data.activities.filter(x => x.id !== a.id);
+        audit("ลบกิจกรรม", a.title);
         store.save(); renderAll(); toast("ลบแล้ว");
       }}
-  ]);
+  ];
+  showDialog("รายละเอียดกิจกรรม", body, buttons.filter(b => !b.staffOnly || canAssess()));
 }
 
 function applyActivityEdits(a) {
@@ -4440,6 +4867,8 @@ function renderIngestStats() {
 
 function renderAll() {
   renderStoreState();
+  renderUserTable();
+  renderAuditLog();
   renderIngestStats();
   renderRotation();
   renderStaffTable();
@@ -4448,6 +4877,8 @@ function renderAll() {
   renderActivityFilters();
   renderActivityTable();
   renderLogbook();
+  renderEpa();
+  renderEpaEditor();
   renderResearch();
   renderCoverage();
   renderWfme();
@@ -4571,6 +5002,125 @@ function renderDiagnostics(list) {
 }
 
 /* =====================================================================
+   21c) หน้าจอเข้าสู่ระบบ และการบังคับสิทธิ์ในหน้าจอ
+   ===================================================================== */
+function renderLoginGate() {
+  const gate = $("#loginGate");
+  const users = (store.data.users || []).filter(u => u.active !== false);
+  if (!users.length) { gate.hidden = true; return false; }
+  gate.hidden = false;
+  const byRole = {};
+  users.forEach(u => (byRole[u.role] ||= []).push(u));
+  $("#loginUser").innerHTML = ROLES.filter(r => byRole[r.id]?.length).map(r =>
+    `<optgroup label="${esc(r.th)}">${byRole[r.id].map(u =>
+      `<option value="${u.id}">${esc(u.displayName)} · ${esc(u.username)}</option>`).join("")}</optgroup>`).join("");
+  const go = () => {
+    const id = $("#loginUser").value, pin = $("#loginPin").value;
+    const u = users.find(x => x.id === id);
+    if (!u || (u.pin && u.pin !== pin)) {
+      $("#loginError").innerHTML = `<p class="notice warn small">รหัสผ่านไม่ถูกต้อง</p>`;
+      return;
+    }
+    signIn(u.id);
+    gate.hidden = true;
+    applyPermissions();
+    renderAll();
+    showView(defaultViewForRole());
+    toast("เข้าสู่ระบบในบทบาท " + (ROLE_BY_KEY[u.role]?.th || u.role));
+  };
+  $("#loginGo").onclick = go;
+  $("#loginPin").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  return true;
+}
+
+const defaultViewForRole = () => isResident() ? "residents" : "ingest";
+
+/* ซ่อนสิ่งที่บทบาทนี้ไม่มีสิทธิ์ใช้ แล้วให้ชั้น render กรองข้อมูลอีกชั้นหนึ่ง */
+function applyPermissions() {
+  const u = currentUser();
+  $("#whoami").hidden = !u;
+  $("#btnSignOut").hidden = !u;
+  if (u) {
+    $("#whoami").textContent = u.displayName + " · " + (ROLE_BY_KEY[u.role]?.th || u.role);
+    $("#whoami").title = ROLE_BY_KEY[u.role]?.scope || "";
+  }
+  $$("[data-perm]").forEach(el => {
+    const need = el.dataset.perm;
+    el.hidden = need === "admin" ? !canManage() : need === "staff" ? !isStaff() : false;
+  });
+  /* ถ้าอยู่ในหน้าที่ไม่มีสิทธิ์แล้ว ให้เด้งกลับหน้าเริ่มต้นของบทบาท */
+  const openTab = $$("#tabs button").find(b => b.getAttribute("aria-current") === "true");
+  if (openTab?.hidden) showView(defaultViewForRole());
+}
+
+function renderAuditLog() {
+  const box = $("#auditLog"); if (!box) return;
+  const rows = (store.data.audit || []).slice(-40).reverse();
+  box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>บทบาท</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead>
+    <tbody>${rows.map(a => `<tr>
+      <td class="small">${new Date(a.at).toLocaleString("th-TH")}</td>
+      <td class="small">${esc(a.by)}</td>
+      <td class="small">${esc(ROLE_BY_KEY[a.role]?.th || a.role || "—")}</td>
+      <td class="small">${esc(a.action)}</td>
+      <td class="small">${esc(a.detail || "")}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีร่องรอยการใช้งาน</p>`;
+}
+
+function renderUserTable() {
+  const box = $("#userTable"); if (!box) return;
+  const users = store.data.users || [];
+  box.innerHTML = users.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>ผูกกับ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${users.map(u => `<tr>
+      <td class="mono">${esc(u.username)}</td>
+      <td>${esc(u.displayName)}</td>
+      <td><span class="tag b">${esc(ROLE_BY_KEY[u.role]?.th || u.role)}</span></td>
+      <td class="small">${esc(store.resident(u.residentId)?.name || staffById(u.staffId)?.name || "—")}</td>
+      <td>${u.active === false ? `<span class="tag bad">ปิดใช้งาน</span>` : `<span class="tag ok">ใช้งาน</span>`}</td>
+      <td class="no-print"><button class="btn-sm" data-user="${u.id}">แก้ไข</button></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีบัญชีผู้ใช้</p>`;
+  $$("#userTable [data-user]").forEach(b => b.addEventListener("click", () => editUser(b.dataset.user)));
+}
+
+function editUser(id) {
+  const u = id ? store.data.users.find(x => x.id === id) : null;
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>ชื่อผู้ใช้</span><input name="username" value="${esc(u?.username || "")}" /></label>
+      <label class="f"><span>ชื่อที่แสดง</span><input name="displayName" value="${esc(u?.displayName || "")}" /></label>
+      <label class="f"><span>บทบาท</span><select name="role">${ROLES.map(r =>
+        `<option value="${r.id}" ${u?.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>รหัสผ่าน</span><input name="pin" value="${esc(u?.pin || "")}" /></label>
+      <label class="f"><span>ผูกกับแพทย์ประจำบ้าน</span><select name="residentId"><option value="">—</option>
+        ${store.data.residents.map(r => `<option value="${r.id}" ${u?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผูกกับอาจารย์</span><select name="staffId"><option value="">—</option>
+        ${(store.data.staff || []).map(x => `<option value="${x.id}" ${u?.staffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    </div>
+    <label class="tag" style="cursor:pointer"><input type="checkbox" name="active" ${u?.active !== false ? "checked" : ""} /> เปิดใช้งานบัญชีนี้</label>
+    <p class="small muted" style="margin-top:.6rem">บัญชีแพทย์ประจำบ้านจะเห็นเฉพาะข้อมูลของตนเอง
+      บัญชีอาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมิน และบัญชีผู้จัดหลักสูตรดูแลทะเบียนกับตารางทั้งหมด</p>`;
+  showDialog(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const username = dlgVal("username"); if (!username) { toast("กรุณาใส่ชื่อผู้ใช้"); return false; }
+        const rec = { username, displayName: dlgVal("displayName") || username, role: dlgVal("role"),
+                      pin: dlgVal("pin"), residentId: dlgVal("residentId"), staffId: dlgVal("staffId"),
+                      active: !!$('#dlgBody [name="active"]')?.checked };
+        if (u) Object.assign(u, rec); else store.data.users.push({ id: uid("usr"), ...rec });
+        audit(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", username);
+        store.save(); renderAll(); applyPermissions(); toast("บันทึกแล้ว");
+      }},
+    ...(u ? [{ label:"ลบบัญชี", cls:"btn-danger", onClick: () => {
+        if (u.id === session?.userId) { toast("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้"); return false; }
+        if (!confirm("ลบบัญชี " + u.username + "?")) return false;
+        store.data.users = store.data.users.filter(x => x.id !== u.id);
+        audit("ลบบัญชีผู้ใช้", u.username);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* =====================================================================
    22) เริ่มทำงาน
    ===================================================================== */
 function init() {
@@ -4584,6 +5134,17 @@ function init() {
   $("#btnAddResident").addEventListener("click", () => editResident(null));
   $("#btnAddResearch").addEventListener("click", () => editResearch(null));
   $("#btnAddDoc").addEventListener("click", () => editDoc(null));
+  $("#btnAddUser").addEventListener("click", () => editUser(null));
+  $("#btnEpaAdd").addEventListener("click", () => editEpa(null));
+  $("#btnEpaImport").addEventListener("click", () => $("#epaPick").click());
+  $("#epaPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importEpaFile(f); e.target.value = ""; });
+  $("#btnEpaExport").addEventListener("click", () => download("epa-list.csv", toCsv(epaCsvRows()), "text/csv;charset=utf-8"));
+  $("#btnEpaAssess").addEventListener("click", () => {
+    const e = (store.data.epas || [])[0];
+    if (!e) { toast("ยังไม่มีหัวข้อ EPA"); return; }
+    epaAssessDialog(epaResidentId, e.id);
+  });
+  $("#btnSignOut").addEventListener("click", signOut);
   $("#btnAddStaff").addEventListener("click", () => editStaff(null));
   $("#btnAddService").addEventListener("click", () => editService(null));
   $("#btnAddRotation").addEventListener("click", () => editRotation(null));
@@ -4605,6 +5166,7 @@ function init() {
                  "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ)")) return;
     const plan = buildRotationPlan(ay, store.data.residents, store.data.services);
     store.data.rotations = (store.data.rotations || []).filter(r => !(r.start >= from && r.start <= to)).concat(plan.rotations);
+    audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
     store.save(); renderAll();
     $("#planNotes").innerHTML = `<div class="notice ${plan.warnings.length ? "warn" : ""} small">
       สร้างแผนปีการศึกษา ${esc(ay)} แล้ว ${plan.rotations.length} บล็อก
@@ -4660,9 +5222,15 @@ function init() {
     renderDiagnostics([["", "กำลังตรวจ…"]]);
     renderDiagnostics(await diagnoseQueueLink());
   });
+  session = loadSession();
+  if (!session && renderLoginGate()) return;      /* ยังไม่ล็อกอิน — แสดงหน้าเข้าสู่ระบบก่อน */
+  $("#loginGate").hidden = true;
+  applyPermissions();
   renderAll();
   const hash = location.hash.replace("#", "");
-  showView($("#view-" + hash) ? hash : "ingest");
+  const wanted = $("#view-" + hash) ? hash : defaultViewForRole();
+  const tab = $$("#tabs button").find(b => b.dataset.view === wanted);
+  showView(tab && !tab.hidden ? wanted : defaultViewForRole());
 }
 
 document.addEventListener("DOMContentLoaded", init);

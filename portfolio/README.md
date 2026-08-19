@@ -49,6 +49,35 @@
 7. **พิมพ์ออกได้** — แฟ้มสะสมงานรายบุคคล (พร้อมช่องลงนาม) และรายงานหลักฐานตามมาตรฐาน WFME
    รวมถึงดาวน์โหลดเป็น CSV
 
+## บัญชีผู้ใช้และสิทธิ์การเข้าถึง
+
+เข้าใช้งานต้องล็อกอิน มี 3 บทบาท และเห็นข้อมูลเท่าที่จำเป็นตามบทบาท
+
+| บทบาท | เห็นอะไร | ทำอะไรได้ |
+|---|---|---|
+| แพทย์ประจำบ้าน | แฟ้ม กิจกรรม logbook และ EPA **ของตนเองเท่านั้น** · ตารางหมุนเวียน/เวร/นำเสนอ ซึ่งเป็นข้อมูลส่วนรวม | บันทึกกิจกรรมของตนเอง ตั้งค่าซิงก์ของตนเอง · ประเมินไม่ได้ รับรองไม่ได้ |
+| อาจารย์แพทย์ | ข้อมูลของแพทย์ประจำบ้านทุกคน เพื่อประเมินและรับรอง · หน้าความครอบคลุมและ WFME | ประเมินท้ายเซสชัน ประเมิน EPA รับรองกิจกรรม ระบุผู้ร่วมผ่าตัด นำเข้าเคส |
+| ผู้จัดหลักสูตร | ทุกอย่าง | ทะเบียนผู้ใช้/อาจารย์/หน่วย ตารางหมุนเวียน เกณฑ์ หัวข้อ EPA การเชื่อมต่อ และการจัดการข้อมูล |
+
+- บัญชีสาธิต: `admin`, `staff1`–`staff7`, `resident1`–`resident8` รหัสผ่านทุกบัญชี `1234`
+- ทุกการเข้าใช้ ประเมิน รับรอง นำเข้า และสร้างแผน ถูกบันทึกใน **ร่องรอยการใช้งาน** (500 รายการล่าสุด) ดูได้ที่หน้าตั้งค่า
+- **ข้อจำกัดที่ต้องรู้**: การตรวจสิทธิ์ทั้งหมดอยู่ในเบราว์เซอร์ จึงเป็นการ *แบ่งมุมมองและกันแก้ผิดคน* บนเครื่องที่ใช้ร่วมกัน
+  **ยังไม่ใช่การยืนยันตัวตนเชิงความปลอดภัย** — ของจริงต้องผูกกับบัญชีของโรงพยาบาลและตรวจสิทธิ์ที่เซิร์ฟเวอร์
+  โครงนี้แยกชั้นไว้แล้ว (`currentUser()` / `canSeeResident()` / `canAssess()` / `canManage()`) จึงเปลี่ยนไปใช้ session
+  ของเซิร์ฟเวอร์ได้โดยไม่ต้องรื้อหน้าอื่น
+
+## การประเมิน EPA
+
+- หน้า **EPA** แสดงหัวข้อแยกตามอนุสาขา พร้อม **ระดับล่าสุด** เทียบ **เป้าหมายของชั้นปีนั้น** และประวัติการประเมินย้อนหลัง
+- อาจารย์กดประเมินได้จากในหน้า: เลือกระดับ 1–5 (ชุดเดียวกับ entrustment ท้ายเซสชัน) ผูกกับเคสผ่าตัดได้ และใส่ข้อสังเกต
+- อาจารย์เห็นตารางภาพรวมทั้งกลุ่มงาน (แพทย์ประจำบ้าน × หัวข้อ) สีเขียวคือถึงเป้าหมายของชั้นปีแล้ว
+- ผู้จัดหลักสูตรแก้หัวข้อและตั้งเป้าหมายรายชั้นปีได้ที่หน้าตั้งค่า
+
+> **หัวข้อ EPA ที่ใส่มาให้ตอนนี้เป็นตัวอย่างสำหรับวางโครงเท่านั้น ยังไม่ใช่รายการจริง**
+> เมื่อได้รายการจริงของกลุ่มงาน ให้นำเข้าทับได้ทันที — CSV คอลัมน์ `code, title, subspecialty, year1..year4`
+> หรือ JSON `[{code, title, subspecialty, targets:{1..4}}]` (ส่งออกไฟล์ตัวอย่างจากปุ่มข้าง ๆ ได้)
+> การนำเข้าจะแทนที่หัวข้อเดิมทั้งชุด และล้างผลประเมินที่อ้างหัวข้อเก่าออกไปด้วย
+
 ## ใช้เป็นแอปบนมือถือ และเป็นเว็บแอปพร้อมกัน
 
 หน้านี้เป็น **PWA** แล้ว — โค้ดชุดเดียวใช้ได้ทั้งบนเบราว์เซอร์และติดตั้งเป็นแอปบนมือถือ
@@ -392,6 +421,18 @@ strips anything outside the agreed field list a second time on the way in.
 resident. This page does not duplicate it: it prepares the data (cases pulled from the queue, roles tagged in
 a couple of clicks), tracks which cases are still not entered there, and prints a tick-box worksheet of
 exactly those, so the official entry is quick rather than reconstructed from memory.
+
+**Sign-in and least-privilege access.** Three roles: residents see only their own portfolio, activities,
+logbook and EPA (shared rosters stay visible); staff see every resident in order to assess and verify;
+programme admins manage registries, rotations, requirements, EPA topics and connections. Actions that matter
+— sign-in, verification, assessments, imports, plan generation — land in a local audit trail. The checks run
+in the browser, so this separates views on a shared device rather than authenticating anyone; the permission
+layer is isolated so it can move to server sessions without touching the screens.
+
+**EPA assessment** tracks an entrustment level per topic against a per-year target, by subspecialty, with
+history, a programme-wide matrix for staff, and assessment linked to a case where relevant. The topics
+currently shipped are placeholders — the real list drops in via CSV (`code, title, subspecialty,
+year1..year4`) or JSON and replaces them wholesale.
 
 Tested in headless Chromium: `.pptx`/`.pdf` ingestion, classification, persistence, exports and reports.
 Requires a browser with `DecompressionStream` (Chrome/Edge 80+, Safari 16.4+, Firefox 113+).
