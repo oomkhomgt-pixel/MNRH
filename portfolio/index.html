@@ -490,32 +490,28 @@ const APP = { key: "mnrh_ortho_portfolio_v1", version: 1 };
    คำสำคัญแก้ไขเพิ่มได้ในหน้า "ตั้งค่า" และถูกเก็บรวมกับข้อมูล
    --------------------------------------------------------------------- */
 const SUBSPECIALTIES = [
-  { id:"trauma", en:"Orthopaedic Trauma",
-    kw:["fracture","fx","nonunion","malunion","nail","plate","external fixator","ex-fix","damage control","polytrauma","open fracture","gustilo","ao/ota","pelvic ring","acetabular fracture","หัก","กระดูกหัก","ไม่ติด","ดามกระดูก","อุบัติเหตุ"] },
-  { id:"spine", en:"Spine",
+  { id:"trauma",      en:"Orthopaedic Trauma",
+    kw:["fracture","fx","nonunion","malunion","nail","plate","external fixator","ex-fix","damage control","polytrauma","open fracture","gustilo","ao/ota","pelvic ring","acetabular fracture","proximal humerus","olecranon","terrible triad","fracture healing","bone healing","osteoporotic","fragility fracture","osteoporosis","bisphosphonate","หัก","กระดูกหัก","ไม่ติด","ดามกระดูก","อุบัติเหตุ","กระดูกพรุน"] },
+  { id:"spine",       en:"Spine",
     kw:["spine","spinal","lumbar","cervical","thoracolumbar","disc","spondylolisthesis","stenosis","myelopathy","radiculopathy","scoliosis","kyphosis","pedicle screw","laminectomy","discectomy","fusion","cauda equina","กระดูกสันหลัง","หมอนรองกระดูก","หลังคด"] },
-  { id:"arthroplasty", en:"Adult Reconstruction / Arthroplasty",
-    kw:["arthroplasty","tha","tka","uka","total hip","total knee","revision arthroplasty","periprosthetic","osteoarthritis","oa knee","oa hip","hemiarthroplasty","bearing","polyethylene","อวัยวะเทียม","ข้อเทียม","ข้อเข่าเสื่อม","ข้อสะโพกเสื่อม"] },
-  { id:"sports", en:"Sports Medicine / Arthroscopy",
-    kw:["acl","pcl","mcl","meniscus","meniscal","arthroscopy","arthroscopic","patellar instability","rotator cuff tear","return to play","cartilage","osteochondral","สาย เอ็นไขว้","เอ็นไขว้","ส่องกล้องข้อ","นักกีฬา"] },
-  { id:"hand", en:"Hand & Microsurgery",
+  { id:"arthroplasty",en:"Arthroplasty",
+    kw:["arthroplasty","tha","tka","uka","total hip","total knee","revision arthroplasty","periprosthetic","osteoarthritis","oa knee","oa hip","hemiarthroplasty","bearing","polyethylene","reverse shoulder","อวัยวะเทียม","ข้อเทียม","ข้อเข่าเสื่อม","ข้อสะโพกเสื่อม"] },
+  { id:"sports",      en:"Sports",
+    kw:["acl","pcl","mcl","meniscus","meniscal","arthroscopy","arthroscopic","patellar instability","rotator cuff","bankart","hill-sachs","shoulder instability","glenohumeral","frozen shoulder","adhesive capsulitis","return to play","cartilage","osteochondral","เอ็นไขว้","ส่องกล้องข้อ","นักกีฬา","ไหล่หลุด","ไหล่ติด","หัวไหล่"] },
+  { id:"hand",        en:"Hand & Microsurgery",
     kw:["hand","wrist","carpal","scaphoid","flexor tendon","extensor tendon","replantation","microsurgery","nerve repair","brachial plexus","dupuytren","trigger finger","carpal tunnel","de quervain","มือ","ข้อมือ","เส้นประสาท","ต่อนิ้ว","จุลศัลยกรรม"] },
-  { id:"foot", en:"Foot & Ankle",
+  { id:"foot",        en:"Foot & Ankle",
     kw:["foot","ankle","hallux valgus","flatfoot","pes planus","charcot","achilles","calcaneus","lisfranc","diabetic foot","plantar fasciitis","เท้า","ข้อเท้า","เท้าเบาหวาน","เอ็นร้อยหวาย"] },
-  { id:"pediatric", en:"Paediatric Orthopaedics",
+  { id:"pediatric",   en:"Paediatric Orthopaedics",
     kw:["paediatric","pediatric","ddh","developmental dysplasia","clubfoot","ponseti","perthes","scfe","supracondylar","physis","growth plate","limb length discrepancy","cerebral palsy","เด็ก","ข้อสะโพกเคลื่อนแต่กำเนิด","เท้าปุก"] },
-  { id:"oncology", en:"Musculoskeletal Oncology",
+  { id:"oncology",    en:"Musculoskeletal Oncology",
     kw:["tumour","tumor","sarcoma","osteosarcoma","ewing","chondrosarcoma","gct","giant cell tumor","metastasis","metastatic bone","biopsy","limb salvage","enneking","เนื้องอก","มะเร็งกระดูก","แพร่กระจาย"] },
-  { id:"shoulder", en:"Shoulder & Elbow",
-    kw:["shoulder","glenohumeral","rotator cuff","bankart","hill-sachs","frozen shoulder","adhesive capsulitis","proximal humerus","elbow","olecranon","terrible triad","reverse shoulder","ไหล่","ข้อศอก","ไหล่ติด","ไหล่หลุด"] },
-  { id:"infection", en:"Musculoskeletal Infection",
+  { id:"infection",   en:"Musculoskeletal Infection",
     kw:["osteomyelitis","septic arthritis","pji","prosthetic joint infection","necrotizing fasciitis","tuberculosis","pott","debridement","antibiotic cement","spacer","การติดเชื้อ","ติดเชื้อในข้อ","กระดูกอักเสบ","วัณโรคกระดูก"] },
-  { id:"metabolic", en:"Metabolic Bone Disease / Osteoporosis",
-    kw:["osteoporosis","osteoporotic","fragility fracture","bisphosphonate","denosumab","vitamin d","bmd","dexa","frax","rickets","osteomalacia","fracture liaison","กระดูกพรุน","กระดูกบาง","ฮอร์โมนกระดูก"] },
-  { id:"basic", en:"Basic Science / Biomechanics",
-    kw:["biomechanics","bone healing","fracture healing","anatomy","histology","implant material","titanium","stainless","biomaterial","statistic","research methodology","evidence-based","ชีวกลศาสตร์","กายวิภาค","ระเบียบวิธีวิจัย","สถิติ"] },
-  { id:"general", en:"General / Unclassified", kw:[] }
+  { id:"general",     en:"General / Unclassified", kw:[] }
 ];
+/* อนุสาขาที่เคยมีในเวอร์ชันก่อน — ข้อมูลเก่าที่บันทึกไว้จะถูกย้ายมาอยู่หมวดที่รับช่วงต่อ */
+const LEGACY_SUBSPECIALTIES = { shoulder:"sports", metabolic:"trauma", basic:"general" };
 const SUB_BY_ID = Object.fromEntries(SUBSPECIALTIES.map(s => [s.id, s]));
 
 /* ---------------------------------------------------------------------
@@ -623,10 +619,10 @@ const WFME_SOURCES = [
    4) เกณฑ์ตั้งต้นต่อชั้นปี — ค่าสาธิต แก้ไขได้ในหน้าตั้งค่า
    --------------------------------------------------------------------- */
 const DEFAULT_REQUIREMENTS = {
-  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:4,  sessionEval:20 },
-  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:7,  sessionEval:24 },
-  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:9,  sessionEval:24 },
-  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:10, sessionEval:24 }
+  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:3, sessionEval:20 },
+  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:5, sessionEval:24 },
+  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:7, sessionEval:24 },
+  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:8, sessionEval:24 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -739,6 +735,13 @@ const store = {
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
     d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
+    /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
+    const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
+    [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
+    Object.keys(LEGACY_SUBSPECIALTIES).forEach(k => { if (d.keywords?.[k]) delete d.keywords[k]; });
+    Object.values(d.requirements || {}).forEach(req => {
+      if (req && req.subspecialties > SUBSPECIALTIES.length - 1) req.subspecialties = SUBSPECIALTIES.length - 1;
+    });
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
@@ -881,7 +884,7 @@ function seedData() {
     ["res_c","topic","spine","Cervical myelopathy: การเลือกผ่าตัดทางหน้าหรือหลัง",22,4.1],
     ["res_c","traumafilm","trauma","Trauma film: pelvic ring injury ร่วมกับภาวะช็อก",9,null],
     ["res_c","preop","trauma","Pre-op conference: distal femur fracture ในผู้ป่วยกระดูกพรุน",30,null],
-    ["res_c","journal","metabolic","Zoledronic acid หลัง hip fracture: การวิจารณ์บทความ",44,4.2],
+    ["res_c","journal","trauma","Zoledronic acid หลัง hip fracture: การวิจารณ์บทความ",44,4.2],
     ["res_c","research","trauma","ความก้าวหน้างานวิจัย: ระยะเวลารอผ่าตัดกับผลลัพธ์ใน hip fracture",17,null],
     ["res_c","topic","hand","Flexor tendon injury zone II: การซ่อมและการฟื้นฟู",66,4.3],
     ["res_d","topic","pediatric","Supracondylar humerus fracture ในเด็ก: pitfalls ที่พบบ่อย",14,4.5],
@@ -894,16 +897,16 @@ function seedData() {
     ["res_e","preop","trauma","Pre-op conference: femoral shaft fracture เตรียม intramedullary nail",28,null],
     ["res_e","postop","infection","Post-op review: septic arthritis ของข้อเข่าหลังส่องกล้องล้างข้อ",42,3.8],
     ["res_e","journal","trauma","Early vs delayed fixation ใน tibial plateau fracture",58,4.1],
-    ["res_f","topic","shoulder","Rotator cuff tear: การเลือกผู้ป่วยเพื่อผ่าตัดซ่อม",24,4.2],
+    ["res_f","topic","sports","Rotator cuff tear: การเลือกผู้ป่วยเพื่อผ่าตัดซ่อม",24,4.2],
     ["res_f","traumafilm","trauma","Trauma film: proximal humerus fracture ในผู้สูงอายุ",7,null],
-    ["res_f","preop","shoulder","Pre-op conference: recurrent shoulder dislocation เตรียม Latarjet",35,null],
+    ["res_f","preop","sports","Pre-op conference: recurrent shoulder dislocation เตรียม Latarjet",35,null],
     ["res_f","postop","trauma","Post-op review: ankle fracture ที่ syndesmosis ยังกว้าง",49,4.0],
     ["res_g","traumafilm","trauma","Trauma film: อ่านฟิล์มกระดูกหักในเวรอุบัติเหตุ สัปดาห์ที่ผ่านมา",3,null],
     ["res_g","preop","trauma","Pre-op conference: closed both-bone forearm fracture",18,null],
-    ["res_g","topic","basic","Fracture healing: ชีววิทยาและปัจจัยที่รบกวน",31,3.9],
+    ["res_g","topic","trauma","Fracture healing: ชีววิทยาและปัจจัยที่รบกวน",31,3.9],
     ["res_g","postop","trauma","Post-op review: superficial wound infection หลัง ORIF",45,null],
     ["res_h","traumafilm","trauma","Trauma film: hip fracture ในผู้สูงอายุ 3 ราย",2,null],
-    ["res_h","topic","metabolic","Osteoporosis: การประเมินและการเริ่มยาหลังกระดูกหัก",27,4.1],
+    ["res_h","topic","trauma","Osteoporosis: การประเมินและการเริ่มยาหลังกระดูกหัก",27,4.1],
     ["res_h","preop","arthroplasty","Pre-op conference: primary TKA ในผู้ป่วยเข่าโก่งมาก",39,null],
     ["res_h","postop","trauma","Post-op review: DVT หลังผ่าตัดกระดูกสะโพก",52,null]
   ];
@@ -977,7 +980,7 @@ function seedData() {
         { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
         { day:6, part:"call", name:"เวรอุบัติเหตุนอกเวลา", staffId:"st_1", location:"ห้องฉุกเฉิน" }
       ] },
-    { id:"svc_arthro", name:"Adult Reconstruction Service", subspecialty:"arthroplasty", abbr:"ARP", colour:"#7a4fa3", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_arthro", name:"Arthroplasty Service", subspecialty:"arthroplasty", abbr:"ARP", colour:"#7a4fa3", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"am", name:"Ward round", staffId:"st_2" },
         { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
@@ -1007,7 +1010,7 @@ function seedData() {
         { day:4, part:"am", name:"Ward round", staffId:"st_5" },
         { day:5, part:"pm", name:"Ponseti casting clinic", staffId:"st_5" }
       ] },
-    { id:"svc_sports", name:"Sports Medicine & Arthroscopy Service", subspecialty:"sports", abbr:"SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_sports", name:"Sports Service", subspecialty:"sports", abbr:"SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
         { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
@@ -1134,15 +1137,15 @@ function seedData() {
             ["Periprosthetic femoral fracture: การจำแนกและการรักษา","arthroplasty"],
             ["Chronic osteomyelitis: หลักการ debridement และการปิดแผล","infection"],
             ["Distal radius fracture: การเลือกวิธีผ่าตัดตามชนิดของกระดูกหัก","hand"],
-            ["Rotator cuff tear ในผู้สูงอายุ: ทางเลือกที่ไม่ใช่การผ่าตัด","shoulder"]],
+            ["Rotator cuff tear ในผู้สูงอายุ: ทางเลือกที่ไม่ใช่การผ่าตัด","sports"]],
     journal:[["Tranexamic acid ใน hip fracture surgery: การวิจารณ์ RCT ฉบับล่าสุด","trauma"],
              ["Robotic-assisted TKA เทียบกับวิธีมาตรฐาน: systematic review","arthroplasty"],
-             ["Vitamin D supplementation กับการหายของกระดูกหัก","metabolic"]],
+             ["Vitamin D supplementation กับการหายของกระดูกหัก","trauma"]],
     preop:  [["Pre-op: bimalleolar ankle fracture เตรียม ORIF","foot"],
              ["Pre-op: femoral neck fracture ในผู้ป่วยอายุ 62 ปี","trauma"],
              ["Pre-op: lumbar spinal stenosis เตรียม decompression","spine"]],
     traumafilm:[["Trauma film: อ่านฟิล์มผู้ป่วยอุบัติเหตุประจำสัปดาห์","trauma"]],
-    research:[["ความก้าวหน้างานวิจัย: รายงานผลการวิเคราะห์ข้อมูลเบื้องต้น","basic"]],
+    research:[["ความก้าวหน้างานวิจัย: รายงานผลการวิเคราะห์ข้อมูลเบื้องต้น","general"]],
     postop: [["Post-op review: ผู้ป่วยที่มีภาวะแทรกซ้อนในสัปดาห์ที่ผ่านมา","trauma"]]
   };
   const schedule = [];

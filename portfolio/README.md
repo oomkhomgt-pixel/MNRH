@@ -17,9 +17,9 @@
 2. **เดาให้ก่อน** — จากคำที่พบในสไลด์ ระบบเดา
    * **ประเภทกิจกรรม**: นำเสนอหัวข้อวิชาการ / pre-op conference / post-op conference & M&M /
      trauma film conference / journal club / ความก้าวหน้างานวิจัย
-   * **อนุสาขาออร์โธปิดิกส์**: อุบัติเหตุ, กระดูกสันหลัง, ข้อเทียม, เวชศาสตร์การกีฬา, มือและจุลศัลยกรรม,
-     เท้าและข้อเท้า, ออร์โธปิดิกส์เด็ก, เนื้องอกกระดูก, ไหล่และข้อศอก, การติดเชื้อ, โรคกระดูกเมตาบอลิก,
-     วิทยาศาสตร์พื้นฐาน
+   * **อนุสาขาออร์โธปิดิกส์** (9 อนุสาขา ใช้ชื่อภาษาอังกฤษ): Orthopaedic Trauma, Spine, Arthroplasty, Sports,
+     Hand & Microsurgery, Foot & Ankle, Paediatric Orthopaedics, Musculoskeletal Oncology,
+     Musculoskeletal Infection
    * **ผู้นำเสนอ** จากชื่อผู้จัดทำที่ฝังอยู่ในไฟล์ เทียบกับรายชื่อแพทย์ประจำบ้าน
    พร้อมบอกว่ามั่นใจแค่ไหนและจับคำใดได้ ผู้บันทึกตรวจแล้วแก้ได้ทุกช่องก่อนกดยืนยัน
 3. **เก็บเป็นหลักฐาน** — บันทึกชื่อไฟล์ จำนวนสไลด์ ข้อความที่อ่านได้ และลายนิ้วมือไฟล์ (SHA-256)
@@ -49,10 +49,26 @@
 
 ## ชื่ออนุสาขาเป็นภาษาอังกฤษทั้งหมด
 
-อนุสาขาที่ระบบเก็บและแสดงใช้ชื่อภาษาอังกฤษอย่างเดียว (Orthopaedic Trauma, Spine, Adult Reconstruction /
-Arthroplasty, Sports Medicine / Arthroscopy, Hand & Microsurgery, Foot & Ankle, Paediatric Orthopaedics,
-Musculoskeletal Oncology, Shoulder & Elbow, Musculoskeletal Infection, Metabolic Bone Disease /
-Osteoporosis, Basic Science / Biomechanics) ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน และไฟล์ CSV
+อนุสาขาที่ระบบเก็บและแสดงมี 9 อนุสาขา ใช้ชื่อภาษาอังกฤษอย่างเดียว ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน
+และไฟล์ CSV
+
+| id | ชื่อที่แสดง |
+|---|---|
+| `trauma` | Orthopaedic Trauma |
+| `spine` | Spine |
+| `arthroplasty` | Arthroplasty |
+| `sports` | Sports |
+| `hand` | Hand & Microsurgery |
+| `foot` | Foot & Ankle |
+| `pediatric` | Paediatric Orthopaedics |
+| `oncology` | Musculoskeletal Oncology |
+| `infection` | Musculoskeletal Infection |
+| `general` | General / Unclassified (ไม่ถูกนับในตารางความครอบคลุม) |
+
+หัวข้อที่เคยอยู่ในหมวด Shoulder & Elbow, Metabolic Bone Disease และ Basic Science ถูกยุบเข้าหมวดที่รับช่วงต่อ
+(ไหล่ → Sports, กระดูกพรุน/fragility fracture และ fracture healing → Orthopaedic Trauma, ที่เหลือ → General)
+พร้อมคำสำคัญของหมวดเดิม ข้อมูลเก่าที่บันทึกไว้ในเบราว์เซอร์จะถูกย้ายให้อัตโนมัติเมื่อเปิดหน้าเว็บครั้งถัดไป
+
 ส่วนคำสำคัญที่ใช้เดาอนุสาขายังมีทั้งคำไทยและคำอังกฤษ เพื่อให้จับสไลด์ที่เขียนด้วยภาษาไทยได้
 
 ## การผูกกับมาตรฐาน WFME
