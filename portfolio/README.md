@@ -26,13 +26,19 @@
    ซึ่งใช้เตือนได้ด้วยเมื่อมีการนำไฟล์เดิมมาบันทึกซ้ำ
 4. **สรุปให้เห็นส่วนขาด** — ความก้าวหน้าเทียบเกณฑ์รายชั้นปี ตารางความครอบคลุมอนุสาขารายบุคคล
    คลังหัวข้อที่เคยนำเสนอ ทะเบียนงานวิจัยรายขั้น และรายการที่ยังไม่ได้รับการรับรองจากอาจารย์
-5. **ตารางหมุนเวียนและเวร** — หน้า “ตารางหมุนเวียน & เวร” ตอบคำถามว่า *ตอนนี้ใครอยู่หน่วยไหน*
-   * การ์ดรายคน: หน่วยที่กำลังหมุนเวียน (ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษ) สถานที่ อาจารย์ผู้กำกับประจำบล็อก
-     วันสิ้นสุดบล็อก และเซสชันของวันนี้
-   * ตารางประจำสัปดาห์: แถวคือแพทย์ประจำบ้าน คอลัมน์คือวัน แต่ละช่องคือเซสชัน (OR / OPD / ward round /
-     conference / เวรนอกเวลา) พร้อม **อาจารย์ผู้รับผิดชอบของเซสชันนั้น** เลื่อนดูสัปดาห์ก่อน–หลังได้ และพิมพ์ออกได้
-   * เซสชันถูกสร้างอัตโนมัติจาก *ช่วงหมุนเวียน* (ใคร อยู่หน่วยไหน ช่วงวันที่ใด) ประกอบกับ
-     *ตารางกิจกรรมประจำสัปดาห์ของหน่วย* ที่ตั้งไว้ในหน้าตั้งค่า จึงไม่ต้องกรอกทีละวัน
+5. **ตาราง 3 แบบในหน้าเดียว** — หน้า “ตาราง: หมุนเวียน · เวร · นำเสนอ” เริ่มด้วยการ์ด *ตอนนี้ใครอยู่หน่วยไหน*
+   (หน่วยที่กำลังหมุนเวียน สถานที่ อาจารย์ผู้กำกับ วันสิ้นสุดบล็อก และเซสชันของวันนี้) แล้วสลับดูได้ 3 แบบ
+   * **ตารางรายเดือน** — แถวคือแพทย์ประจำบ้าน คอลัมน์คือ 12 เดือนของปีการศึกษา (มิ.ย.–พ.ค.)
+     ช่องระบายสีตามสายหรืออนุสาขา: สายฟ้า สายขาว สายแดง สายเหลือง, ELE = elective และตัวย่ออนุสาขาเมื่อวน sub
+     (TR, SPN, ARP, HND, PED, SPT, ONC, ER) มีคำอธิบายสีกำกับ เลือกปีการศึกษาได้ กดที่ช่องเพื่อแก้ไขบล็อกนั้น
+     พิมพ์และดาวน์โหลด CSV ได้ · สีและตัวย่อของแต่ละหน่วยแก้ได้ในหน้าตั้งค่า
+   * **ตารางเวรรายสัปดาห์** — แถวคือแพทย์ประจำบ้าน คอลัมน์คือวัน แต่ละช่องคือหนึ่งเซสชัน (OR / OPD / ward round /
+     conference / เวรนอกเวลา) พร้อม **อาจารย์ผู้รับผิดชอบของเซสชันนั้น** เซสชันถูกสร้างอัตโนมัติจาก *ช่วงหมุนเวียน*
+     ประกอบกับ *ตารางกิจกรรมประจำสัปดาห์ของหน่วย* จึงไม่ต้องกรอกทีละวัน
+   * **ตารางนำเสนอ** — ลงว่า **วันไหน ใครนำเสนอเรื่องอะไร เวลาใด ที่ห้องไหน และอาจารย์ท่านใดเป็นผู้ดำเนินการ**
+     มีรายการที่กำลังจะถึง และตารางทั้งหมดพร้อมตัวกรอง แต่ละแถวมีสถานะ: ตามกำหนด / บันทึกสไลด์แล้ว /
+     ยังไม่มีบันทึกสไลด์ — เมื่อวางไฟล์สไลด์เข้าระบบ ระบบจะจับคู่กับรายการในตารางให้เอง (คนเดียวกัน ประเภทเดียวกัน
+     วันใกล้กันไม่เกิน 3 วัน) จึงเห็นได้ทันทีว่าการนำเสนอครั้งไหนยังไม่มีหลักฐานเก็บไว้
 6. **ประเมินท้ายเซสชัน** — กดที่เซสชันใดก็ได้เพื่อบันทึกแบบประเมิน: ผู้ประเมิน (ตั้งต้นเป็นอาจารย์ผู้รับผิดชอบเซสชันนั้น),
    คะแนน 3 ด้าน (ความรู้/การตัดสินใจ, ทักษะหัตถการ, ความเป็นวิชาชีพและการสื่อสาร), ระดับการปฏิบัติงานด้วยตนเอง
    ที่ไว้วางใจได้ (entrustment 1–5) และข้อเสนอแนะทันทีหลังเซสชัน
@@ -55,9 +61,11 @@ Osteoporosis, Basic Science / Biomechanics) ทั้งในตัวเลื
 trauma film conference ผูกกับ 2.3, 2.6, 6.2 หน้า “มาตรฐาน WFME” จึงแสดงได้ว่าแต่ละหัวข้อมีหลักฐานอะไรอยู่จริง
 กี่รายการ และหัวข้อใดยังไม่มี
 
-ตารางหมุนเวียน ตารางเซสชันประจำสัปดาห์ ทะเบียนอาจารย์ และแบบประเมินท้ายเซสชัน ถูกนับเป็นหลักฐานของหมวด
+ตารางหมุนเวียนรายเดือน ตารางเซสชันประจำสัปดาห์ ตารางนำเสนอ ทะเบียนอาจารย์ และแบบประเมินท้ายเซสชัน
+ถูกนับเป็นหลักฐานของหมวด
 2.4 / 2.5 / 2.6 (โครงสร้างหลักสูตรและความสัมพันธ์กับงานบริการ), 3.1 / 3.2 (วิธีการประเมินและความเชื่อมโยงกับการเรียนรู้),
-5.1 / 5.2 (อาจารย์และหน้าที่ของอาจารย์), 6.2 (สถานที่ฝึกปฏิบัติทางคลินิก) และ 6.4 (ทีมผู้ให้บริการทางคลินิก)
+5.1 / 5.2 (อาจารย์และหน้าที่ของอาจารย์), 6.2 (สถานที่ฝึกปฏิบัติทางคลินิก), 6.4 (ทีมผู้ให้บริการทางคลินิก)
+และ 8.4 (การบริหารจัดการและงานธุรการ)
 
 สิ่งที่กิจกรรมการนำเสนอตอบไม่ได้ (พันธกิจ ผลลัพธ์การเรียนรู้ เอกสารหลักสูตร) บันทึกแยกไว้ในหน้า
 “ตั้งค่า & ข้อมูล” เป็นข้อความพันธกิจ รายการผลลัพธ์การเรียนรู้ และทะเบียนเอกสาร ที่ผูกเข้ากับหัวข้อมาตรฐานได้เอง
@@ -101,14 +109,21 @@ follows the 9 areas of the WFME Global Standards for Quality Improvement (PGME, 
 **not been reconciled word-for-word with the official document** — verify before using it for real
 accreditation. All demo data is fictitious.
 
-A second half of the page answers *where is each resident right now*: rotation blocks (resident x service x
-date range x supervising staff) combined with each service's weekly session template generate the calendar
-automatically — OR lists, OPD clinics, ward rounds, conferences and on-call duty, each carrying the staff
-member responsible for it. That staff member evaluates the resident at the end of the session: three domain
-scores, an entrustment level (1-5) and written feedback, with a per-staff board of sessions still awaiting
-evaluation over the last 14 days. Those evaluations count toward each year's requirements and serve as
-workplace-based assessment evidence for WFME areas 3, 5 and 7; the rotation schedule itself evidences 2.4,
-2.5, 2.6, 6.2 and 6.4. Subspecialty names are recorded and displayed in English throughout.
+A second half of the page answers *where is each resident right now*, in three tables. A **monthly grid**
+(residents x the 12 months of the Thai academic year) colours each cell by the team or subspecialty the
+resident rotates through — the four ward teams named by colour (blue/white/red/yellow), elective, or a
+subspecialty service; colours and abbreviations are editable. A **weekly roster** expands the current
+rotation into individual sessions — OR lists, OPD clinics, ward rounds, conferences, on-call — generated
+automatically from each service's weekly template, each carrying the staff member responsible for it. A
+**presentation schedule** records who presents what, on which day, at what time, in which room, and which
+attending moderates; recording a slide deck auto-links to its scheduled entry, so entries with no evidence
+recorded stand out.
+
+The staff member responsible for a session evaluates the resident at the end of it: three domain scores, an
+entrustment level (1-5) and written feedback, with a per-staff board of sessions still awaiting evaluation
+over the last 14 days. Those evaluations count toward each year's requirements and serve as workplace-based
+assessment evidence for WFME areas 3, 5 and 7; the rotation schedule evidences 2.4, 2.5, 2.6 and 6.2, and the
+presentation schedule 2.5 and 8.4. Subspecialty names are recorded and displayed in English throughout.
 
 Tested in headless Chromium: `.pptx`/`.pdf` ingestion, classification, persistence, exports and reports.
 Requires a browser with `DecompressionStream` (Chrome/Edge 80+, Safari 16.4+, Firefox 113+).

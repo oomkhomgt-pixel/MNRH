@@ -135,6 +135,19 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .7rem;font-size:.87rem}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
 .excerpt{background:#f7f9fa;border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-size:.84rem;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.seg{gap:.3rem;margin-bottom:1rem}
+.seg button{border-radius:999px;padding:.4rem .9rem;font-size:.88rem}
+.seg button[aria-current="true"]{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+table.month{border-collapse:separate;border-spacing:2px;font-size:.78rem;width:100%}
+table.month th{font-size:.75rem;color:var(--ink-2);font-weight:600;padding:.2rem .3rem;white-space:nowrap;text-align:center}
+table.month th.who{text-align:left;min-width:145px}
+table.month td{padding:0;min-width:66px}
+.mcell{border-radius:6px;padding:.32rem .2rem;text-align:center;font-weight:650;line-height:1.2;
+  cursor:pointer;border:1px solid rgba(15,23,32,.12);width:100%;font-size:.78rem;display:block}
+.mcell small{display:block;font-weight:400;font-size:.66rem;opacity:.85}
+.mcell.now{outline:2px solid var(--ink);outline-offset:1px}
+.swatch{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;border:1px solid var(--line);border-radius:999px;padding:.1rem .5rem;background:#fff}
+.swatch i{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid rgba(15,23,32,.15)}
 table.cal{border-collapse:separate;border-spacing:3px}
 table.cal th{font-size:.78rem;text-align:center;padding:.2rem}
 table.cal th.who{text-align:left;min-width:150px}
@@ -183,7 +196,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   </div>
   <nav class="tabs" id="tabs">
     <button data-view="ingest" aria-current="true">รับสไลด์ (บันทึกอัตโนมัติ)</button>
-    <button data-view="rotation">ตารางหมุนเวียน &amp; เวร</button>
+    <button data-view="rotation">ตาราง: หมุนเวียน · เวร · นำเสนอ</button>
     <button data-view="residents">แพทย์ประจำบ้าน</button>
     <button data-view="activities">กิจกรรมทั้งหมด</button>
     <button data-view="research">งานวิจัย</button>
@@ -219,7 +232,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
   </section>
 
-  <!-- ============ ROTATION CALENDAR ============ -->
+  <!-- ============ ROTATION + PRESENTATION CALENDARS ============ -->
   <section class="view" id="view-rotation">
     <div class="card">
       <div class="between">
@@ -235,41 +248,93 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="nowBoard"></div>
     </div>
 
-    <div class="card">
-      <div class="between">
-        <h2>เซสชันที่รอการประเมิน — แยกตามอาจารย์ผู้รับผิดชอบ</h2>
-        <span class="tag warn" id="pendingCount">—</span>
-      </div>
-      <p class="muted small">ย้อนหลัง 14 วัน · อาจารย์ผู้รับผิดชอบเซสชันเป็นผู้ประเมินเมื่อจบเซสชัน กดที่รายการเพื่อกรอกแบบประเมิน</p>
-      <div id="pendingBoard"></div>
+    <div class="row seg no-print" id="calSeg">
+      <button data-seg="month" aria-current="true">ตารางรายเดือน (สาย / อนุสาขา)</button>
+      <button data-seg="week">ตารางเวรรายสัปดาห์</button>
+      <button data-seg="talks">ตารางนำเสนอ</button>
     </div>
 
-    <div class="card">
-      <div class="between">
-        <h2>ตารางประจำสัปดาห์</h2>
-        <div class="row no-print">
-          <button class="btn-sm" id="weekPrev">‹ สัปดาห์ก่อน</button>
-          <b class="small" id="weekLabel">—</b>
-          <button class="btn-sm" id="weekNext">สัปดาห์ถัดไป ›</button>
-          <button class="btn-sm" id="weekToday">สัปดาห์นี้</button>
+    <!-- ---- แบบที่ 1: ตารางหมุนเวียนรายเดือน ---- -->
+    <div data-segview="month">
+      <div class="card">
+        <div class="between">
+          <div>
+            <h2>ตารางหมุนเวียนรายเดือน</h2>
+            <p class="muted small">แถวคือแพทย์ประจำบ้าน คอลัมน์คือเดือนของปีการศึกษา สีคือสายหรืออนุสาขาที่หมุนเวียนในเดือนนั้น
+              กดที่ช่องเพื่อแก้ไขช่วงหมุนเวียน</p>
+          </div>
+          <div class="row no-print">
+            <select id="ayPick"></select>
+            <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
+            <button class="btn-sm" id="btnMonthCsv">CSV</button>
+          </div>
         </div>
+        <div class="row" id="monthLegend" style="margin-bottom:.6rem"></div>
+        <div id="monthGrid"></div>
       </div>
-      <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อบันทึกการประเมินท้ายเซสชัน
-        · <span class="tag ok">ประเมินแล้ว</span> <span class="tag warn">รอประเมิน</span> <span class="tag">ยังไม่ถึงกำหนด</span></p>
-      <div id="weekGrid"></div>
+      <div class="card">
+        <h2>ช่วงหมุนเวียนทั้งหมด</h2>
+        <div id="rotationTable"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>ช่วงหมุนเวียนทั้งหมด</h2>
-      <div id="rotationTable"></div>
+    <!-- ---- ตารางเวรรายสัปดาห์ + การประเมินท้ายเซสชัน ---- -->
+    <div data-segview="week" hidden>
+      <div class="card">
+        <div class="between">
+          <h2>เซสชันที่รอการประเมิน — แยกตามอาจารย์ผู้รับผิดชอบ</h2>
+          <span class="tag warn" id="pendingCount">—</span>
+        </div>
+        <p class="muted small">ย้อนหลัง 14 วัน · อาจารย์ผู้รับผิดชอบเซสชันเป็นผู้ประเมินเมื่อจบเซสชัน กดที่รายการเพื่อกรอกแบบประเมิน</p>
+        <div id="pendingBoard"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
+          <h2>ตารางประจำสัปดาห์</h2>
+          <div class="row no-print">
+            <button class="btn-sm" id="weekPrev">‹ สัปดาห์ก่อน</button>
+            <b class="small" id="weekLabel">—</b>
+            <button class="btn-sm" id="weekNext">สัปดาห์ถัดไป ›</button>
+            <button class="btn-sm" id="weekToday">สัปดาห์นี้</button>
+          </div>
+        </div>
+        <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อบันทึกการประเมินท้ายเซสชัน
+          · <span class="tag ok">ประเมินแล้ว</span> <span class="tag warn">รอประเมิน</span> <span class="tag">ยังไม่ถึงกำหนด</span></p>
+        <div id="weekGrid"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
+          <h2>การประเมินท้ายเซสชันล่าสุด</h2>
+          <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
+        </div>
+        <div id="evalList"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="between">
-        <h2>การประเมินท้ายเซสชันล่าสุด</h2>
-        <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
+    <!-- ---- แบบที่ 2: ตารางนำเสนอ ---- -->
+    <div data-segview="talks" hidden>
+      <div class="card">
+        <div class="between">
+          <div>
+            <h2>ตารางนำเสนอ</h2>
+            <p class="muted small">วันไหน ใครนำเสนอเรื่องอะไร เวลาใด ที่ไหน และใครเป็นผู้ดำเนินการ
+              · เมื่อบันทึกสไลด์เข้าแฟ้ม ระบบจะจับคู่กับรายการในตารางนี้ให้เอง</p>
+          </div>
+          <div class="row no-print">
+            <button class="btn-sm btn-primary" id="btnAddTalk">+ ลงตารางนำเสนอ</button>
+            <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
+            <button class="btn-sm" id="btnTalkCsv">CSV</button>
+          </div>
+        </div>
+        <h3>ที่กำลังจะถึง</h3>
+        <div id="talkUpcoming"></div>
       </div>
-      <div id="evalList"></div>
+      <div class="card">
+        <div class="between"><h2>รายการทั้งหมด</h2><div class="row no-print" id="talkFilters"></div></div>
+        <div id="talkTable"></div>
+      </div>
     </div>
   </section>
 
@@ -673,7 +738,7 @@ const store = {
     d.residents ||= []; d.activities ||= []; d.research ||= [];
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
-    d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= [];
+    d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
@@ -691,7 +756,7 @@ const store = {
   reset() { this.data = seedData(); this.save(); },
   wipe() {
     localStorage.removeItem(APP.key);
-    this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[],
+    this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[], schedule:[],
                   requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
@@ -740,13 +805,50 @@ const staffById   = (id) => (store.data.staff || []).find(x => x.id === id);
 const staffName   = (id) => staffById(id)?.name || "—";
 const evalForKey  = (key) => (store.data.sessionEvals || []).find(e => e.key === key);
 const serviceColour = (id) => {
+  const svc = serviceById(id);
+  if (svc?.colour) return svc.colour;
   const i = (store.data.services || []).findIndex(x => x.id === id);
   return SERVICE_COLOURS[(i < 0 ? 0 : i) % SERVICE_COLOURS.length];
+};
+/* สีอ่อนอย่างสายขาว/สายเหลือง อ่านไม่ออกถ้าใช้เป็นสีตัวอักษรบนพื้นขาว จึงทำให้เข้มขึ้นก่อน */
+function darken(hex, amt = 0.5) {
+  const h = String(hex || "#000").replace("#", "");
+  const n = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const v = [0, 2, 4].map(i => Math.round((parseInt(n.slice(i, i + 2), 16) || 0) * (1 - amt)));
+  return "#" + v.map(x => x.toString(16).padStart(2, "0")).join("");
+}
+const serviceInk = (id) => {
+  const c = serviceColour(id);
+  return inkOn(c) === "#12181f" ? darken(c, 0.55) : c;
+};
+const serviceAbbr = (id) => {
+  const svc = serviceById(id);
+  if (!svc) return "—";
+  return svc.abbr || svc.name.replace(/\s*(Service|Team).*$/i, "").slice(0, 10);
 };
 function mondayOf(iso) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   /* ให้จันทร์เป็นวันแรกของสัปดาห์ */
   return d.toISOString().slice(0, 10);
+}
+const THAI_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+/* ปีการศึกษาไทยเริ่มเดือนมิถุนายน — คืนรายการ 12 เดือนของปีการศึกษานั้น */
+function ayMonths(ayBE) {
+  const y0 = Number(ayBE) - 543;
+  return Array.from({ length: 12 }, (_, i) => {
+    const mo = 5 + i;                          /* 5 = มิถุนายน */
+    return { y: y0 + Math.floor(mo / 12), m: mo % 12 };
+  });
+}
+const monthStartISO = (mm) => mm.y + "-" + String(mm.m + 1).padStart(2, "0") + "-01";
+const monthEndISO   = (mm) => new Date(Date.UTC(mm.y, mm.m + 1, 0)).toISOString().slice(0, 10);
+const monthLabel    = (mm) => THAI_MONTHS[mm.m] + " " + String(mm.y + 543).slice(2);
+/* เลือกสีตัวอักษรให้อ่านออกบนพื้นสีที่กำหนด */
+function inkOn(hex) {
+  const h = String(hex || "#ffffff").replace("#", "");
+  const n = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16) || 0);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? "#12181f" : "#ffffff";
 }
 const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -866,7 +968,7 @@ function seedData() {
   ];
 
   const services = [
-    { id:"svc_trauma", name:"Orthopaedic Trauma Service", subspecialty:"trauma", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
+    { id:"svc_trauma", name:"Orthopaedic Trauma Service", subspecialty:"trauma", abbr:"TR", colour:"#a32d2d", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
       template:[
         { day:1, part:"am", name:"Trauma ward round", staffId:"st_1" },
         { day:1, part:"pm", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
@@ -875,7 +977,7 @@ function seedData() {
         { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
         { day:6, part:"call", name:"เวรอุบัติเหตุนอกเวลา", staffId:"st_1", location:"ห้องฉุกเฉิน" }
       ] },
-    { id:"svc_arthro", name:"Adult Reconstruction Service", subspecialty:"arthroplasty", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_arthro", name:"Adult Reconstruction Service", subspecialty:"arthroplasty", abbr:"ARP", colour:"#7a4fa3", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"am", name:"Ward round", staffId:"st_2" },
         { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
@@ -883,7 +985,7 @@ function seedData() {
         { day:4, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
         { day:5, part:"am", name:"OPD — joint clinic", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" }
       ] },
-    { id:"svc_spine", name:"Spine Service", subspecialty:"spine", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_spine", name:"Spine Service", subspecialty:"spine", abbr:"SPN", colour:"#1f7a4d", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"pm", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
         { day:2, part:"am", name:"Ward round", staffId:"st_3" },
@@ -891,34 +993,71 @@ function seedData() {
         { day:4, part:"pm", name:"OPD — spine clinic", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
         { day:5, part:"am", name:"Spine case conference", staffId:"st_3" }
       ] },
-    { id:"svc_hand", name:"Hand & Microsurgery Service", subspecialty:"hand", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_hand", name:"Hand & Microsurgery Service", subspecialty:"hand", abbr:"HND", colour:"#a8630a", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"am", name:"OPD — hand clinic", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
         { day:2, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" },
         { day:3, part:"pm", name:"Ward round & dressing", staffId:"st_4" },
         { day:5, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" }
       ] },
-    { id:"svc_ped", name:"Paediatric Orthopaedics Service", subspecialty:"pediatric", site:"หอผู้ป่วยกุมารเวชกรรม",
+    { id:"svc_ped", name:"Paediatric Orthopaedics Service", subspecialty:"pediatric", abbr:"PED", colour:"#b5177e", site:"หอผู้ป่วยกุมารเวชกรรม",
       template:[
         { day:2, part:"am", name:"OPD — paediatric clinic", staffId:"st_5", location:"OPD กุมารเวชกรรม" },
         { day:3, part:"am", name:"OR — paediatric list", staffId:"st_5", location:"ห้องผ่าตัด 4" },
         { day:4, part:"am", name:"Ward round", staffId:"st_5" },
         { day:5, part:"pm", name:"Ponseti casting clinic", staffId:"st_5" }
       ] },
-    { id:"svc_sports", name:"Sports Medicine & Arthroscopy Service", subspecialty:"sports", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_sports", name:"Sports Medicine & Arthroscopy Service", subspecialty:"sports", abbr:"SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
         { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
         { day:4, part:"pm", name:"Ward round", staffId:"st_6" },
         { day:5, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" }
       ] },
-    { id:"svc_onc", name:"Musculoskeletal Oncology Service", subspecialty:"oncology", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_onc", name:"Musculoskeletal Oncology Service", subspecialty:"oncology", abbr:"ONC", colour:"#5b21b6", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:2, part:"pm", name:"Tumour board", staffId:"st_7" },
         { day:3, part:"am", name:"OR — tumour list", staffId:"st_7", location:"ห้องผ่าตัด 4" },
         { day:4, part:"am", name:"OPD — tumour clinic", staffId:"st_7", location:"OPD ออร์โธปิดิกส์" }
       ] },
-    { id:"svc_er", name:"Emergency & Acute Care", subspecialty:"trauma", site:"ห้องฉุกเฉิน",
+    { id:"svc_blue", name:"Blue Team (สายฟ้า)", subspecialty:"general", abbr:"ฟ้า", colour:"#2b6fb5", site:"หอผู้ป่วยออร์โธปิดิกส์ สายฟ้า",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
+        { day:2, part:"am", name:"OR — general list สายฟ้า", staffId:"st_1", location:"ห้องผ่าตัด 5" },
+        { day:3, part:"pm", name:"OPD — สายฟ้า", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
+        { day:4, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
+        { day:5, part:"call", name:"เวรสายฟ้า", staffId:"st_1", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_white", name:"White Team (สายขาว)", subspecialty:"general", abbr:"ขาว", colour:"#e8edf2", site:"หอผู้ป่วยออร์โธปิดิกส์ สายขาว",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
+        { day:2, part:"pm", name:"OPD — สายขาว", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" },
+        { day:4, part:"am", name:"OR — general list สายขาว", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:5, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
+        { day:2, part:"call", name:"เวรสายขาว", staffId:"st_2", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_red", name:"Red Team (สายแดง)", subspecialty:"general", abbr:"แดง", colour:"#b91c1c", site:"หอผู้ป่วยออร์โธปิดิกส์ สายแดง",
+      template:[
+        { day:1, part:"pm", name:"OR — general list สายแดง", staffId:"st_3", location:"ห้องผ่าตัด 7" },
+        { day:2, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
+        { day:3, part:"am", name:"OPD — สายแดง", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
+        { day:3, part:"call", name:"เวรสายแดง", staffId:"st_3", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_yellow", name:"Yellow Team (สายเหลือง)", subspecialty:"general", abbr:"เหลือง", colour:"#eab308", site:"หอผู้ป่วยออร์โธปิดิกส์ สายเหลือง",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
+        { day:3, part:"am", name:"OR — general list สายเหลือง", staffId:"st_4", location:"ห้องผ่าตัด 6" },
+        { day:4, part:"pm", name:"OPD — สายเหลือง", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
+        { day:4, part:"call", name:"เวรสายเหลือง", staffId:"st_4", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_elective", name:"Elective", subspecialty:"general", abbr:"ELE", colour:"#0f766e", site:"ตามที่แพทย์ประจำบ้านเลือก",
+      template:[
+        { day:2, part:"am", name:"Elective activity", staffId:"st_1" },
+        { day:4, part:"am", name:"Elective activity", staffId:"st_1" }
+      ] },
+    { id:"svc_er", name:"Emergency & Acute Care", subspecialty:"trauma", abbr:"ER", colour:"#0f766e", site:"ห้องฉุกเฉิน",
       template:[
         { day:1, part:"call", name:"เวรห้องฉุกเฉิน", staffId:"st_1", location:"ห้องฉุกเฉิน" },
         { day:2, part:"am", name:"Acute care round", staffId:"st_1" },
@@ -927,21 +1066,32 @@ function seedData() {
       ] }
   ];
 
-  /* บล็อกหมุนเวียนปัจจุบันและบล็อกก่อนหน้า */
-  const curStart = mondayOf(daysAgoISO(18)), curEnd = addDaysISO(mondayOf(daysAgoISO(18)), 41);
-  const prevEnd = addDaysISO(curStart, -1), prevStart = addDaysISO(curStart, -42);
-  const curPlan = [
-    ["res_a","svc_arthro","st_2"], ["res_b","svc_sports","st_6"], ["res_c","svc_spine","st_3"], ["res_d","svc_ped","st_5"],
-    ["res_e","svc_trauma","st_1"], ["res_f","svc_hand","st_4"],   ["res_g","svc_er","st_1"],    ["res_h","svc_trauma","st_1"]
-  ];
-  const prevPlan = [
-    ["res_a","svc_onc","st_7"],    ["res_b","svc_trauma","st_1"], ["res_c","svc_trauma","st_1"], ["res_d","svc_hand","st_4"],
-    ["res_e","svc_er","st_1"],     ["res_f","svc_arthro","st_2"], ["res_g","svc_trauma","st_1"], ["res_h","svc_er","st_1"]
-  ];
-  const rotations = [
-    ...curPlan.map(([rid, sid, sup]) => ({ id: uid("rot"), residentId: rid, serviceId: sid, supervisorId: sup, start: curStart, end: curEnd, note:"" })),
-    ...prevPlan.map(([rid, sid, sup]) => ({ id: uid("rot"), residentId: rid, serviceId: sid, supervisorId: sup, start: prevStart, end: prevEnd, note:"" }))
-  ];
+  /* แผนหมุนเวียนรายเดือนตลอดปีการศึกษา — ชั้นปีต้นวนสาย ชั้นปีสูงวน subspecialty และ elective */
+  const ROTATION_PLAN = {
+    1: ["svc_blue","svc_white","svc_red","svc_yellow","svc_er","svc_blue","svc_white","svc_red","svc_yellow","svc_trauma","svc_er","svc_elective"],
+    2: ["svc_trauma","svc_blue","svc_hand","svc_white","svc_red","svc_sports","svc_yellow","svc_arthro","svc_er","svc_spine","svc_ped","svc_elective"],
+    3: ["svc_spine","svc_arthro","svc_sports","svc_hand","svc_ped","svc_onc","svc_blue","svc_red","svc_trauma","svc_white","svc_elective","svc_yellow"],
+    4: ["svc_arthro","svc_onc","svc_spine","svc_sports","svc_trauma","svc_hand","svc_ped","svc_elective","svc_blue","svc_red","svc_white","svc_yellow"]
+  };
+  const supervisorFor = (serviceId) => {
+    const svc = services.find(x => x.id === serviceId);
+    const first = svc?.template?.find(t => t.staffId);
+    return first?.staffId || "st_1";
+  };
+  const ay = academicYear(todayISO());
+  const months = ayMonths(ay);
+  const rotations = [];
+  residents.forEach((res, idx) => {
+    const plan = ROTATION_PLAN[res.year] || ROTATION_PLAN[1];
+    months.forEach((mm, i) => {
+      const serviceId = plan[(i + idx) % plan.length];
+      rotations.push({
+        id: uid("rot"), residentId: res.id, serviceId,
+        supervisorId: supervisorFor(serviceId),
+        start: monthStartISO(mm), end: monthEndISO(mm), note: ""
+      });
+    });
+  });
 
   /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
   const remarks = [
@@ -971,6 +1121,79 @@ function seedData() {
     });
   }
 
+  /* --- ตารางนำเสนอวิชาการ: ใครนำเสนอเรื่องอะไร วันไหน เวลาใด --- */
+  const TALK_SLOTS = [
+    { dow:1, start:"07:30", end:"08:30", type:"preop",      slot:"Pre-operative conference" },
+    { dow:2, start:"12:00", end:"13:00", type:"journal",    slot:"Journal club" },
+    { dow:3, start:"07:30", end:"08:30", type:"traumafilm", slot:"Trauma film conference" },
+    { dow:4, start:"07:30", end:"08:30", type:"topic",      slot:"Topic presentation" },
+    { dow:5, start:"13:00", end:"14:00", type:"research",   slot:"Research progress", monthlyFirst:true }
+  ];
+  const PLANNED = {
+    topic: [["Osteoporotic vertebral compression fracture: เมื่อไรจึงผ่าตัด","spine"],
+            ["Periprosthetic femoral fracture: การจำแนกและการรักษา","arthroplasty"],
+            ["Chronic osteomyelitis: หลักการ debridement และการปิดแผล","infection"],
+            ["Distal radius fracture: การเลือกวิธีผ่าตัดตามชนิดของกระดูกหัก","hand"],
+            ["Rotator cuff tear ในผู้สูงอายุ: ทางเลือกที่ไม่ใช่การผ่าตัด","shoulder"]],
+    journal:[["Tranexamic acid ใน hip fracture surgery: การวิจารณ์ RCT ฉบับล่าสุด","trauma"],
+             ["Robotic-assisted TKA เทียบกับวิธีมาตรฐาน: systematic review","arthroplasty"],
+             ["Vitamin D supplementation กับการหายของกระดูกหัก","metabolic"]],
+    preop:  [["Pre-op: bimalleolar ankle fracture เตรียม ORIF","foot"],
+             ["Pre-op: femoral neck fracture ในผู้ป่วยอายุ 62 ปี","trauma"],
+             ["Pre-op: lumbar spinal stenosis เตรียม decompression","spine"]],
+    traumafilm:[["Trauma film: อ่านฟิล์มผู้ป่วยอุบัติเหตุประจำสัปดาห์","trauma"]],
+    research:[["ความก้าวหน้างานวิจัย: รายงานผลการวิเคราะห์ข้อมูลเบื้องต้น","basic"]],
+    postop: [["Post-op review: ผู้ป่วยที่มีภาวะแทรกซ้อนในสัปดาห์ที่ผ่านมา","trauma"]]
+  };
+  const schedule = [];
+  const talkRoom = "ห้องประชุมกลุ่มงานออร์โธปิดิกส์ ชั้น 5";
+  let turn = 0;
+  const thisMonday = mondayOf(todayISO());
+  for (let w = -8; w <= 8; w++) {
+    const weekMon = addDaysISO(thisMonday, w * 7);
+    TALK_SLOTS.forEach((sl, si) => {
+      const date = addDaysISO(weekMon, sl.dow - 1);
+      if (sl.monthlyFirst && +date.slice(8, 10) > 7) return;      /* research progress เดือนละครั้ง */
+      const presenter = residents[turn % residents.length]; turn++;
+      const pool = PLANNED[sl.type] || PLANNED.topic;
+      const pick = pool[(w + 8 + si) % pool.length];
+      /* รายการที่ผ่านมาแล้ว: ถ้ามีกิจกรรมที่บันทึกไว้ตรงกัน ให้ผูกเข้าด้วยกัน */
+      let link = null;
+      if (date < todayISO()) {
+        link = activities.find(a => a.residentId === presenter.id && a.type === sl.type &&
+          Math.abs((Date.parse(a.date) - Date.parse(date)) / 86400000) <= 3 &&
+          !schedule.some(x => x.activityId === a.id));
+        /* รายการที่ผ่านมาแล้วส่วนใหญ่มีบันทึกสไลด์ ที่เหลือปล่อยว่างไว้ให้เห็นรายการที่ยังตามไม่ครบ */
+        if (!link && (w + si) % 3 !== 0) {
+          link = {
+            id: uid("act"), residentId: presenter.id, type: sl.type, subspecialty: pick[1],
+            title: pick[0], date, academicYear: academicYear(date), source: "slides",
+            evidence: { fileName: sl.type + "_" + date + ".pptx", fileType:"pptx", slideCount: 10 + ((w + si) % 20),
+                        hash:"", excerpt:"(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)",
+                        detectedBy:"keyword", confidence: 0.72 },
+            wfme: (TYPE_BY_ID[sl.type]?.wfme || []).slice(),
+            assessment: (w + si) % 2 === 0 ? {
+              by: staff[(w + si + 8) % staff.length], score: 4 + ((w + si) % 3) * 0.2,
+              comment: "นำเสนอตามกำหนดในตารางวิชาการ เนื้อหาครบถ้วน", at: date } : null,
+            verified: true, verifiedBy: staff[(w + si + 4) % staff.length], note:"",
+            createdAt: date + "T09:00:00"
+          };
+          activities.push(link);
+        }
+      }
+      schedule.push({
+        id: uid("talk"), date, start: sl.start, end: sl.end, slot: sl.slot, type: sl.type,
+        residentId: presenter.id,
+        title: link ? link.title : pick[0],
+        subspecialty: link ? link.subspecialty : pick[1],
+        location: talkRoom,
+        moderatorId: staffRoster[(turn + si) % staffRoster.length].id,
+        activityId: link ? link.id : null,
+        note: ""
+      });
+    });
+  }
+
   const programme = {
     mission: "ผลิตแพทย์ออร์โธปิดิกส์ที่ให้การดูแลผู้ป่วยกระดูกและข้อได้อย่างปลอดภัยตามมาตรฐานวิชาชีพ " +
              "มีเจตคติที่ดี เรียนรู้ต่อเนื่องด้วยตนเอง และตอบสนองต่อปัญหาสุขภาพของประชาชนในเขตสุขภาพที่ 9 (ข้อความตัวอย่างสำหรับสาธิต)",
@@ -993,7 +1216,7 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
-    staff: staffRoster, services, rotations, sessionEvals,
+    staff: staffRoster, services, rotations, sessionEvals, schedule,
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
     meta: { created:new Date().toISOString(), demo:true }
@@ -1455,12 +1678,16 @@ function savePending(key) {
     }
   }
   store.data.activities.push(act);
+  /* จับคู่กับรายการในตารางนำเสนอโดยอัตโนมัติ ถ้ามีที่ตรงกัน */
+  const talk = matchTalk(act.residentId, act.type, act.date);
+  if (talk) { talk.activityId = act.id; act.scheduleId = talk.id; }
   store.save();
   pending.delete(key);
   renderIngestQueue();
   renderAll();
   const r = store.resident(act.residentId);
-  toast("บันทึกแล้ว: " + (r ? r.name : "") + " — " + TYPE_BY_ID[act.type].th);
+  toast("บันทึกแล้ว: " + (r ? r.name : "") + " — " + TYPE_BY_ID[act.type].th +
+        (talk ? " · จับคู่กับตารางนำเสนอวันที่ " + fmtDate(talk.date) : ""));
 }
 
 /* =====================================================================
@@ -1584,7 +1811,7 @@ function renderRotation() {
       <div class="between" style="gap:.4rem">
         <div style="min-width:0">
           <b>${esc(r.name)}</b> <span class="tag">ปี ${r.year}</span>
-          ${svc ? `<div class="svc" style="color:${serviceColour(svc.id)}">${esc(svc.name)}</div>
+          ${svc ? `<div class="svc" style="color:${serviceInk(svc.id)}">${esc(svc.name)}</div>
             <div class="small muted">${esc(svc.site || "—")} · อาจารย์ผู้กำกับ ${esc(staffName(rot.supervisorId))}</div>
             <div class="small muted">บล็อก ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · เหลืออีก ${Math.max(0, span - gone)} วัน</div>`
           : `<div class="small"><span class="tag bad">ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>`}
@@ -1651,7 +1878,7 @@ function renderRotation() {
       return `<tr>
         <td class="small">${fmtDate(rot.start)}<br />ถึง ${fmtDate(rot.end)}</td>
         <td>${esc(r?.name || "—")}<br /><span class="small muted">ปี ${r?.year || "—"}</span></td>
-        <td><span style="color:${serviceColour(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span></td>
+        <td><span style="color:${serviceInk(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span></td>
         <td class="small">${esc(SUB_BY_ID[svc?.subspecialty]?.en || "—")}</td>
         <td class="small">${esc(svc?.site || "—")}</td>
         <td class="small">${esc(staffName(rot.supervisorId))}</td>
@@ -1660,6 +1887,9 @@ function renderRotation() {
       </tr>`;
     }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่ได้กำหนดช่วงหมุนเวียน</p>`;
   $$("#rotationTable [data-rot]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rot)));
+
+  renderMonthGrid();
+  renderTalks();
 
   /* --- ผลประเมินท้ายเซสชันล่าสุด --- */
   const evs = (store.data.sessionEvals || []).slice().sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 15);
@@ -1679,6 +1909,237 @@ function renderRotation() {
     }).join("")}</tbody></table></div>
     <p class="small muted" style="margin-top:.5rem">บันทึกไว้ทั้งหมด ${store.data.sessionEvals.length} ครั้ง</p>`
     : `<p class="empty">ยังไม่มีการประเมินท้ายเซสชัน</p>`;
+}
+
+/* --- แบบที่ 1: ตารางหมุนเวียนรายเดือน --- */
+let ayView = null;
+function ayOptions() {
+  const set = new Set([currentAY()]);
+  (store.data.rotations || []).forEach(r => { if (r.start) set.add(academicYear(r.start)); });
+  (store.data.schedule || []).forEach(t => { if (t.date) set.add(academicYear(t.date)); });
+  return Array.from(set).filter(Boolean).sort();
+}
+const rotationsInMonth = (residentId, mm) => (store.data.rotations || []).filter(r =>
+  r.residentId === residentId && r.start <= monthEndISO(mm) && r.end >= monthStartISO(mm));
+
+function monthCellHtml(rot, mm, isNow) {
+  const colour = serviceColour(rot.serviceId), ink = inkOn(colour);
+  const partial = rot.start > monthStartISO(mm) || rot.end < monthEndISO(mm);
+  const from = rot.start > monthStartISO(mm) ? +rot.start.slice(8, 10) : 1;
+  const to   = rot.end   < monthEndISO(mm)   ? +rot.end.slice(8, 10)   : +monthEndISO(mm).slice(8, 10);
+  const svc = serviceById(rot.serviceId);
+  return `<button class="mcell ${isNow ? "now" : ""}" data-rotcell="${rot.id}"
+    style="background:${colour};color:${ink}"
+    title="${esc(svc?.name || "")} · ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · ${esc(staffName(rot.supervisorId))}">
+    ${esc(serviceAbbr(rot.serviceId))}${partial ? `<small>${from}–${to}</small>` : ""}</button>`;
+}
+
+function renderMonthGrid() {
+  const opts = ayOptions();
+  if (!ayView || !opts.includes(ayView)) ayView = opts.includes(currentAY()) ? currentAY() : opts[opts.length - 1];
+  $("#ayPick").innerHTML = opts.map(y => `<option value="${y}" ${y === ayView ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("");
+  const months = ayMonths(ayView);
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const today = todayISO();
+  const usedIds = new Set();
+
+  $("#monthGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="month">
+    <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
+    <tbody>${rs.map(r => `<tr>
+      <th class="who">${esc(r.name)}<br /><span class="small muted">ชั้นปีที่ ${r.year}</span></th>
+      ${months.map(mm => {
+        const list = rotationsInMonth(r.id, mm);
+        list.forEach(x => usedIds.add(x.serviceId));
+        const isNow = today >= monthStartISO(mm) && today <= monthEndISO(mm);
+        return `<td>${list.map(rot => monthCellHtml(rot, mm, isNow && today >= rot.start && today <= rot.end)).join("") ||
+          `<div class="mcell" style="background:#f2f5f7;color:var(--muted);cursor:default">—</div>`}</td>`;
+      }).join("")}
+    </tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
+
+  $("#monthLegend").innerHTML = (store.data.services || []).filter(x => usedIds.has(x.id))
+    .map(x => `<span class="swatch"><i style="background:${serviceColour(x.id)}"></i>${esc(x.abbr || "")} — ${esc(x.name)}</span>`).join("")
+    || `<span class="small muted">ยังไม่มีการหมุนเวียนในปีการศึกษานี้</span>`;
+
+  $$("#monthGrid [data-rotcell]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rotcell)));
+}
+
+function monthCsvRows() {
+  const months = ayMonths(ayView || currentAY());
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const head = ["แพทย์ประจำบ้าน","ชั้นปี", ...months.map(monthLabel)];
+  return [head].concat(rs.map(r => [r.name, r.year, ...months.map(mm =>
+    rotationsInMonth(r.id, mm).map(rot => serviceById(rot.serviceId)?.name || "").join(" / "))]));
+}
+
+function printMonthGrid() {
+  const months = ayMonths(ayView || currentAY());
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const html = reportHead("ตารางหมุนเวียนรายเดือน", "ปีการศึกษา " + (ayView || currentAY())) + `
+  <div class="card"><table>
+    <thead><tr><th>แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
+    <tbody>${rs.map(r => `<tr><td>${esc(r.name)}<br /><span class="small muted">ปี ${r.year}</span></td>
+      ${months.map(mm => `<td class="small">${rotationsInMonth(r.id, mm).map(rot =>
+        esc(serviceById(rot.serviceId)?.name || "—")).join("<br />") || "—"}</td>`).join("")}</tr>`).join("")}</tbody></table>
+    <p class="small muted">สาย = ทีมผู้ป่วยทั่วไป (ฟ้า / ขาว / แดง / เหลือง), ELE = elective, ที่เหลือคือการหมุนเวียนตามอนุสาขา</p>
+  </div>`;
+  printReport(html);
+}
+
+/* --- แบบที่ 2: ตารางนำเสนอ (วัน เวลา ผู้นำเสนอ หัวข้อ) --- */
+const talkFilter = { type:"", residentId:"", scope:"all" };
+function talkStatus(t) {
+  if (t.activityId && store.data.activities.some(a => a.id === t.activityId)) return "done";
+  return t.date < todayISO() ? "missing" : "planned";
+}
+const TALK_STATUS_TAG = {
+  done:    ['ok',   'บันทึกสไลด์แล้ว'],
+  missing: ['bad',  'ยังไม่มีบันทึกสไลด์'],
+  planned: ['b',    'ตามกำหนด']
+};
+/* หารายการในตารางที่ตรงกับสิ่งที่เพิ่งบันทึกจากสไลด์ (คนเดียวกัน ประเภทเดียวกัน วันใกล้กัน) */
+function matchTalk(residentId, type, date) {
+  return (store.data.schedule || []).find(t => t.residentId === residentId && t.type === type &&
+    !t.activityId && Math.abs((Date.parse(t.date) - Date.parse(date)) / 86400000) <= 3);
+}
+const talkRow = (t) => {
+  const r = store.resident(t.residentId), st = talkStatus(t), tag = TALK_STATUS_TAG[st];
+  return `<tr>
+    <td class="small"><b>${DAY_SHORT[new Date(t.date + "T00:00:00").getDay()]} ${fmtDate(t.date)}</b><br />
+      <span class="muted">${esc(t.start || "")}${t.end ? "–" + esc(t.end) : ""} น.</span></td>
+    <td class="small">${esc(t.slot || TYPE_BY_ID[t.type]?.th || "")}<br /><span class="muted">${esc(t.location || "")}</span></td>
+    <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
+    <td>${esc(t.title)}<br /><span class="small muted">${esc(SUB_BY_ID[t.subspecialty]?.en || "")}</span></td>
+    <td class="small">${esc(staffName(t.moderatorId))}</td>
+    <td><span class="tag ${tag[0]}">${tag[1]}</span></td>
+    <td class="no-print"><button class="btn-sm" data-talk="${t.id}">แก้ไข</button>
+      ${st === "missing" ? `<button class="btn-sm" data-talkrec="${t.id}">บันทึกว่านำเสนอแล้ว</button>` : ""}</td>
+  </tr>`;
+};
+
+function renderTalks() {
+  const all = (store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  const today = todayISO();
+  const upcoming = all.filter(t => t.date >= today).slice(0, 8);
+  $("#talkUpcoming").innerHTML = upcoming.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่ / เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${upcoming.map(talkRow).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีรายการที่กำลังจะถึง</p>`;
+
+  $("#talkFilters").innerHTML = `
+    <select data-tf="scope">
+      <option value="all" ${talkFilter.scope === "all" ? "selected" : ""}>ทั้งหมด</option>
+      <option value="past" ${talkFilter.scope === "past" ? "selected" : ""}>ที่ผ่านมาแล้ว</option>
+      <option value="future" ${talkFilter.scope === "future" ? "selected" : ""}>ที่ยังไม่ถึง</option>
+      <option value="missing" ${talkFilter.scope === "missing" ? "selected" : ""}>ที่ยังไม่มีบันทึกสไลด์</option>
+    </select>
+    <select data-tf="type"><option value="">ทุกรายการ</option>${ACTIVITY_TYPES.map(t =>
+      `<option value="${t.id}" ${talkFilter.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
+    <select data-tf="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r =>
+      `<option value="${r.id}" ${talkFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>`;
+  $$("#talkFilters [data-tf]").forEach(el => el.addEventListener("change", () => { talkFilter[el.dataset.tf] = el.value; renderTalks(); }));
+
+  const rows = all.filter(t =>
+    (!talkFilter.type || t.type === talkFilter.type) &&
+    (!talkFilter.residentId || t.residentId === talkFilter.residentId) &&
+    (talkFilter.scope === "all" ||
+     (talkFilter.scope === "past" && t.date < today) ||
+     (talkFilter.scope === "future" && t.date >= today) ||
+     (talkFilter.scope === "missing" && talkStatus(t) === "missing")));
+  $("#talkTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่ / เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${rows.map(talkRow).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">แสดง ${rows.length} รายการ จากทั้งหมด ${all.length} รายการ ·
+      ยังไม่มีบันทึกสไลด์ ${all.filter(t => talkStatus(t) === "missing").length} รายการ</p>`
+    : `<p class="empty">ไม่พบรายการตามเงื่อนไข</p>`;
+
+  $$("#talkUpcoming [data-talk], #talkTable [data-talk]").forEach(b => b.addEventListener("click", () => editTalk(b.dataset.talk)));
+  $$("#talkUpcoming [data-talkrec], #talkTable [data-talkrec]").forEach(b => b.addEventListener("click", () => recordFromTalk(b.dataset.talkrec)));
+}
+
+function editTalk(id) {
+  const t = id ? store.data.schedule.find(x => x.id === id) : null;
+  if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน"); return; }
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(t?.date || todayISO())}" /></label>
+      <label class="f"><span>รายการ (ชื่อกิจกรรมในตาราง)</span><input name="slot" value="${esc(t?.slot || "")}" placeholder="เช่น Topic presentation" /></label>
+      <label class="f"><span>เวลาเริ่ม</span><input type="time" name="start" value="${esc(t?.start || "07:30")}" /></label>
+      <label class="f"><span>เวลาสิ้นสุด</span><input type="time" name="end" value="${esc(t?.end || "08:30")}" /></label>
+      <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(x =>
+        `<option value="${x.id}" ${t?.type === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(r =>
+        `<option value="${r.id}" ${t?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+    </div>
+    <label class="f"><span>หัวข้อ</span><input name="title" value="${esc(t?.title || "")}" placeholder="ชื่อเรื่องที่จะนำเสนอ" /></label>
+    <div class="grid g2">
+      <label class="f"><span>Subspecialty</span><select name="subspecialty">${SUBSPECIALTIES.map(sp =>
+        `<option value="${sp.id}" ${t?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
+      <label class="f"><span>สถานที่</span><input name="location" value="${esc(t?.location || "ห้องประชุมกลุ่มงานออร์โธปิดิกส์ ชั้น 5")}" /></label>
+      <label class="f"><span>อาจารย์ผู้ดำเนินการ / ผู้วิจารณ์</span><select name="moderatorId">
+        <option value="">—</option>${(store.data.staff || []).map(x =>
+        `<option value="${x.id}" ${t?.moderatorId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    </div>
+    ${t?.activityId ? `<p class="notice small">ผูกกับกิจกรรมที่บันทึกไว้แล้ว — แก้ไขรายละเอียดการนำเสนอได้ที่หน้า “กิจกรรมทั้งหมด”</p>` : ""}`;
+  showDialog(t ? "แก้ไขรายการในตารางนำเสนอ" : "ลงตารางนำเสนอ", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const date = dlgVal("date"), title = dlgVal("title");
+        if (!date) { toast("กรุณาเลือกวันที่"); return false; }
+        if (!title) { toast("กรุณาใส่หัวข้อ"); return false; }
+        const rec = { date, start: dlgVal("start"), end: dlgVal("end"), slot: dlgVal("slot"), type: dlgVal("type"),
+                      residentId: dlgVal("residentId"), title, subspecialty: dlgVal("subspecialty"),
+                      location: dlgVal("location"), moderatorId: dlgVal("moderatorId") };
+        if (t) Object.assign(t, rec); else store.data.schedule.push({ id: uid("talk"), activityId: null, note:"", ...rec });
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(t ? [{ label:"ลบรายการ", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบรายการนี้ออกจากตารางนำเสนอ?")) return false;
+        store.data.schedule = store.data.schedule.filter(x => x.id !== t.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* บันทึกกิจกรรมจากรายการในตาราง เมื่อไม่มีไฟล์สไลด์ให้วาง */
+function recordFromTalk(id) {
+  const t = store.data.schedule.find(x => x.id === id); if (!t) return;
+  const act = {
+    id: uid("act"), residentId: t.residentId, type: t.type, subspecialty: t.subspecialty,
+    title: t.title, date: t.date, academicYear: academicYear(t.date), source: "manual", evidence: null,
+    wfme: (TYPE_BY_ID[t.type]?.wfme || []).slice(), assessment: null, verified: false, verifiedBy: "",
+    note: "บันทึกจากตารางนำเสนอ (" + (t.slot || "") + ")", scheduleId: t.id, createdAt: new Date().toISOString()
+  };
+  store.data.activities.push(act);
+  t.activityId = act.id;
+  store.save(); renderAll();
+  toast("บันทึกเข้าแฟ้มแล้ว — ยังไม่มีไฟล์สไลด์แนบ");
+}
+
+function talkCsvRows() {
+  const head = ["วันที่","วัน","เวลาเริ่ม","เวลาสิ้นสุด","รายการ","ประเภท","ผู้นำเสนอ","ชั้นปี","หัวข้อ","Subspecialty","สถานที่","ผู้ดำเนินการ","สถานะ"];
+  return [head].concat((store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)).map(t => {
+    const r = store.resident(t.residentId);
+    return [t.date, DAY_NAMES[new Date(t.date + "T00:00:00").getDay()], t.start || "", t.end || "", t.slot || "",
+      TYPE_BY_ID[t.type]?.en || t.type, r?.name || "", r?.year || "", t.title,
+      SUB_BY_ID[t.subspecialty]?.en || "", t.location || "", staffName(t.moderatorId), TALK_STATUS_TAG[talkStatus(t)][1]];
+  }));
+}
+
+function printTalks() {
+  const all = (store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  const rows = all.filter(t => t.date >= addDaysISO(todayISO(), -28));
+  const html = reportHead("ตารางนำเสนอวิชาการ", "ตั้งแต่ " + fmtDate(addDaysISO(todayISO(), -28))) + `
+  <div class="card"><table>
+    <thead><tr><th>วันที่</th><th>เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานที่</th></tr></thead>
+    <tbody>${rows.map(t => {
+      const r = store.resident(t.residentId);
+      return `<tr><td>${DAY_SHORT[new Date(t.date + "T00:00:00").getDay()]} ${fmtDate(t.date)}</td>
+        <td>${esc(t.start || "")}${t.end ? "–" + esc(t.end) : ""}</td>
+        <td>${esc(t.slot || "")}</td><td>${esc(r?.name || "—")}</td>
+        <td>${esc(t.title)}<br /><span class="small muted">${esc(SUB_BY_ID[t.subspecialty]?.en || "")}</span></td>
+        <td>${esc(staffName(t.moderatorId))}</td><td class="small">${esc(t.location || "")}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+  printReport(html);
 }
 
 function sessionChip(ses, withDate) {
@@ -1831,7 +2292,7 @@ function renderServiceTable() {
     <tbody>${svcs.map(svc => {
       const now = (store.data.rotations || []).filter(r => r.serviceId === svc.id && r.start <= todayISO() && r.end >= todayISO()).length;
       return `<tr>
-        <td><span style="color:${serviceColour(svc.id)};font-weight:600">${esc(svc.name)}</span></td>
+        <td><span style="color:${serviceInk(svc.id)};font-weight:600">${esc(svc.name)}</span></td>
         <td class="small">${esc(SUB_BY_ID[svc.subspecialty]?.en || "—")}</td>
         <td class="small">${esc(svc.site || "—")}</td>
         <td class="small">${(svc.template || []).map(t => DAY_SHORT[t.day] + " " + (PART_BY_ID[t.part]?.th || "") + " — " + esc(t.name)).join("<br />") || "—"}</td>
@@ -1868,6 +2329,10 @@ function editService(id) {
       <label class="f"><span>Subspecialty</span><select name="subspecialty">
         ${SUBSPECIALTIES.map(sp => `<option value="${sp.id}" ${svc?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
     </div>
+    <div class="grid g2">
+      <label class="f"><span>ตัวย่อในตารางรายเดือน</span><input name="abbr" value="${esc(svc?.abbr || "")}" placeholder="เช่น ฟ้า, TR, ELE" /></label>
+      <label class="f"><span>สีประจำหน่วย</span><input type="color" name="colour" value="${esc(svc?.colour || "#1f6f8b")}" style="height:38px;padding:.15rem" /></label>
+    </div>
     <label class="f"><span>สถานที่หลัก</span><input name="site" value="${esc(svc?.site || "")}" placeholder="เช่น หอผู้ป่วยอุบัติเหตุ ชั้น 4" /></label>
     <h4>ตารางกิจกรรมประจำสัปดาห์</h4>
     <div class="tbl-wrap"><table>
@@ -1878,6 +2343,7 @@ function editService(id) {
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อหน่วย"); return false; }
         const rec = { name, subspecialty: dlgVal("subspecialty"), site: dlgVal("site"),
+                      abbr: dlgVal("abbr"), colour: dlgVal("colour"),
                       template: draftTemplate.filter(t => (t.name || "").trim()) };
         if (svc) Object.assign(svc, rec); else store.data.services.push({ id: uid("svc"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -1976,7 +2442,7 @@ function renderResidentDetail() {
         <p class="small muted" style="margin:0">รุ่น ${esc(r.cohort || "—")} · อาจารย์ที่ปรึกษา ${esc(r.advisor || "—")} · ปีการศึกษา ${p.ay}</p>
         ${(() => {
           const rot = rotationOn(r.id, todayISO()); const svc = rot ? serviceById(rot.serviceId) : null;
-          return svc ? `<p class="small" style="margin:.2rem 0 0">ขณะนี้อยู่หน่วย <b style="color:${serviceColour(svc.id)}">${esc(svc.name)}</b>
+          return svc ? `<p class="small" style="margin:.2rem 0 0">ขณะนี้อยู่หน่วย <b style="color:${serviceInk(svc.id)}">${esc(svc.name)}</b>
             · ${esc(svc.site || "")} · อาจารย์ผู้กำกับ ${esc(staffName(rot.supervisorId))} · ถึง ${fmtDate(rot.end)}</p>`
             : `<p class="small" style="margin:.2rem 0 0"><span class="tag warn">ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้</span></p>`;
         })()}
@@ -2247,6 +2713,9 @@ function wfmeEvidence() {
   const rotN = (store.data.rotations || []).length, svcN = (store.data.services || []).length;
   if (rotN) ["2.4","2.5","2.6","6.2"].forEach(id =>
     map[id]?.sources.push({ label:"ตารางหมุนเวียน " + rotN + " ช่วง ใน " + svcN + " หน่วย พร้อมตารางเซสชันประจำสัปดาห์" }));
+  const talkN = (store.data.schedule || []).length;
+  if (talkN) ["2.5","8.4"].forEach(id =>
+    map[id]?.sources.push({ label:"ตารางนำเสนอวิชาการ " + talkN + " รายการ พร้อมวัน เวลา ผู้นำเสนอ และผู้ดำเนินการ" }));
   const staffN = (store.data.staff || []).length;
   if (staffN) ["5.1","5.2","6.4"].forEach(id =>
     map[id]?.sources.push({ label:"ทะเบียนอาจารย์ผู้รับผิดชอบ " + staffN + " ท่าน พร้อมเซสชันที่รับผิดชอบและผลการประเมินที่บันทึก" }));
@@ -2805,6 +3274,17 @@ function init() {
   $("#btnAddRotation").addEventListener("click", () => editRotation(null));
   $("#btnPrintRoster").addEventListener("click", printRoster);
   $("#btnEvalCsv").addEventListener("click", () => download("session-evaluations.csv", toCsv(evalCsvRows()), "text/csv;charset=utf-8"));
+  $("#calSeg").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-seg]"); if (!b) return;
+    $$("#calSeg button").forEach(x => x.setAttribute("aria-current", String(x === b)));
+    $$("[data-segview]").forEach(v => { v.hidden = v.dataset.segview !== b.dataset.seg; });
+  });
+  $("#ayPick").addEventListener("change", (e) => { ayView = e.target.value; renderMonthGrid(); });
+  $("#btnPrintMonth").addEventListener("click", printMonthGrid);
+  $("#btnMonthCsv").addEventListener("click", () => download("rotation-by-month.csv", toCsv(monthCsvRows()), "text/csv;charset=utf-8"));
+  $("#btnAddTalk").addEventListener("click", () => editTalk(null));
+  $("#btnPrintTalks").addEventListener("click", printTalks);
+  $("#btnTalkCsv").addEventListener("click", () => download("presentation-schedule.csv", toCsv(talkCsvRows()), "text/csv;charset=utf-8"));
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
   $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
   $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
