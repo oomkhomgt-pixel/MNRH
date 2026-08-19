@@ -100,6 +100,25 @@ export default async function run() {
       t.check("แถวของคนอื่นไม่ถูกเขียนทับ", cert.otherKept);
       t.check("ลบเคสออกจาก logbook ไม่ได้", !cert.canDelete);
 
+      /* บันทึกได้ว่าตัวเองเข้าคาบไหนในวันนั้น แต่บันทึกแทนคนอื่นไม่ได้ */
+      const pickPerm = await page.evaluate(() => {
+        const btns = (rid) => {
+          const ses = sessionsForDate(todayISO()).find(s => s.residentId === rid);
+          if (!ses) return null;
+          openSession(ses.key);
+          const labels = [...document.querySelectorAll("#dlgFoot button")].map(b => b.textContent);
+          document.querySelector("#dlg").close();
+          return labels;
+        };
+        const mine = btns(myResidentId());
+        const other = btns(store.data.residents.find(r => r.id !== myResidentId()).id);
+        return { mine, other };
+      });
+      t.check("บันทึกได้ว่าตัวเองเข้าคาบไหนในวันนั้น",
+              pickPerm.mine?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.mine || []).join(" / "));
+      t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
+              !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
+
       t.check("แพทย์ประจำบ้าน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

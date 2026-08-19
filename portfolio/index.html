@@ -873,6 +873,8 @@ const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
 /* เมื่อคาบสองอันของคนเดียวกันชนกัน อันที่ลำดับความสำคัญสูงกว่าเป็นตัวหลัก
    อีกอันยังแสดงอยู่แต่ถูกทำเครื่องหมายว่าถูกแทนที่ ไม่ลบทิ้ง เพราะคนจัดตารางต้องเห็นว่ามันชนกัน */
 const SESSION_PRIORITY_DEFAULT = { central: 30, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
+/* คาบที่มีคนบันทึกไว้ว่าวันนั้นไปเข้าจริง ชนะทุกลำดับความสำคัญที่ตั้งไว้ล่วงหน้า */
+const PICKED_PRIORITY = 1e6;
 const serviceKind = (svc) => !svc ? "other"
   : svc.central ? "central" : svc.subUnit ? "subUnit" : svc.team ? "team"
   : svc.external ? "external" : svc.elective ? "elective" : "other";
@@ -994,6 +996,9 @@ const store = {
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
     /* ลำดับความสำคัญของเซสชันเมื่อชนกัน — ตัวเลขมากกว่าคือได้สิทธิ์ก่อน แก้ได้ที่หน้าตั้งค่า */
     d.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
+    /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
+       ลำดับความสำคัญเป็นค่าตั้งต้นของทั้งปี ส่วนอันนี้คือความจริงของวันนั้น */
+    d.sessionPicks ||= [];
     /* เดิมแต่ละคาบมีอาจารย์ได้คนเดียว ตอนนี้มีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน */
     (d.services || []).forEach(svc => (svc.template || []).forEach(t => {
       if (!Array.isArray(t.staffIds)) t.staffIds = t.staffId ? [t.staffId] : [];
@@ -1166,6 +1171,16 @@ function computeSessions(iso, data) {
     });
   });
 
+  /* สิ่งที่คนบันทึกไว้เองว่าวันนั้นไปเข้าคาบไหน มาก่อนลำดับความสำคัญที่ตั้งไว้ล่วงหน้าเสมอ */
+  (data.sessionPicks || []).forEach(pk => {
+    if (pk.date !== iso) return;
+    const ses = out.find(x => x.key === pk.key && x.residentId === pk.residentId);
+    if (!ses) return;
+    ses.picked = true;
+    ses.priority = PICKED_PRIORITY;
+    if (pk.staffId) { ses.staffIds = [pk.staffId]; ses.staffId = pk.staffId; ses.pickedStaff = true; }
+  });
+
   /* ตัดสินว่าคาบไหนเป็นตัวหลักเมื่อชนกัน */
   const byResident = {};
   out.forEach(x => (byResident[x.residentId] ||= []).push(x));
@@ -1175,8 +1190,10 @@ function computeSessions(iso, data) {
     a.overlaps = hits.map(b => b.name);
     const best = Math.max(...hits.map(b => b.priority));
     if (a.priority < best) {
+      const won = hits.filter(b => b.priority === best);
       a.superseded = true;
-      a.supersededBy = hits.filter(b => b.priority === best).map(b => b.name).join(" / ");
+      a.supersededBy = won.map(b => b.name).join(" / ");
+      a.supersededByPick = won.some(b => b.picked);
     } else if (hits.some(b => b.priority === a.priority)) {
       /* เท่ากันแปลว่าระบบตัดสินแทนไม่ได้ ต้องให้คนเลือกเอง */
       a.clash = hits.filter(b => b.priority === a.priority).map(b => b.name).join(" / ");
@@ -1197,6 +1214,9 @@ const rotatableServices = () => (store.data.services || []).filter(x => !x.centr
 const staffById   = (id) => (store.data.staff || []).find(x => x.id === id);
 const staffName   = (id) => staffById(id)?.name || "—";
 const evalForKey  = (key) => (store.data.sessionEvals || []).find(e => e.key === key);
+/* วันนั้นคนนี้เลือกเข้าคาบไหนในช่วงนั้น (ถ้ามีการบันทึกไว้) */
+const pickFor = (residentId, date, part) => (store.data.sessionPicks || [])
+  .find(p => p.residentId === residentId && p.date === date && p.part === part);
 const serviceColour = (id) => {
   const svc = serviceById(id);
   if (svc?.colour) return svc.colour;
@@ -3166,8 +3186,9 @@ function sessionChip(ses, withDate) {
   const svc = serviceById(ses.serviceId);
   const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
-  const note = ses.superseded ? `<span class="tag warn">ชน — ไปเข้า ${esc(ses.supersededBy)}</span>`
-             : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — ต้องเลือกเอง</span>`
+  const note = ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
+             : ses.superseded ? `<span class="tag warn">${ses.supersededByPick ? "วันนี้เลือกเข้า" : "ชน — ไปเข้า"} ${esc(ses.supersededBy)}</span>`
+             : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — เลือกว่าเข้าคาบไหน</span>`
              : "";
   return `<button class="sess ${cls}" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
     <span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>
@@ -3197,7 +3218,11 @@ function openSession(key) {
     ${ses.superseded ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.supersededBy)}</b> ซึ่งมีลำดับความสำคัญสูงกว่า
       ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น คาบนี้จึงไม่ถูกนับเป็นงานค้างประเมิน</p>` : ""}
     ${ses.clash ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.clash)}</b> และทั้งสองมีลำดับความสำคัญเท่ากัน
-      ระบบตัดสินแทนไม่ได้ — ปรับลำดับความสำคัญที่หน้าตั้งค่า หรือแก้ตารางของหน่วยให้ไม่ชนกัน</p>` : ""}
+      ระบบไม่ตัดสินแทน — กด “บันทึกว่าเข้าคาบนี้” เพื่อระบุว่าวันนั้นไปเข้าคาบไหนจริง
+      หรือปรับลำดับความสำคัญที่หน้าตั้งค่าถ้าเป็นกติกาประจำทั้งปี</p>` : ""}
+    ${ses.picked ? `<p class="notice small">บันทึกไว้แล้วว่าวันนี้เข้าคาบนี้${ses.pickedStaff ? " กับ " + esc(sessionStaffLabel(ses)) : ""}
+      — คาบอื่นที่ชนกันในช่วงเดียวกันถูกทำเครื่องหมายว่าไม่ได้เข้า</p>` : ""}
+    ${(ses.overlaps || []).length && !ses.picked ? `<p class="small muted">ช่วงเดียวกันวันนี้ยังมี: ${esc(ses.overlaps.join(" · "))}</p>` : ""}
     <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
       <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || myStaffId() || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <h4>ประเมินท้ายเซสชัน <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 5.2 / 7.2)</span></h4>
@@ -3216,11 +3241,34 @@ function openSession(key) {
       <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
     ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"}</p>` : ""}`;
 
+  /* ลำดับความสำคัญเป็นกติกาของทั้งปี ส่วนนี่คือความจริงของวันนั้น — วันไหนเข้าคาบไหน กับอาจารย์คนใด
+     เจ้าของตารางบันทึกเองได้ ไม่ต้องรออาจารย์ */
+  const canPick = canEditResidentData(ses.residentId);
+  const pick = pickFor(ses.residentId, ses.date, ses.part);
+  const pickButtons = !canPick ? [] : [
+    { label: ses.picked ? "แก้อาจารย์ของวันนี้" : "บันทึกว่าเข้าคาบนี้", onClick: () => {
+        const staffId = dlgVal("staffId");
+        const rec = { residentId: ses.residentId, date: ses.date, part: ses.part, key: ses.key,
+                      staffId, at: new Date().toISOString(), by: currentUser()?.displayName || "" };
+        if (pick) Object.assign(pick, rec);
+        else (store.data.sessionPicks ||= []).push({ id: uid("pick"), ...rec });
+        audit("บันทึกการเข้าคาบรายวัน", (store.resident(ses.residentId)?.name || "") + " · " + fmtDate(ses.date) + " · " + ses.name);
+        store.save(); renderAll(); toast("บันทึกแล้วว่าวันนี้เข้าคาบนี้");
+      }},
+    ...(pick ? [{ label:"ยกเลิกการเลือกของวันนี้", onClick: () => {
+        store.data.sessionPicks = store.data.sessionPicks.filter(x => x.id !== pick.id);
+        store.save(); renderAll(); toast("ยกเลิกแล้ว — กลับไปใช้ลำดับความสำคัญตามที่ตั้งไว้");
+      }}] : [])
+  ];
+
   if (!canAssess()) {
-    showDialog("รายละเอียดเซสชัน", body + `<p class="notice warn small">บัญชีนี้ดูได้อย่างเดียว — การประเมินท้ายเซสชันทำได้โดยอาจารย์ผู้รับผิดชอบ</p>`, []);
+    showDialog("รายละเอียดเซสชัน",
+      body + `<p class="notice warn small">บัญชีนี้ประเมินไม่ได้ — การประเมินท้ายเซสชันทำได้โดยอาจารย์ผู้รับผิดชอบ
+        ${canPick ? " แต่บันทึกได้ว่าวันนี้เข้าคาบไหนและใครเป็นผู้คุม" : ""}</p>`, pickButtons);
     return;
   }
   showDialog(ev ? "แก้ไขผลประเมินท้ายเซสชัน" : "ประเมินท้ายเซสชัน", body, [
+    ...pickButtons,
     { label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
         const scores = {};
         EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
@@ -3921,7 +3969,7 @@ function syncSettingsDialog() {
    13a2) ฐานข้อมูลกลางบนคลาวด์ของภาควิชา + สำรองลงฮาร์ดดิสก์ของภาควิชา
         สองทางนี้ทำงานแยกกัน: คลาวด์คือชุดข้อมูลที่ใช้งานร่วมกัน ส่วนดิสก์คือสำเนาที่ถือไว้เอง
    ===================================================================== */
-const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","activities",
+const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks","activities",
   "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users"];
 
 function fullPayload() {
@@ -3944,7 +3992,7 @@ const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navi
       รายการที่เราไม่ได้แตะ จะไม่ทับของคนอื่น — ทับเฉพาะรายการที่เราแก้จริง
    --------------------------------------------------------------------- */
 const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
-const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals",
+const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
   "activities","research","cases","epas","epaAssessments","users"];
 const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
 
@@ -4213,7 +4261,8 @@ function renderConflictList() {
   const box = $("#conflictList"); if (!box) return;
   const rows = (store.data.syncConflicts || []).slice(-20).reverse();
   const label = { residents:"แพทย์ประจำบ้าน", staff:"อาจารย์", services:"หน่วย", rotations:"ช่วงหมุนเวียน",
-    schedule:"ตารางนำเสนอ", sessionEvals:"ผลประเมินท้ายเซสชัน", activities:"กิจกรรม", research:"งานวิจัย",
+    schedule:"ตารางนำเสนอ", sessionEvals:"ผลประเมินท้ายเซสชัน", sessionPicks:"การเข้าคาบรายวัน",
+    activities:"กิจกรรม", research:"งานวิจัย",
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>

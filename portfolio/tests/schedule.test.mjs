@@ -94,6 +94,38 @@ export default async function run() {
       return plan.rotations.every(r => !serviceById(r.serviceId)?.central);
     }));
 
+    /* ---------- การเลือกรายวันชนะลำดับความสำคัญที่ตั้งไว้ล่วงหน้า ---------- */
+    const picked = await page.evaluate(() => {
+      const rot = store.data.rotations.find(r => r.alsoServiceId && serviceById(r.serviceId)?.subUnit);
+      let iso = null, loser = null, winner = null;
+      for (let i = 0; i < 7 && !loser; i++) {
+        const day = addDaysISO(rot.start, i);
+        const list = sessionsForDate(day).filter(s => s.residentId === rot.residentId);
+        loser = list.find(s => s.superseded);
+        if (loser) { iso = day; winner = list.find(s => !s.superseded && s.part === loser.part && s.name === loser.supersededBy); }
+      }
+      if (!loser) return null;
+      /* บันทึกว่าวันนั้นไปเข้าคาบที่ "แพ้" จริง ๆ พร้อมระบุอาจารย์ */
+      const staffId = store.data.staff[0].id;
+      store.data.sessionPicks.push({ id: uid("pick"), residentId: loser.residentId, date: iso,
+        part: loser.part, key: loser.key, staffId, at: new Date().toISOString(), by: "test" });
+      const after = sessionsForDate(iso).filter(s => s.residentId === loser.residentId && s.part === loser.part);
+      const nowWinner = after.find(s => s.key === loser.key);
+      const nowLoser  = after.find(s => s.key === winner?.key);
+      const other = sessionsForDate(addDaysISO(iso, 7)).filter(s => s.residentId === loser.residentId && s.part === loser.part);
+      store.data.sessionPicks = [];
+      return { flippedTo: nowWinner?.picked === true && !nowWinner?.superseded,
+               oldWinnerNowLoses: nowLoser?.superseded === true,
+               byPick: nowLoser?.supersededByPick === true,
+               staffOverridden: nowWinner?.staffIds?.[0] === staffId,
+               otherDayUntouched: other.every(s => !s.picked) };
+    });
+    t.check("บันทึกรายวันแล้ว คาบที่เลือกกลายเป็นตัวหลัก", picked?.flippedTo === true);
+    t.check("คาบที่เคยชนะกลับกลายเป็นไม่ได้เข้าในวันนั้น", picked?.oldWinnerNowLoses === true);
+    t.check("บอกได้ว่าที่แพ้เพราะคนเลือกเอง ไม่ใช่เพราะลำดับความสำคัญ", picked?.byPick === true);
+    t.check("ระบุอาจารย์ของวันนั้นทับค่าในตารางได้", picked?.staffOverridden === true);
+    t.check("การเลือกมีผลเฉพาะวันนั้น ไม่ลามไปสัปดาห์อื่น", picked?.otherDayUntouched === true);
+
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
   } finally {
