@@ -8,6 +8,7 @@
      by anyone with the link, so keep it out of search results. A robots.txt at the domain
      root is not ours to write on a project Pages site, so the per-page tag is what applies. -->
 <meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="data:," />
 <title>แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ — รพ.มหาราชนครราชสีมา</title>
 <style>
 :root{
@@ -199,6 +200,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <button data-view="rotation">ตาราง: หมุนเวียน · เวร · นำเสนอ</button>
     <button data-view="residents">แพทย์ประจำบ้าน</button>
     <button data-view="activities">กิจกรรมทั้งหมด</button>
+    <button data-view="logbook">Logbook เคสผ่าตัด</button>
     <button data-view="research">งานวิจัย</button>
     <button data-view="coverage">ความครอบคลุมอนุสาขา</button>
     <button data-view="wfme">มาตรฐาน WFME</button>
@@ -359,6 +361,54 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <h1>กิจกรรมทั้งหมด</h1>
       <div class="row no-print" id="activityFilters"></div>
       <div id="activityTable"></div>
+    </div>
+  </section>
+
+  <!-- ============ LOGBOOK ============ -->
+  <section class="view" id="view-logbook">
+    <div class="card">
+      <div class="between">
+        <div>
+          <h1>Logbook เคสผ่าตัด</h1>
+          <p class="muted small">ดึงรายการเคสจากระบบคิวห้องผ่าตัด แล้วระบุว่าแพทย์ประจำบ้านคนใดร่วมผ่าตัดเคสไหน ในบทบาทใด
+            เพื่อใช้เป็น logbook · <b>ระบบไม่นำชื่อผู้ป่วยเข้ามา</b> และข้อมูลทั้งหมดอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น</p>
+        </div>
+        <div class="row no-print">
+          <button class="btn-sm btn-primary" id="btnImportQueue">ดึงจากหน้าระบบคิว</button>
+          <button class="btn-sm" id="btnImportCaseFile">นำเข้าไฟล์</button>
+          <button class="btn-sm" id="btnImportApi">ดึงจาก API</button>
+          <button class="btn-sm" id="btnCaseSettings">ตั้งค่าการเชื่อมต่อ</button>
+        </div>
+      </div>
+      <input type="file" id="casePick" accept=".json,.csv,application/json,text/csv" hidden />
+      <div id="importStatus"></div>
+      <div class="grid g4" id="logbookStats" style="margin-top:.8rem"></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <h2>เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด</h2>
+        <div class="row no-print">
+          <button class="btn-sm" id="btnBulkSuggest">เติมข้อเสนอทั้งหมด</button>
+          <span class="tag warn" id="unassignedCount">—</span>
+        </div>
+      </div>
+      <p class="muted small">ระบบคิวบันทึกเฉพาะศัลยแพทย์หลัก ยังไม่มีช่องผู้ช่วยผ่าตัด จึงต้องยืนยันตรงนี้
+        ระบบเสนอชื่อให้จากตารางหมุนเวียน (ใครอยู่หน่วยที่ตรงกับอนุสาขาของเคสในวันนั้น)</p>
+      <div id="unassignedList"></div>
+    </div>
+
+    <div class="card">
+      <h2>สรุป logbook รายบุคคล</h2>
+      <div id="logbookSummary"></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <h2>เคสทั้งหมด</h2>
+        <div class="row no-print" id="caseFilters"></div>
+      </div>
+      <div id="caseTable"></div>
     </div>
   </section>
 
@@ -619,10 +669,10 @@ const WFME_SOURCES = [
    4) เกณฑ์ตั้งต้นต่อชั้นปี — ค่าสาธิต แก้ไขได้ในหน้าตั้งค่า
    --------------------------------------------------------------------- */
 const DEFAULT_REQUIREMENTS = {
-  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:3, sessionEval:20 },
-  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:5, sessionEval:24 },
-  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:7, sessionEval:24 },
-  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:8, sessionEval:24 }
+  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:3, sessionEval:20, caseSurgeon:20,  caseAssist:60 },
+  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:5, sessionEval:24, caseSurgeon:50,  caseAssist:80 },
+  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:7, sessionEval:24, caseSurgeon:90,  caseAssist:80 },
+  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:8, sessionEval:24, caseSurgeon:120, caseAssist:60 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -635,6 +685,29 @@ const RESEARCH_STAGES = [
 ];
 
 /* =====================================================================
+   4a) การเชื่อมกับระบบคิวห้องผ่าตัด (OR queue) เพื่อลง logbook
+   --------------------------------------------------------------------- */
+const CASE_ROLES = [
+  { id:"surgeon",  th:"ผู้ผ่าตัดหลัก",  en:"Primary surgeon" },
+  { id:"assist1",  th:"ผู้ช่วยที่ 1",   en:"First assistant" },
+  { id:"assist2",  th:"ผู้ช่วยที่ 2",   en:"Second assistant" },
+  { id:"observer", th:"ผู้สังเกตการณ์", en:"Observer" }
+];
+const ROLE_BY_ID = Object.fromEntries(CASE_ROLES.map(r => [r.id, r]));
+/* คำที่ระบบคิวใช้เรียกอนุสาขา → รหัสที่หน้านี้ใช้ */
+const QUEUE_SUB_MAP = {
+  trauma:"trauma", spine:"spine", arthroplasty:"arthroplasty", adult_recon:"arthroplasty",
+  sports:"sports", hand:"hand", foot_ankle:"foot", "foot-ankle":"foot", foot:"foot",
+  pediatric:"pediatric", paediatric:"pediatric", tumour:"oncology", tumor:"oncology",
+  oncology:"oncology", infection:"infection", general:"general", other:"general"
+};
+const OR_QUEUE_DEFAULT = {
+  snapshotUrl: "../index.html",                 /* หน้าสาธิตระบบคิวในที่เก็บเดียวกัน */
+  apiBase: "",                                  /* ระบบจริง เช่น https://or-queue.example.org */
+  apiPath: "/api/cases?scope=all&includeClosed=true"
+};
+
+/* ---------------------------------------------------------------------
    4b) ตารางหมุนเวียนและการประเมินท้ายเซสชัน
    --------------------------------------------------------------------- */
 const SESSION_PARTS = [
@@ -735,6 +808,7 @@ const store = {
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
     d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
+    d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
     [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
@@ -760,6 +834,7 @@ const store = {
   wipe() {
     localStorage.removeItem(APP.key);
     this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[], schedule:[],
+                  cases:[], orQueue:{ ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
                   requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
@@ -1124,6 +1199,71 @@ function seedData() {
     });
   }
 
+  /* --- เคสผ่าตัดตัวอย่างสำหรับ logbook (ปกติจะนำเข้าจากระบบคิว) --- */
+  const OPS = {
+    trauma:[["Closed intertrochanteric fracture, right","Proximal femoral nail, right"],
+            ["Closed femoral neck fracture, left","Bipolar hemiarthroplasty, left hip"],
+            ["Open tibial shaft fracture Gustilo IIIA, right","Debridement and interlocking nail, right tibia"],
+            ["Distal radius fracture, left","ORIF with volar locking plate, left distal radius"]],
+    spine:[["Lumbar spinal stenosis L4-5","Decompressive laminectomy L4-5"],
+           ["Thoracolumbar burst fracture T12","Percutaneous pedicle screw fixation T11-L1"]],
+    arthroplasty:[["Primary osteoarthritis, right knee","Total knee arthroplasty, right"],
+                  ["Avascular necrosis, left hip","Total hip arthroplasty, left"],
+                  ["Aseptic loosening of TKA, right","Revision total knee arthroplasty, right"]],
+    sports:[["Anterior cruciate ligament tear, left knee","Arthroscopic ACL reconstruction, left"],
+            ["Full-thickness rotator cuff tear, right","Arthroscopic rotator cuff repair, right"],
+            ["Recurrent shoulder dislocation, right","Arthroscopic Bankart repair, right"]],
+    hand:[["Flexor tendon injury zone II, right index","Primary flexor tendon repair, right index"],
+          ["Carpal tunnel syndrome, right","Open carpal tunnel release, right"]],
+    foot:[["Bimalleolar ankle fracture, left","ORIF lateral and medial malleolus, left"],
+          ["Hallux valgus, right","Scarf osteotomy, right first ray"]],
+    pediatric:[["Supracondylar humerus fracture Gartland III, left","Closed reduction and percutaneous K-wire fixation, left"],
+               ["Developmental dysplasia of the hip, right","Open reduction and Salter osteotomy, right"]],
+    oncology:[["Giant cell tumour of distal femur, right","Curettage and cementation, right distal femur"],
+              ["Metastatic bone disease of proximal femur, left","Prophylactic intramedullary nailing, left femur"]],
+    infection:[["Chronic osteomyelitis of tibia, right","Sequestrectomy and antibiotic bead insertion, right tibia"],
+               ["Prosthetic joint infection, left knee","Two-stage revision: spacer insertion, left knee"]]
+  };
+  const cases = [];
+  residents.forEach((res, idx) => {
+    for (let k = 0; k < 14; k++) {
+      const d = daysAgoISO(3 + k * 6 + (idx % 5));
+      const rot = rotations.find(r => r.residentId === res.id && r.start <= d && r.end >= d);
+      if (!rot) continue;
+      const svc = services.find(x => x.id === rot.serviceId);
+      let sub = svc?.subspecialty || "trauma";
+      if (sub === "general") sub = ["trauma","trauma","arthroplasty","infection"][(k + idx) % 4];
+      const pool = OPS[sub] || OPS.trauma;
+      const [dx, op] = pool[(k + idx) % pool.length];
+      const senior = res.year >= 3;
+      const role = (k + idx) % 3 === 0 ? (senior ? "assist1" : "surgeon") : (senior ? "surgeon" : "assist1");
+      const surgeon = staffRoster.find(x => x.id === rot.supervisorId)?.name || staffRoster[0].name;
+      cases.push({
+        id: uid("case"), source:"or-queue", sourceRef:"demo-" + res.id + "-" + k, date: d,
+        room:"OR " + (1 + (k % 5)), caseClass: k % 8 === 0 ? "emergency" : "elective", status:"done",
+        subspecialty: sub, diagnosis: dx, operation: op, side: k % 2 ? "right" : "left",
+        anaesthesia: k % 3 === 0 ? "spinal" : "ga", asa: 1 + (k % 3), durationMin: 60 + (k % 5) * 20,
+        hn: "DEMO-" + String(1000 + idx * 40 + k), age: 20 + ((k * 7 + idx * 3) % 60), sex: k % 2 ? "female" : "male",
+        primarySurgeon: surgeon, assistants: [], createdByName: res.name, complications: [],
+        importedAt: new Date().toISOString(), note:"",
+        participants: [{ residentId: res.id, role, why:"ข้อมูลสาธิต", verified: k % 3 !== 0,
+                         verifiedBy: k % 3 !== 0 ? surgeon : "" }]
+      });
+    }
+  });
+  /* เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด — ให้เห็นขั้นตอนการยืนยันในหน้า logbook */
+  ["trauma","spine","sports","arthroplasty","pediatric"].forEach((sub, i) => {
+    const [dx, op] = OPS[sub][i % OPS[sub].length];
+    cases.push({
+      id: uid("case"), source:"or-queue", sourceRef:"demo-open-" + i, date: daysAgoISO(2 + i),
+      room:"OR " + (1 + i), caseClass:"elective", status:"done", subspecialty: sub, diagnosis: dx, operation: op,
+      side: i % 2 ? "left" : "right", anaesthesia:"ga", asa: 2, durationMin: 90,
+      hn:"DEMO-" + String(2200 + i), age: 45 + i * 3, sex: i % 2 ? "male" : "female",
+      primarySurgeon: staffRoster[i % staffRoster.length].name, assistants: [], createdByName:"ผู้ดูแลระบบ",
+      complications: [], importedAt: new Date().toISOString(), note:"", participants: []
+    });
+  });
+
   /* --- ตารางนำเสนอวิชาการ: ใครนำเสนอเรื่องอะไร วันไหน เวลาใด --- */
   const TALK_SLOTS = [
     { dow:1, start:"07:30", end:"08:30", type:"preop",      slot:"Pre-operative conference" },
@@ -1219,7 +1359,8 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
-    staff: staffRoster, services, rotations, sessionEvals, schedule,
+    staff: staffRoster, services, rotations, sessionEvals, schedule, cases,
+    orQueue: { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
     meta: { created:new Date().toISOString(), demo:true }
@@ -1437,9 +1578,21 @@ function guessDate(parsed) {
   return parsed.meta?.created || parsed.fileModified || todayISO();
 }
 
-/* จับคู่ชื่อผู้จัดทำไฟล์กับรายชื่อแพทย์ประจำบ้าน (ตัดคำนำหน้าออกก่อน) */
+/* จับคู่ชื่อกับรายชื่อแพทย์ประจำบ้าน (ตัดคำนำหน้าออกก่อน) ใช้ทั้งกับไฟล์สไลด์และข้อมูลจากระบบคิว */
+const stripName = (s) => normalise(s).replace(/^(นพ\.|พญ\.|นาย|นาง|นางสาว|dr\.?|md)\s*/g, "").replace(/[.\s]/g, "");
+function residentByName(name) {
+  const c = stripName(name);
+  if (c.length < 3) return null;
+  return (store.data.residents || []).find(r => {
+    const full = stripName(r.name), nick = stripName(r.nick || "");
+    const given = stripName(r.name.split(/\s+/).slice(1).join(""));
+    return (full && (c.includes(full) || full.includes(c))) ||
+           (nick.length >= 3 && c.includes(nick)) ||
+           (given.length >= 4 && c.includes(given));
+  }) || null;
+}
 function matchResident(parsed) {
-  const strip = (s) => normalise(s).replace(/^(นพ\.|พญ\.|นาย|นาง|นางสาว|dr\.?|md)\s*/g, "").replace(/[.\s]/g, "");
+  const strip = stripName;
   const cands = [parsed.meta?.author, parsed.meta?.lastBy, parsed.fileName].filter(Boolean).map(strip);
   let best = null;
   for (const r of store.data.residents) {
@@ -1497,6 +1650,206 @@ function classify(parsed) {
 /* =====================================================================
    10) หน้ารับสไลด์ — วางไฟล์ → ระบบเดา → ตรวจ → บันทึก
    ===================================================================== */
+/* =====================================================================
+   9b) นำเข้าเคสผ่าตัดจากระบบคิวห้องผ่าตัด แล้วผูกกับแพทย์ประจำบ้าน (logbook)
+       ทำงานในเบราว์เซอร์ทั้งหมด และ "ไม่นำชื่อผู้ป่วยเข้ามา" โดยตั้งใจ
+   ===================================================================== */
+function guessSubFromText(text) {
+  const hay = normalise(text);
+  if (!hay.trim()) return "general";
+  const best = SUBSPECIALTIES.filter(x => x.id !== "general")
+    .map(x => ({ id: x.id, ...scoreKeywords(hay, store.keywordsFor(x.id)) }))
+    .sort((a, b) => b.score - a.score)[0];
+  return best && best.score > 0 ? best.id : "general";
+}
+
+/* แปลงเคสจากระบบคิวให้เป็นรูปแบบของ logbook — เก็บเฉพาะสิ่งที่จำเป็นต่อการฝึกอบรม */
+function normaliseQueueCase(c) {
+  const date = String(c.scheduledDate || c.operationDate || c.date || c.updatedAt || c.createdAt || "").slice(0, 10);
+  const listText = (arr, keys) => (Array.isArray(arr) ? arr : []).map(x =>
+    typeof x === "string" ? x : keys.map(k => x?.[k]).find(Boolean) || "").filter(Boolean).join(", ");
+  const operation = c.operationText || c.operation || listText(c.procedures, ["text","name","procedureText"]);
+  const diagnosis = c.diagnosisText || c.diagnosis || listText(c.diagnoses, ["text","name","diagnosisText"]);
+  const rawSub = String(c.subspecialty || "").toLowerCase().replace(/\s+/g, "_");
+  return {
+    id: uid("case"),
+    source: "or-queue",
+    sourceRef: String(c.id ?? c.caseId ?? c.sourceRef ?? ""),
+    date,
+    room: c.orRoomName || c.room || "",
+    caseClass: c.caseClass || "",
+    status: c.status || "",
+    subspecialty: QUEUE_SUB_MAP[rawSub] || guessSubFromText(operation + " " + diagnosis),
+    diagnosis, operation,
+    side: c.operativeSide || c.side || "",
+    anaesthesia: c.anesthesiaType || c.anaesthesia || "",
+    asa: c.asaClass ?? c.asa ?? "",
+    durationMin: c.estimatedDurationMin ?? c.durationMin ?? "",
+    hn: c.hn || "",                          /* ชื่อผู้ป่วยไม่ถูกนำเข้าโดยตั้งใจ */
+    age: c.age ?? "", sex: c.sex || "",
+    primarySurgeon: c.primarySurgeonName || c.surgeon || "",
+    assistants: Array.isArray(c.assistantSurgeonNames) ? c.assistantSurgeonNames.slice() : [],
+    createdByName: c.createdByName || "",
+    complications: (Array.isArray(c.complications) ? c.complications : []).map(x =>
+      typeof x === "string" ? x : (x?.text || x?.type || "")).filter(Boolean),
+    importedAt: new Date().toISOString(),
+    participants: []
+  };
+}
+
+/* เดินหาอ็อบเจกต์ที่หน้าตาเป็น "เคสผ่าตัด" ในโครงสร้างที่ซ้อนกันอยู่ */
+function collectCasesDeep(node, out = [], seen = new Set(), depth = 0) {
+  if (!node || depth > 6 || out.length > 5000) return out;
+  if (Array.isArray(node)) { node.forEach(x => collectCasesDeep(x, out, seen, depth + 1)); return out; }
+  if (typeof node !== "object") return out;
+  const looksLikeCase = ("operationText" in node || "primarySurgeonName" in node) && ("id" in node || "hn" in node);
+  if (looksLikeCase) {
+    const key = String(node.id ?? node.hn);
+    if (!seen.has(key)) { seen.add(key); out.push(node); }
+    return out;
+  }
+  Object.values(node).forEach(v => collectCasesDeep(v, out, seen, depth + 1));
+  return out;
+}
+
+/* ผู้ร่วมผ่าตัดที่เดาได้จากชื่อในเคส */
+function autoParticipants(rec) {
+  const out = [];
+  const add = (name, role, why) => {
+    const r = residentByName(name);
+    if (r && !out.some(p => p.residentId === r.id)) out.push({ residentId: r.id, role, why, verified: false });
+  };
+  add(rec.primarySurgeon, "surgeon", "ชื่อผู้ผ่าตัดหลักในระบบคิว");
+  rec.assistants.forEach((n, i) => add(n, i === 0 ? "assist1" : "assist2", "ชื่อผู้ช่วยในระบบคิว"));
+  add(rec.createdByName, "assist1", "ผู้ลงข้อมูลเคสในระบบคิว");
+  return out;
+}
+
+/* ถ้าเดาจากชื่อไม่ได้ ให้เสนอจากตารางหมุนเวียน: ใครอยู่หน่วยที่ตรงกับอนุสาขาของเคสในวันนั้น */
+function suggestAttendees(rec) {
+  if (!rec.date) return [];
+  return (store.data.residents || []).map(r => {
+    const rot = rotationOn(r.id, rec.date);
+    const svc = rot ? serviceById(rot.serviceId) : null;
+    if (!svc) return null;
+    if (svc.subspecialty === rec.subspecialty) return { residentId: r.id, reason: "หมุนเวียนอยู่ " + svc.name + " ในวันนั้น" };
+    if (svc.subspecialty === "general" && rec.caseClass === "emergency") return { residentId: r.id, reason: "อยู่สาย " + svc.name + " ในวันที่มีเคสฉุกเฉิน" };
+    return null;
+  }).filter(Boolean);
+}
+
+function importCaseList(list, sourceLabel) {
+  const byRef = new Map((store.data.cases || []).map(c => [c.source + "|" + c.sourceRef, c]));
+  let added = 0, updated = 0, skipped = 0;
+  (list || []).forEach(raw => {
+    const rec = normaliseQueueCase(raw);
+    if (!rec.operation && !rec.diagnosis) { skipped++; return; }
+    const key = rec.source + "|" + rec.sourceRef;
+    const old = rec.sourceRef ? byRef.get(key) : null;
+    if (old) {
+      /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว */
+      const keep = old.participants;
+      Object.assign(old, rec, { id: old.id, participants: keep });
+      updated++;
+    } else {
+      rec.participants = autoParticipants(rec);
+      store.data.cases.push(rec);
+      byRef.set(key, rec);
+      added++;
+    }
+  });
+  store.data.orQueue.lastImport = new Date().toISOString();
+  store.data.orQueue.lastSource = sourceLabel;
+  store.save();
+  renderAll();
+  return { added, updated, skipped, total: (list || []).length };
+}
+
+async function importFromSnapshotUrl(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("อ่านหน้าระบบคิวไม่ได้ (HTTP " + res.status + ")");
+  const txt = await res.text();
+  const marker = txt.indexOf("__ORQ_SNAPSHOT__");
+  if (marker < 0) throw new Error("ไม่พบข้อมูลเคสในหน้านั้น (ไม่ใช่หน้าระบบคิว หรือรุ่นไม่ตรงกัน)");
+  const eq = txt.indexOf("=", marker) + 1;
+  const end = txt.indexOf("<\/script>", eq);   /* เขียนแบบ escape ไม่ให้ปิดบล็อกสคริปต์ของหน้านี้เอง */
+  const snap = JSON.parse(txt.slice(eq, end < 0 ? undefined : end).trim().replace(/;\s*$/, ""));
+  const cases = collectCasesDeep(snap);
+  if (!cases.length) throw new Error("อ่านหน้าได้ แต่ไม่พบรายการเคส");
+  return importCaseList(cases, "หน้าระบบคิวในที่เก็บเดียวกัน (" + url + ")");
+}
+
+async function importFromApi() {
+  const q = store.data.orQueue || {};
+  if (!q.apiBase) throw new Error("ยังไม่ได้ตั้งค่าที่อยู่ของระบบคิว");
+  const url = q.apiBase.replace(/\/$/, "") + (q.apiPath || OR_QUEUE_DEFAULT.apiPath);
+  const res = await fetch(url, { credentials: "include", headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("ระบบคิวตอบกลับ HTTP " + res.status);
+  const data = await res.json();
+  const cases = collectCasesDeep(data);
+  if (!cases.length) throw new Error("เชื่อมต่อได้ แต่ไม่พบรายการเคสในคำตอบ");
+  return importCaseList(cases, "API ของระบบคิว (" + url + ")");
+}
+
+/* ไฟล์ที่ export จากระบบคิว: JSON (array หรือ {cases:[…]}) หรือ CSV */
+function parseCsv(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  const src = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (q) {
+      if (ch === '"' && src[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (ch !== "\r") cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim()));
+}
+const CSV_ALIASES = {
+  date:["date","scheduleddate","วันที่","วันผ่าตัด"], hn:["hn","เลขที่ผู้ป่วย"],
+  operationText:["operation","operationtext","การผ่าตัด","procedure"],
+  diagnosisText:["diagnosis","diagnosistext","การวินิจฉัย"],
+  subspecialty:["subspecialty","อนุสาขา"], primarySurgeonName:["surgeon","primarysurgeon","ศัลยแพทย์","อาจารย์ผู้ผ่าตัด"],
+  orRoomName:["room","or","ห้องผ่าตัด"], anesthesiaType:["anesthesia","anaesthesia","ระงับความรู้สึก"],
+  asaClass:["asa"], caseClass:["caseclass","ประเภทเคส"], id:["id","caseid","เลขที่เคส"],
+  operativeSide:["side","ข้าง"], estimatedDurationMin:["duration","durationmin","นาที"],
+  assistantSurgeonNames:["assistant","assistants","ผู้ช่วย"], age:["age","อายุ"], sex:["sex","เพศ"]
+};
+function casesFromCsv(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return [];
+  const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/\s|_/g, ""));
+  const col = {};
+  Object.entries(CSV_ALIASES).forEach(([field, names]) => {
+    const i = head.findIndex(h => names.includes(h));
+    if (i >= 0) col[field] = i;
+  });
+  return rows.slice(1).map(r => {
+    const o = {};
+    Object.entries(col).forEach(([field, i]) => { o[field] = r[i]; });
+    if (o.assistantSurgeonNames) o.assistantSurgeonNames = String(o.assistantSurgeonNames).split(/[;/]/).map(x => x.trim()).filter(Boolean);
+    return o;
+  });
+}
+
+function importCasesFromFile(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const txt = String(fr.result);
+      const list = /^\s*[[{]/.test(txt) ? collectCasesDeep(JSON.parse(txt)) : casesFromCsv(txt);
+      if (!list.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
+      const r = importCaseList(list, "ไฟล์ " + file.name);
+      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส");
+    } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
+  };
+  fr.readAsText(file);
+}
+
 const pending = new Map();
 
 function setupIngest() {
@@ -1707,6 +2060,9 @@ function progressFor(res, ay = currentAY()) {
     const done = inYear.filter(a => a.type === t.id).length;
     return { type: t, need, done, pct: pct(done, need), short: Math.max(0, need - done) };
   });
+  const myCases   = (store.data.cases || []).filter(c => c.participants?.some(x => x.residentId === res.id));
+  const casesYear = ay ? myCases.filter(c => c.date && academicYear(c.date) === ay) : myCases;
+  const roleCount = (list, role) => list.filter(c => c.participants.some(x => x.residentId === res.id && x.role === role)).length;
   const evalsAll  = (store.data.sessionEvals || []).filter(e => e.residentId === res.id);
   const evalsYear = ay ? evalsAll.filter(e => academicYear(e.date) === ay) : evalsAll;
   const evalNeed  = +(req.sessionEval || 0);
@@ -1714,10 +2070,22 @@ function progressFor(res, ay = currentAY()) {
   const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
   const subsNeed = +(req.subspecialties || 0);
   const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
-  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + evalNeed;
-  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0) + Math.min(evalsYear.length, evalNeed);
+  const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0);
+  const surgeonDone = roleCount(casesYear, "surgeon");
+  const assistDone  = roleCount(casesYear, "assist1") + roleCount(casesYear, "assist2");
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + evalNeed + surgeonNeed + assistNeed;
+  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0) + Math.min(evalsYear.length, evalNeed)
+    + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed);
   return {
     ay, lines, subsDone, subsNeed, missingSubs,
+    logbook: {
+      total: myCases.length, inYear: casesYear.length,
+      surgeon: { done: surgeonDone, need: surgeonNeed, pct: pct(surgeonDone, surgeonNeed) },
+      assist:  { done: assistDone,  need: assistNeed,  pct: pct(assistDone, assistNeed) },
+      observer: roleCount(myCases, "observer"),
+      verified: myCases.filter(c => c.participants.some(x => x.residentId === res.id && x.verified)).length,
+      subs: new Set(myCases.filter(c => c.subspecialty !== "general").map(c => c.subspecialty))
+    },
     sessionEval: {
       done: evalsYear.length, need: evalNeed, pct: pct(evalsYear.length, evalNeed), total: evalsAll.length,
       meanEntrust: entrusts.length ? Math.round((entrusts.reduce((a, b) => a + b, 0) / entrusts.length) * 10) / 10 : null,
@@ -1757,6 +2125,14 @@ function gapsFor(res) {
     level:"warn",
     text: "มีเซสชันใน 14 วันที่ผ่านมา " + p.sessionEval.pending + " เซสชันที่อาจารย์ผู้รับผิดชอบยังไม่ได้ประเมิน"
   });
+  if (p.logbook.surgeon.need && p.logbook.surgeon.done < p.logbook.surgeon.need) out.push({
+    level: p.logbook.surgeon.done === 0 ? "bad" : "warn",
+    text: "เคสที่เป็นผู้ผ่าตัดหลัก " + p.logbook.surgeon.done + "/" + p.logbook.surgeon.need + " ในปีการศึกษา " + p.ay
+  });
+  if (p.logbook.assist.need && p.logbook.assist.done < p.logbook.assist.need) out.push({
+    level:"warn",
+    text: "เคสที่เป็นผู้ช่วยผ่าตัด " + p.logbook.assist.done + "/" + p.logbook.assist.need + " ในปีการศึกษา " + p.ay
+  });
   const rotNow = rotationOn(res.id, todayISO());
   if (!rotNow) out.push({ level:"warn", text:"ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้" });
   const unverified = store.activitiesOf(res.id).filter(a => !a.verified).length;
@@ -1764,6 +2140,8 @@ function gapsFor(res) {
   return out;
 }
 
+const roleCountAll = (residentId, role) => (store.data.cases || []).filter(c =>
+  c.participants?.some(x => x.residentId === residentId && x.role === role)).length;
 const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ? "low" : ""}" style="width:${Math.max(2, v)}%"></i></div>`;
 
 /* =====================================================================
@@ -2463,6 +2841,8 @@ function renderResidentDetail() {
       <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
       <div class="stat"><b>${p.sessionEval.total}</b><span>ประเมินท้ายเซสชันสะสม</span></div>
       <div class="stat"><b>${p.sessionEval.meanEntrust ?? "—"}</b><span>ระดับ entrustment เฉลี่ย (เต็ม 5)</span></div>
+      <div class="stat"><b>${p.logbook.total}</b><span>เคสผ่าตัดใน logbook</span></div>
+      <div class="stat"><b>${roleCountAll(r.id, "surgeon")}</b><span>เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)</span></div>
     </div>
 
     <h3>ความก้าวหน้าตามเกณฑ์ ปีการศึกษา ${p.ay}</h3>
@@ -2476,6 +2856,12 @@ function renderResidentDetail() {
       <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td><td><b>${p.sessionEval.done}</b></td><td>${p.sessionEval.need || "—"}</td>
         <td>${barFor(p.sessionEval.pct)}</td>
         <td class="small"><span class="tag">3.1</span> <span class="tag">3.2</span> <span class="tag">5.2</span> <span class="tag">7.2</span></td></tr>
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
+        <td>${barFor(p.logbook.surgeon.pct)}</td>
+        <td class="small"><span class="tag">2.3</span> <span class="tag">2.6</span> <span class="tag">3.1</span></td></tr>
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด (logbook)</td><td><b>${p.logbook.assist.done}</b></td><td>${p.logbook.assist.need || "—"}</td>
+        <td>${barFor(p.logbook.assist.pct)}</td>
+        <td class="small"><span class="tag">2.6</span> <span class="tag">6.2</span></td></tr>
       </tbody></table></div>
 
     <h3 style="margin-top:1rem">อนุสาขาที่มีผลงานแล้ว</h3>
@@ -2510,6 +2896,31 @@ function renderResidentDetail() {
         ${evs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${evs.length} ครั้ง</p>` : ""}` : ""}`;
     })()}
 
+    ${(() => {
+      const mine = casesOf(r.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      if (!mine.length) return "";
+      const bySub = {};
+      mine.forEach(c => bySub[c.subspecialty] = (bySub[c.subspecialty] || 0) + 1);
+      return `<h3 style="margin-top:1rem">Logbook เคสผ่าตัด (${mine.length} เคส)</h3>
+      <div class="row" style="margin-bottom:.4rem">
+        ${CASE_ROLES.map(x => `<span class="tag">${esc(x.th)} ${mine.filter(c => roleOf(c, r.id) === x.id).length}</span>`).join("")}
+        <button class="btn-sm no-print" data-printlog="${r.id}">พิมพ์ logbook</button>
+      </div>
+      <div class="row" style="margin-bottom:.5rem">${Object.entries(bySub).sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `<span class="tag b">${esc(SUB_BY_ID[k]?.en || k)} ${n}</span>`).join("")}</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>วันที่</th><th>Operation</th><th>บทบาท</th><th>ศัลยแพทย์</th><th>รับรอง</th></tr></thead>
+        <tbody>${mine.slice(0, 10).map(c => {
+          const pp = c.participants.find(x => x.residentId === r.id);
+          return `<tr><td class="small">${fmtDate(c.date)}</td>
+            <td class="small">${esc(c.operation || "—")}<br /><span class="muted">${esc(SUB_BY_ID[c.subspecialty]?.en || "")}</span></td>
+            <td class="small">${esc(ROLE_BY_ID[pp?.role]?.th || "")}</td>
+            <td class="small">${esc(c.primarySurgeon || "—")}</td>
+            <td>${pp?.verified ? `<span class="tag ok">รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}</td></tr>`;
+        }).join("")}</tbody></table></div>
+      ${mine.length > 10 ? `<p class="small muted">แสดง 10 จาก ${mine.length} เคส · ดูทั้งหมดที่หน้า Logbook</p>` : ""}`;
+    })()}
+
     <h3 style="margin-top:1rem">บันทึกกิจกรรม (${acts.length} รายการ)</h3>
     <div class="timeline">${acts.slice(0, 40).map(a => `
       <div class="ev">
@@ -2531,6 +2942,7 @@ function renderResidentDetail() {
   box.querySelectorAll("[data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
   box.querySelector("[data-edit-res]")?.addEventListener("click", () => editResident(r.id));
   box.querySelector("[data-portfolio]")?.addEventListener("click", () => printPortfolio(r.id));
+  box.querySelector("[data-printlog]")?.addEventListener("click", () => printLogbook(r.id));
 }
 
 /* =====================================================================
@@ -2601,6 +3013,292 @@ function activityCsvRows(list) {
       a.assessment?.score ?? "", a.assessment?.by || "", a.assessment?.comment || "",
       a.verified ? (a.verifiedBy || "yes") : "", (a.wfme || []).join(" ")];
   }));
+}
+
+/* =====================================================================
+   13b) หน้า Logbook เคสผ่าตัด
+   ===================================================================== */
+const caseFilter = { residentId:"", subspecialty:"", role:"", q:"", ay:"" };
+let showHn = false;
+
+const casesOf = (residentId, role) => (store.data.cases || []).filter(c =>
+  c.participants?.some(p => p.residentId === residentId && (!role || p.role === role)));
+const roleOf = (c, residentId) => c.participants?.find(p => p.residentId === residentId)?.role || "";
+const maskHn = (hn) => !hn ? "—" : (showHn ? hn : hn.replace(/.(?=.{2}$)/g, "•"));
+const unassignedCases = () => (store.data.cases || []).filter(c => !c.participants?.length);
+
+function renderLogbook() {
+  const cases = store.data.cases || [];
+  const q = store.data.orQueue || {};
+  $("#importStatus").innerHTML = q.lastImport
+    ? `<p class="notice small">นำเข้าล่าสุด ${new Date(q.lastImport).toLocaleString("th-TH")} จาก ${esc(q.lastSource || "—")}
+        · เคสที่ซ้ำจะถูกอัปเดตทับ ไม่สร้างซ้ำ (จับคู่ด้วยเลขที่เคสของระบบคิว)</p>`
+    : `<p class="notice small">ยังไม่เคยนำเข้าเคส — กด “ดึงจากหน้าระบบคิว” เพื่ออ่านเคสจากหน้าระบบคิวในที่เก็บเดียวกัน
+        (ต้องเปิดผ่านเว็บเซิร์ฟเวอร์หรือ GitHub Pages เบราว์เซอร์จะไม่ยอมให้อ่านไฟล์ข้างเคียงเมื่อเปิดจาก file://)</p>`;
+
+  const withPeople = cases.filter(c => c.participants?.length).length;
+  $("#logbookStats").innerHTML = `
+    <div class="stat"><b>${cases.length}</b><span>เคสที่นำเข้าแล้ว</span></div>
+    <div class="stat"><b>${withPeople}</b><span>ระบุผู้ร่วมผ่าตัดแล้ว</span></div>
+    <div class="stat"><b>${cases.length - withPeople}</b><span>ยังไม่ได้ระบุ</span></div>
+    <div class="stat"><b>${cases.filter(c => c.participants?.some(p => p.verified)).length}</b><span>อาจารย์รับรองแล้ว</span></div>`;
+
+  /* --- เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด --- */
+  const un = unassignedCases().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  $("#unassignedCount").textContent = un.length + " เคส";
+  $("#unassignedList").innerHTML = un.length ? `<div class="grid g2">${un.slice(0, 12).map(c => {
+    const sug = suggestAttendees(c).slice(0, 3);
+    return `<div class="nowcard">
+      <div class="between" style="gap:.4rem">
+        <div style="min-width:0">
+          <b>${esc(c.operation || "—")}</b>
+          <div class="small muted">${fmtDate(c.date)} · ${esc(SUB_BY_ID[c.subspecialty]?.en || "")} · ${esc(c.room || "")}
+            ${c.caseClass === "emergency" ? '<span class="tag bad">ฉุกเฉิน</span>' : ""}</div>
+          <div class="small muted">Dx: ${esc(c.diagnosis || "—")} · ศัลยแพทย์ ${esc(c.primarySurgeon || "—")}</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.45rem">
+        ${sug.map(x => `<button class="btn-sm" data-sugcase="${c.id}" data-sugres="${x.residentId}"
+            title="${esc(x.reason)}">+ ${esc(store.resident(x.residentId)?.name || "")}</button>`).join("")
+          || `<span class="small muted">ไม่มีข้อเสนอจากตารางหมุนเวียน</span>`}
+        <button class="btn-sm btn-ghost" data-editcase="${c.id}">ระบุเอง…</button>
+      </div>
+    </div>`;
+  }).join("")}</div>
+  ${un.length > 12 ? `<p class="small muted" style="margin-top:.5rem">แสดง 12 จาก ${un.length} เคส</p>` : ""}`
+    : `<p class="empty">ทุกเคสที่นำเข้ามีผู้ร่วมผ่าตัดครบแล้ว</p>`;
+
+  /* --- สรุปรายบุคคล --- */
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+  $("#logbookSummary").innerHTML = rs.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>แพทย์ประจำบ้าน</th>${CASE_ROLES.map(r => `<th>${esc(r.th)}</th>`).join("")}
+      <th>รวม</th><th>อนุสาขาที่ทำมากที่สุด</th><th></th></tr></thead>
+    <tbody>${rs.map(r => {
+      const mine = casesOf(r.id);
+      const bySub = {};
+      mine.forEach(c => bySub[c.subspecialty] = (bySub[c.subspecialty] || 0) + 1);
+      const top = Object.entries(bySub).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .map(([k, n]) => (SUB_BY_ID[k]?.en || k) + " " + n).join(" · ");
+      return `<tr>
+        <td>${esc(r.name)}<br /><span class="small muted">ปี ${r.year}</span></td>
+        ${CASE_ROLES.map(role => `<td><b>${casesOf(r.id, role.id).length}</b></td>`).join("")}
+        <td><b>${mine.length}</b></td>
+        <td class="small">${esc(top || "—")}</td>
+        <td class="no-print"><button class="btn-sm" data-printlog="${r.id}">พิมพ์ logbook</button></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">เกณฑ์จำนวนเคสต่อชั้นปีตั้งได้ในหน้า “ตั้งค่า &amp; ข้อมูล”
+      และแสดงเป็นแถบความก้าวหน้าในแฟ้มของแต่ละคน</p>`
+    : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
+
+  /* --- ตารางเคสทั้งหมด --- */
+  const ays = Array.from(new Set(cases.map(c => c.date && academicYear(c.date)).filter(Boolean))).sort().reverse();
+  $("#caseFilters").innerHTML = `
+    <select data-cf="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r =>
+      `<option value="${r.id}" ${caseFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
+    <select data-cf="role"><option value="">ทุกบทบาท</option>${CASE_ROLES.map(r =>
+      `<option value="${r.id}" ${caseFilter.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select>
+    <select data-cf="subspecialty"><option value="">ทุกอนุสาขา</option>${subs.map(x =>
+      `<option value="${x.id}" ${caseFilter.subspecialty === x.id ? "selected" : ""}>${esc(x.en)}</option>`).join("")}</select>
+    <select data-cf="ay"><option value="">ทุกปีการศึกษา</option>${ays.map(y =>
+      `<option value="${y}" ${caseFilter.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>
+    <input data-cf="q" placeholder="ค้นหา operation / diagnosis…" value="${esc(caseFilter.q)}" />
+    <label class="tag" style="cursor:pointer"><input type="checkbox" id="hnToggle" ${showHn ? "checked" : ""} /> แสดง HN เต็ม</label>
+    <button class="btn-sm" id="btnCaseCsv">CSV</button>`;
+  $$("#caseFilters [data-cf]").forEach(el => {
+    const ev = el.tagName === "INPUT" ? "input" : "change";
+    el.addEventListener(ev, () => { caseFilter[el.dataset.cf] = el.value; renderLogbook(); });
+  });
+  $("#hnToggle").addEventListener("change", (e) => { showHn = e.target.checked; renderLogbook(); });
+  $("#btnCaseCsv").addEventListener("click", () => download("logbook-cases.csv", toCsv(caseCsvRows(filterCases())), "text/csv;charset=utf-8"));
+
+  const rows = filterCases();
+  $("#caseTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>HN</th><th>Diagnosis / Operation</th><th>Subspecialty</th><th>ศัลยแพทย์</th>
+      <th>แพทย์ประจำบ้าน &amp; บทบาท</th><th></th></tr></thead>
+    <tbody>${rows.slice(0, 300).map(c => `<tr>
+      <td class="small">${fmtDate(c.date)}<br /><span class="muted">${esc(c.room || "")}${c.caseClass === "emergency" ? " · ฉุกเฉิน" : ""}</span></td>
+      <td class="small mono">${esc(maskHn(c.hn))}</td>
+      <td class="small"><b>${esc(c.operation || "—")}</b><br /><span class="muted">${esc(c.diagnosis || "")}
+        ${c.side ? " · " + esc(c.side) : ""}${c.anaesthesia ? " · " + esc(c.anaesthesia) : ""}${c.asa ? " · ASA " + esc(String(c.asa)) : ""}</span></td>
+      <td class="small">${esc(SUB_BY_ID[c.subspecialty]?.en || "")}</td>
+      <td class="small">${esc(c.primarySurgeon || "—")}</td>
+      <td class="small">${(c.participants || []).map(pp => {
+        const r = store.resident(pp.residentId);
+        return `<span class="tag ${pp.verified ? "ok" : ""}">${esc(r?.name || "?")} · ${esc(ROLE_BY_ID[pp.role]?.th || pp.role)}</span>`;
+      }).join(" ") || `<span class="tag warn">ยังไม่ระบุ</span>`}</td>
+      <td class="no-print"><button class="btn-sm" data-editcase="${c.id}">แก้ไข</button></td>
+    </tr>`).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">แสดง ${Math.min(rows.length, 300)} จาก ${rows.length} เคส (ทั้งหมด ${cases.length} เคส)</p>`
+    : `<p class="empty">ยังไม่มีเคสตามเงื่อนไขที่เลือก</p>`;
+
+  $$("#unassignedList [data-editcase], #caseTable [data-editcase]").forEach(b =>
+    b.addEventListener("click", () => editCaseParticipants(b.dataset.editcase)));
+  $$("#unassignedList [data-sugcase]").forEach(b => b.addEventListener("click", () => {
+    const c = (store.data.cases || []).find(x => x.id === b.dataset.sugcase); if (!c) return;
+    c.participants = c.participants || [];
+    if (!c.participants.some(p => p.residentId === b.dataset.sugres))
+      c.participants.push({ residentId: b.dataset.sugres, role:"assist1", why:"เสนอจากตารางหมุนเวียน", verified:false });
+    store.save(); renderAll(); toast("เพิ่มเป็นผู้ช่วยที่ 1 แล้ว — แก้บทบาทได้ที่ปุ่มแก้ไข");
+  }));
+  $$("#logbookSummary [data-printlog]").forEach(b => b.addEventListener("click", () => printLogbook(b.dataset.printlog)));
+
+  /* เติมผู้ร่วมผ่าตัดจากข้อเสนอของตารางหมุนเวียนทีเดียวทั้งหมด แล้วค่อยไล่ยืนยันทีหลัง */
+  const bulk = un.map(c => ({ c, sug: suggestAttendees(c) })).filter(x => x.sug.length);
+  const bulkBtn = $("#btnBulkSuggest");
+  bulkBtn.disabled = !bulk.length;
+  bulkBtn.textContent = bulk.length ? "เติมข้อเสนอทั้งหมด (" + bulk.length + " เคส)" : "ไม่มีข้อเสนอให้เติม";
+  bulkBtn.onclick = () => {
+    if (!confirm("เติมผู้ร่วมผ่าตัดจากตารางหมุนเวียนให้ " + bulk.length + " เคส เป็น “ผู้ช่วยที่ 1” ทั้งหมด?\n" +
+                 "รายการที่เติมจะยังไม่ถือว่าอาจารย์รับรอง ต้องไล่ตรวจและแก้บทบาทอีกครั้ง")) return;
+    bulk.forEach(({ c, sug }) => {
+      c.participants = sug.slice(0, 2).map((x, i) => ({
+        residentId: x.residentId, role: i === 0 ? "assist1" : "assist2",
+        why: x.reason, verified: false
+      }));
+    });
+    store.save(); renderAll();
+    toast("เติมให้ " + bulk.length + " เคสแล้ว — โปรดตรวจบทบาทก่อนให้อาจารย์รับรอง");
+  };
+}
+
+function filterCases() {
+  const q = caseFilter.q.trim().toLowerCase();
+  return (store.data.cases || []).filter(c =>
+    (!caseFilter.residentId || c.participants?.some(p => p.residentId === caseFilter.residentId &&
+      (!caseFilter.role || p.role === caseFilter.role))) &&
+    (caseFilter.residentId || !caseFilter.role || c.participants?.some(p => p.role === caseFilter.role)) &&
+    (!caseFilter.subspecialty || c.subspecialty === caseFilter.subspecialty) &&
+    (!caseFilter.ay || (c.date && academicYear(c.date) === caseFilter.ay)) &&
+    (!q || (c.operation + " " + c.diagnosis).toLowerCase().includes(q))
+  ).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+}
+
+function editCaseParticipants(id) {
+  const c = (store.data.cases || []).find(x => x.id === id); if (!c) return;
+  const sug = suggestAttendees(c);
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>วันที่</dt><dd>${fmtDate(c.date)} · ${esc(c.room || "—")} ${c.caseClass === "emergency" ? '<span class="tag bad">ฉุกเฉิน</span>' : ""}</dd>
+      <dt>HN</dt><dd class="mono">${esc(maskHn(c.hn))} ${c.age !== "" ? "· อายุ " + esc(String(c.age)) : ""} ${c.sex ? "· " + esc(c.sex) : ""}</dd>
+      <dt>Diagnosis</dt><dd>${esc(c.diagnosis || "—")}</dd>
+      <dt>Operation</dt><dd><b>${esc(c.operation || "—")}</b> ${c.side ? "· " + esc(c.side) : ""}</dd>
+      <dt>Subspecialty</dt><dd>${esc(SUB_BY_ID[c.subspecialty]?.en || "—")}</dd>
+      <dt>ศัลยแพทย์หลัก</dt><dd>${esc(c.primarySurgeon || "—")}</dd>
+      <dt>ที่มา</dt><dd class="small">${esc(c.source)} · เลขที่เคส ${esc(c.sourceRef || "—")}</dd>
+    </div>
+    <h4>ใครร่วมผ่าตัดเคสนี้</h4>
+    ${sug.length ? `<p class="small muted">ข้อเสนอจากตารางหมุนเวียน: ${sug.map(x => esc(store.resident(x.residentId)?.name || "")).join(", ")}</p>` : ""}
+    <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th></tr></thead>
+      <tbody>${store.data.residents.map(r => {
+        const p = (c.participants || []).find(x => x.residentId === r.id);
+        const isSug = sug.some(x => x.residentId === r.id);
+        return `<tr>
+          <td>${esc(r.name)} <span class="small muted">ปี ${r.year}</span> ${isSug ? '<span class="tag b">เสนอ</span>' : ""}</td>
+          <td><select data-role="${r.id}"><option value="">— ไม่ได้ร่วม —</option>
+            ${CASE_ROLES.map(x => `<option value="${x.id}" ${p?.role === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></td>
+          <td style="text-align:center"><input type="checkbox" data-ver="${r.id}" ${p?.verified ? "checked" : ""} /></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>
+    <label class="f" style="margin-top:.6rem"><span>บันทึกเพิ่มเติม (เช่น ขั้นตอนที่ทำเอง)</span>
+      <textarea name="note">${esc(c.note || "")}</textarea></label>`;
+  showDialog("ระบุผู้ร่วมผ่าตัด", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const list = [];
+        store.data.residents.forEach(r => {
+          const role = $('#dlgBody [data-role="' + r.id + '"]')?.value;
+          if (!role) return;
+          const old = (c.participants || []).find(x => x.residentId === r.id);
+          list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
+                      verified: !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked,
+                      verifiedBy: $('#dlgBody [data-ver="' + r.id + '"]')?.checked ? (c.primarySurgeon || "") : "" });
+        });
+        c.participants = list;
+        c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
+        store.save(); renderAll(); toast("บันทึกผู้ร่วมผ่าตัดแล้ว");
+      }},
+    { label:"ลบเคสนี้", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบเคสนี้ออกจาก logbook? (นำเข้าใหม่ได้)")) return false;
+        store.data.cases = store.data.cases.filter(x => x.id !== c.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}
+  ]);
+}
+
+function caseSettingsDialog() {
+  const q = store.data.orQueue || (store.data.orQueue = { ...OR_QUEUE_DEFAULT });
+  const body = `
+    <p class="small muted">หน้านี้ต่อกับระบบคิวได้ 3 ทาง — เลือกทางที่ตรงกับการติดตั้งจริงของกลุ่มงาน</p>
+    <label class="f"><span>1) ที่อยู่หน้าระบบคิว (อ่านข้อมูลสาธิตที่ฝังอยู่ในหน้า)</span>
+      <input name="snapshotUrl" value="${esc(q.snapshotUrl || OR_QUEUE_DEFAULT.snapshotUrl)}" /></label>
+    <label class="f"><span>2) ที่อยู่ API ของระบบคิวจริง (เว้นว่างถ้ายังไม่มี)</span>
+      <input name="apiBase" value="${esc(q.apiBase || "")}" placeholder="https://or-queue.example.org" /></label>
+    <label class="f"><span>เส้นทางที่ใช้ดึงเคส</span>
+      <input name="apiPath" value="${esc(q.apiPath || OR_QUEUE_DEFAULT.apiPath)}" /></label>
+    <p class="small muted">การเรียก API ส่งไปพร้อม cookie ของผู้ใช้ (credentials: include) จึงต้องเป็นระบบที่ผู้ใช้ล็อกอินอยู่แล้ว
+      และฝั่งระบบคิวต้องอนุญาต CORS ให้โดเมนนี้ — หน้านี้ไม่เก็บรหัสผ่านหรือโทเคนใด ๆ</p>
+    <p class="small muted">3) ถ้าเชื่อมตรงไม่ได้ ให้ export เป็นไฟล์ JSON หรือ CSV แล้วใช้ปุ่ม “นำเข้าไฟล์”
+      หัวคอลัมน์ CSV ที่รองรับ: date, hn, diagnosis, operation, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration</p>`;
+  showDialog("ตั้งค่าการเชื่อมต่อระบบคิวห้องผ่าตัด", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        q.snapshotUrl = dlgVal("snapshotUrl") || OR_QUEUE_DEFAULT.snapshotUrl;
+        q.apiBase = dlgVal("apiBase");
+        q.apiPath = dlgVal("apiPath") || OR_QUEUE_DEFAULT.apiPath;
+        store.save(); renderLogbook(); toast("บันทึกการตั้งค่าแล้ว");
+      }}
+  ]);
+}
+
+function caseCsvRows(list) {
+  const head = ["วันที่","ปีการศึกษา","HN","อายุ","เพศ","Diagnosis","Operation","ข้าง","Subspecialty","ประเภทเคส","ห้อง",
+                "ระงับความรู้สึก","ASA","ศัลยแพทย์หลัก","แพทย์ประจำบ้าน","บทบาท","อาจารย์รับรอง","เลขที่เคสในระบบคิว"];
+  const rows = [head];
+  (list || []).forEach(c => {
+    const people = c.participants?.length ? c.participants : [null];
+    people.forEach(pp => {
+      const r = pp ? store.resident(pp.residentId) : null;
+      rows.push([c.date, c.date ? academicYear(c.date) : "", c.hn || "", c.age ?? "", c.sex || "", c.diagnosis || "",
+        c.operation || "", c.side || "", SUB_BY_ID[c.subspecialty]?.en || "", c.caseClass || "", c.room || "",
+        c.anaesthesia || "", c.asa ?? "", c.primarySurgeon || "", r?.name || "", ROLE_BY_ID[pp?.role]?.en || "",
+        pp?.verified ? "yes" : "", c.sourceRef || ""]);
+    });
+  });
+  return rows;
+}
+
+function printLogbook(residentId) {
+  const r = store.resident(residentId); if (!r) return;
+  const mine = casesOf(r.id).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const byRole = {}; CASE_ROLES.forEach(x => byRole[x.id] = mine.filter(c => roleOf(c, r.id) === x.id).length);
+  const bySub = {};
+  mine.forEach(c => { const k = c.subspecialty; (bySub[k] ||= { total:0, surgeon:0 }); bySub[k].total++; if (roleOf(c, r.id) === "surgeon") bySub[k].surgeon++; });
+  const html = reportHead("Logbook เคสผ่าตัด — " + r.name, "ชั้นปีที่ " + r.year + " · รวม " + mine.length + " เคส") + `
+  <div class="card">
+    <h2>สรุปตามบทบาทและอนุสาขา</h2>
+    <table><thead><tr><th>Subspecialty</th><th>ผู้ผ่าตัดหลัก</th><th>รวมทุกบทบาท</th></tr></thead>
+      <tbody>${Object.entries(bySub).sort((a, b) => b[1].total - a[1].total).map(([k, v]) =>
+        `<tr><td>${esc(SUB_BY_ID[k]?.en || k)}</td><td>${v.surgeon}</td><td>${v.total}</td></tr>`).join("") ||
+        "<tr><td colspan='3'>ยังไม่มีเคส</td></tr>"}
+      <tr><td><b>รวม</b></td><td><b>${byRole.surgeon || 0}</b></td><td><b>${mine.length}</b></td></tr></tbody></table>
+    <p class="small muted">แยกตามบทบาท: ${CASE_ROLES.map(x => esc(x.th) + " " + (byRole[x.id] || 0)).join(" · ")}</p>
+  </div>
+  <div class="card">
+    <h2>รายการเคส</h2>
+    <table><thead><tr><th>ลำดับ</th><th>วันที่</th><th>HN</th><th>Diagnosis</th><th>Operation</th><th>บทบาท</th><th>ศัลยแพทย์</th><th>รับรอง</th></tr></thead>
+      <tbody>${mine.map((c, i) => {
+        const pp = c.participants.find(x => x.residentId === r.id);
+        return `<tr><td>${i + 1}</td><td>${fmtDate(c.date)}</td><td class="mono">${esc(c.hn || "—")}</td>
+          <td class="small">${esc(c.diagnosis || "—")}</td><td class="small">${esc(c.operation || "—")}${c.side ? " (" + esc(c.side) + ")" : ""}</td>
+          <td class="small">${esc(ROLE_BY_ID[pp?.role]?.th || "")}</td><td class="small">${esc(c.primarySurgeon || "—")}</td>
+          <td>${pp?.verified ? "✓" : ""}</td></tr>`;
+      }).join("")}</tbody></table>
+    <div class="row" style="margin-top:2rem;gap:3rem">
+      <div>ลงชื่อ ............................................<br /><span class="small muted">แพทย์ประจำบ้าน</span></div>
+      <div>ลงชื่อ ............................................<br /><span class="small muted">อาจารย์ผู้รับรอง logbook</span></div>
+    </div>
+  </div>`;
+  printReport(html);
 }
 
 /* =====================================================================
@@ -2716,6 +3414,10 @@ function wfmeEvidence() {
   const rotN = (store.data.rotations || []).length, svcN = (store.data.services || []).length;
   if (rotN) ["2.4","2.5","2.6","6.2"].forEach(id =>
     map[id]?.sources.push({ label:"ตารางหมุนเวียน " + rotN + " ช่วง ใน " + svcN + " หน่วย พร้อมตารางเซสชันประจำสัปดาห์" }));
+  const caseN = (store.data.cases || []).length;
+  const casePeople = (store.data.cases || []).filter(c => c.participants?.length).length;
+  if (caseN) ["2.3","2.6","3.1","6.2"].forEach(id =>
+    map[id]?.sources.push({ label:"Logbook เคสผ่าตัดจากระบบคิวห้องผ่าตัด " + caseN + " เคส (ระบุผู้ร่วมผ่าตัดแล้ว " + casePeople + " เคส)" }));
   const talkN = (store.data.schedule || []).length;
   if (talkN) ["2.5","8.4"].forEach(id =>
     map[id]?.sources.push({ label:"ตารางนำเสนอวิชาการ " + talkN + " รายการ พร้อมวัน เวลา ผู้นำเสนอ และผู้ดำเนินการ" }));
@@ -2783,6 +3485,10 @@ function renderSettings() {
     <tbody>
       ${ACTIVITY_TYPES.map(t => `<tr><td>${esc(t.th)}</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|${t.id}" value="${store.data.requirements[y]?.[t.id] ?? 0}" /></td>`).join("")}</tr>`).join("")}
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|caseSurgeon" value="${store.data.requirements[y]?.caseSurgeon ?? 0}" /></td>`).join("")}</tr>
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|caseAssist" value="${store.data.requirements[y]?.caseAssist ?? 0}" /></td>`).join("")}</tr>
       <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|sessionEval" value="${store.data.requirements[y]?.sessionEval ?? 0}" /></td>`).join("")}</tr>
       <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
@@ -3110,8 +3816,23 @@ function printPortfolio(residentId) {
         }).join("")}</tbody></table>` : ""}
     </div>`;
   })()}
+  ${(() => {
+    const mine = casesOf(r.id);
+    if (!mine.length) return "";
+    const bySub = {};
+    mine.forEach(c => { const k = c.subspecialty; (bySub[k] ||= { total:0, surgeon:0 }); bySub[k].total++;
+      if (roleOf(c, r.id) === "surgeon") bySub[k].surgeon++; });
+    return `<div class="card">
+      <h2>3. สรุป logbook เคสผ่าตัด (${mine.length} เคส)</h2>
+      <table><thead><tr><th>Subspecialty</th><th>ผู้ผ่าตัดหลัก</th><th>รวมทุกบทบาท</th></tr></thead>
+        <tbody>${Object.entries(bySub).sort((a, b) => b[1].total - a[1].total).map(([k, v]) =>
+          `<tr><td>${esc(SUB_BY_ID[k]?.en || k)}</td><td>${v.surgeon}</td><td>${v.total}</td></tr>`).join("")}</tbody></table>
+      <p class="small muted">แยกตามบทบาท: ${CASE_ROLES.map(x => esc(x.th) + " " + mine.filter(c => roleOf(c, r.id) === x.id).length).join(" · ")}
+        · รายการเคสทั้งหมดพิมพ์แยกได้จากปุ่ม “พิมพ์ logbook”</p>
+    </div>`;
+  })()}
   <div class="card">
-    <h2>3. บันทึกกิจกรรมทั้งหมด (${acts.length} รายการ)</h2>
+    <h2>4. บันทึกกิจกรรมทั้งหมด (${acts.length} รายการ)</h2>
     <table><thead><tr><th>วันที่</th><th>ประเภท</th><th>อนุสาขา</th><th>ชื่อเรื่อง</th><th>หลักฐาน</th><th>ประเมิน</th><th>รับรอง</th></tr></thead>
       <tbody>${acts.map(a => `<tr>
         <td>${fmtDate(a.date)}</td><td>${esc(TYPE_BY_ID[a.type]?.th || a.type)}</td>
@@ -3120,14 +3841,14 @@ function printPortfolio(residentId) {
         <td>${a.assessment?.score != null ? a.assessment.score + "/5" : "—"}</td>
         <td class="small">${a.verified ? esc(a.verifiedBy || "รับรองแล้ว") : "—"}</td></tr>`).join("")}</tbody></table>
   </div>
-  ${projects.length ? `<div class="card"><h2>4. งานวิจัย</h2>${projects.map(pj => `
+  ${projects.length ? `<div class="card"><h2>5. งานวิจัย</h2>${projects.map(pj => `
     <h3>${esc(pj.title)}</h3>
     <p class="small">ที่ปรึกษา ${esc(pj.advisor || "—")} · ${esc(pj.type || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.en || "—")}</p>
     <table><thead><tr><th>ขั้น</th><th>วันที่เสร็จ</th><th>กำหนด</th></tr></thead><tbody>
       ${RESEARCH_STAGES.map(s => { const st = pj.stages?.[s.id] || {}; return `<tr><td>${esc(s.th)}</td><td>${st.done ? fmtDate(st.done) : "—"}</td><td>${st.due ? fmtDate(st.due) : "—"}</td></tr>`; }).join("")}
     </tbody></table>`).join("")}</div>` : ""}
   <div class="card">
-    <h2>${projects.length ? "5" : "4"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
+    <h2>${projects.length ? "6" : "5"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
     ${acts.filter(a => a.assessment?.comment).map(a => `<p><b>${fmtDate(a.date)} — ${esc(a.title)}</b><br />
       ${esc(a.assessment.comment)} <span class="small muted">(${esc(a.assessment.by || "—")}, ${a.assessment.score ?? "—"}/5)</span></p>`).join("") || "<p>ยังไม่มีข้อเสนอแนะที่บันทึกไว้</p>"}
     <div class="row" style="margin-top:2.4rem;gap:3rem">
@@ -3251,6 +3972,7 @@ function renderAll() {
   renderResidents();
   renderActivityFilters();
   renderActivityTable();
+  renderLogbook();
   renderResearch();
   renderCoverage();
   renderWfme();
@@ -3286,6 +4008,24 @@ function init() {
   $("#btnPrintMonth").addEventListener("click", printMonthGrid);
   $("#btnMonthCsv").addEventListener("click", () => download("rotation-by-month.csv", toCsv(monthCsvRows()), "text/csv;charset=utf-8"));
   $("#btnAddTalk").addEventListener("click", () => editTalk(null));
+  $("#btnImportQueue").addEventListener("click", async (e) => {
+    const b = e.target; b.disabled = true; b.textContent = "กำลังอ่าน…";
+    try {
+      const r = await importFromSnapshotUrl(store.data.orQueue?.snapshotUrl || OR_QUEUE_DEFAULT.snapshotUrl);
+      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส จากทั้งหมด " + r.total);
+    } catch (err) {
+      toast("ดึงจากระบบคิวไม่สำเร็จ: " + err.message);
+    } finally { b.disabled = false; b.textContent = "ดึงจากหน้าระบบคิว"; }
+  });
+  $("#btnImportCaseFile").addEventListener("click", () => $("#casePick").click());
+  $("#casePick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importCasesFromFile(f); e.target.value = ""; });
+  $("#btnImportApi").addEventListener("click", async () => {
+    try {
+      const r = await importFromApi();
+      toast("ดึงจาก API แล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส");
+    } catch (err) { toast("ดึงจาก API ไม่สำเร็จ: " + err.message); }
+  });
+  $("#btnCaseSettings").addEventListener("click", caseSettingsDialog);
   $("#btnPrintTalks").addEventListener("click", printTalks);
   $("#btnTalkCsv").addEventListener("click", () => download("presentation-schedule.csv", toCsv(talkCsvRows()), "text/csv;charset=utf-8"));
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });

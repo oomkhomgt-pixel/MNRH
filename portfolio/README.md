@@ -47,6 +47,41 @@
 7. **พิมพ์ออกได้** — แฟ้มสะสมงานรายบุคคล (พร้อมช่องลงนาม) และรายงานหลักฐานตามมาตรฐาน WFME
    รวมถึงดาวน์โหลดเป็น CSV
 
+## เชื่อมกับระบบคิวห้องผ่าตัดเพื่อลง logbook
+
+หน้า **“Logbook เคสผ่าตัด”** ดึงรายการเคสจากระบบคิวห้องผ่าตัดมาใช้เป็นสมุดบันทึกการผ่าตัดของแพทย์ประจำบ้าน
+ต่อได้ 3 ทาง เลือกทางที่ตรงกับการติดตั้งจริง
+
+1. **อ่านจากหน้าระบบคิวในที่เก็บเดียวกัน** — กดปุ่มเดียว หน้านี้จะอ่าน `../index.html` (หน้าสาธิตระบบคิว)
+   ดึงข้อมูลเคสที่ฝังอยู่ในหน้านั้นออกมา ใช้ได้เมื่อเปิดผ่าน GitHub Pages หรือเว็บเซิร์ฟเวอร์
+   (เปิดจาก `file://` เบราว์เซอร์จะไม่ยอมให้อ่านไฟล์ข้างเคียง)
+2. **นำเข้าไฟล์** — JSON ที่ export จากระบบคิว หรือ CSV ที่มีหัวคอลัมน์
+   `date, hn, diagnosis, operation, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration, id`
+3. **ต่อ API ของระบบจริง** — ตั้งที่อยู่ระบบคิวในหน้าตั้งค่าการเชื่อมต่อ ระบบจะเรียก
+   `GET {ที่อยู่}/api/cases?scope=all&includeClosed=true` พร้อม cookie ของผู้ใช้ (ต้องล็อกอินระบบคิวอยู่ และฝั่งระบบคิวต้องอนุญาต CORS)
+   หน้านี้ไม่เก็บรหัสผ่านหรือโทเคนใด ๆ
+
+เคสซ้ำจะถูกอัปเดตทับ ไม่สร้างรายการซ้ำ (จับคู่ด้วยเลขที่เคสของระบบคิว) และ **ชื่อผู้ป่วยไม่ถูกนำเข้ามาโดยตั้งใจ**
+สิ่งที่นำเข้าคือ วันที่ HN อายุ เพศ การวินิจฉัย การผ่าตัด ข้าง อนุสาขา ห้อง ประเภทเคส การระงับความรู้สึก ASA
+ระยะเวลา และชื่อศัลยแพทย์หลัก · HN แสดงแบบปิดบังไว้ก่อน กดเปิดดูเต็มได้เมื่อต้องตรวจสอบ
+
+### ใครร่วมผ่าตัดเคสไหน
+
+ข้อจำกัดที่ต้องรู้: **ระบบคิวรุ่นปัจจุบันบันทึกเฉพาะศัลยแพทย์หลัก ยังไม่มีช่องผู้ช่วยผ่าตัด**
+(ในข้อมูลสาธิต `assistantSurgeonNames` ว่างทุกเคส) หน้านี้จึงเติมชั้น “ผู้ร่วมผ่าตัด” ให้เอง โดย
+
+- จับคู่ชื่อที่มีอยู่ในเคส (ศัลยแพทย์หลัก ผู้ช่วย ผู้ลงข้อมูล) กับรายชื่อแพทย์ประจำบ้านให้อัตโนมัติ
+- ถ้าจับคู่ไม่ได้ **เสนอชื่อจากตารางหมุนเวียน** — ใครหมุนเวียนอยู่หน่วยที่ตรงกับอนุสาขาของเคสในวันนั้น
+  กดปุ่มเดียวเพื่อเติมทั้งหมด แล้วค่อยไล่แก้บทบาททีหลัง
+- บทบาทที่บันทึกได้: ผู้ผ่าตัดหลัก / ผู้ช่วยที่ 1 / ผู้ช่วยที่ 2 / ผู้สังเกตการณ์ พร้อมช่องให้อาจารย์รับรอง
+
+จำนวนเคสแยกตามบทบาทนับรวมเป็นเกณฑ์ความก้าวหน้าของแต่ละชั้นปี (ตั้งค่าได้) แสดงในแฟ้มรายบุคคล
+และพิมพ์เป็น logbook รายคนได้ (สรุปตามอนุสาขา + รายการเคสเรียงลำดับ + ช่องลงนามอาจารย์ผู้รับรอง)
+
+**ถ้าอยากให้อัตโนมัติเต็มรูปแบบ** ระบบคิวต้องเพิ่มการบันทึกผู้ร่วมผ่าตัดในเคส เช่นฟิลด์
+`attendees: [{ userId, role }]` หรือเติมชื่อลง `assistantSurgeonNames` ให้ครบ เมื่อมีข้อมูลนั้นแล้ว
+หน้านี้จะจับคู่ให้เองทันทีโดยไม่ต้องยืนยันทีละเคส
+
 ## ชื่ออนุสาขาเป็นภาษาอังกฤษทั้งหมด
 
 อนุสาขาที่ระบบเก็บและแสดงมี 9 อนุสาขา ใช้ชื่อภาษาอังกฤษอย่างเดียว ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน
@@ -77,8 +112,8 @@
 trauma film conference ผูกกับ 2.3, 2.6, 6.2 หน้า “มาตรฐาน WFME” จึงแสดงได้ว่าแต่ละหัวข้อมีหลักฐานอะไรอยู่จริง
 กี่รายการ และหัวข้อใดยังไม่มี
 
-ตารางหมุนเวียนรายเดือน ตารางเซสชันประจำสัปดาห์ ตารางนำเสนอ ทะเบียนอาจารย์ และแบบประเมินท้ายเซสชัน
-ถูกนับเป็นหลักฐานของหมวด
+logbook เคสผ่าตัดที่ดึงจากระบบคิว ตารางหมุนเวียนรายเดือน ตารางเซสชันประจำสัปดาห์ ตารางนำเสนอ ทะเบียนอาจารย์
+และแบบประเมินท้ายเซสชัน ถูกนับเป็นหลักฐานของหมวด
 2.4 / 2.5 / 2.6 (โครงสร้างหลักสูตรและความสัมพันธ์กับงานบริการ), 3.1 / 3.2 (วิธีการประเมินและความเชื่อมโยงกับการเรียนรู้),
 5.1 / 5.2 (อาจารย์และหน้าที่ของอาจารย์), 6.2 (สถานที่ฝึกปฏิบัติทางคลินิก), 6.4 (ทีมผู้ให้บริการทางคลินิก)
 และ 8.4 (การบริหารจัดการและงานธุรการ)
@@ -140,6 +175,20 @@ entrustment level (1-5) and written feedback, with a per-staff board of sessions
 over the last 14 days. Those evaluations count toward each year's requirements and serve as workplace-based
 assessment evidence for WFME areas 3, 5 and 7; the rotation schedule evidences 2.4, 2.5, 2.6 and 6.2, and the
 presentation schedule 2.5 and 8.4. Subspecialty names are recorded and displayed in English throughout.
+
+**Operative logbook from the OR queue system.** The queue demo in this same repository (`../index.html`)
+carries its case data inside the page, so the portfolio can read it directly over one fetch on GitHub Pages;
+a JSON/CSV export or a real `GET /api/cases?scope=all&includeClosed=true` endpoint work the same way. Cases
+de-duplicate on the queue's own case id, and **patient names are deliberately not imported** — date, HN, age,
+sex, diagnosis, operation, side, subspecialty, room, anaesthesia, ASA, duration and the primary surgeon are.
+HN is masked in the table until you ask to see it.
+
+The queue system records only the primary surgeon — there is no assistant field yet — so the portfolio adds
+the attendance layer: names found on the case are matched against the resident roster, and where that fails
+the rotation calendar suggests who was on that service that day, in bulk if wanted. Roles are primary
+surgeon, first/second assistant, observer, each with a staff sign-off. Case counts by role feed the per-year
+requirements and print as a per-resident logbook. For full automation the queue system would need to record
+attendees per case (`attendees: [{userId, role}]`, or a populated assistant list).
 
 Tested in headless Chromium: `.pptx`/`.pdf` ingestion, classification, persistence, exports and reports.
 Requires a browser with `DecompressionStream` (Chrome/Edge 80+, Safari 16.4+, Firefox 113+).
