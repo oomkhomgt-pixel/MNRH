@@ -78,22 +78,32 @@ http.createServer((req, res) => {
     if (req.method === "GET") {
       const doc = loadDataset();
       if (url.searchParams.get("versions") === "1")
-        return send(res, 200, { versions: (doc.versions || []).map(v => ({ at: v.at, device: v.device, bytes: v.bytes })) }, origin);
-      return send(res, 200, { updatedAt: doc.updatedAt || "", device: doc.device || "", data: doc.data || null }, origin);
+        return send(res, 200, { rev: doc.rev || 0, versions: (doc.versions || []).map(v => ({ rev: v.rev, at: v.at, device: v.device, bytes: v.bytes })) }, origin);
+      return send(res, 200, { rev: doc.rev || 0, updatedAt: doc.updatedAt || "", device: doc.device || "", data: doc.data || null }, origin);
     }
     if (req.method === "PUT") {
       return readBody(req, res, origin, (parsed) => {
         if (!parsed || typeof parsed.data !== "object") return send(res, 400, { error: "missing data" }, origin);
         const doc = loadDataset();
+        const rev = doc.rev || 0;
+        /* กันการเขียนทับข้ามกัน: ผู้ส่งต้องอ้างรุ่นที่ตัวเองแก้มาจาก ถ้าไม่ตรงรุ่นปัจจุบันให้ปฏิเสธ
+           แล้วส่งของปัจจุบันกลับไปให้ฝั่งผู้ใช้รวมข้อมูลก่อนส่งใหม่ */
+        const baseRev = Number(parsed.baseRev);
+        if (rev > 0 && Number.isFinite(baseRev) && baseRev !== rev) {
+          console.log(new Date().toISOString(), "PUT dataset rejected: baseRev", baseRev, "!= rev", rev);
+          return send(res, 409, { error: "conflict", rev, updatedAt: doc.updatedAt || "", device: doc.device || "", data: doc.data || null }, origin);
+        }
         const bytes = JSON.stringify(parsed.data).length;
-        doc.versions = [{ at: new Date().toISOString(), device: String(parsed.device || ""), bytes, data: parsed.data }]
+        const next = rev + 1;
+        doc.versions = [{ rev: next, at: new Date().toISOString(), device: String(parsed.device || ""), bytes, data: parsed.data }]
           .concat(doc.versions || []).slice(0, KEEP_VERSIONS);
+        doc.rev = next;
         doc.updatedAt = doc.versions[0].at;
         doc.device = doc.versions[0].device;
         doc.data = parsed.data;
         saveDataset(doc);
-        console.log(new Date().toISOString(), "PUT dataset", bytes, "bytes from", doc.device);
-        return send(res, 200, { ok: true, updatedAt: doc.updatedAt, bytes, versions: doc.versions.length }, origin);
+        console.log(new Date().toISOString(), "PUT dataset rev", next, bytes, "bytes from", doc.device);
+        return send(res, 200, { ok: true, rev: next, updatedAt: doc.updatedAt, bytes, versions: doc.versions.length }, origin);
       });
     }
     return send(res, 405, { error: "method not allowed" }, origin);

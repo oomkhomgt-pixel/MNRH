@@ -591,6 +591,13 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="keywordEditor"></div>
     </div>
     <div class="card">
+      <div class="between"><h2>รายการที่ชนกันตอนซิงก์</h2>
+        <button class="btn-sm no-print" id="btnClearConflicts">ล้างรายการ</button></div>
+      <p class="muted small">เมื่อมีคนแก้พร้อมกัน ระบบจะรวมข้อมูลให้อัตโนมัติ — รายการที่แก้คนละที่จะรวมกันได้เลย
+        ส่วนรายการเดียวกันที่ถูกแก้ทั้งสองฝั่งจะถูกบันทึกไว้ตรงนี้ให้ตรวจย้อน</p>
+      <div id="conflictList"></div>
+    </div>
+    <div class="card">
       <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
       <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
         ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
@@ -935,7 +942,7 @@ const store = {
     d.users ||= []; d.audit ||= [];
     d.epas ||= []; d.epaAssessments ||= [];
     d.backup ||= { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" };
-    d.backupLog ||= [];
+    d.backupLog ||= []; d.syncConflicts ||= [];
     d.sync.mode ||= "logbook";
     d.sync.cloudUrl ||= "";
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
@@ -3664,26 +3671,127 @@ function fullPayload() {
 
 const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navigator.platform || "device");
 
-async function cloudPush(quiet) {
+/* ---------------------------------------------------------------------
+   กันการแก้พร้อมกันทับกัน
+   1) เซิร์ฟเวอร์นับรุ่น (rev) ของชุดข้อมูล การส่งขึ้นต้องอ้างรุ่นที่ตัวเองแก้มาจาก
+      ถ้ารุ่นไม่ตรง เซิร์ฟเวอร์ตอบ 409 พร้อมของปัจจุบัน แทนที่จะยอมให้เขียนทับ
+   2) ฝั่งเครื่องเก็บ "ฐาน" (baseline) ไว้ = ชุดข้อมูลตอนซิงก์สำเร็จครั้งล่าสุด
+      เมื่อชนกันจึงรวมแบบสามทางได้: ฐาน / ของเครื่องนี้ / ของบนคลาวด์
+      รายการที่เราไม่ได้แตะ จะไม่ทับของคนอื่น — ทับเฉพาะรายการที่เราแก้จริง
+   --------------------------------------------------------------------- */
+const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
+const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals",
+  "activities","research","cases","epas","epaAssessments","users"];
+const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
+
+const readBaseline = () => { try { return JSON.parse(localStorage.getItem(BASELINE_KEY)); } catch { return null; } };
+const writeBaseline = (rev, data) => {
+  try { localStorage.setItem(BASELINE_KEY, JSON.stringify({ rev, at: new Date().toISOString(), data })); }
+  catch (e) { console.warn("เก็บฐานเปรียบเทียบไม่ได้", e); }
+};
+const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const indexById = (list) => new Map((list || []).filter(x => x && x.id).map(x => [x.id, x]));
+
+function mergeDatasets(base, mine, theirs) {
+  const merged = JSON.parse(JSON.stringify(theirs || {}));
+  const conflicts = [];
+  ID_COLLECTIONS.forEach(key => {
+    const b = indexById(base?.[key]), m = indexById(mine?.[key]), t = indexById(theirs?.[key]);
+    const out = new Map(t);
+    m.forEach((rec, id) => {
+      const bRec = b.get(id), tRec = t.get(id);
+      if (bRec && sameJson(rec, bRec)) return;                    /* เครื่องนี้ไม่ได้แก้ ปล่อยของคลาวด์ไว้ */
+      if (tRec && bRec && !sameJson(tRec, bRec) && !sameJson(tRec, rec))
+        conflicts.push({ key, id, note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
+      out.set(id, rec);                                           /* ทับเฉพาะรายการที่เราแก้จริง */
+    });
+    b.forEach((bRec, id) => {
+      if (m.has(id)) return;                                      /* ยังอยู่ ไม่ได้ลบ */
+      const tRec = t.get(id);
+      if (tRec && !sameJson(tRec, bRec)) {
+        conflicts.push({ key, id, note: "เครื่องนี้ลบ แต่เครื่องอื่นแก้ — คงของเครื่องอื่นไว้" });
+        return;
+      }
+      out.delete(id);                                             /* ลบจริง */
+    });
+    merged[key] = Array.from(out.values());
+  });
+  WHOLE_KEYS.forEach(key => {
+    if (sameJson(mine?.[key], base?.[key])) return;               /* เราไม่ได้แก้ */
+    if (!sameJson(theirs?.[key], base?.[key]) && !sameJson(theirs?.[key], mine?.[key]))
+      conflicts.push({ key, id: "(ทั้งชุด)", note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
+    merged[key] = mine[key];
+  });
+  return { merged, conflicts };
+}
+
+function applyMerged(data) {
+  const localPins = new Map((store.data.users || []).map(u => [u.username, u.pin]));
+  const myUsername = currentUser()?.username || "";
+  SYNCED_KEYS.forEach(k => { if (data[k] !== undefined) store.data[k] = data[k]; });
+  (store.data.users || []).forEach(u => { if (!u.pin && localPins.get(u.username)) u.pin = localPins.get(u.username); });
+  store.migrate();
+  /* ทะเบียนบัญชีอาจถูกแทนที่ด้วยของเครื่องอื่น — ผูกเซสชันเดิมกลับด้วยชื่อผู้ใช้ */
+  if (session && !(store.data.users || []).some(u => u.id === session.userId)) {
+    const again = (store.data.users || []).find(u => u.username === myUsername);
+    if (again) {
+      session = { ...session, userId: again.id };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    } else {
+      toast("บัญชีนี้ไม่มีในทะเบียนที่ดึงมา — กรุณาเข้าสู่ระบบใหม่");
+      setTimeout(signOut, 1500);
+    }
+  }
+}
+
+function recordConflicts(list) {
+  if (!list.length) return;
+  (store.data.syncConflicts ||= []).push(...list.map(c => ({ ...c, at: new Date().toISOString(), by: currentUser()?.displayName || "" })));
+  if (store.data.syncConflicts.length > 50) store.data.syncConflicts.splice(0, store.data.syncConflicts.length - 50);
+  audit("รวมข้อมูลที่ชนกัน", list.length + " รายการ");
+}
+
+async function cloudPush(quiet, isRetry) {
   const cfg = syncCfg();
   if (!cfg.cloudUrl) { if (!quiet) toast("ยังไม่ได้ตั้งที่อยู่คลาวด์ของภาควิชา"); return; }
-  if (syncing) return;
+  if (syncing && !isRetry) return;
   if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
   syncing = true; paintSyncState();
+  const headers = Object.assign({ "Content-Type": "application/json" }, cfg.token ? { Authorization: "Bearer " + cfg.token } : {});
   try {
+    const payload = fullPayload();
     const res = await fetchWithTimeout(cfg.cloudUrl, {
-      method: "PUT", credentials: "include",
-      headers: Object.assign({ "Content-Type": "application/json" }, cfg.token ? { Authorization: "Bearer " + cfg.token } : {}),
-      body: JSON.stringify({ device: deviceName(), updatedAt: new Date().toISOString(), data: fullPayload() })
+      method: "PUT", credentials: "include", headers,
+      body: JSON.stringify({ device: deviceName(), baseRev: cfg.rev ?? 0, updatedAt: new Date().toISOString(), data: payload })
     }, 20000);
+
+    /* ชนกัน: มีเครื่องอื่นส่งขึ้นหลังจากที่เราซิงก์ครั้งล่าสุด */
+    if (res.status === 409) {
+      const remote = await res.json().catch(() => ({}));
+      if (isRetry) throw new Error("ยังชนกันอยู่หลังรวมข้อมูลแล้ว — ลองใหม่อีกครั้ง");
+      const base = readBaseline();
+      const { merged, conflicts } = mergeDatasets(base?.data || null, payload, remote.data || {});
+      applyMerged(merged);
+      recordConflicts(conflicts);
+      cfg.rev = remote.rev || 0;
+      suppressDirty = true; store.save(); suppressDirty = false;
+      renderAll(); applyPermissions();
+      if (!quiet) toast(conflicts.length
+        ? "มีคนแก้พร้อมกัน — รวมข้อมูลแล้ว (" + conflicts.length + " รายการชนกัน) กำลังส่งใหม่"
+        : "มีคนแก้พร้อมกัน — รวมข้อมูลอัตโนมัติแล้ว กำลังส่งใหม่");
+      syncing = false;
+      return cloudPush(quiet, true);
+    }
+
     if (!res.ok) throw new Error("HTTP " + res.status);
     const body = await res.json().catch(() => ({}));
+    cfg.rev = body.rev ?? cfg.rev;
     cfg.lastAt = new Date().toISOString();
     cfg.remoteAt = body.updatedAt || cfg.lastAt;
-    cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว " + Math.round((body.bytes || 0) / 1024) + " KB" +
-                     (body.versions ? " · เก็บย้อนหลัง " + body.versions + " รุ่น" : "");
+    cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว รุ่นที่ " + (body.rev ?? "—") + " · " + Math.round((body.bytes || 0) / 1024) + " KB";
     cfg.pending = false;
-    if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว");
+    writeBaseline(cfg.rev, fullPayload());
+    if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
   } catch (e) {
     cfg.lastStatus = "ส่งขึ้นคลาวด์ไม่สำเร็จ: " + e.message;
     cfg.pending = true;
@@ -3708,12 +3816,10 @@ async function cloudPull() {
                  " จากเครื่อง " + (body.device || "—") + ")\n" +
                  "จะแทนที่ข้อมูลในเครื่องนี้ด้วย แพทย์ประจำบ้าน " + n + " คน · กิจกรรม " + a + " รายการ\n" +
                  "ควรสำรองลงดิสก์ก่อนถ้ายังไม่ได้ทำ")) return;
-    /* บัญชีที่ดึงมาไม่มีรหัสผ่าน จึงต้องจำรหัสเดิมในเครื่องไว้ก่อนเขียนทับ ไม่งั้นจะล็อกอินไม่ได้อีก */
-    const localPins = new Map((store.data.users || []).map(u => [u.username, u.pin]));
-    SYNCED_KEYS.forEach(k => { if (body.data[k] !== undefined) store.data[k] = body.data[k]; });
-    (store.data.users || []).forEach(u => { if (!u.pin && localPins.get(u.username)) u.pin = localPins.get(u.username); });
-    store.migrate();
-    audit("ดึงข้อมูลจากคลาวด์", "อัปเดตล่าสุด " + (body.updatedAt || "—"));
+    applyMerged(body.data);
+    syncCfg().rev = body.rev ?? 0;
+    writeBaseline(syncCfg().rev, fullPayload());
+    audit("ดึงข้อมูลจากคลาวด์", "รุ่นที่ " + (body.rev ?? "—") + " อัปเดตล่าสุด " + (body.updatedAt || "—"));
     suppressDirty = true; store.save(); suppressDirty = false;
     renderAll(); applyPermissions();
     toast("ดึงข้อมูลจากคลาวด์แล้ว");
@@ -3833,6 +3939,22 @@ async function autoBackupIfDue() {
     if ((await backupDir.queryPermission({ mode: "readwrite" })) !== "granted") return;
   } catch { return; }
   await backupToFolder(true);
+}
+
+function renderConflictList() {
+  const box = $("#conflictList"); if (!box) return;
+  const rows = (store.data.syncConflicts || []).slice(-20).reverse();
+  const label = { residents:"แพทย์ประจำบ้าน", staff:"อาจารย์", services:"หน่วย", rotations:"ช่วงหมุนเวียน",
+    schedule:"ตารางนำเสนอ", sessionEvals:"ผลประเมินท้ายเซสชัน", activities:"กิจกรรม", research:"งานวิจัย",
+    cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
+    requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
+  box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>เวลา</th><th>ส่วนข้อมูล</th><th>รายการ</th><th>ผลที่ระบบเลือก</th></tr></thead>
+    <tbody>${rows.map(c => `<tr><td class="small">${new Date(c.at).toLocaleString("th-TH")}</td>
+      <td class="small">${esc(label[c.key] || c.key)}</td><td class="small mono">${esc(String(c.id).slice(0, 18))}</td>
+      <td class="small">${esc(c.note)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีรายการที่ชนกัน</p>`;
+  $("#btnClearConflicts").onclick = () => { store.data.syncConflicts = []; store.save(); renderConflictList(); toast("ล้างรายการแล้ว"); };
 }
 
 function renderBackupPanel() {
@@ -5131,6 +5253,7 @@ function renderAll() {
   renderUserTable();
   renderAuditLog();
   renderBackupPanel();
+  renderConflictList();
   renderIngestStats();
   renderRotation();
   renderStaffTable();
