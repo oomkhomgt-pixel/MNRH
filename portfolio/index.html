@@ -295,6 +295,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="planNotes"></div>
         <div class="row" id="monthLegend" style="margin-bottom:.6rem"></div>
         <div id="monthGrid"></div>
+        <div id="teamComposition" style="margin-top:1.2rem"></div>
       </div>
       <div class="card">
         <h2>ช่วงหมุนเวียนทั้งหมด</h2>
@@ -837,6 +838,7 @@ const store = {
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
     d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
     d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
+    if (!d.orQueue.patientData) d.orQueue.patientData = d.orQueue.dropHn ? "nohn" : "full";
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
     [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
@@ -984,6 +986,7 @@ const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDat
 const EXTERNAL_BY_YEAR = { 1: ["svc_anesth", "svc_rheum", "svc_traumasurg"], 2: ["svc_pmr"] };
 const R3_ELECTIVE_MONTHS = 3, R3_ELECTIVE_CONCURRENT_MAX = 2;
 const R4_ELECTIVE_FROM_MONTH = 2;   /* 2 = มีนาคม (0 = มกราคม) */
+const R4_MAX_TEAM_MONTHS = 3;       /* ปี 4 ลงสายเป็นกำลังเสริมได้ไม่เกินกี่เดือน ที่เหลือต้องได้วนหน่วยอนุสาขา */
 
 function buildRotationPlan(ay, residents, services) {
   const months = ayMonths(ay);
@@ -1033,29 +1036,71 @@ function buildRotationPlan(ay, residents, services) {
   };
   Object.entries(EXTERNAL_BY_YEAR).forEach(([year, ids]) => placeExternal(byYear[year] || [], ids));
 
-  /* ปี 4 — เดือนที่เหลือวนตาม sub แล้วตามด้วยสาย */
-  (byYear[4] || []).forEach((r, i) => {
-    const seq = subUnits.concat(teams);
-    let k = 0;
-    for (let m = 0; m < 12; m++) {
-      if (grid[r.id][m]) continue;
-      grid[r.id][m] = seq[(i * 2 + k) % seq.length]; k++;
-    }
-  });
-
-  /* ปี 1–3 — ลงสาย โดยแบ่งคนต่อสายให้เท่ากันที่สุด และเลี่ยงสายเดิมสองเดือนติด */
+  /* ลงสายรายเดือน — ปี 4 เป็น extra (ลง sub เป็นหลัก) ส่วนสายต้องมีคนพอและมีทั้งรุ่นพี่รุ่นน้อง */
+  const isSenior = (r) => r.year >= 3;
+  const subCycle = {}, r4TeamMonths = {};
   for (let m = 0; m < 12; m++) {
-    const load = {}; teams.forEach(t => load[t] = 0);
-    residents.forEach(r => { const sid = grid[r.id][m]; if (sid in load) load[sid]++; });
-    (residents.filter(r => !grid[r.id][m]).sort((a, b) => b.year - a.year || a.id.localeCompare(b.id)))
+    /* 1) ปี 4 ลงหน่วยอนุสาขาก่อน ไม่ให้ซ้ำหน่วยกันในเดือนเดียว */
+    const takenSub = new Set();
+    (byYear[4] || []).forEach((r, i) => {
+      if (grid[r.id][m]) return;
+      let pick = null;
+      for (let k = 0; k < subUnits.length; k++) {
+        const cand = subUnits[((subCycle[r.id] || i) + k) % subUnits.length];
+        if (!takenSub.has(cand)) { pick = cand; subCycle[r.id] = (subCycle[r.id] || i) + k + 1; break; }
+      }
+      grid[r.id][m] = pick || subUnits[i % subUnits.length];
+      takenSub.add(grid[r.id][m]);
+    });
+
+    /* 2) ปี 1–3 ลงสาย คุมทั้งจำนวนรวม และสัดส่วนรุ่นพี่ (ปี 3–4) กับรุ่นน้อง (ปี 1–2) ของแต่ละสาย */
+    const total = {}, senior = {}, junior = {};
+    teams.forEach(t => { total[t] = 0; senior[t] = 0; junior[t] = 0; });
+    residents.forEach(r => {
+      const sid = grid[r.id][m];
+      if (sid in total) { total[sid]++; (isSenior(r) ? senior : junior)[sid]++; }
+    });
+    residents.filter(r => !grid[r.id][m]).sort((a, b) => b.year - a.year || a.id.localeCompare(b.id))
       .forEach((r, n) => {
         const prev = m > 0 ? grid[r.id][m - 1] : null;
+        const mine = isSenior(r) ? senior : junior;
         const order = teams.slice(n % teams.length).concat(teams.slice(0, n % teams.length));
         const pick = order.slice().sort((x, y) =>
-          (load[x] - load[y]) || ((x === prev ? 1 : 0) - (y === prev ? 1 : 0)) ||
-          (order.indexOf(x) - order.indexOf(y)))[0];
-        grid[r.id][m] = pick; load[pick]++;
+          (mine[x] - mine[y]) || (total[x] - total[y]) ||
+          ((x === prev ? 1 : 0) - (y === prev ? 1 : 0)) || (order.indexOf(x) - order.indexOf(y)))[0];
+        grid[r.id][m] = pick; total[pick]++; mine[pick]++;
       });
+
+    /* 3) ปี 4 เป็นกำลังเสริม — ดึงจากหน่วยอนุสาขามาลงสายที่ไม่มีคน หรือสายที่ไม่มีรุ่นพี่ */
+    const pullR4 = (teamId, cap) => {
+      /* ดึงได้เท่าที่ยังไม่กินเวลาหน่วยอนุสาขาของปี 4 มากเกินไป */
+      const spare = (byYear[4] || [])
+        .filter(r => subUnits.includes(grid[r.id][m]) && (r4TeamMonths[r.id] || 0) < cap)
+        .sort((a, b) => (r4TeamMonths[a.id] || 0) - (r4TeamMonths[b.id] || 0))[0];
+      if (!spare) return false;
+      grid[spare.id][m] = teamId; total[teamId]++; senior[teamId]++;
+      r4TeamMonths[spare.id] = (r4TeamMonths[spare.id] || 0) + 1;
+      return true;
+    };
+    teams.filter(t => total[t] === 0).forEach(t => pullR4(t, R4_MAX_TEAM_MONTHS + 2));
+    const pullBudget = Math.max(1, Math.floor((byYear[4] || []).length / 2));
+    let pulled = 0;
+    teams.filter(t => total[t] > 0 && senior[t] === 0).forEach(t => {
+      if (pulled >= pullBudget) return;
+      if (pullR4(t, R4_MAX_TEAM_MONTHS)) pulled++;
+    });
+
+    /* 4) เกลี่ยรุ่นพี่: สายที่มีแต่รุ่นน้องดึงรุ่นพี่จากสายที่มีรุ่นพี่เกินมาให้ */
+    for (let guard = 0; guard < 8; guard++) {
+      const lack = teams.find(t => total[t] > 0 && senior[t] === 0);
+      const rich = teams.find(t => senior[t] >= 2);
+      if (!lack || !rich) break;
+      const mover = residents.find(r => r.year === 3 && grid[r.id][m] === rich) ||
+                    residents.find(r => isSenior(r) && grid[r.id][m] === rich);
+      if (!mover) break;
+      grid[mover.id][m] = lack;
+      senior[rich]--; total[rich]--; senior[lack]++; total[lack]++;
+    }
   }
 
   const supervisorFor = (serviceId) => {
@@ -1085,8 +1130,13 @@ function buildRotationPlan(ay, residents, services) {
     const el = residents.filter(r => r.year === 3 && grid[r.id][m] === ELECTIVE).length;
     if (el > R3_ELECTIVE_CONCURRENT_MAX) warnings.push(monthLabel(mm) + ": ปี 3 ไป elective พร้อมกัน " + el + " คน");
     teams.forEach(t => {
-      const n = residents.filter(r => grid[r.id][m] === t).length;
-      if (n === 0) warnings.push(monthLabel(mm) + ": " + (services.find(x => x.id === t)?.abbr || t) + " ไม่มีแพทย์ประจำบ้านลงสาย");
+      const inTeam = residents.filter(r => grid[r.id][m] === t);
+      const abbr = services.find(x => x.id === t)?.abbr || t;
+      const sen = inTeam.filter(r => r.year >= 3).length, jun = inTeam.length - sen;
+      if (inTeam.length === 0) warnings.push(monthLabel(mm) + ": " + abbr + " ไม่มีแพทย์ประจำบ้านลงสาย");
+      else if (sen === 0) warnings.push(monthLabel(mm) + ": " + abbr + " มีแต่ปี 1–2 (" + jun + " คน) ไม่มีรุ่นพี่ในสาย");
+      else if (jun === 0 && inTeam.length > 1) warnings.push(monthLabel(mm) + ": " + abbr + " มีแต่ปี 3–4 ไม่มีรุ่นน้องช่วยงานในสาย");
+      else if (jun >= 3 && jun > sen * 2) warnings.push(monthLabel(mm) + ": " + abbr + " มีปี 1–2 " + jun + " คนต่อรุ่นพี่ " + sen + " คน ควรเกลี่ยไปสายอื่น");
     });
   });
 
@@ -1793,6 +1843,17 @@ function classify(parsed) {
    9b) นำเข้าเคสผ่าตัดจากระบบคิวห้องผ่าตัด แล้วผูกกับแพทย์ประจำบ้าน (logbook)
        ทำงานในเบราว์เซอร์ทั้งหมด และ "ไม่นำชื่อผู้ป่วยเข้ามา" โดยตั้งใจ
    ===================================================================== */
+/* ระดับข้อมูลผู้ป่วยที่ยอมให้เก็บลงเครื่องนี้: full = HN+อายุ/เพศ, nohn = ไม่เก็บ HN, minimal = ไม่เก็บข้อมูลผู้ป่วยเลย */
+const patientLevel = () => store.data.orQueue?.patientData || (store.data.orQueue?.dropHn ? "nohn" : "full");
+function applyPatientLevel() {
+  const lv = patientLevel();
+  if (lv === "full") return;
+  (store.data.cases || []).forEach(c => {
+    c.hn = "";
+    if (lv === "minimal") { c.age = ""; c.sex = ""; }
+  });
+}
+
 function guessSubFromText(text) {
   const hay = normalise(text);
   if (!hay.trim()) return "general";
@@ -1824,8 +1885,10 @@ function normaliseQueueCase(c) {
     anaesthesia: c.anesthesiaType || c.anaesthesia || "",
     asa: c.asaClass ?? c.asa ?? "",
     durationMin: c.estimatedDurationMin ?? c.durationMin ?? "",
-    hn: store.data.orQueue?.dropHn ? "" : (c.hn || ""),   /* ชื่อผู้ป่วยไม่ถูกนำเข้าโดยตั้งใจ */
-    age: c.age ?? "", sex: c.sex || "",
+    /* ชื่อผู้ป่วยไม่ถูกนำเข้าโดยตั้งใจ ส่วน HN/อายุ/เพศ ขึ้นกับระดับที่ตั้งไว้ในหน้าเชื่อมต่อ */
+    hn: patientLevel() === "full" ? (c.hn || "") : "",
+    age: patientLevel() === "minimal" ? "" : (c.age ?? ""),
+    sex: patientLevel() === "minimal" ? "" : (c.sex || ""),
     primarySurgeon: c.primarySurgeonName || c.surgeon || "",
     assistants: Array.isArray(c.assistantSurgeonNames) ? c.assistantSurgeonNames.slice() : [],
     createdByName: c.createdByName || "",
@@ -2497,6 +2560,28 @@ function renderMonthGrid() {
     `<span class="swatch">★ หัวหน้าสาย (ปี 3 ในสายที่ไม่มีปี 4)</span>`;
 
   $$("#monthGrid [data-rotcell]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rotcell)));
+
+  /* องค์ประกอบของแต่ละสาย — ดูว่ามีคนพอ และมีทั้งรุ่นพี่รุ่นน้องหรือไม่ */
+  const teamSvcs = (store.data.services || []).filter(x => x.team);
+  $("#teamComposition").innerHTML = teamSvcs.length ? `
+    <h3>องค์ประกอบของแต่ละสาย</h3>
+    <p class="muted small">ตัวเลขในช่อง = จำนวนคนในสายเดือนนั้น (ปี 3–4 / ปี 1–2) · ปี 4 นับเป็นกำลังเสริมเมื่อมาลงสาย
+      · <span class="tag bad">ไม่มีคน</span> <span class="tag warn">ไม่มีรุ่นพี่ หรือรุ่นน้องกระจุกเกิน 2 คน</span></p>
+    <div class="tbl-wrap"><table class="month">
+      <thead><tr><th class="who">สาย</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
+      <tbody>${teamSvcs.map(t => `<tr>
+        <th class="who"><span style="color:${serviceInk(t.id)};font-weight:650">${esc(t.name)}</span></th>
+        ${months.map(mm => {
+          const people = store.data.residents.filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
+          const sen = people.filter(r => r.year >= 3).length, jun = people.length - sen;
+          const bg = !people.length ? "var(--bad-soft)" : (sen === 0 || jun >= 3) ? "var(--warn-soft)"
+                    : (jun === 0 && people.length > 1) ? "var(--warn-soft)" : "var(--ok-soft)";
+          const ink = !people.length ? "var(--bad)" : (sen === 0 || jun >= 3 || (jun === 0 && people.length > 1)) ? "var(--warn)" : "var(--ok)";
+          return `<td><div class="mcell" style="background:${bg};color:${ink};cursor:default"
+            title="${esc(people.map(r => r.name + " (ปี " + r.year + ")").join(", ") || "ไม่มีแพทย์ประจำบ้านลงสาย")}">
+            ${people.length}<small>${sen}/${jun}</small></div></td>`;
+        }).join("")}
+      </tr>`).join("")}</tbody></table></div>` : "";
 }
 
 function monthCsvRows() {
@@ -3404,8 +3489,14 @@ function caseSettingsDialog() {
       <input name="apiPath" value="${esc(q.apiPath || OR_QUEUE_DEFAULT.apiPath)}" /></label>
     <p class="small muted">การเรียก API ส่งไปพร้อม cookie ของผู้ใช้ (credentials: include) จึงต้องเป็นระบบที่ผู้ใช้ล็อกอินอยู่แล้ว
       และฝั่งระบบคิวต้องอนุญาต CORS ให้โดเมนนี้ — หน้านี้ไม่เก็บรหัสผ่านหรือโทเคนใด ๆ</p>
-    <label class="tag" style="cursor:pointer;margin-bottom:.7rem">
-      <input type="checkbox" name="dropHn" ${q.dropHn ? "checked" : ""} /> ไม่บันทึก HN ลงเครื่องนี้ (แนะนำเมื่อติดตั้งบนโทรศัพท์ส่วนตัว)</label>
+    <label class="f"><span>ข้อมูลผู้ป่วยที่ยอมให้เก็บลงเครื่องนี้</span>
+      <select name="patientData">
+        <option value="full" ${patientLevel() === "full" ? "selected" : ""}>เก็บ HN และอายุ/เพศ (ใช้ตรวจสอบย้อนกลับได้)</option>
+        <option value="nohn" ${patientLevel() === "nohn" ? "selected" : ""}>ไม่เก็บ HN แต่เก็บอายุ/เพศ (แนะนำสำหรับโทรศัพท์ส่วนตัว)</option>
+        <option value="minimal" ${patientLevel() === "minimal" ? "selected" : ""}>ไม่เก็บข้อมูลผู้ป่วยเลย — เก็บเฉพาะ diagnosis/operation/บทบาท</option>
+      </select></label>
+    <p class="small muted">ชื่อผู้ป่วยไม่ถูกนำเข้าในทุกระดับ · การเปลี่ยนระดับจะลบข้อมูลส่วนนั้นออกจากเคสที่เก็บไว้แล้วด้วย
+      · ระดับ “ไม่เก็บข้อมูลผู้ป่วยเลย” เหมาะกับกรณีที่ตัวแอปอยู่นอก intranet</p>
     <p class="small muted">3) ถ้าเชื่อมตรงไม่ได้ ให้ export เป็นไฟล์ JSON หรือ CSV แล้วใช้ปุ่ม “นำเข้าไฟล์”
       หัวคอลัมน์ CSV ที่รองรับ: date, hn, diagnosis, operation, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration</p>`;
   showDialog("ตั้งค่าการเชื่อมต่อระบบคิวห้องผ่าตัด", body, [
@@ -3413,8 +3504,9 @@ function caseSettingsDialog() {
         q.snapshotUrl = dlgVal("snapshotUrl") || OR_QUEUE_DEFAULT.snapshotUrl;
         q.apiBase = dlgVal("apiBase");
         q.apiPath = dlgVal("apiPath") || OR_QUEUE_DEFAULT.apiPath;
-        q.dropHn = !!$('#dlgBody [name="dropHn"]')?.checked;
-        if (q.dropHn) (store.data.cases || []).forEach(c => { c.hn = ""; });
+        q.patientData = dlgVal("patientData") || "full";
+        delete q.dropHn;
+        applyPatientLevel();
         store.save(); renderLogbook(); toast("บันทึกการตั้งค่าแล้ว");
       }}
   ]);
