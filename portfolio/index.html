@@ -144,6 +144,33 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .7rem;font-size:.87rem}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
 .excerpt{background:#f7f9fa;border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-size:.84rem;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* บนอุปกรณ์สัมผัส ปุ่มและช่องกดต้องใหญ่พอสำหรับนิ้ว (อย่างน้อย 44px ตามแนวทางที่ใช้กันทั่วไป) */
+@media (pointer: coarse), (max-width: 640px) {
+  button, .btn, nav.tabs button, select, input:not([type=checkbox]):not([type=radio]) { min-height: 44px }
+  .btn-sm { min-height: 44px; padding-inline: .75rem }
+  .sess { min-height: 44px; padding: .45rem .5rem }
+  .mcell { min-height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center }
+  .seg button { min-height: 44px }
+  label.tag { min-height: 36px; align-items: center }
+  label.tag input[type=checkbox] { width: 20px; height: 20px }
+  td .btn-sm + .btn-sm { margin-top: .3rem }
+}
+/* ปุ่มที่ใหญ่ขึ้นทำให้แถบบนสูงขึ้นด้วย บนจอเล็กจึงตัดบรรทัดรองของหัวเรื่องออก
+   และกันไม่ให้หัวข้อที่เลื่อนไปหาถูกแถบบนบัง */
+@media (max-width: 640px) {
+  .brandmark .t span { display: none }
+  .topbar-in { padding: .5rem .75rem }
+  /* ปุ่มสำรอง/นำเข้ามีอยู่แล้วในหน้าตั้งค่า จึงไม่ต้องกินที่บนแถบบนของจอเล็ก */
+  #btnExport, #btnImport { display: none }
+  /* จำนวนกิจกรรมที่เก็บในเครื่องดูได้ที่หน้าตั้งค่า ไม่ต้องกินอีกบรรทัดบนแถบบน */
+  #storeState { display: none }
+  #whoami { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .topbar-in .row { flex-wrap: nowrap }
+  .brandmark .dot { width: 30px; height: 30px }
+  .brandmark .t b { font-size: .85rem }
+  .card > h1, .card > h2, .view > .card { scroll-margin-top: 132px }
+}
 [hidden]{display:none!important}   /* คลาสที่กำหนด display เองต้องไม่ลบล้างแอตทริบิวต์ hidden */
 .gate{position:fixed;inset:0;z-index:120;background:var(--bg);display:grid;place-items:center;padding:1rem;overflow:auto}
 .gate-card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:1.3rem;max-width:440px;width:100%}
@@ -481,7 +508,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
     <div class="card" data-perm="staff">
       <h2>ภาพรวมทั้งกลุ่มงาน</h2>
-      <p class="muted small">ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · สีเขียวคือถึงเป้าหมายของชั้นปีแล้ว</p>
+      <p class="muted small">ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · <b>✓</b> ถึงเป้าหมายของชั้นปีแล้ว ·
+        <b>↑</b> ยังไม่ถึงเป้าหมาย · <b>—</b> ยังไม่เคยประเมิน</p>
       <div id="epaMatrix"></div>
     </div>
   </section>
@@ -2795,7 +2823,8 @@ function renderMonthGrid() {
   $("#teamComposition").innerHTML = teamSvcs.length ? `
     <h3>องค์ประกอบของแต่ละสาย</h3>
     <p class="muted small">ตัวเลขในช่อง = จำนวนคนในสายเดือนนั้น (ปี 3–4 / ปี 1–2) · ปี 4 นับเป็นกำลังเสริมเมื่อมาลงสาย
-      · <span class="tag bad">ไม่มีคน</span> <span class="tag warn">ไม่มีรุ่นพี่ หรือรุ่นน้องกระจุกเกิน 2 คน</span></p>
+      · <span class="tag ok">✓ องค์ประกอบเหมาะสม</span> <span class="tag warn">! ไม่มีรุ่นพี่ ไม่มีรุ่นน้อง หรือรุ่นน้องกระจุก</span>
+      <span class="tag bad">✕ ไม่มีคนลงสาย</span> — สัญลักษณ์กำกับไว้เพื่อให้อ่านออกแม้พิมพ์ขาวดำ</p>
     <div class="tbl-wrap"><table class="month">
       <thead><tr><th class="who">สาย</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
       <tbody>${teamSvcs.map(t => `<tr>
@@ -2803,12 +2832,18 @@ function renderMonthGrid() {
         ${months.map(mm => {
           const people = store.data.residents.filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
           const sen = people.filter(r => r.year >= 3).length, jun = people.length - sen;
-          const bg = !people.length ? "var(--bad-soft)" : (sen === 0 || jun >= 3) ? "var(--warn-soft)"
-                    : (jun === 0 && people.length > 1) ? "var(--warn-soft)" : "var(--ok-soft)";
-          const ink = !people.length ? "var(--bad)" : (sen === 0 || jun >= 3 || (jun === 0 && people.length > 1)) ? "var(--warn)" : "var(--ok)";
+          /* สัญลักษณ์กำกับด้วย เพื่อให้อ่านออกตอนพิมพ์ขาวดำหรือเมื่อแยกสีไม่ได้ */
+          const state = !people.length ? ["bad", "✕", "ไม่มีคนลงสาย"]
+                      : sen === 0 ? ["warn", "!", "ไม่มีรุ่นพี่ในสาย"]
+                      : jun === 0 && people.length > 1 ? ["warn", "!", "ไม่มีรุ่นน้องในสาย"]
+                      : jun >= 3 && jun > sen * 2 ? ["warn", "!", "รุ่นน้องกระจุก"]
+                      : ["ok", "✓", "องค์ประกอบเหมาะสม"];
+          const bg = state[0] === "bad" ? "var(--bad-soft)" : state[0] === "warn" ? "var(--warn-soft)" : "var(--ok-soft)";
+          const ink = state[0] === "bad" ? "var(--bad)" : state[0] === "warn" ? "var(--warn)" : "var(--ok)";
           return `<td><div class="mcell" style="background:${bg};color:${ink};cursor:default"
-            title="${esc(people.map(r => r.name + " (ปี " + r.year + ")").join(", ") || "ไม่มีแพทย์ประจำบ้านลงสาย")}">
-            ${people.length}<small>${sen}/${jun}</small></div></td>`;
+            title="${esc(state[2])} — ${esc(people.map(r => r.name + " (ปี " + r.year + ")").join(", ") || "ไม่มีแพทย์ประจำบ้านลงสาย")}">
+            <span aria-hidden="true">${state[1]}</span> ${people.length}<small>${sen}/${jun}</small>
+            <span class="sr-only">${esc(state[2])} · ${people.length} คน รุ่นพี่ ${sen} รุ่นน้อง ${jun}</span></div></td>`;
         }).join("")}
       </tr>`).join("")}</tbody></table></div>` : "";
 }
@@ -4422,10 +4457,15 @@ function renderEpa() {
       <th class="who">${esc(x.name)}<br /><span class="small muted">ปี ${x.year}</span></th>
       ${epas.map(e => {
         const lv = epaLevel(x.id, e.id), target = epaTargetFor(x.year, e.id);
-        const bg = lv == null ? "#f2f5f7" : (target && lv >= target) ? "var(--ok-soft)" : "var(--warn-soft)";
-        const ink = lv == null ? "var(--muted)" : (target && lv >= target) ? "var(--ok)" : "var(--warn)";
+        const reached = lv != null && target > 0 && lv >= target;
+        const mark = lv == null ? "—" : reached ? "✓" : "↑";       /* ↑ = ยังต้องพัฒนาให้ถึงเป้าหมาย */
+        const bg = lv == null ? "#f2f5f7" : reached ? "var(--ok-soft)" : "var(--warn-soft)";
+        const ink = lv == null ? "var(--muted)" : reached ? "var(--ok)" : "var(--warn)";
+        const state = lv == null ? "ยังไม่เคยประเมิน" : reached ? "ถึงเป้าหมายของชั้นปีแล้ว" : "ยังไม่ถึงเป้าหมายของชั้นปี";
         return `<td><div class="mcell" style="background:${bg};color:${ink};cursor:default"
-          title="${esc(x.name)} · ${esc(e.code)} ${esc(e.title)} · เป้าหมาย ${target || "—"}">${lv ?? "—"}</div></td>`;
+          title="${esc(x.name)} · ${esc(e.code)} ${esc(e.title)} · ระดับ ${lv ?? "—"} เป้าหมาย ${target || "—"} · ${esc(state)}">
+          ${lv ?? "—"}<small aria-hidden="true">${mark}</small>
+          <span class="sr-only">${esc(state)}</span></div></td>`;
       }).join("")}
     </tr>`).join("")}</tbody></table></div>`;
 }
@@ -4645,7 +4685,8 @@ function renderCoverage() {
       const cells = subs.map(s => cell(r.id, s.id));
       const total = cells.reduce((a, b) => a + b, 0);
       return `<tr><th style="text-align:left;white-space:nowrap">${esc(r.name)}<br /><span class="muted small">ปี ${r.year}</span></th>
-        ${cells.map((n, i) => `<td class="cell ${n ? "has" : "gap"}" title="${esc(r.name)} · ${esc(subs[i].th)}">${n || "0"}</td>`).join("")}
+        ${cells.map((n, i) => `<td class="cell ${n ? "has" : "gap"}"
+          title="${esc(r.name)} · ${esc(subs[i].en)} · ${n ? n + " กิจกรรม" : "ยังไม่มีผลงาน"}">${n || "✕"}</td>`).join("")}
         <td class="cell has">${total}</td></tr>`;
     }).join("")}
     <tr><th style="text-align:left">รวมทั้งกลุ่ม</th>${subs.map(s => {
