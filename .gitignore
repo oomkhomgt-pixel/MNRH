@@ -6,3 +6,6 @@ sync-server/dataset.json
 # ไม่เก็บลง repo เพราะเป็นเครื่องมือของผู้พัฒนาแต่ละคน และมีขนาดหลายเมกะไบต์
 .agents/
 .claude/skills/
+
+# playwright ที่ติดตั้งไว้รันชุดทดสอบ ไม่เก็บลง repo
+portfolio/tests/node_modules/

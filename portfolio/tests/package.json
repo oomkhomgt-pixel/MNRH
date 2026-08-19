@@ -1,0 +1,12 @@
+{
+  "name": "mnrh-portfolio-tests",
+  "private": true,
+  "type": "module",
+  "description": "ชุดทดสอบของหน้าแฟ้มสะสมงานแพทย์ประจำบ้าน — ตัวหน้าเว็บเองไม่มี dependency ใด ๆ",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

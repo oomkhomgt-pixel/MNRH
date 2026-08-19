@@ -1,0 +1,43 @@
+# ตรวจหน้าแฟ้มสะสมงานอัตโนมัติทุกครั้งที่มีการ push หรือเปิด pull request
+#
+# หน้านี้เป็นไฟล์ HTML ไฟล์เดียวที่ไม่มีขั้นตอน build จึงไม่มีอะไรมาเตือนตอนพิมพ์ผิด
+# พิมพ์ผิดตรงไหน แอปดับทั้งหน้า และที่สำคัญกว่านั้นคือชุดทดสอบสิทธิ์
+# ซึ่งกันไม่ให้การแก้ครั้งต่อ ๆ ไปเผลอเปิดช่องให้บัญชีหนึ่งเห็นข้อมูลของทุกคน
+name: ตรวจหน้าแฟ้มสะสมงาน
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# ถ้ามี push ใหม่เข้ามาระหว่างที่รอบเดิมยังรันอยู่ ให้ยกเลิกรอบเดิม
+concurrency:
+  group: portfolio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ไวยากรณ์ · เปิดหน้า · สิทธิ์การเข้าถึง
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: portfolio/tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: portfolio/tests/package-lock.json
+
+      - name: ติดตั้ง playwright
+        run: npm ci
+
+      - name: ติดตั้ง Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: รันชุดทดสอบ
+        run: node run.mjs
