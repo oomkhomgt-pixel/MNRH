@@ -253,8 +253,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <span class="tag bad" id="netState" hidden>ออฟไลน์</span>
       <button class="btn-sm btn-primary" id="btnInstall" hidden>ติดตั้งแอป</button>
       <span class="tag" id="storeState">—</span>
-      <button class="btn-sm" id="btnExport">สำรองข้อมูล</button>
-      <button class="btn-sm" id="btnImport">นำเข้า</button>
+      <button class="btn-sm" id="btnExport" data-perm="admin">สำรองข้อมูล</button>
+      <button class="btn-sm" id="btnImport" data-perm="admin">นำเข้า</button>
     </div>
   </div>
   <nav class="tabs" id="tabs">
@@ -1039,6 +1039,7 @@ const canEditResidentData = (rid) => isStaff() || (!!rid && rid === myResidentId
 const canAssess = () => isStaff();
 const canManage = () => isAdmin();
 const visibleResidents = () => (store.data.residents || []).filter(r => canSeeResident(r.id));
+const visibleActivities = () => (store.data.activities || []).filter(a => canSeeResident(a.residentId));
 
 function audit(action, detail) {
   const u = currentUser();
@@ -2403,7 +2404,7 @@ function renderIngestQueue() {
           <label class="f"><span>ผู้นำเสนอ</span>
             <select data-f="residentId" data-k="${key}">
               <option value="">— เลือกแพทย์ประจำบ้าน —</option>
-              ${store.data.residents.map(r => `<option value="${r.id}" ${form.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}
+              ${visibleResidents().map(r => `<option value="${r.id}" ${form.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}
             </select>
           </label>
           <label class="f"><span>ชื่อเรื่อง</span>
@@ -2464,11 +2465,26 @@ function renderIngestQueue() {
   box.querySelectorAll("[data-save]").forEach(b => b.addEventListener("click", () => savePending(b.dataset.save)));
 }
 
+/* สไลด์เคสมักมี HN ชื่อผู้ป่วย หรือเลขบัตรประชาชนติดมาด้วย
+   ข้อความที่เก็บไว้เป็นหลักฐานจึงถูกล้างส่วนที่ดูเหมือนตัวระบุตัวบุคคลออกก่อนบันทึก
+   (การเดาประเภท/อนุสาขาทำจากข้อความเต็มไปแล้วก่อนถึงขั้นนี้) */
+function scrubPatientText(t) {
+  return String(t || "")
+    .replace(/\b(?:HN|hn|เอชเอ็น)[\s.:#-]*[\d-]{4,}/g, "HN ●●●●")
+    .replace(/\b\d{13}\b/g, "●●●●")                                  /* เลขบัตรประชาชน */
+    .replace(/\b\d{6,10}\b/g, "●●●●")                                /* เลขเวชระเบียน/เลขอ้างอิงยาว */
+    /* [ก-๎] ครอบคลุมพยัญชนะและสระไทยทั้งหมด — สกุลที่ขึ้นต้นด้วยสระ เช่น "ใจดี" จึงถูกจับด้วย */
+    .replace(/(นางสาว|เด็กชาย|เด็กหญิง|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*[ก-๎]+(\s+[ก-๎]+)?/g, "$1 ●●●●")
+    .replace(/\b((?:Mr|Mrs|Ms|Miss)\.?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g, "$1 ●●●●");
+}
+
 function savePending(key) {
   const item = pending.get(key); if (!item || !item.form.residentId) return;
+  if (!canEditResidentData(item.form.residentId)) { toast("บันทึกกิจกรรมให้แพทย์ประจำบ้านคนอื่นไม่ได้"); return; }
   const { parsed, guess, form } = item;
-  const excerpt = (parsed.slides || []).slice(0, 8).map((s, i) => (i + 1) + ". " + s.join(" · ")).join("\n").slice(0, 4000)
-                  || (parsed.text || "").slice(0, 2000);
+  const excerpt = scrubPatientText(
+    (parsed.slides || []).slice(0, 8).map((s, i) => (i + 1) + ". " + s.join(" · ")).join("\n").slice(0, 4000)
+    || (parsed.text || "").slice(0, 2000));
   const act = {
     id: uid("act"),
     residentId: form.residentId,
@@ -2919,7 +2935,7 @@ function renderTalks() {
     </select>
     <select data-tf="type"><option value="">ทุกรายการ</option>${ACTIVITY_TYPES.map(t =>
       `<option value="${t.id}" ${talkFilter.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
-    <select data-tf="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r =>
+    <select data-tf="residentId"><option value="">ทุกคน</option>${visibleResidents().map(r =>
       `<option value="${r.id}" ${talkFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>`;
   $$("#talkFilters [data-tf]").forEach(el => el.addEventListener("change", () => { talkFilter[el.dataset.tf] = el.value; renderTalks(); }));
 
@@ -3349,7 +3365,7 @@ function renderResidentDetail() {
         })()}
       </div>
       <div class="row no-print">
-        <button class="btn-sm" data-edit-res="${r.id}">แก้ไขข้อมูล</button>
+        <button class="btn-sm" data-perm="admin" data-edit-res="${r.id}">แก้ไขข้อมูล</button>
         <button class="btn-sm btn-primary" data-portfolio="${r.id}">พิมพ์แฟ้มสะสมงาน</button>
       </div>
     </div>
@@ -3473,7 +3489,7 @@ const filters = { residentId:"", type:"", subspecialty:"", ay:"", q:"", verified
 function renderActivityFilters() {
   const ays = Array.from(new Set(store.data.activities.map(a => a.academicYear))).sort().reverse();
   $("#activityFilters").innerHTML = `
-    <select data-flt="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r => `<option value="${r.id}" ${filters.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
+    <select data-flt="residentId"><option value="">ทุกคน</option>${visibleResidents().map(r => `<option value="${r.id}" ${filters.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
     <select data-flt="type"><option value="">ทุกประเภท</option>${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${filters.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
     <select data-flt="subspecialty"><option value="">ทุกอนุสาขา</option>${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${filters.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select>
     <select data-flt="ay"><option value="">ทุกปีการศึกษา</option>${ays.map(y => `<option value="${y}" ${filters.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>
@@ -3544,29 +3560,36 @@ function activityCsvRows(list) {
 const syncCfg = () => (store.data.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false });
 
 /* รายการที่จะถูกส่งออก — เห็นได้ทั้งหมดก่อนส่งจริงที่หน้าตั้งค่า */
-function syncPayloadItems() {
+function syncPayloadItems(rid) {
   const cfg = syncCfg();
-  const mine = (store.data.cases || []).filter(c =>
-    !cfg.residentId || c.participants?.some(p => p.residentId === cfg.residentId));
+  const owner = rid || cfg.residentId;
+  /* logbook เป็นของรายบุคคล — ถ้ายังไม่ได้ระบุว่าเป็นของใคร จะไม่ส่งอะไรออกไปเลย
+     (เดิมช่องว่างแปลว่า "ทุกเคสในเครื่อง" ซึ่งทำให้เผลอส่งเคสของคนอื่นออกไปได้) */
+  if (!owner) return [];
+  const mine = (store.data.cases || []).filter(c => c.participants?.some(p => p.residentId === owner));
   return mine.filter(c => c.date && (c.operation || c.diagnosis)).map(c => {
     const item = { ref: c.sourceRef || c.id, date: c.date, diagnosis: c.diagnosis || "", operation: c.operation || "" };
     if (cfg.withRole) {
-      const p = c.participants?.find(x => x.residentId === cfg.residentId) || c.participants?.[0];
+      const p = c.participants?.find(x => x.residentId === owner);
       if (p) item.role = ROLE_BY_ID[p.role]?.en || p.role;
     }
     return item;
   });
 }
 
+/* โหมดที่ใช้ได้จริงกับบัญชีที่ล็อกอินอยู่ — การส่ง "ข้อมูลทั้งชุด" ขึ้นคลาวด์
+   เป็นสิทธิ์ของผู้ดูแลระบบเท่านั้น บัญชีอื่นตกกลับมาที่โหมดเฉพาะ logbook ของตัวเอง */
+const syncMode = () => (syncCfg().mode === "full" && canManage()) ? "full" : "logbook";
+const syncTarget = () => (syncMode() === "full" ? syncCfg().cloudUrl : syncCfg().url);
+
 let syncTimer = null, syncing = false, suppressDirty = false;
 function markDirty() {
   const cfg = syncCfg();
-  const target = cfg.mode === "full" ? cfg.cloudUrl : cfg.url;
-  if (suppressDirty || !target || !cfg.auto) return;
+  if (suppressDirty || !syncTarget() || !cfg.auto) return;
   cfg.pending = true;
   clearTimeout(syncTimer);
-  /* รวบการแก้ไขหลายครั้งให้ส่งครั้งเดียว — ส่งไปตามโหมดที่ตั้งไว้ */
-  syncTimer = setTimeout(() => (cfg.mode === "full" ? cloudPush(true) : syncNow(true)), 5000);
+  /* รวบการแก้ไขหลายครั้งให้ส่งครั้งเดียว — ส่งไปตามโหมดที่ใช้ได้จริงของบัญชีนี้ */
+  syncTimer = setTimeout(() => (syncMode() === "full" ? cloudPush(true) : syncNow(true)), 5000);
   paintSyncState();
 }
 
@@ -3577,6 +3600,12 @@ async function syncNow(quiet) {
   if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
   syncing = true; paintSyncState();
   const items = syncPayloadItems();
+  if (!cfg.residentId) {
+    cfg.lastStatus = "ยังไม่ได้ระบุว่า logbook นี้เป็นของแพทย์ประจำบ้านคนใด — ไม่ได้ส่งข้อมูลออกไป";
+    cfg.pending = false; syncing = false; paintSyncState();
+    if (!quiet) toast("ยังไม่ได้ระบุเจ้าของ logbook — ผู้ดูแลระบบเป็นผู้ตั้งค่านี้");
+    return;
+  }
   try {
     const res = await fetchWithTimeout(cfg.url, {
       method: "PUT",
@@ -3606,7 +3635,7 @@ async function syncNow(quiet) {
 function paintSyncState() {
   const el = $("#syncState"); if (!el) return;
   const cfg = syncCfg();
-  if (!(cfg.mode === "full" ? cfg.cloudUrl : cfg.url)) { el.hidden = true; return; }
+  if (!syncTarget()) { el.hidden = true; return; }
   el.hidden = false;
   el.className = "tag " + (syncing ? "b" : cfg.pending ? "warn" : "ok");
   el.textContent = syncing ? "กำลังซิงก์…" : cfg.pending ? "รอซิงก์" : "ซิงก์แล้ว";
@@ -3615,16 +3644,36 @@ function paintSyncState() {
 
 function setupSync() {
   const cfg = syncCfg();
-  const push = (quiet) => (cfg.mode === "full" ? cloudPush(quiet) : syncNow(quiet));
-  const target = () => (cfg.mode === "full" ? cfg.cloudUrl : cfg.url);
+  const push = (quiet) => (syncMode() === "full" ? cloudPush(quiet) : syncNow(quiet));
+  const target = syncTarget;
   window.addEventListener("online", () => { if (cfg.auto && cfg.pending) push(true); });
   setInterval(() => { if (cfg.auto && target() && cfg.pending) push(true); }, 10 * 60 * 1000);
   if (cfg.auto && target()) setTimeout(() => push(true), 3000);
   paintSyncState();
 }
 
+/* ผู้ที่ไม่ใช่ผู้ดูแลระบบเห็นได้ว่าข้อมูลของตัวเองถูกส่งไปที่ใดและมีอะไรบ้าง แต่แก้ปลายทางไม่ได้
+   — การตั้งที่อยู่ปลายทางและการส่งข้อมูลทั้งชุดขึ้นคลาวด์เป็นสิทธิ์ของผู้ดูแลระบบเท่านั้น */
+function syncSettingsReadOnly() {
+  const cfg = syncCfg();
+  const items = syncPayloadItems(myResidentId());
+  const body = `
+    <p class="notice small">การตั้งค่าปลายทางการซิงก์เป็นสิทธิ์ของผู้ดูแลระบบ หน้านี้แสดงให้เห็นว่าข้อมูลของคุณถูกส่งไปที่ใด และมีอะไรถูกส่งบ้าง</p>
+    <div class="kv">
+      <dt>โหมด</dt><dd>${cfg.mode === "full" ? "ฐานข้อมูลกลางของภาควิชา (ผู้ดูแลระบบเป็นผู้ส่ง)" : "เฉพาะ logbook — วันที่ / diagnosis / operation"}</dd>
+      <dt>ปลายทาง</dt><dd class="mono small" style="word-break:break-all">${esc(cfg.url || "— ยังไม่ได้ตั้งค่า —")}</dd>
+      <dt>ซิงก์อัตโนมัติ</dt><dd>${cfg.auto ? "เปิด" : "ปิด"}</dd>
+      <dt>ส่งครั้งล่าสุด</dt><dd class="small">${cfg.lastAt ? new Date(cfg.lastAt).toLocaleString("th-TH") : "—"} · ${esc(cfg.lastStatus || "—")}</dd>
+    </div>
+    <h4 style="margin-top:.9rem">รายการของคุณที่จะถูกส่ง (${items.length} รายการ)</h4>
+    <div class="excerpt">${esc(JSON.stringify(items.slice(0, 3), null, 1) || "(ยังไม่มีรายการ)")}</div>
+    <p class="small muted">ไม่มี HN ไม่มีชื่อผู้ป่วย ไม่มีอายุ/เพศ และไม่มีชื่อศัลยแพทย์อยู่ในข้อมูลที่ส่ง</p>`;
+  showDialog("การซิงก์ข้อมูลของคุณ", body, []);
+}
+
 function syncSettingsDialog() {
   const cfg = syncCfg();
+  if (!canManage()) return syncSettingsReadOnly();
   if (!cfg.residentId && myResidentId()) cfg.residentId = myResidentId();
   if (!cfg.user && currentUser()) cfg.user = currentUser().username;
   const preview = JSON.stringify(syncPayloadItems().slice(0, 3), null, 1);
@@ -3788,6 +3837,8 @@ function recordConflicts(list) {
 
 async function cloudPush(quiet, isRetry) {
   const cfg = syncCfg();
+  /* ข้อมูลทั้งชุดคือข้อมูลของทุกคนในภาควิชา — ส่งขึ้นคลาวด์ได้เฉพาะผู้ดูแลระบบ */
+  if (!canManage()) { if (!quiet) toast("เฉพาะผู้จัดหลักสูตรเท่านั้นที่ส่งข้อมูลทั้งชุดขึ้นคลาวด์ได้"); return; }
   if (!cfg.cloudUrl) { if (!quiet) toast("ยังไม่ได้ตั้งที่อยู่คลาวด์ของภาควิชา"); return; }
   if (syncing && !isRetry) return;
   if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
@@ -3826,6 +3877,7 @@ async function cloudPush(quiet, isRetry) {
     cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว รุ่นที่ " + (body.rev ?? "—") + " · " + Math.round((body.bytes || 0) / 1024) + " KB";
     cfg.pending = false;
     writeBaseline(cfg.rev, fullPayload());
+    audit("ส่งข้อมูลทั้งชุดขึ้นคลาวด์", cfg.cloudUrl + " · รุ่นที่ " + (body.rev ?? "—"));
     if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
   } catch (e) {
     cfg.lastStatus = "ส่งขึ้นคลาวด์ไม่สำเร็จ: " + e.message;
@@ -3838,6 +3890,7 @@ async function cloudPush(quiet, isRetry) {
 
 async function cloudPull() {
   const cfg = syncCfg();
+  if (!canManage()) { toast("เฉพาะผู้จัดหลักสูตรเท่านั้นที่ดึงข้อมูลทั้งชุดจากคลาวด์ได้"); return; }
   if (!cfg.cloudUrl) { toast("ยังไม่ได้ตั้งที่อยู่คลาวด์"); return; }
   try {
     const res = await fetchWithTimeout(cfg.cloudUrl, {
@@ -4121,7 +4174,7 @@ function renderLogbook() {
   /* --- ตารางเคสทั้งหมด --- */
   const ays = Array.from(new Set(cases.map(c => c.date && academicYear(c.date)).filter(Boolean))).sort().reverse();
   $("#caseFilters").innerHTML = `
-    <select data-cf="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r =>
+    <select data-cf="residentId"><option value="">ทุกคน</option>${visibleResidents().map(r =>
       `<option value="${r.id}" ${caseFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
     <select data-cf="rcost"><option value="">ทั้งที่ลงและยังไม่ลงราชวิทยาลัย</option>
       <option value="no" ${caseFilter.rcost === "no" ? "selected" : ""}>ยังไม่ได้ลงราชวิทยาลัย</option>
@@ -4222,6 +4275,9 @@ function filterCases() {
 function editCaseParticipants(id) {
   const c = (store.data.cases || []).find(x => x.id === id); if (!c) return;
   const sug = suggestAttendees(c);
+  /* แพทย์ประจำบ้านระบุได้เฉพาะบทบาทของตัวเองในเคส ส่วนช่อง "อาจารย์รับรอง"
+     เป็นของอาจารย์เท่านั้น เพราะเป็นสิ่งที่ใช้อ้างอิงตอนพิมพ์ logbook ส่งราชวิทยาลัย */
+  const rowEditable = (rid) => isStaff() || rid === myResidentId();
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>วันที่</dt><dd>${fmtDate(c.date)} · ${esc(c.room || "—")} ${c.caseClass === "emergency" ? '<span class="tag bad">ฉุกเฉิน</span>' : ""}</dd>
@@ -4240,37 +4296,43 @@ function editCaseParticipants(id) {
         const isSug = sug.some(x => x.residentId === r.id);
         return `<tr>
           <td>${esc(r.name)} <span class="small muted">ปี ${r.year}</span> ${isSug ? '<span class="tag b">เสนอ</span>' : ""}</td>
-          <td><select data-role="${r.id}"><option value="">— ไม่ได้ร่วม —</option>
+          <td><select data-role="${r.id}" ${rowEditable(r.id) ? "" : "disabled"}><option value="">— ไม่ได้ร่วม —</option>
             ${CASE_ROLES.map(x => `<option value="${x.id}" ${p?.role === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></td>
-          <td style="text-align:center"><input type="checkbox" data-ver="${r.id}" ${p?.verified ? "checked" : ""} /></td>
-          <td style="text-align:center"><input type="checkbox" data-rcost="${r.id}" ${p?.rcost?.done ? "checked" : ""} /></td>
+          <td style="text-align:center"><input type="checkbox" data-ver="${r.id}" ${p?.verified ? "checked" : ""} ${canAssess() ? "" : "disabled"} /></td>
+          <td style="text-align:center"><input type="checkbox" data-rcost="${r.id}" ${p?.rcost?.done ? "checked" : ""} ${rowEditable(r.id) ? "" : "disabled"} /></td>
         </tr>`;
       }).join("")}</tbody></table></div>
     <label class="f" style="margin-top:.6rem"><span>บันทึกเพิ่มเติม (เช่น ขั้นตอนที่ทำเอง)</span>
       <textarea name="note">${esc(c.note || "")}</textarea></label>`;
-  showDialog("ระบุผู้ร่วมผ่าตัด", body, [
+  const buttons = [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const list = [];
         store.data.residents.forEach(r => {
+          const old = (c.participants || []).find(x => x.residentId === r.id);
+          /* แถวที่บัญชีนี้แก้ไม่ได้ ให้คงของเดิมไว้ทั้งแถว ไม่ให้เขียนทับกันข้ามคน */
+          if (!rowEditable(r.id)) { if (old) list.push(old); return; }
           const role = $('#dlgBody [data-role="' + r.id + '"]')?.value;
           if (!role) return;
-          const old = (c.participants || []).find(x => x.residentId === r.id);
           const rcostDone = !!$('#dlgBody [data-rcost="' + r.id + '"]')?.checked;
+          const verified = canAssess() ? !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked : !!old?.verified;
           list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
-                      verified: !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked,
-                      verifiedBy: $('#dlgBody [data-ver="' + r.id + '"]')?.checked ? (c.primarySurgeon || "") : "",
+                      verified,
+                      verifiedBy: verified ? (old?.verifiedBy || currentUser()?.displayName || c.primarySurgeon || "") : "",
                       rcost: { done: rcostDone, at: rcostDone ? (old?.rcost?.at || todayISO()) : "" } });
         });
         c.participants = list;
         c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
+        audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน");
         store.save(); renderAll(); toast("บันทึกผู้ร่วมผ่าตัดแล้ว");
       }},
-    { label:"ลบเคสนี้", cls:"btn-danger", onClick: () => {
+    { label:"ลบเคสนี้", cls:"btn-danger", adminOnly: true, onClick: () => {
         if (!confirm("ลบเคสนี้ออกจาก logbook? (นำเข้าใหม่ได้)")) return false;
         store.data.cases = store.data.cases.filter(x => x.id !== c.id);
+        audit("ลบเคสออกจาก logbook", (c.operation || "") + " · " + fmtDate(c.date));
         store.save(); renderAll(); toast("ลบแล้ว");
       }}
-  ]);
+  ];
+  showDialog("ระบุผู้ร่วมผ่าตัด", body, buttons.filter(b => !b.adminOnly || canManage()));
 }
 
 function caseSettingsDialog() {
@@ -4930,6 +4992,8 @@ const dlgVal = (name) => { const el = $('#dlgBody [name="' + name + '"]'); retur
 
 function openActivity(id) {
   const a = store.data.activities.find(x => x.id === id); if (!a) return;
+  if (!canSeeResident(a.residentId)) { toast("ไม่มีสิทธิ์เปิดกิจกรรมของแพทย์ประจำบ้านคนอื่น"); return; }
+  const canEdit = canEditResidentData(a.residentId);
   const r = store.resident(a.residentId), e = a.evidence || {};
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
@@ -4942,15 +5006,17 @@ function openActivity(id) {
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${a.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select></label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${a.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>วันที่นำเสนอ</span><input type="date" name="date" value="${esc(a.date)}" /></label>
-      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้นำเสนอ</span>${canManage()
+        ? `<select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`
+        : `<input value="${esc(r?.name || "—")}" disabled />`}</label>
     </div>
     <hr />
     <h4>การประเมินหลังนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
     <div class="grid g2">
-      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || (isStaff() ? currentUser()?.displayName : "") || "")}" placeholder="ชื่ออาจารย์" /></label>
-      <label class="f"><span>คะแนนรวม (0–5)</span><input type="number" name="assessScore" min="0" max="5" step="0.1" value="${a.assessment?.score ?? ""}" /></label>
+      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || (isStaff() ? currentUser()?.displayName : "") || "")}" placeholder="ชื่ออาจารย์" ${canAssess() ? "" : "disabled"} /></label>
+      <label class="f"><span>คะแนนรวม (0–5)</span><input type="number" name="assessScore" min="0" max="5" step="0.1" value="${a.assessment?.score ?? ""}" ${canAssess() ? "" : "disabled"} /></label>
     </div>
-    <label class="f"><span>ข้อเสนอแนะ</span><textarea name="assessComment" placeholder="จุดเด่น จุดที่ควรพัฒนา และสิ่งที่ควรทำต่อ">${esc(a.assessment?.comment || "")}</textarea></label>
+    <label class="f"><span>ข้อเสนอแนะ</span><textarea name="assessComment" placeholder="จุดเด่น จุดที่ควรพัฒนา และสิ่งที่ควรทำต่อ" ${canAssess() ? "" : "disabled"}>${esc(a.assessment?.comment || "")}</textarea></label>
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note">${esc(a.note || "")}</textarea></label>
     ${e.fileName ? `<hr /><h4>หลักฐานจากไฟล์</h4>
       <div class="kv">
@@ -4970,28 +5036,35 @@ function openActivity(id) {
         a.verifiedAt = a.verified ? new Date().toISOString() : "";
         applyActivityEdits(a); store.save(); renderAll(); toast(a.verified ? "รับรองแล้ว" : "ยกเลิกการรับรองแล้ว");
       }},
-    { label:"บันทึกการแก้ไข", cls:"btn-primary", onClick: () => { applyActivityEdits(a); store.save(); renderAll(); toast("บันทึกแล้ว"); } },
-    { label:"ลบรายการ", cls:"btn-danger", onClick: () => {
+    { label:"บันทึกการแก้ไข", cls:"btn-primary", ownerOnly: true,
+      onClick: () => { applyActivityEdits(a); audit("แก้ไขกิจกรรม", a.title); store.save(); renderAll(); toast("บันทึกแล้ว"); } },
+    { label:"ลบรายการ", cls:"btn-danger", ownerOnly: true, onClick: () => {
         if (!confirm("ลบกิจกรรมนี้ออกจากแฟ้ม? การลบย้อนกลับไม่ได้")) return false;
         store.data.activities = store.data.activities.filter(x => x.id !== a.id);
         audit("ลบกิจกรรม", a.title);
         store.save(); renderAll(); toast("ลบแล้ว");
       }}
   ];
-  showDialog("รายละเอียดกิจกรรม", body, buttons.filter(b => !b.staffOnly || canAssess()));
+  showDialog("รายละเอียดกิจกรรม", body,
+    buttons.filter(b => (!b.staffOnly || canAssess()) && (!b.ownerOnly || canEdit)));
 }
 
 function applyActivityEdits(a) {
+  if (!canEditResidentData(a.residentId)) return;   /* กันการแก้ผ่านทางอื่นที่ไม่ผ่านหน้าจอ */
   a.title = dlgVal("title") || a.title;
   a.type = dlgVal("type") || a.type;
   a.subspecialty = dlgVal("subspecialty") || a.subspecialty;
   a.date = dlgVal("date") || a.date;
-  a.residentId = dlgVal("residentId") || a.residentId;
+  /* ย้ายกิจกรรมไปเป็นของคนอื่นได้เฉพาะผู้จัดหลักสูตร */
+  if (canManage()) a.residentId = dlgVal("residentId") || a.residentId;
   a.academicYear = academicYear(a.date);
   a.wfme = (TYPE_BY_ID[a.type]?.wfme || []).slice();
   a.note = ($('#dlgBody [name="note"]')?.value || "").trim();
-  const score = dlgVal("assessScore"), by = dlgVal("assessBy"), comment = ($('#dlgBody [name="assessComment"]')?.value || "").trim();
-  a.assessment = (score || by || comment) ? { score: score === "" ? null : +score, by, comment, at: todayISO() } : null;
+  /* ผลประเมินเป็นของอาจารย์ — เจ้าของกิจกรรมแก้คะแนนตัวเองไม่ได้ */
+  if (canAssess()) {
+    const score = dlgVal("assessScore"), by = dlgVal("assessBy"), comment = ($('#dlgBody [name="assessComment"]')?.value || "").trim();
+    a.assessment = (score || by || comment) ? { score: score === "" ? null : +score, by, comment, at: todayISO() } : null;
+  }
 }
 
 function manualAdd() {
@@ -4999,7 +5072,7 @@ function manualAdd() {
   const body = `
     <p class="small muted">ใช้เมื่อไม่มีไฟล์สไลด์ เช่น การอ่านฟิล์มหน้าจอ หรือกิจกรรมที่นำเสนอด้วยปากเปล่า</p>
     <div class="grid g2">
-      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${visibleResidents().map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
       <label class="f"><span>วันที่</span><input type="date" name="date" value="${todayISO()}" /></label>
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}">${esc(t.th)}</option>`).join("")}</select></label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}">${esc(s.en)}</option>`).join("")}</select></label>
@@ -5020,6 +5093,7 @@ function manualAdd() {
 }
 
 function editResident(id) {
+  if (!canManage()) { toast("การแก้ไขทะเบียนแพทย์ประจำบ้านเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const r = id ? store.resident(id) : null;
   const body = `
     <label class="f"><span>ชื่อ-สกุล</span><input name="name" value="${esc(r?.name || "")}" placeholder="นพ. / พญ. …" /></label>
@@ -5034,6 +5108,7 @@ function editResident(id) {
         const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อ"); return false; }
         const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort: dlgVal("cohort"), advisor: dlgVal("advisor") };
         if (r) Object.assign(r, rec); else { const nr = { id: uid("res"), ...rec }; store.data.residents.push(nr); selectedResident = nr.id; }
+        audit(r ? "แก้ไขทะเบียนแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", name);
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(r ? [{ label:"ลบรายชื่อนี้", cls:"btn-danger", onClick: () => {
@@ -5042,6 +5117,7 @@ function editResident(id) {
         store.data.residents = store.data.residents.filter(x => x.id !== r.id);
         store.data.activities = store.data.activities.filter(a => a.residentId !== r.id);
         store.data.research = store.data.research.filter(p => p.residentId !== r.id);
+        audit("ลบแพทย์ประจำบ้าน", r.name + " · พร้อมกิจกรรม " + n + " รายการ");
         selectedResident = null; store.save(); renderAll(); toast("ลบแล้ว");
       }}] : [])
   ]);
@@ -5052,7 +5128,7 @@ function editResearch(id) {
   const body = `
     <label class="f"><span>ชื่อโครงการ</span><input name="title" value="${esc(pj?.title || "")}" /></label>
     <div class="grid g2">
-      <label class="f"><span>ผู้วิจัย</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้วิจัย</span><select name="residentId">${visibleResidents().map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
       <label class="f"><span>อาจารย์ที่ปรึกษางานวิจัย</span><input name="advisor" value="${esc(pj?.advisor || "")}" /></label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${pj?.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>รูปแบบการวิจัย</span><input name="type" value="${esc(pj?.type || "")}" placeholder="เช่น Retrospective cohort" /></label>
@@ -5237,10 +5313,17 @@ function printWfmeReport() {
    20) สำรอง / นำเข้า ข้อมูล
    ===================================================================== */
 function exportJson() {
+  /* ไฟล์นี้คือฐานข้อมูลทั้งก้อน รวมข้อมูลผู้ป่วยและรหัสผ่านของบัญชี
+     จึงต้องเก็บในที่ที่ปลอดภัยเท่ากับเวชระเบียน ไม่ใช่ไฟล์ที่ส่งต่อกันได้ */
+  if (!canManage()) { toast("การส่งออกข้อมูลทั้งชุดเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
+  if (!confirm("ไฟล์สำรองมีข้อมูลของแพทย์ประจำบ้านทุกคน ข้อมูลผู้ป่วยใน logbook และรหัสผ่านของบัญชีทั้งหมด\n" +
+               "เก็บไว้ในเครื่องหรือดิสก์ของภาควิชาเท่านั้น ไม่ส่งต่อทางอีเมลหรือแชท\n\nดาวน์โหลดต่อ?")) return;
   download("ortho-portfolio-" + todayISO() + ".json", JSON.stringify(store.data, null, 2), "application/json");
+  audit("ส่งออกข้อมูลทั้งชุดเป็นไฟล์", "ortho-portfolio-" + todayISO() + ".json");
   toast("ดาวน์โหลดไฟล์สำรองแล้ว");
 }
 function importJson(file) {
+  if (!canManage()) { toast("การนำเข้าข้อมูลทั้งชุดเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const fr = new FileReader();
   fr.onload = () => {
     try {
@@ -5248,6 +5331,7 @@ function importJson(file) {
       if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
       if (!confirm("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม) ดำเนินการต่อ?")) return;
       store.data = data; store.migrate(); store.save(); selectedResident = null; renderAll();
+      audit("นำเข้าข้อมูลทั้งชุดจากไฟล์", data.residents.length + " คน · " + data.activities.length + " กิจกรรม");
       toast("นำเข้าข้อมูลแล้ว");
     } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
   };
@@ -5270,8 +5354,9 @@ function renderStoreState() {
 }
 
 function renderIngestStats() {
-  const acts = store.data.activities, ay = currentAY();
-  const behind = store.data.residents.filter(r => gapsFor(r).some(g => g.level === "bad")).length;
+  /* หน้าแรกต้องกรองตามสิทธิ์เหมือนหน้าอื่น — บัญชีแพทย์ประจำบ้านเห็นเฉพาะกิจกรรมของตัวเอง */
+  const acts = visibleActivities(), ay = currentAY();
+  const behind = visibleResidents().filter(r => gapsFor(r).some(g => g.level === "bad")).length;
   $("#ingestStats").innerHTML = `
     <div class="stat"><b>${acts.length}</b><span>กิจกรรมสะสมทั้งหมด</span></div>
     <div class="stat"><b>${acts.filter(a => a.academicYear === ay).length}</b><span>กิจกรรมในปีการศึกษา ${ay}</span></div>
@@ -5310,6 +5395,7 @@ function renderAll() {
   renderWfme();
   renderSettings();
   renderProgramme();
+  if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
 }
 
 /* =====================================================================
@@ -5510,6 +5596,7 @@ function renderUserTable() {
 }
 
 function editUser(id) {
+  if (!canManage()) { toast("การจัดการบัญชีผู้ใช้เป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const u = id ? store.data.users.find(x => x.id === id) : null;
   const body = `
     <div class="grid g2">
