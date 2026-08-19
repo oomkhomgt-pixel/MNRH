@@ -8,7 +8,15 @@
      by anyone with the link, so keep it out of search results. A robots.txt at the domain
      root is not ours to write on a project Pages site, so the per-page tag is what applies. -->
 <meta name="robots" content="noindex, nofollow" />
-<link rel="icon" href="data:," />
+<link rel="icon" href="./icon-192.png" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#1f6f8b" />
+<!-- ติดตั้งลงหน้าจอหลักของมือถือได้ ทั้ง Android และ iOS (iOS ใช้ meta ชุดนี้แทน manifest) -->
+<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="แฟ้ม Ortho" />
+<meta name="mobile-web-app-capable" content="yes" />
 <title>แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ — รพ.มหาราชนครราชสีมา</title>
 <style>
 :root{
@@ -190,6 +198,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
     <div class="spacer"></div>
     <div class="row">
+      <span class="tag bad" id="netState" hidden>ออฟไลน์</span>
+      <button class="btn-sm btn-primary" id="btnInstall" hidden>ติดตั้งแอป</button>
       <span class="tag" id="storeState">—</span>
       <button class="btn-sm" id="btnExport">สำรองข้อมูล</button>
       <button class="btn-sm" id="btnImport">นำเข้า</button>
@@ -515,6 +525,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <button class="btn-danger" id="btnWipe">ลบข้อมูลทั้งหมดในเครื่องนี้</button>
       </div>
       <input type="file" id="importPick" accept="application/json,.json" hidden />
+    </div>
+    <div class="card">
+      <div class="between"><h2>การติดตั้งเป็นแอป และการเชื่อมกับระบบคิว</h2>
+        <button class="btn-sm no-print" id="btnDiagnose">ตรวจการเชื่อมต่อ</button></div>
+      <div id="appDiagnostics"></div>
     </div>
     <div class="card">
       <h2>ข้อจำกัดของหน้าสาธิตนี้</h2>
@@ -1809,7 +1824,7 @@ function normaliseQueueCase(c) {
     anaesthesia: c.anesthesiaType || c.anaesthesia || "",
     asa: c.asaClass ?? c.asa ?? "",
     durationMin: c.estimatedDurationMin ?? c.durationMin ?? "",
-    hn: c.hn || "",                          /* ชื่อผู้ป่วยไม่ถูกนำเข้าโดยตั้งใจ */
+    hn: store.data.orQueue?.dropHn ? "" : (c.hn || ""),   /* ชื่อผู้ป่วยไม่ถูกนำเข้าโดยตั้งใจ */
     age: c.age ?? "", sex: c.sex || "",
     primarySurgeon: c.primarySurgeonName || c.surgeon || "",
     assistants: Array.isArray(c.assistantSurgeonNames) ? c.assistantSurgeonNames.slice() : [],
@@ -1890,8 +1905,17 @@ function importCaseList(list, sourceLabel) {
   return { added, updated, skipped, total: (list || []).length };
 }
 
+/* ตั้งเวลาหมดคอยไว้ ไม่ให้ค้างเมื่อเครื่องอยู่นอกวง intranet */
+async function fetchWithTimeout(url, opts = {}, ms = 8000) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ac.signal }); }
+  catch (e) { throw e.name === "AbortError" ? new Error("หมดเวลารอ " + (ms / 1000) + " วินาที") : e; }
+  finally { clearTimeout(timer); }
+}
+
 async function importFromSnapshotUrl(url) {
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetchWithTimeout(url, { cache: "no-store" }, 15000);
   if (!res.ok) throw new Error("อ่านหน้าระบบคิวไม่ได้ (HTTP " + res.status + ")");
   const txt = await res.text();
   const marker = txt.indexOf("__ORQ_SNAPSHOT__");
@@ -1908,7 +1932,7 @@ async function importFromApi() {
   const q = store.data.orQueue || {};
   if (!q.apiBase) throw new Error("ยังไม่ได้ตั้งค่าที่อยู่ของระบบคิว");
   const url = q.apiBase.replace(/\/$/, "") + (q.apiPath || OR_QUEUE_DEFAULT.apiPath);
-  const res = await fetch(url, { credentials: "include", headers: { Accept: "application/json" } });
+  const res = await fetchWithTimeout(url, { credentials: "include", headers: { Accept: "application/json" } }, 15000);
   if (!res.ok) throw new Error("ระบบคิวตอบกลับ HTTP " + res.status);
   const data = await res.json();
   const cases = collectCasesDeep(data);
@@ -3380,6 +3404,8 @@ function caseSettingsDialog() {
       <input name="apiPath" value="${esc(q.apiPath || OR_QUEUE_DEFAULT.apiPath)}" /></label>
     <p class="small muted">การเรียก API ส่งไปพร้อม cookie ของผู้ใช้ (credentials: include) จึงต้องเป็นระบบที่ผู้ใช้ล็อกอินอยู่แล้ว
       และฝั่งระบบคิวต้องอนุญาต CORS ให้โดเมนนี้ — หน้านี้ไม่เก็บรหัสผ่านหรือโทเคนใด ๆ</p>
+    <label class="tag" style="cursor:pointer;margin-bottom:.7rem">
+      <input type="checkbox" name="dropHn" ${q.dropHn ? "checked" : ""} /> ไม่บันทึก HN ลงเครื่องนี้ (แนะนำเมื่อติดตั้งบนโทรศัพท์ส่วนตัว)</label>
     <p class="small muted">3) ถ้าเชื่อมตรงไม่ได้ ให้ export เป็นไฟล์ JSON หรือ CSV แล้วใช้ปุ่ม “นำเข้าไฟล์”
       หัวคอลัมน์ CSV ที่รองรับ: date, hn, diagnosis, operation, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration</p>`;
   showDialog("ตั้งค่าการเชื่อมต่อระบบคิวห้องผ่าตัด", body, [
@@ -3387,6 +3413,8 @@ function caseSettingsDialog() {
         q.snapshotUrl = dlgVal("snapshotUrl") || OR_QUEUE_DEFAULT.snapshotUrl;
         q.apiBase = dlgVal("apiBase");
         q.apiPath = dlgVal("apiPath") || OR_QUEUE_DEFAULT.apiPath;
+        q.dropHn = !!$('#dlgBody [name="dropHn"]')?.checked;
+        if (q.dropHn) (store.data.cases || []).forEach(c => { c.hn = ""; });
         store.save(); renderLogbook(); toast("บันทึกการตั้งค่าแล้ว");
       }}
   ]);
@@ -3656,6 +3684,13 @@ function renderSettings() {
     store.save(); toast("บันทึกคำสำคัญแล้ว");
   }));
 
+  if ($("#appDiagnostics") && !$("#appDiagnostics").innerHTML.trim()) {
+    renderDiagnostics([
+      ["", "หน้านี้เปิดจาก " + location.origin],
+      [isStandalone() ? "ok" : "", isStandalone() ? "กำลังใช้งานในโหมดแอปที่ติดตั้งแล้ว" : "กำลังใช้งานในเบราว์เซอร์ — กด “ติดตั้งแอป” ที่มุมขวาบน (Android) หรือ “เพิ่มไปยังหน้าจอโฮม” (iOS)"],
+      ["", "กดปุ่ม “ตรวจการเชื่อมต่อ” เพื่อทดสอบการต่อกับระบบคิวและดูสาเหตุถ้าต่อไม่ได้"]
+    ]);
+  }
   const raw = localStorage.getItem(APP.key) || "";
   $("#storageInfo").textContent =
     "แพทย์ประจำบ้าน " + store.data.residents.length + " คน · กิจกรรม " + store.data.activities.length + " รายการ · โครงการวิจัย " +
@@ -4123,6 +4158,121 @@ function renderAll() {
 }
 
 /* =====================================================================
+   21b) ทำงานเป็นแอปบนมือถือ (PWA) และตรวจการเชื่อมต่อกับระบบคิวใน intranet
+   ===================================================================== */
+let installPrompt = null;
+
+function setupApp() {
+  /* ปุ่มติดตั้ง — Android/Chrome/Edge จะยิง beforeinstallprompt ให้ ส่วน iOS ต้องใช้ “แชร์ → เพิ่มไปยังหน้าจอโฮม” */
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); installPrompt = e;
+    const b = $("#btnInstall"); if (b) b.hidden = false;
+  });
+  $("#btnInstall")?.addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null; $("#btnInstall").hidden = true;
+  });
+  window.addEventListener("appinstalled", () => { $("#btnInstall").hidden = true; toast("ติดตั้งแอปแล้ว"); });
+
+  const netTag = $("#netState");
+  const paintNet = () => { if (netTag) netTag.hidden = navigator.onLine; };
+  window.addEventListener("online", paintNet); window.addEventListener("offline", paintNet); paintNet();
+
+  /* service worker ทำให้เปิดใช้ได้ตอนไม่มีเน็ต — ต้องเสิร์ฟผ่าน https หรือ localhost เท่านั้น */
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
+    navigator.serviceWorker.register("./sw.js").then(reg => {
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        nw?.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) showUpdateBar(reg);
+        });
+      });
+    }).catch(err => console.warn("ลงทะเบียน service worker ไม่สำเร็จ", err));
+  }
+}
+
+function showUpdateBar(reg) {
+  const bar = document.createElement("div");
+  bar.className = "toast";
+  bar.style.bottom = "1.2rem";
+  bar.innerHTML = 'มีหน้าเวอร์ชันใหม่ <button class="btn-sm" style="margin-left:.5rem">โหลดใหม่</button>';
+  bar.querySelector("button").addEventListener("click", () => {
+    reg.waiting?.postMessage("skip-waiting");
+    location.reload();
+  });
+  document.body.appendChild(bar);
+}
+
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+/* ตรวจว่าจะเรียกระบบคิวได้ไหม และถ้าไม่ได้ เป็นเพราะอะไร */
+async function diagnoseQueueLink() {
+  const q = store.data.orQueue || {};
+  const out = [];
+  const ok = (t) => out.push(["ok", t]), warn = (t) => out.push(["warn", t]), bad = (t) => out.push(["bad", t]);
+
+  out.push(["", "หน้านี้เปิดจาก " + location.origin + (location.protocol === "file:" ? " (เปิดจากไฟล์โดยตรง)" : "")]);
+  if (location.protocol === "file:") warn("เปิดจากไฟล์โดยตรง จึงติดตั้งเป็นแอปไม่ได้และอ่านหน้าระบบคิวข้างเคียงไม่ได้ — ต้องวางบนเว็บเซิร์ฟเวอร์");
+  else if (location.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(location.hostname))
+    warn("เปิดผ่าน http — ติดตั้งเป็นแอป (service worker) จะใช้ไม่ได้ ต้องเป็น https หรือ localhost");
+  else ok("โปรโตคอลรองรับการติดตั้งเป็นแอป");
+
+  ok((isStandalone() ? "กำลังใช้งานในโหมดแอปที่ติดตั้งแล้ว" : "กำลังใช้งานในเบราว์เซอร์") +
+     ("serviceWorker" in navigator && navigator.serviceWorker.controller ? " · service worker ทำงานอยู่ (ใช้ออฟไลน์ได้)" : " · ยังไม่มี service worker ทำงาน"));
+
+  if (!q.apiBase) {
+    warn("ยังไม่ได้ตั้งที่อยู่ API ของระบบคิว — ตอนนี้ใช้วิธีอ่านจากหน้าระบบคิว (" + (q.snapshotUrl || OR_QUEUE_DEFAULT.snapshotUrl) + ") หรือนำเข้าไฟล์");
+    return out;
+  }
+  let url;
+  try { url = new URL((q.apiPath || OR_QUEUE_DEFAULT.apiPath).replace(/^\//, ""), q.apiBase.replace(/\/?$/, "/")); }
+  catch { bad("ที่อยู่ API ไม่ถูกต้อง: " + q.apiBase); return out; }
+
+  if (location.origin === url.origin) ok("อยู่โดเมนเดียวกับระบบคิว จึงไม่ต้องตั้งค่า CORS และใช้ session เดิมได้เลย");
+  else if (location.protocol === "https:" && url.protocol === "http:")
+    bad("หน้านี้เป็น https แต่ระบบคิวเป็น http — เบราว์เซอร์บล็อกแน่นอน (mixed content) " +
+        "ทางแก้ที่ตรงที่สุดคือวางหน้านี้ไว้บนเซิร์ฟเวอร์เดียวกับระบบคิวใน intranet หรือทำ https ให้ระบบคิว");
+  else warn("คนละโดเมนกับระบบคิว — ฝั่งระบบคิวต้องส่ง Access-Control-Allow-Origin: " + location.origin +
+            " และ Access-Control-Allow-Credentials: true");
+
+  try {
+    const t0 = performance.now();
+    const res = await fetchWithTimeout(url, { credentials: "include", headers: { Accept: "application/json" } }, 8000);
+    const ms = Math.round(performance.now() - t0);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const n = data ? collectCasesDeep(data).length : 0;
+      ok("เรียก " + url + " สำเร็จ (HTTP " + res.status + ", " + ms + " ms) " + (n ? "พบเคส " + n + " รายการ" : "แต่ไม่พบรายการเคสในคำตอบ"));
+    } else if (res.status === 401 || res.status === 403) {
+      bad("ระบบคิวตอบ HTTP " + res.status + " — ต้องล็อกอินระบบคิวในเบราว์เซอร์เดียวกันก่อน หรือสิทธิ์ของผู้ใช้ไม่พอ");
+    } else bad("ระบบคิวตอบ HTTP " + res.status);
+  } catch (e) {
+    bad("เรียกไม่สำเร็จ: " + e.message);
+    out.push(["", /หมดเวลา/.test(e.message)
+      ? "หมดเวลารอมักแปลว่าเครื่องนี้ไม่ได้อยู่ในวง intranet ของโรงพยาบาล หรือที่อยู่/พอร์ตไม่ถูกต้อง"
+      : "สาเหตุที่พบบ่อย: ระบบคิวยังไม่เปิด CORS ให้โดเมนนี้ · เครื่องไม่ได้อยู่ในวง intranet · ที่อยู่ผิด · หรือถูกบล็อกเพราะ mixed content"]);
+  }
+  return out;
+}
+
+function renderDiagnostics(list) {
+  $("#appDiagnostics").innerHTML = `
+    <ul class="clean small">${(list || []).map(([lvl, t]) =>
+      `<li>${lvl ? `<span class="tag ${lvl}">${lvl === "ok" ? "ผ่าน" : lvl === "warn" ? "ควรแก้" : "ติดขัด"}</span> ` : ""}${esc(t)}</li>`).join("")}</ul>
+    <details style="margin-top:.6rem"><summary>ติดตั้งบนมือถืออย่างไร และเชื่อมกับระบบคิวใน intranet อย่างไร</summary>
+      <ul class="clean small" style="margin-top:.4rem">
+        <li><b>Android</b> เปิดหน้านี้ด้วย Chrome แล้วกดปุ่ม “ติดตั้งแอป” ที่มุมขวาบน หรือเมนู ⋮ → “ติดตั้งแอป”</li>
+        <li><b>iPhone / iPad</b> เปิดด้วย Safari แล้วกดปุ่มแชร์ → “เพิ่มไปยังหน้าจอโฮม” (iOS ไม่มีปุ่มติดตั้งอัตโนมัติ)</li>
+        <li><b>คอมพิวเตอร์</b> ใช้ในเบราว์เซอร์ได้เลย หรือกดไอคอนติดตั้งในแถบที่อยู่</li>
+        <li>เมื่อติดตั้งแล้ว เปิดใช้ได้แม้ไม่มีเน็ต เพราะข้อมูลทั้งหมดอยู่ในเครื่อง — แต่การดึงเคสจากระบบคิวต้องอยู่ในวง intranet ของโรงพยาบาล</li>
+        <li><b>วิธีที่ราบรื่นที่สุด</b> คือวางไฟล์หน้านี้ไว้บนเซิร์ฟเวอร์เดียวกับระบบคิว (เช่น <span class="mono">https://or-queue.hospital.local/portfolio/</span>)
+          จะได้โดเมนเดียวกัน ไม่ต้องตั้ง CORS ไม่ติด mixed content และใช้ session ของระบบคิวได้เลย</li>
+      </ul></details>`;
+}
+
+/* =====================================================================
    22) เริ่มทำงาน
    ===================================================================== */
 function init() {
@@ -4205,6 +4355,11 @@ function init() {
     store.wipe(); selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
   });
 
+  setupApp();
+  $("#btnDiagnose").addEventListener("click", async () => {
+    renderDiagnostics([["", "กำลังตรวจ…"]]);
+    renderDiagnostics(await diagnoseQueueLink());
+  });
   renderAll();
   const hash = location.hash.replace("#", "");
   showView($("#view-" + hash) ? hash : "ingest");

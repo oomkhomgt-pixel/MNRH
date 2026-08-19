@@ -49,6 +49,65 @@
 7. **พิมพ์ออกได้** — แฟ้มสะสมงานรายบุคคล (พร้อมช่องลงนาม) และรายงานหลักฐานตามมาตรฐาน WFME
    รวมถึงดาวน์โหลดเป็น CSV
 
+## ใช้เป็นแอปบนมือถือ และเป็นเว็บแอปพร้อมกัน
+
+หน้านี้เป็น **PWA** แล้ว — โค้ดชุดเดียวใช้ได้ทั้งบนเบราว์เซอร์และติดตั้งเป็นแอปบนมือถือ
+
+| อุปกรณ์ | วิธีติดตั้ง |
+|---|---|
+| Android (Chrome/Edge) | กดปุ่ม **“ติดตั้งแอป”** มุมขวาบน หรือเมนู ⋮ → ติดตั้งแอป |
+| iPhone / iPad (Safari) | ปุ่มแชร์ → **เพิ่มไปยังหน้าจอโฮม** (iOS ไม่มีปุ่มติดตั้งอัตโนมัติ) |
+| คอมพิวเตอร์ | ใช้ในเบราว์เซอร์ได้เลย หรือกดไอคอนติดตั้งในแถบที่อยู่ |
+
+เมื่อติดตั้งแล้วจะเปิดเต็มจอ มีไอคอนของตัวเอง และ **ใช้งานได้แม้ไม่มีสัญญาณ** เพราะหน้าเว็บถูกเก็บไว้ในเครื่อง
+ด้วย service worker และข้อมูลอยู่ใน localStorage อยู่แล้ว · เงื่อนไข: ต้องเสิร์ฟผ่าน **https** หรือ **localhost**
+(เปิดไฟล์ตรง ๆ แบบ `file://` จะติดตั้งไม่ได้) · หน้า “ตั้งค่า &amp; ข้อมูล” มีปุ่ม **ตรวจการเชื่อมต่อ**
+ที่บอกสถานะการติดตั้ง การทำงานออฟไลน์ และสาเหตุเมื่อต่อระบบคิวไม่ได้
+
+**ถ้าต้องการเป็นแอปใน store หรือแจกผ่าน MDM ของโรงพยาบาลจริง ๆ** ห่อไฟล์ชุดนี้ด้วย Capacitor ได้โดยไม่ต้องเขียนใหม่
+
+```bash
+npm create @capacitor/app@latest ortho-portfolio     # แล้วคัดลอกไฟล์ในโฟลเดอร์นี้ไปไว้ใน www/
+npm i @capacitor/android @capacitor/ios
+npx cap add android && npx cap add ios
+npx cap sync && npx cap open android                 # build เป็น .apk / .ipa ต่อจากนี้
+```
+
+ข้อดีที่ได้เพิ่มจากการห่อเป็นแอป native คือคำขอเครือข่ายวิ่งผ่าน native HTTP layer จึง**ไม่ติดกฎ CORS และ
+mixed content ของเบราว์เซอร์** ซึ่งเป็นอุปสรรคหลักเมื่อระบบคิวอยู่ใน intranet (ดูตารางถัดไป)
+
+## เชื่อมกับระบบคิวที่อยู่ใน intranet ได้ไหม
+
+ได้ แต่ผลลัพธ์ขึ้นกับว่า **หน้านี้ถูกวางไว้ที่ไหน** เพราะเบราว์เซอร์บังคับกฎ 2 ข้อ: หน้า https เรียก http ไม่ได้
+(mixed content) และการเรียกข้ามโดเมนต้องได้รับอนุญาตจากปลายทาง (CORS)
+
+| วางหน้า portfolio ไว้ที่ | ดึงเคสจากระบบคิว | ข้อควรรู้ |
+|---|---|---|
+| **เซิร์ฟเวอร์เดียวกับระบบคิวใน intranet** (แนะนำที่สุด) เช่น `https://or-queue.hospital.local/portfolio/` | ได้ทันที เรียก `/api/cases` แบบ same-origin | ไม่ต้องตั้ง CORS ไม่ติด mixed content และใช้ session ที่ผู้ใช้ล็อกอินระบบคิวไว้แล้ว |
+| เครื่องแม่ข่ายอื่นใน intranet ที่เป็น **https** | ได้ ถ้าระบบคิวส่ง `Access-Control-Allow-Origin` เป็นโดเมนนี้ และ `Access-Control-Allow-Credentials: true` | ต้องแก้ตั้งค่าฝั่งระบบคิว |
+| เครื่องแม่ข่ายอื่นใน intranet ที่เป็น **http** | ได้ ถ้าหน้านี้ก็เป็น http เหมือนกัน | แต่ http จะติดตั้งเป็นแอป (service worker) ไม่ได้ |
+| **GitHub Pages** (https สาธารณะ) | **เรียกระบบคิวที่เป็น http ใน intranet ไม่ได้** เบราว์เซอร์บล็อกเพราะ mixed content | ใช้ทางนำเข้าไฟล์ JSON/CSV แทน หรือย้ายไปโฮสต์ใน intranet |
+| **แอป native (Capacitor)** | เรียกตรงได้ ข้าม CORS/mixed content | เครื่องต้องอยู่ในวง intranet หรือ VPN ของโรงพยาบาล |
+| ไม่เชื่อมเลย | export JSON/CSV จากระบบคิว → นำเข้าที่หน้า Logbook | ใช้ได้เสมอ ไม่ต้องแก้อะไรฝั่งระบบคิว |
+
+สรุปที่ใช้ได้จริงที่สุดสำหรับสถานการณ์ “ระบบคิวเป็นเว็บแอปใน intranet”: **วางไฟล์หน้านี้ไว้บนเซิร์ฟเวอร์เดียวกับระบบคิว**
+แล้วให้แพทย์ประจำบ้านติดตั้งจากที่อยู่ intranet นั้นลงมือถือ เวลาอยู่ในโรงพยาบาล (ต่อ wifi โรงพยาบาลหรือ VPN)
+จะดึงเคสได้ตรง ๆ ส่วนเวลาอยู่นอกโรงพยาบาลยังเปิดแอปดูและบันทึกได้ตามปกติ เพียงแต่ดึงเคสใหม่ไม่ได้จนกว่าจะกลับเข้าวง
+
+หน้าตั้งค่าการเชื่อมต่อมีสวิตช์ **“ไม่บันทึก HN ลงเครื่องนี้”** สำหรับกรณีติดตั้งบนโทรศัพท์ส่วนตัว
+เมื่อเปิดไว้ HN จะไม่ถูกเก็บลงเครื่องเลย (ทั้งข้อมูลเดิมและที่นำเข้าใหม่)
+
+## ข้อมูลยังแยกกันคนละเครื่อง
+
+ต้องรู้ก่อนตัดสินใจ: ตอนนี้ข้อมูลเก็บใน **เบราว์เซอร์ของแต่ละเครื่อง** ไม่ได้แชร์กัน — แพทย์ประจำบ้านบันทึกในมือถือตัวเอง
+อาจารย์เปิดในคอมพิวเตอร์จะไม่เห็นข้อมูลนั้น ย้ายข้อมูลได้ด้วยไฟล์สำรอง JSON เท่านั้น
+
+ถ้าต้องการให้ทุกคนเห็นข้อมูลชุดเดียวกัน (แพทย์ประจำบ้านบันทึก อาจารย์รับรอง ผู้จัดหลักสูตรดูภาพรวม)
+ต้องมี **ฐานข้อมูลกลาง** เพิ่มเข้ามา ทางที่สมเหตุสมผลที่สุดคือฝากไว้กับเซิร์ฟเวอร์ของระบบคิวที่มีอยู่แล้ว
+เพราะมีระบบผู้ใช้ สิทธิ์ และการบันทึกตาม PDPA อยู่แล้ว โดยเพิ่ม API ประมาณ
+`GET/POST /api/portfolio/{residents,activities,rotations,sessions,cases}` แล้วให้หน้านี้ซิงก์ขึ้นลง
+ส่วนที่เหลือของแอปไม่ต้องแก้ เพราะทุกอย่างอ่าน–เขียนผ่านชั้น `store` ชั้นเดียว
+
 ## เชื่อมกับระบบคิวห้องผ่าตัดเพื่อลง logbook
 
 หน้า **“Logbook เคสผ่าตัด”** ดึงรายการเคสจากระบบคิวห้องผ่าตัดมาใช้เป็นสมุดบันทึกการผ่าตัดของแพทย์ประจำบ้าน
@@ -218,6 +277,19 @@ the rotation calendar suggests who was on that service that day, in bulk if want
 surgeon, first/second assistant, observer, each with a staff sign-off. Case counts by role feed the per-year
 requirements and print as a per-resident logbook. For full automation the queue system would need to record
 attendees per case (`attendees: [{userId, role}]`, or a populated assistant list).
+
+**Installable on phones, same code as the web app.** The page ships a manifest, icons and a service worker
+scoped to its own folder, so it installs from Android's install button or iOS's *Add to Home Screen*, opens
+full-screen and runs with no signal. A diagnostics panel in settings reports install state, offline
+readiness, and why a queue connection failed. Wrapping the same files with Capacitor gives a store/MDM
+build, whose native HTTP layer also sidesteps browser CORS and mixed-content rules.
+
+**Reaching an intranet-only queue system** depends on where this page is hosted: same server as the queue is
+frictionless (same-origin, existing session, no CORS); another intranet host needs CORS with credentials; a
+public HTTPS host such as GitHub Pages cannot reach an HTTP intranet service at all (mixed content) and must
+fall back to file import. Data still lives per-device; sharing one record across residents and staff would
+need a backend, most sensibly an endpoint on the queue system's own server, which the single `store` layer
+here is ready to sync against.
 
 Tested in headless Chromium: `.pptx`/`.pdf` ingestion, classification, persistence, exports and reports.
 Requires a browser with `DecompressionStream` (Chrome/Edge 80+, Safari 16.4+, Firefox 113+).
