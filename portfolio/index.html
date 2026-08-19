@@ -198,6 +198,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .sess b{display:block;font-weight:600}
 .sess .who{display:block;color:var(--muted);font-size:.74rem}
 .sess.done{background:var(--ok-soft)}
+.sess.muted-sess{opacity:.62;border-style:dashed}
+.tplrow{border:1px solid var(--line);border-radius:8px;padding:.6rem .7rem;margin-bottom:.5rem;background:#fbfcfd}
 .sess.due{background:var(--warn-soft)}
 .sess .pill{font-size:.68rem;border-radius:4px;padding:0 .25rem;background:#eef1f4;color:var(--ink-2)}
 .nowcard{border:1px solid var(--line);border-radius:var(--r);padding:.7rem .8rem;background:#fff}
@@ -613,6 +615,13 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
       <div class="tbl-wrap"><div id="requirementEditor"></div></div>
     </div>
+    <div class="card" data-perm="admin">
+      <h2>ลำดับความสำคัญเมื่อคาบชนกัน</h2>
+      <p class="muted small">คนหนึ่งอาจมีคาบซ้อนกันได้ เช่น วนหน่วยอนุสาขาแต่ยังสังกัดสาย หรือมีกิจกรรมส่วนกลางของภาควิชา
+        ตัวเลขมากกว่าได้สิทธิ์ก่อน คาบที่แพ้ยังแสดงอยู่ในปฏิทินโดยทำเครื่องหมายไว้ และไม่ถูกนับเป็นงานค้างประเมิน
+        ถ้าเท่ากัน ระบบจะไม่ตัดสินให้ แต่จะบอกว่าชนกันเพื่อให้เลือกเอง</p>
+      <div id="priorityEditor"></div>
+    </div>
     <div class="card">
       <h2>คำสำคัญที่ใช้จัดกลุ่มอนุสาขา</h2>
       <p class="muted small">ระบบเดาอนุสาขาจากคำที่พบในสไลด์ เพิ่มคำของกลุ่มงานเองได้ (คั่นด้วยจุลภาค) เพื่อให้เดาแม่นขึ้น</p>
@@ -860,6 +869,15 @@ const SESSION_PARTS = [
   { id:"call", th:"นอกเวลา / อยู่เวร", time:"16:00–08:00" }
 ];
 const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
+
+/* เมื่อคาบสองอันของคนเดียวกันชนกัน อันที่ลำดับความสำคัญสูงกว่าเป็นตัวหลัก
+   อีกอันยังแสดงอยู่แต่ถูกทำเครื่องหมายว่าถูกแทนที่ ไม่ลบทิ้ง เพราะคนจัดตารางต้องเห็นว่ามันชนกัน */
+const SESSION_PRIORITY_DEFAULT = { central: 30, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
+const serviceKind = (svc) => !svc ? "other"
+  : svc.central ? "central" : svc.subUnit ? "subUnit" : svc.team ? "team"
+  : svc.external ? "external" : svc.elective ? "elective" : "other";
+const SERVICE_KIND_TH = { central:"ส่วนกลางของภาควิชา", subUnit:"หน่วยอนุสาขา", team:"สาย",
+                          external:"นอกภาควิชา", elective:"free elective", other:"อื่น ๆ" };
 const DAY_NAMES = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
 const DAY_SHORT = ["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
 
@@ -974,6 +992,12 @@ const store = {
     d.sync.mode ||= "logbook";
     d.sync.cloudUrl ||= "";
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
+    /* ลำดับความสำคัญของเซสชันเมื่อชนกัน — ตัวเลขมากกว่าคือได้สิทธิ์ก่อน แก้ได้ที่หน้าตั้งค่า */
+    d.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
+    /* เดิมแต่ละคาบมีอาจารย์ได้คนเดียว ตอนนี้มีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน */
+    (d.services || []).forEach(svc => (svc.template || []).forEach(t => {
+      if (!Array.isArray(t.staffIds)) t.staffIds = t.staffId ? [t.staffId] : [];
+    }));
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
     [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
@@ -1077,33 +1101,99 @@ function signOut() {
    7) ข้อมูลสาธิต (สมมติทั้งหมด — ไม่มีบุคคลหรือผู้ป่วยจริง)
    ===================================================================== */
 /* --- สร้างรายการเซสชันของวันหนึ่งจากช่วงหมุนเวียน + ตารางประจำสัปดาห์ของหน่วย --- */
+/* คาบสองอันถือว่าชนกันเมื่อ
+     - ทั้งคู่ไม่ได้ระบุเวลา และอยู่ช่วงเดียวกัน (เช่น OR ของสาย กับ OR ของหน่วยอนุสาขา ทั้งเช้า)
+     - หรือทั้งคู่ระบุเวลาไว้ และเวลาคาบเกี่ยวกัน
+   ถ้าอันหนึ่งระบุเวลาแต่อีกอันไม่ระบุ ถือว่าอันที่ระบุเวลาแทรกอยู่ในช่วงนั้นได้ ไม่นับว่าชน
+   — ไม่งั้นการประชุมเช้า 07:30–08:30 จะขึ้นว่าชนกับ ward round ทุกวัน ซึ่งไม่จริง */
+function sessionsOverlap(a, b) {
+  if (a.part !== b.part) return false;
+  const timed = (x) => x.start && x.end;
+  if (!timed(a) && !timed(b)) return true;
+  if (!timed(a) || !timed(b)) return false;
+  return a.start < b.end && b.start < a.end;
+}
+
 function computeSessions(iso, data) {
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d)) return [];
   const dow = d.getDay();
+  const prio = { ...SESSION_PRIORITY_DEFAULT, ...(data.programme?.sessionPriority || {}) };
+  const svcById = (id) => (data.services || []).find(x => x.id === id);
   const out = [];
+
+  const push = (keyBase, i, t, svc, residentId, rot) => {
+    /* อาจารย์ผู้รับผิดชอบคาบมีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน
+       ถ้าคาบนั้นไม่ได้ระบุใครไว้ ให้ตกเป็นอาจารย์ผู้กำกับประจำบล็อก */
+    const staffIds = t.staffIds?.length ? t.staffIds.slice()
+                   : t.staffId ? [t.staffId]
+                   : rot?.supervisorId ? [rot.supervisorId] : [];
+    out.push({
+      key: keyBase + "|" + iso + "|" + i,
+      rotationId: rot?.id || "", residentId, serviceId: svc.id,
+      date: iso, part: t.part, name: t.name,
+      start: t.start || "", end: t.end || "",
+      location: t.location || svc.site || "",
+      staffIds, staffId: staffIds[0] || "",
+      kind: serviceKind(svc),
+      priority: typeof t.priority === "number" ? t.priority : (prio[serviceKind(svc)] ?? 10)
+    });
+  };
+
+  const fromTemplate = (svc, residentId, rot, keyBase) =>
+    (svc?.template || []).forEach((t, i) => { if (t.day === dow) push(keyBase, i, t, svc, residentId, rot); });
+
   (data.rotations || []).forEach(rot => {
     if (rot.start && iso < rot.start) return;
     if (rot.end && iso > rot.end) return;
-    const svc = (data.services || []).find(x => x.id === rot.serviceId);
-    if (!svc) return;
-    (svc.template || []).forEach((t, i) => {
-      if (t.day !== dow) return;
-      out.push({
-        key: rot.id + "|" + iso + "|" + i,
-        rotationId: rot.id, residentId: rot.residentId, serviceId: svc.id,
-        date: iso, part: t.part, name: t.name,
-        location: t.location || svc.site || "",
-        staffId: t.staffId || rot.supervisorId || ""
+    fromTemplate(svcById(rot.serviceId), rot.residentId, rot, rot.id);
+    /* บางคนวนหน่วยอนุสาขาแต่ยังสังกัดสายอยู่ด้วย — คาบของสายจึงยังนับ และอาจชนกับคาบของหน่วย */
+    if (rot.alsoServiceId) fromTemplate(svcById(rot.alsoServiceId), rot.residentId, rot, rot.id + "@2");
+  });
+
+  /* ตารางส่วนกลางของภาควิชา — ใช้กับทุกคน ไม่ว่าเดือนนั้นจะอยู่หน่วยไหน */
+  (data.services || []).filter(x => x.central).forEach(cs => {
+    (data.residents || []).forEach(r => {
+      const rot = (data.rotations || []).find(x => x.residentId === r.id &&
+        (!x.start || iso >= x.start) && (!x.end || iso <= x.end));
+      const away = !!(svcById(rot?.serviceId)?.external || svcById(rot?.serviceId)?.elective);
+      (cs.template || []).forEach((t, i) => {
+        if (t.day !== dow) return;
+        if (t.years?.length && !t.years.includes(r.year)) return;   /* บางคาบจัดเฉพาะบางชั้นปี */
+        if (away && t.whenAway === false) return;                   /* คนที่วนนอกภาควิชาไม่ต้องเข้า */
+        push(cs.id + "@" + r.id, i, t, cs, r.id, rot);
       });
     });
   });
-  return out.sort((a, b) => SESSION_PARTS.findIndex(p => p.id === a.part) - SESSION_PARTS.findIndex(p => p.id === b.part));
+
+  /* ตัดสินว่าคาบไหนเป็นตัวหลักเมื่อชนกัน */
+  const byResident = {};
+  out.forEach(x => (byResident[x.residentId] ||= []).push(x));
+  Object.values(byResident).forEach(list => list.forEach(a => {
+    const hits = list.filter(b => b !== a && sessionsOverlap(a, b));
+    if (!hits.length) return;
+    a.overlaps = hits.map(b => b.name);
+    const best = Math.max(...hits.map(b => b.priority));
+    if (a.priority < best) {
+      a.superseded = true;
+      a.supersededBy = hits.filter(b => b.priority === best).map(b => b.name).join(" / ");
+    } else if (hits.some(b => b.priority === a.priority)) {
+      /* เท่ากันแปลว่าระบบตัดสินแทนไม่ได้ ต้องให้คนเลือกเอง */
+      a.clash = hits.filter(b => b.priority === a.priority).map(b => b.name).join(" / ");
+    }
+  }));
+
+  return out.sort((a, b) =>
+    (SESSION_PARTS.findIndex(p => p.id === a.part) - SESSION_PARTS.findIndex(p => p.id === b.part))
+    || (b.priority - a.priority)
+    || (a.start || "").localeCompare(b.start || ""));
 }
 const sessionsForDate = (iso) => computeSessions(iso, store.data);
 const rotationOn = (residentId, iso) => (store.data.rotations || []).find(r =>
   r.residentId === residentId && (!r.start || iso >= r.start) && (!r.end || iso <= r.end));
 const serviceById = (id) => (store.data.services || []).find(x => x.id === id);
+/* ตารางส่วนกลางไม่ใช่หน่วยที่ใครไปประจำ จึงไม่ควรอยู่ในตัวเลือกของช่วงหมุนเวียนหรือการจัดแผน */
+const rotatableServices = () => (store.data.services || []).filter(x => !x.central);
 const staffById   = (id) => (store.data.staff || []).find(x => x.id === id);
 const staffName   = (id) => staffById(id)?.name || "—";
 const evalForKey  = (key) => (store.data.sessionEvals || []).find(e => e.key === key);
@@ -1564,12 +1654,34 @@ function seedData() {
     { id:"svc_pmr",        name:"Rehabilitation Medicine (นอกภาควิชา)", external:true, subspecialties:["general"], abbr:"PM&R", colour:"#0e7490", site:"กลุ่มงานเวชศาสตร์ฟื้นฟู", template:[] },
 
     { id:"svc_elective", name:"Free elective", elective:true, subspecialties:["general"], abbr:"ELE", colour:"#0f766e",
-      site:"ตามที่แพทย์ประจำบ้านเลือก", template:[] }
+      site:"ตามที่แพทย์ประจำบ้านเลือก", template:[] },
+
+    /* ตารางส่วนกลางของภาควิชา — ใช้กับทุกคน ไม่ว่าเดือนนั้นจะอยู่หน่วยไหน
+       คาบพวกนี้ระบุเวลาไว้ จึงถือว่าแทรกอยู่ในช่วงเช้าได้ ไม่นับว่าชนกับ ward round หรือ OR */
+    { id:"svc_central", name:"กิจกรรมส่วนกลางของภาควิชาฯ", central:true, subspecialties:["general"],
+      abbr:"กลาง", colour:"#334155", site:"ห้องประชุมกลุ่มงานออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"am", name:"Morning report ทั้งภาควิชา", start:"07:30", end:"08:30",
+          staffIds:["st_1","st_2"], location:"ห้องประชุม", years:[], whenAway:true },
+        { day:3, part:"am", name:"Grand round", start:"07:30", end:"08:30",
+          staffIds:["st_3"], location:"ห้องประชุม", years:[], whenAway:true },
+        { day:5, part:"am", name:"Journal club / Topic presentation", start:"07:30", end:"08:30",
+          staffIds:["st_4"], location:"ห้องประชุม", years:[], whenAway:true },
+        { day:2, part:"am", name:"Basic science สำหรับปี 1", start:"07:30", end:"08:30",
+          staffIds:["st_5"], location:"ห้องเรียน", years:[1], whenAway:false }
+      ] }
   ];
   services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
 
   const ay = academicYear(todayISO());
   const rotations = buildRotationPlan(ay, residents, services).rotations;
+
+  /* ข้อมูลสาธิต: คนที่วนหน่วยอนุสาขายังสังกัดสายอยู่ด้วย จึงมีคาบของทั้งสองที่และชนกันได้จริง
+     ใช้ให้เห็นว่าลำดับความสำคัญตัดสินอย่างไร — ของจริงผู้จัดหลักสูตรเป็นคนกำหนดเอง */
+  const teamIds = services.filter(x => x.team).map(x => x.id);
+  rotations.forEach((rot, i) => {
+    if (services.find(x => x.id === rot.serviceId)?.subUnit) rot.alsoServiceId = teamIds[i % teamIds.length];
+  });
 
   /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
   const remarks = [
@@ -2652,6 +2764,7 @@ function pendingEvaluations(days = 14, residentId = null) {
   for (let i = 1; i <= days; i++) {
     sessionsForDate(daysAgoISO(i)).forEach(ses => {
       if (residentId && ses.residentId !== residentId) return;
+      if (ses.superseded) return;   /* คาบที่แพ้การชนกัน ไม่ถือเป็นงานค้างของอาจารย์ */
       if (!evalForKey(ses.key)) out.push(ses);
     });
   }
@@ -3042,17 +3155,27 @@ function printTalks() {
   printReport(html);
 }
 
+const sessionStaffLabel = (ses) => (ses.staffIds || []).length
+  ? ses.staffIds.map(staffName).join(" · ")
+  : staffName(ses.staffId);
+const sessionTimeLabel = (ses) => ses.start && ses.end ? ses.start + "–" + ses.end : (PART_BY_ID[ses.part]?.time || "");
+
 function sessionChip(ses, withDate) {
   const st = sessionStatus(ses);
   const ev = evalForKey(ses.key);
   const svc = serviceById(ses.serviceId);
-  const cls = st === "done" ? "done" : st === "due" ? "due" : "";
+  const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
+  /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
+  const note = ses.superseded ? `<span class="tag warn">ชน — ไปเข้า ${esc(ses.supersededBy)}</span>`
+             : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — ต้องเลือกเอง</span>`
+             : "";
   return `<button class="sess ${cls}" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
     <span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>
-    ${withDate ? `<span class="pill">${esc(PART_BY_ID[ses.part]?.time || "")}</span>` : ""}
+    ${withDate || (ses.start && ses.end) ? `<span class="pill">${esc(sessionTimeLabel(ses))}</span>` : ""}
+    ${ses.kind === "central" ? `<span class="pill">ส่วนกลาง</span>` : ""}
     <b>${esc(ses.name)}</b>
-    <span class="who">${esc(staffName(ses.staffId))}${ses.location ? " · " + esc(ses.location) : ""}</span>
-    <span class="who">${ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(serviceSubLabel(svc)) : ""}</span>
+    <span class="who">${esc(sessionStaffLabel(ses))}${ses.location ? " · " + esc(ses.location) : ""}</span>
+    <span class="who">${note || (ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(serviceSubLabel(svc)) : "")}</span>
   </button>`;
 }
 
@@ -3066,9 +3189,15 @@ function openSession(key) {
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
       <dt>เซสชัน</dt><dd>${esc(ses.name)} · ${esc(PART_BY_ID[ses.part]?.th || "")} ${esc(PART_BY_ID[ses.part]?.time || "")}</dd>
       <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(ses.date + "T00:00:00").getDay()]}ที่ ${fmtDate(ses.date)}</dd>
-      <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(svc ? serviceSubLabel(svc) : "")}</span></dd>
+      <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(svc ? serviceSubLabel(svc) : "")}</span>
+        <span class="tag">${esc(SERVICE_KIND_TH[ses.kind] || "")}</span></dd>
       <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
+      <dt>ผู้รับผิดชอบคาบนี้</dt><dd>${esc(sessionStaffLabel(ses))}</dd>
     </div>
+    ${ses.superseded ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.supersededBy)}</b> ซึ่งมีลำดับความสำคัญสูงกว่า
+      ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น คาบนี้จึงไม่ถูกนับเป็นงานค้างประเมิน</p>` : ""}
+    ${ses.clash ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.clash)}</b> และทั้งสองมีลำดับความสำคัญเท่ากัน
+      ระบบตัดสินแทนไม่ได้ — ปรับลำดับความสำคัญที่หน้าตั้งค่า หรือแก้ตารางของหน่วยให้ไม่ชนกัน</p>` : ""}
     <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
       <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || myStaffId() || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <h4>ประเมินท้ายเซสชัน <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 5.2 / 7.2)</span></h4>
@@ -3124,19 +3253,24 @@ function editRotation(id) {
       <label class="f"><span>แพทย์ประจำบ้าน</span><select name="residentId">
         ${store.data.residents.map(r => `<option value="${r.id}" ${rot?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
       <label class="f"><span>หน่วย (service)</span><select name="serviceId">
-        ${store.data.services.map(x => `<option value="${x.id}" ${rot?.serviceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+        ${rotatableServices().map(x => `<option value="${x.id}" ${rot?.serviceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ยังสังกัดสายนี้ด้วย (ถ้ามี)</span><select name="alsoServiceId"><option value="">— ไม่มี —</option>
+        ${rotatableServices().filter(x => x.team).map(x => `<option value="${x.id}" ${rot?.alsoServiceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
       <label class="f"><span>เริ่ม</span><input type="date" name="start" value="${esc(rot?.start || mondayOf(todayISO()))}" /></label>
       <label class="f"><span>สิ้นสุด</span><input type="date" name="end" value="${esc(rot?.end || addDaysISO(mondayOf(todayISO()), 27))}" /></label>
       <label class="f"><span>อาจารย์ผู้กำกับประจำบล็อก</span><select name="supervisorId">
         ${(store.data.staff || []).map(x => `<option value="${x.id}" ${rot?.supervisorId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
     <label class="f"><span>บันทึกเพิ่มเติม</span><input name="note" value="${esc(rot?.note || "")}" /></label>
-    <p class="small muted">เซสชันในปฏิทินจะถูกสร้างจากตารางประจำสัปดาห์ของหน่วยที่เลือก ตลอดช่วงวันที่นี้</p>`;
+    <p class="small muted">เซสชันในปฏิทินถูกสร้างจากตารางประจำสัปดาห์ของหน่วยที่เลือก ตลอดช่วงวันที่นี้
+      บวกกับตารางส่วนกลางของภาควิชา และตารางของสายที่ยังสังกัดอยู่ (ถ้าระบุ)
+      คาบที่ชนกันจะถูกตัดสินด้วยลำดับความสำคัญ และคาบที่แพ้ยังแสดงอยู่ในปฏิทินโดยทำเครื่องหมายไว้</p>`;
   showDialog(rot ? "แก้ไขช่วงหมุนเวียน" : "กำหนดช่วงหมุนเวียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const start = dlgVal("start"), end = dlgVal("end");
         if (!start || !end || end < start) { toast("ช่วงวันที่ไม่ถูกต้อง"); return false; }
-        const rec = { residentId: dlgVal("residentId"), serviceId: dlgVal("serviceId"), start, end,
+        const rec = { residentId: dlgVal("residentId"), serviceId: dlgVal("serviceId"),
+                      alsoServiceId: dlgVal("alsoServiceId"), start, end,
                       supervisorId: dlgVal("supervisorId"), note: dlgVal("note") };
         if (rot) Object.assign(rot, rec); else store.data.rotations.push({ id: uid("rot"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -3198,10 +3332,12 @@ function renderServiceTable() {
       const now = (store.data.rotations || []).filter(r => r.serviceId === svc.id && r.start <= todayISO() && r.end >= todayISO()).length;
       return `<tr>
         <td><span style="color:${serviceInk(svc.id)};font-weight:600">${esc(svc.name)}</span></td>
-        <td class="small">${svc.team ? "สาย" : svc.subUnit ? "หน่วยอนุสาขา" : svc.external ? "นอกภาควิชา" : svc.elective ? "elective" : "—"}</td>
+        <td class="small">${esc(SERVICE_KIND_TH[serviceKind(svc)] || "—")}</td>
         <td class="small">${esc(serviceSubLabel(svc))}</td>
         <td class="small">${esc(svc.site || "—")}</td>
-        <td class="small">${(svc.template || []).map(t => DAY_SHORT[t.day] + " " + (PART_BY_ID[t.part]?.th || "") + " — " + esc(t.name)).join("<br />") || "—"}</td>
+        <td class="small">${(svc.template || []).map(t => DAY_SHORT[t.day] + " " +
+          (t.start && t.end ? t.start + "–" + t.end : (PART_BY_ID[t.part]?.th || "")) + " — " + esc(t.name) +
+          (t.years?.length ? " <span class=\"tag\">ปี " + t.years.join(",") + "</span>" : "")).join("<br />") || "—"}</td>
         <td>${now} คน</td>
         <td class="no-print"><button class="btn-sm" data-svc="${svc.id}">แก้ไข</button></td></tr>`;
     }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีหน่วยที่หมุนเวียน</p>`;
@@ -3211,20 +3347,56 @@ function renderServiceTable() {
 let draftTemplate = [];
 function renderDraftTemplate() {
   const box = $("#tplRows"); if (!box) return;
-  box.innerHTML = draftTemplate.map((t, i) => `<tr>
-    <td><select data-t="day" data-i="${i}">${DAY_NAMES.map((d, n) => `<option value="${n}" ${t.day === n ? "selected" : ""}>${d}</option>`).join("")}</select></td>
-    <td><select data-t="part" data-i="${i}">${SESSION_PARTS.map(pt => `<option value="${pt.id}" ${t.part === pt.id ? "selected" : ""}>${pt.th}</option>`).join("")}</select></td>
-    <td><input data-t="name" data-i="${i}" value="${esc(t.name || "")}" placeholder="เช่น OR — trauma list" /></td>
-    <td><select data-t="staffId" data-i="${i}"><option value="">—</option>${(store.data.staff || []).map(x => `<option value="${x.id}" ${t.staffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></td>
-    <td><input data-t="location" data-i="${i}" value="${esc(t.location || "")}" placeholder="สถานที่" /></td>
-    <td><button type="button" class="btn-sm btn-danger" data-del="${i}">ลบ</button></td>
-  </tr>`).join("");
+  const central = draftIsCentral();
+  box.innerHTML = draftTemplate.map((t, i) => `<div class="tplrow">
+    <div class="between" style="margin-bottom:.4rem">
+      <b class="small">คาบที่ ${i + 1}</b>
+      <button type="button" class="btn-sm btn-danger" data-del="${i}">ลบคาบนี้</button>
+    </div>
+    <div class="grid g4">
+      <label class="f"><span>วัน</span><select data-t="day" data-i="${i}">${DAY_NAMES.map((d, k) =>
+        `<option value="${k}" ${t.day === k ? "selected" : ""}>${d}</option>`).join("")}</select></label>
+      <label class="f"><span>ช่วง</span><select data-t="part" data-i="${i}">${SESSION_PARTS.map(pt =>
+        `<option value="${pt.id}" ${t.part === pt.id ? "selected" : ""}>${pt.th}</option>`).join("")}</select></label>
+      <label class="f"><span>เริ่ม (เว้นว่าง = ทั้งช่วง)</span><input type="time" data-t="start" data-i="${i}" value="${esc(t.start || "")}" /></label>
+      <label class="f"><span>สิ้นสุด</span><input type="time" data-t="end" data-i="${i}" value="${esc(t.end || "")}" /></label>
+    </div>
+    <label class="f"><span>ชื่อคาบ</span><input data-t="name" data-i="${i}" value="${esc(t.name || "")}" placeholder="เช่น OR — trauma list" /></label>
+    <div class="grid g2">
+      <label class="f"><span>สถานที่</span><input data-t="location" data-i="${i}" value="${esc(t.location || "")}" placeholder="เช่น ห้องผ่าตัด 5" /></label>
+      <label class="f"><span>ลำดับความสำคัญ (เว้นว่าง = ตามชนิดของหน่วย)</span>
+        <input type="number" data-t="priority" data-i="${i}" value="${t.priority ?? ""}" placeholder="ตามชนิด" /></label>
+    </div>
+    <label class="f"><span>อาจารย์ผู้รับผิดชอบ (เลือกได้หลายคน)</span>
+      <select data-t="staffIds" data-i="${i}" multiple size="${Math.min(5, Math.max(3, (store.data.staff || []).length))}">${(store.data.staff || []).map(x =>
+        `<option value="${x.id}" ${(t.staffIds || []).includes(x.id) ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    ${central ? `<div class="row" style="gap:.4rem;align-items:center">
+      <span class="small muted">ชั้นปีที่เข้า (ไม่เลือก = ทุกชั้นปี)</span>
+      ${[1,2,3,4].map(y => `<label class="tag" style="cursor:pointer">
+        <input type="checkbox" data-yr="${i}|${y}" ${(t.years || []).includes(y) ? "checked" : ""} /> ปี ${y}</label>`).join("")}
+      <label class="tag" style="cursor:pointer">
+        <input type="checkbox" data-away="${i}" ${t.whenAway !== false ? "checked" : ""} /> คนที่วนนอกภาควิชาเข้าด้วย</label>
+    </div>` : ""}
+  </div>`).join("") || `<p class="empty">ยังไม่มีคาบในตารางของหน่วยนี้</p>`;
   $$("#tplRows [data-t]").forEach(el => el.addEventListener("change", () => {
     const i = +el.dataset.i, f = el.dataset.t;
-    draftTemplate[i][f] = f === "day" ? +el.value : el.value;
+    if (f === "staffIds") draftTemplate[i].staffIds = [...el.selectedOptions].map(o => o.value);
+    else if (f === "day") draftTemplate[i].day = +el.value;
+    else if (f === "priority") { const v = el.value.trim(); if (v === "") delete draftTemplate[i].priority; else draftTemplate[i].priority = +v; }
+    else draftTemplate[i][f] = el.value;
+  }));
+  $$("#tplRows [data-yr]").forEach(el => el.addEventListener("change", () => {
+    const [i, y] = el.dataset.yr.split("|").map(Number);
+    const set = new Set(draftTemplate[i].years || []);
+    el.checked ? set.add(y) : set.delete(y);
+    draftTemplate[i].years = [...set].sort();
+  }));
+  $$("#tplRows [data-away]").forEach(el => el.addEventListener("change", () => {
+    draftTemplate[+el.dataset.away].whenAway = el.checked;
   }));
   $$("#tplRows [data-del]").forEach(b => b.addEventListener("click", () => { draftTemplate.splice(+b.dataset.del, 1); renderDraftTemplate(); }));
 }
+const draftIsCentral = () => $('#dlgBody [name="kind"]')?.value === "central";
 
 function editService(id) {
   const svc = id ? store.data.services.find(x => x.id === id) : null;
@@ -3233,7 +3405,8 @@ function editService(id) {
     <div class="grid g2">
       <label class="f"><span>ชื่อหน่วย (ภาษาอังกฤษ)</span><input name="name" value="${esc(svc?.name || "")}" placeholder="เช่น Foot &amp; Ankle Service" /></label>
       <label class="f"><span>ประเภทหน่วย</span><select name="kind">
-        ${[["team","สาย (ทีมผู้ป่วยทั่วไป)"],["subUnit","หน่วยอนุสาขา"],["external","วนนอกภาควิชา"],["elective","free elective"]]
+        ${[["team","สาย (ทีมผู้ป่วยทั่วไป)"],["subUnit","หน่วยอนุสาขา"],["external","วนนอกภาควิชา"],
+           ["elective","free elective"],["central","ตารางส่วนกลางของภาควิชา (ใช้กับทุกคน)"]]
           .map(([k, label]) => `<option value="${k}" ${svc?.[k] ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
     <span class="small" style="font-weight:600">Subspecialty ที่หน่วยนี้ครอบคลุม (เลือกได้หลายอัน — บางอนุสาขาอยู่คู่กัน)</span>
@@ -3247,9 +3420,11 @@ function editService(id) {
     </div>
     <label class="f"><span>สถานที่หลัก</span><input name="site" value="${esc(svc?.site || "")}" placeholder="เช่น หอผู้ป่วยอุบัติเหตุ ชั้น 4" /></label>
     <h4>ตารางกิจกรรมประจำสัปดาห์</h4>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>วัน</th><th>ช่วง</th><th>ชื่อเซสชัน</th><th>อาจารย์ผู้รับผิดชอบ</th><th>สถานที่</th><th></th></tr></thead>
-      <tbody id="tplRows"></tbody></table></div>
+    <p class="small muted">เว้นเวลาไว้ = ใช้ทั้งช่วง (เช่น OR ทั้งเช้า) · ใส่เวลา = แทรกอยู่ในช่วงนั้น (เช่น ประชุม 07:30–08:30)
+      ระบบถือว่าสองคาบชนกันก็ต่อเมื่อทั้งคู่ใช้ทั้งช่วงเดียวกัน หรือเวลาที่ระบุคาบเกี่ยวกัน
+      · เลือกอาจารย์ได้หลายคน (กด Ctrl หรือ Cmd ค้าง) เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขา
+      · ลำดับความสำคัญเว้นว่างได้ จะใช้ค่าตามชนิดของหน่วยที่ตั้งไว้ในหน้าตั้งค่า</p>
+    <div id="tplRows"></div>
     <button type="button" class="btn-sm" id="btnTplAdd" style="margin-top:.5rem">+ เพิ่มเซสชัน</button>`;
   showDialog(svc ? "แก้ไขหน่วยที่หมุนเวียน" : "เพิ่มหน่วยที่หมุนเวียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
@@ -3261,6 +3436,7 @@ function editService(id) {
                       subspecialty: subs[0] || "general",
                       team: kind === "team", subUnit: kind === "subUnit",
                       external: kind === "external", elective: kind === "elective",
+                      central: kind === "central",
                       template: draftTemplate.filter(t => (t.name || "").trim()) };
         if (svc) Object.assign(svc, rec); else store.data.services.push({ id: uid("svc"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -3274,7 +3450,11 @@ function editService(id) {
       }}] : [])
   ]);
   renderDraftTemplate();
-  $("#btnTplAdd").addEventListener("click", () => { draftTemplate.push({ day:1, part:"am", name:"", staffId:"", location:"" }); renderDraftTemplate(); });
+  $('#dlgBody [name="kind"]').addEventListener("change", renderDraftTemplate);
+  $("#btnTplAdd").addEventListener("click", () => {
+    draftTemplate.push({ day:1, part:"am", name:"", staffIds:[], location:"", years:[], whenAway:true });
+    renderDraftTemplate();
+  });
 }
 
 function evalCsvRows() {
@@ -4879,6 +5059,19 @@ function renderSettings() {
     store.data.requirements[y][k] = Math.max(0, +inp.value || 0);
     store.save(); renderAll();
     toast("ปรับเกณฑ์แล้ว");
+  }));
+
+  const prio = store.data.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
+  $("#priorityEditor").innerHTML = `<div class="row">
+    ${["central","subUnit","team","external","elective"].map(k => `<label class="f" style="max-width:12rem">
+      <span>${esc(SERVICE_KIND_TH[k])}</span>
+      <input type="number" data-prio="${k}" value="${prio[k] ?? SESSION_PRIORITY_DEFAULT[k]}" /></label>`).join("")}
+  </div>
+  <p class="small muted">แต่ละคาบในตารางของหน่วยตั้งตัวเลขเฉพาะของตัวเองทับค่าตรงนี้ได้ ที่ช่อง “ลำดับความสำคัญ”</p>`;
+  $$("#priorityEditor [data-prio]").forEach(inp => inp.addEventListener("change", () => {
+    store.data.programme.sessionPriority[inp.dataset.prio] = +inp.value || 0;
+    store.save(); renderAll();
+    toast("ปรับลำดับความสำคัญแล้ว");
   }));
 
   $("#keywordEditor").innerHTML = SUBSPECIALTIES.filter(s => s.id !== "general").map(s => `
