@@ -198,6 +198,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
     <div class="spacer"></div>
     <div class="row">
+      <span class="tag" id="syncState" hidden>—</span>
       <span class="tag bad" id="netState" hidden>ออฟไลน์</span>
       <button class="btn-sm btn-primary" id="btnInstall" hidden>ติดตั้งแอป</button>
       <span class="tag" id="storeState">—</span>
@@ -401,6 +402,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <button class="btn-sm" id="btnImportCaseFile">นำเข้าไฟล์</button>
           <button class="btn-sm" id="btnImportApi">ดึงจาก API</button>
           <button class="btn-sm" id="btnCaseSettings">ตั้งค่าการเชื่อมต่อ</button>
+          <button class="btn-sm" id="btnSyncSettings">ซิงก์ระบบกลาง</button>
         </div>
       </div>
       <input type="file" id="casePick" accept=".json,.csv,application/json,text/csv" hidden />
@@ -839,6 +841,7 @@ const store = {
     d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
     d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
     if (!d.orQueue.patientData) d.orQueue.patientData = d.orQueue.dropHn ? "nohn" : "full";
+    d.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false };
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
     [d.activities, d.research, d.schedule, d.services, d.staff].forEach(list => (list || []).forEach(remap));
@@ -855,6 +858,7 @@ const store = {
       this.data.meta.updated = new Date().toISOString();
       localStorage.setItem(APP.key, JSON.stringify(this.data));
       renderStoreState();
+      if (typeof markDirty === "function") markDirty();
     } catch (e) {
       toast("บันทึกลงเครื่องไม่สำเร็จ — พื้นที่เก็บของเบราว์เซอร์อาจเต็ม");
       console.error(e);
@@ -865,6 +869,7 @@ const store = {
     localStorage.removeItem(APP.key);
     this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[], schedule:[],
                   cases:[], orQueue:{ ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
+                  sync:{ url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
                   requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
@@ -1036,31 +1041,37 @@ function buildRotationPlan(ay, residents, services) {
   };
   Object.entries(EXTERNAL_BY_YEAR).forEach(([year, ids]) => placeExternal(byYear[year] || [], ids));
 
-  /* ลงสายรายเดือน — ปี 4 เป็น extra (ลง sub เป็นหลัก) ส่วนสายต้องมีคนพอและมีทั้งรุ่นพี่รุ่นน้อง */
+  /* ลงสายรายเดือน
+     · ปี 1–3 ลงสาย คุมทั้งจำนวนรวมและสัดส่วนรุ่นพี่/รุ่นน้อง
+     · ปี 4 ต้องวนหน่วยอนุสาขาให้ครบก่อน ที่เหลือเป็นกำลังเสริมให้สายที่ขาด สายละไม่เกิน 1 เดือน
+       และไม่จำเป็นต้องลงสายจนครบทุกสาย */
   const isSenior = (r) => r.year >= 3;
-  const subCycle = {}, r4TeamMonths = {};
-  for (let m = 0; m < 12; m++) {
-    /* 1) ปี 4 ลงหน่วยอนุสาขาก่อน ไม่ให้ซ้ำหน่วยกันในเดือนเดียว */
-    const takenSub = new Set();
-    (byYear[4] || []).forEach((r, i) => {
-      if (grid[r.id][m]) return;
-      let pick = null;
-      for (let k = 0; k < subUnits.length; k++) {
-        const cand = subUnits[((subCycle[r.id] || i) + k) % subUnits.length];
-        if (!takenSub.has(cand)) { pick = cand; subCycle[r.id] = (subCycle[r.id] || i) + k + 1; break; }
-      }
-      grid[r.id][m] = pick || subUnits[i % subUnits.length];
-      takenSub.add(grid[r.id][m]);
-    });
+  const r4s = (byYear[4] || []);
+  const coveredSubs = {}, teamsUsed = {}, teamBudget = {}, subCount = {};
+  r4s.forEach(r => {
+    coveredSubs[r.id] = new Set();
+    subCount[r.id] = {};
+    teamsUsed[r.id] = new Set();
+    const free = grid[r.id].filter(x => !x).length;
+    teamBudget[r.id] = Math.max(0, free - subUnits.length);
+    if (free < subUnits.length)
+      warnings.push("ปี 4: " + r.name + " มีเดือนว่าง " + free + " เดือน น้อยกว่าจำนวนหน่วยอนุสาขา " + subUnits.length + " หน่วย จึงวนไม่ครบ");
+  });
 
-    /* 2) ปี 1–3 ลงสาย คุมทั้งจำนวนรวม และสัดส่วนรุ่นพี่ (ปี 3–4) กับรุ่นน้อง (ปี 1–2) ของแต่ละสาย */
+  for (let m = 0; m < 12; m++) {
     const total = {}, senior = {}, junior = {};
     teams.forEach(t => { total[t] = 0; senior[t] = 0; junior[t] = 0; });
-    residents.forEach(r => {
-      const sid = grid[r.id][m];
-      if (sid in total) { total[sid]++; (isSenior(r) ? senior : junior)[sid]++; }
-    });
-    residents.filter(r => !grid[r.id][m]).sort((a, b) => b.year - a.year || a.id.localeCompare(b.id))
+    const recount = () => {
+      teams.forEach(t => { total[t] = 0; senior[t] = 0; junior[t] = 0; });
+      residents.forEach(r => {
+        const sid = grid[r.id][m];
+        if (sid in total) { total[sid]++; (isSenior(r) ? senior : junior)[sid]++; }
+      });
+    };
+    recount();
+
+    /* 1) ปี 1–3 ลงสาย */
+    residents.filter(r => r.year <= 3 && !grid[r.id][m]).sort((a, b) => b.year - a.year || a.id.localeCompare(b.id))
       .forEach((r, n) => {
         const prev = m > 0 ? grid[r.id][m - 1] : null;
         const mine = isSenior(r) ? senior : junior;
@@ -1071,37 +1082,49 @@ function buildRotationPlan(ay, residents, services) {
         grid[r.id][m] = pick; total[pick]++; mine[pick]++;
       });
 
-    /* 3) ปี 4 เป็นกำลังเสริม — ดึงจากหน่วยอนุสาขามาลงสายที่ไม่มีคน หรือสายที่ไม่มีรุ่นพี่ */
-    const pullR4 = (teamId, cap) => {
-      /* ดึงได้เท่าที่ยังไม่กินเวลาหน่วยอนุสาขาของปี 4 มากเกินไป */
-      const spare = (byYear[4] || [])
-        .filter(r => subUnits.includes(grid[r.id][m]) && (r4TeamMonths[r.id] || 0) < cap)
-        .sort((a, b) => (r4TeamMonths[a.id] || 0) - (r4TeamMonths[b.id] || 0))[0];
-      if (!spare) return false;
-      grid[spare.id][m] = teamId; total[teamId]++; senior[teamId]++;
-      r4TeamMonths[spare.id] = (r4TeamMonths[spare.id] || 0) + 1;
-      return true;
-    };
-    teams.filter(t => total[t] === 0).forEach(t => pullR4(t, R4_MAX_TEAM_MONTHS + 2));
-    const pullBudget = Math.max(1, Math.floor((byYear[4] || []).length / 2));
-    let pulled = 0;
-    teams.filter(t => total[t] > 0 && senior[t] === 0).forEach(t => {
-      if (pulled >= pullBudget) return;
-      if (pullR4(t, R4_MAX_TEAM_MONTHS)) pulled++;
-    });
-
-    /* 4) เกลี่ยรุ่นพี่: สายที่มีแต่รุ่นน้องดึงรุ่นพี่จากสายที่มีรุ่นพี่เกินมาให้ */
+    /* 2) เกลี่ยรุ่นพี่ระหว่างสายด้วยปี 3 ก่อนจะพิจารณาปี 4 */
     for (let guard = 0; guard < 8; guard++) {
       const lack = teams.find(t => total[t] > 0 && senior[t] === 0);
       const rich = teams.find(t => senior[t] >= 2);
       if (!lack || !rich) break;
-      const mover = residents.find(r => r.year === 3 && grid[r.id][m] === rich) ||
-                    residents.find(r => isSenior(r) && grid[r.id][m] === rich);
+      const mover = residents.find(r => r.year === 3 && grid[r.id][m] === rich);
       if (!mover) break;
       grid[mover.id][m] = lack;
       senior[rich]--; total[rich]--; senior[lack]++; total[lack]++;
     }
+
+    /* 3) ปี 4 — หน่วยอนุสาขาต้องครบก่อน ที่เหลือช่วยสายที่ยังขาด */
+    const takenSub = new Set();
+    r4s.filter(r => !grid[r.id][m]).forEach(r => {
+      const need = subUnits.filter(x => !coveredSubs[r.id].has(x));
+      const monthsLeft = grid[r.id].slice(m).filter(x => !x).length;
+      const mustSub = monthsLeft <= need.length;
+      const gap = !mustSub && teamBudget[r.id] > 0
+        ? (teams.find(t => total[t] === 0 && !teamsUsed[r.id].has(t)) ||
+           teams.find(t => senior[t] === 0 && total[t] > 0 && !teamsUsed[r.id].has(t)))
+        : null;
+      if (gap) {
+        grid[r.id][m] = gap; teamsUsed[r.id].add(gap); teamBudget[r.id]--;
+        total[gap]++; senior[gap]++;
+        return;
+      }
+      /* ครบแล้วแต่ยังเหลือเดือน — ให้ไปหน่วยที่ตัวเองอยู่มาน้อยที่สุด */
+      const spread = subUnits.slice().sort((x, y) =>
+        ((subCount[r.id][x] || 0) - (subCount[r.id][y] || 0)) ||
+        ((takenSub.has(x) ? 1 : 0) - (takenSub.has(y) ? 1 : 0)) ||
+        (subUnits.indexOf(x) - subUnits.indexOf(y)));
+      const pick = need.find(x => !takenSub.has(x)) || need[0] || spread[0];
+      grid[r.id][m] = pick; takenSub.add(pick);
+      coveredSubs[r.id].add(pick);
+      subCount[r.id][pick] = (subCount[r.id][pick] || 0) + 1;
+    });
   }
+
+  r4s.forEach(r => {
+    const missing = subUnits.filter(x => !coveredSubs[r.id].has(x));
+    if (missing.length) warnings.push("ปี 4: " + r.name + " ยังไม่ได้วน " +
+      missing.map(x => services.find(y => y.id === x)?.abbr || x).join(", "));
+  });
 
   const supervisorFor = (serviceId) => {
     const svc = services.find(x => x.id === serviceId);
@@ -1549,6 +1572,7 @@ function seedData() {
   return {
     residents, activities, research, programme,
     staff: staffRoster, services, rotations, sessionEvals, schedule, cases,
+    sync: { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
     orQueue: { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
@@ -3267,9 +3291,144 @@ function activityCsvRows(list) {
 }
 
 /* =====================================================================
+   13a) ซิงก์ logbook ขึ้นเซิร์ฟเวอร์กลางแบบอัตโนมัติ ตามผู้ใช้
+        ส่งออกเฉพาะ วันที่ผ่าตัด / diagnosis / operation เท่านั้น
+        (ไม่มี HN ไม่มีชื่อผู้ป่วย ไม่มีอายุ/เพศ ไม่มีชื่อศัลยแพทย์)
+   ===================================================================== */
+const syncCfg = () => (store.data.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false });
+
+/* รายการที่จะถูกส่งออก — เห็นได้ทั้งหมดก่อนส่งจริงที่หน้าตั้งค่า */
+function syncPayloadItems() {
+  const cfg = syncCfg();
+  const mine = (store.data.cases || []).filter(c =>
+    !cfg.residentId || c.participants?.some(p => p.residentId === cfg.residentId));
+  return mine.filter(c => c.date && (c.operation || c.diagnosis)).map(c => {
+    const item = { ref: c.sourceRef || c.id, date: c.date, diagnosis: c.diagnosis || "", operation: c.operation || "" };
+    if (cfg.withRole) {
+      const p = c.participants?.find(x => x.residentId === cfg.residentId) || c.participants?.[0];
+      if (p) item.role = ROLE_BY_ID[p.role]?.en || p.role;
+    }
+    return item;
+  });
+}
+
+let syncTimer = null, syncing = false, suppressDirty = false;
+function markDirty() {
+  const cfg = syncCfg();
+  if (suppressDirty || !cfg.url || !cfg.auto) return;
+  cfg.pending = true;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(true), 5000);   /* รวบการแก้ไขหลายครั้งให้ส่งครั้งเดียว */
+  paintSyncState();
+}
+
+async function syncNow(quiet) {
+  const cfg = syncCfg();
+  if (!cfg.url) { if (!quiet) toast("ยังไม่ได้ตั้งที่อยู่เซิร์ฟเวอร์ซิงก์"); return; }
+  if (syncing) return;
+  if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
+  syncing = true; paintSyncState();
+  const items = syncPayloadItems();
+  try {
+    const res = await fetchWithTimeout(cfg.url, {
+      method: "PUT",
+      credentials: "include",
+      headers: Object.assign({ "Content-Type": "application/json" }, cfg.token ? { Authorization: "Bearer " + cfg.token } : {}),
+      body: JSON.stringify({ user: cfg.user || cfg.residentId || "", updatedAt: new Date().toISOString(), items })
+    }, 12000);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json().catch(() => ({}));
+    cfg.lastAt = new Date().toISOString();
+    cfg.lastStatus = "ส่งแล้ว " + items.length + " รายการ" + (body.stored != null ? " · เซิร์ฟเวอร์เก็บไว้ " + body.stored + " รายการ" : "");
+    cfg.pending = false;
+    if (!quiet) toast("ซิงก์แล้ว " + items.length + " รายการ");
+  } catch (e) {
+    cfg.lastStatus = "ซิงก์ไม่สำเร็จ: " + e.message;
+    cfg.pending = true;
+    if (!quiet) toast("ซิงก์ไม่สำเร็จ: " + e.message);
+  } finally {
+    syncing = false;
+    suppressDirty = true;  /* การบันทึกสถานะซิงก์เองต้องไม่นับเป็นการแก้ไขข้อมูล */
+    store.save();
+    suppressDirty = false;
+    paintSyncState();
+  }
+}
+
+function paintSyncState() {
+  const el = $("#syncState"); if (!el) return;
+  const cfg = syncCfg();
+  if (!cfg.url) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = "tag " + (syncing ? "b" : cfg.pending ? "warn" : "ok");
+  el.textContent = syncing ? "กำลังซิงก์…" : cfg.pending ? "รอซิงก์" : "ซิงก์แล้ว";
+  el.title = (cfg.lastStatus || "") + (cfg.lastAt ? " · " + new Date(cfg.lastAt).toLocaleString("th-TH") : "");
+}
+
+function setupSync() {
+  const cfg = syncCfg();
+  window.addEventListener("online", () => { if (cfg.auto && cfg.pending) syncNow(true); });
+  setInterval(() => { if (cfg.auto && cfg.url && cfg.pending) syncNow(true); }, 10 * 60 * 1000);
+  if (cfg.auto && cfg.url) setTimeout(() => syncNow(true), 3000);
+  paintSyncState();
+}
+
+function syncSettingsDialog() {
+  const cfg = syncCfg();
+  const preview = JSON.stringify(syncPayloadItems().slice(0, 3), null, 1);
+  const body = `
+    <p class="small muted">ซิงก์ logbook ขึ้นเซิร์ฟเวอร์กลางอัตโนมัติ แยกตามผู้ใช้ เพื่อให้เปิดเครื่องอื่นก็เห็นข้อมูลเดิม
+      · <b>ข้อมูลที่ส่งออกมีเพียง วันที่ผ่าตัด, diagnosis และ operation</b> ไม่มี HN ไม่มีชื่อผู้ป่วย ไม่มีอายุ/เพศ และไม่มีชื่อศัลยแพทย์</p>
+    <label class="f"><span>ที่อยู่ปลายทาง (PUT/GET)</span>
+      <input name="url" value="${esc(cfg.url)}" placeholder="https://portfolio.hospital.local/api/portfolio/logbook" /></label>
+    <div class="grid g2">
+      <label class="f"><span>ผู้ใช้ (เจ้าของ logbook)</span><select name="residentId">
+        <option value="">— เลือกแพทย์ประจำบ้าน —</option>
+        ${store.data.residents.map(r => `<option value="${r.id}" ${cfg.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
+      </select></label>
+      <label class="f"><span>ชื่อผู้ใช้ในระบบกลาง</span><input name="user" value="${esc(cfg.user)}" placeholder="เช่น resident01" /></label>
+      <label class="f"><span>โทเคน (ถ้าเซิร์ฟเวอร์ต้องใช้)</span><input name="token" value="${esc(cfg.token)}" placeholder="เว้นว่างได้ถ้าใช้ session cookie" /></label>
+      <label class="f"><span>ซิงก์อัตโนมัติ</span><select name="auto">
+        <option value="1" ${cfg.auto ? "selected" : ""}>เปิด — ส่งเองเมื่อมีการแก้ไข</option>
+        <option value="0" ${!cfg.auto ? "selected" : ""}>ปิด — กดส่งเอง</option></select></label>
+    </div>
+    <label class="tag" style="cursor:pointer"><input type="checkbox" name="withRole" ${cfg.withRole ? "checked" : ""} /> ส่งบทบาทในเคสไปด้วย (surgeon / assistant)</label>
+    <h4 style="margin-top:.9rem">ตัวอย่างข้อมูลที่จะถูกส่ง (${syncPayloadItems().length} รายการ)</h4>
+    <div class="excerpt">${esc(preview || "(ยังไม่มีรายการ)")}</div>
+    <p class="small muted">สัญญาข้อมูลของปลายทาง: <span class="mono">PUT {url}</span> รับ <span class="mono">{user, updatedAt, items[]}</span>
+      และ <span class="mono">GET {url}?user=…</span> คืน <span class="mono">{items[]}</span> — มีตัวอย่างเซิร์ฟเวอร์อ้างอิงในโฟลเดอร์ <span class="mono">sync-server/</span></p>`;
+  showDialog("ซิงก์ logbook ขึ้นระบบกลาง", body, [
+    { label:"บันทึกและซิงก์เลย", cls:"btn-primary", onClick: () => {
+        cfg.url = dlgVal("url"); cfg.user = dlgVal("user"); cfg.token = dlgVal("token");
+        cfg.residentId = dlgVal("residentId");
+        cfg.auto = dlgVal("auto") === "1";
+        cfg.withRole = !!$('#dlgBody [name="withRole"]')?.checked;
+        store.save(); paintSyncState();
+        if (cfg.url) syncNow(false);
+      }},
+    { label:"ดึงจากระบบกลาง", onClick: async () => {
+        if (!cfg.url) { toast("ยังไม่ได้ตั้งที่อยู่"); return false; }
+        try {
+          const url = cfg.url + (cfg.url.includes("?") ? "&" : "?") + "user=" + encodeURIComponent(cfg.user || cfg.residentId || "");
+          const res = await fetchWithTimeout(url, {
+            credentials: "include",
+            headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
+          }, 12000);
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const body = await res.json();
+          toast("ระบบกลางมี " + (body.items?.length || 0) + " รายการของผู้ใช้นี้");
+        } catch (e) { toast("ดึงไม่สำเร็จ: " + e.message); }
+        return false;
+      }}
+  ]);
+}
+
+/* =====================================================================
    13b) หน้า Logbook เคสผ่าตัด
    ===================================================================== */
-const caseFilter = { residentId:"", subspecialty:"", role:"", q:"", ay:"" };
+const caseFilter = { residentId:"", subspecialty:"", role:"", q:"", ay:"", rcost:"" };
+const rcostDone = (c, residentId) => !!c.participants?.find(p => p.residentId === residentId)?.rcost?.done;
+const rcostPending = (residentId) => casesOf(residentId).filter(c => !rcostDone(c, residentId));
 let showHn = false;
 
 const casesOf = (residentId, role) => (store.data.cases || []).filter(c =>
@@ -3292,7 +3451,8 @@ function renderLogbook() {
     <div class="stat"><b>${cases.length}</b><span>เคสที่นำเข้าแล้ว</span></div>
     <div class="stat"><b>${withPeople}</b><span>ระบุผู้ร่วมผ่าตัดแล้ว</span></div>
     <div class="stat"><b>${cases.length - withPeople}</b><span>ยังไม่ได้ระบุ</span></div>
-    <div class="stat"><b>${cases.filter(c => c.participants?.some(p => p.verified)).length}</b><span>อาจารย์รับรองแล้ว</span></div>`;
+    <div class="stat"><b>${cases.filter(c => c.participants?.some(p => p.verified)).length}</b><span>อาจารย์รับรองแล้ว</span></div>
+    <div class="stat"><b>${cases.filter(c => c.participants?.length && !c.participants.some(p => p.rcost?.done)).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
 
   /* --- เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด --- */
   const un = unassignedCases().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -3324,7 +3484,7 @@ function renderLogbook() {
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
   $("#logbookSummary").innerHTML = rs.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th>${CASE_ROLES.map(r => `<th>${esc(r.th)}</th>`).join("")}
-      <th>รวม</th><th>อนุสาขาที่ทำมากที่สุด</th><th></th></tr></thead>
+      <th>รวม</th><th>ค้างลงราชวิทยาลัย</th><th>อนุสาขาที่ทำมากที่สุด</th><th></th></tr></thead>
     <tbody>${rs.map(r => {
       const mine = casesOf(r.id);
       const bySub = {};
@@ -3335,8 +3495,12 @@ function renderLogbook() {
         <td>${esc(r.name)}<br /><span class="small muted">ปี ${r.year}</span></td>
         ${CASE_ROLES.map(role => `<td><b>${casesOf(r.id, role.id).length}</b></td>`).join("")}
         <td><b>${mine.length}</b></td>
+        <td>${rcostPending(r.id).length
+          ? `<span class="tag warn">${rcostPending(r.id).length} เคส</span>`
+          : `<span class="tag ok">ครบ</span>`}</td>
         <td class="small">${esc(top || "—")}</td>
-        <td class="no-print"><button class="btn-sm" data-printlog="${r.id}">พิมพ์ logbook</button></td>
+        <td class="no-print"><button class="btn-sm" data-printlog="${r.id}">พิมพ์ logbook</button>
+          <button class="btn-sm" data-worksheet="${r.id}">ใบกรอกราชวิทยาลัย</button></td>
       </tr>`;
     }).join("")}</tbody></table></div>
     <p class="small muted" style="margin-top:.5rem">เกณฑ์จำนวนเคสต่อชั้นปีตั้งได้ในหน้า “ตั้งค่า &amp; ข้อมูล”
@@ -3348,6 +3512,9 @@ function renderLogbook() {
   $("#caseFilters").innerHTML = `
     <select data-cf="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r =>
       `<option value="${r.id}" ${caseFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
+    <select data-cf="rcost"><option value="">ทั้งที่ลงและยังไม่ลงราชวิทยาลัย</option>
+      <option value="no" ${caseFilter.rcost === "no" ? "selected" : ""}>ยังไม่ได้ลงราชวิทยาลัย</option>
+      <option value="yes" ${caseFilter.rcost === "yes" ? "selected" : ""}>ลงราชวิทยาลัยแล้ว</option></select>
     <select data-cf="role"><option value="">ทุกบทบาท</option>${CASE_ROLES.map(r =>
       `<option value="${r.id}" ${caseFilter.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select>
     <select data-cf="subspecialty"><option value="">ทุกอนุสาขา</option>${subs.map(x =>
@@ -3356,13 +3523,23 @@ function renderLogbook() {
       `<option value="${y}" ${caseFilter.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>
     <input data-cf="q" placeholder="ค้นหา operation / diagnosis…" value="${esc(caseFilter.q)}" />
     <label class="tag" style="cursor:pointer"><input type="checkbox" id="hnToggle" ${showHn ? "checked" : ""} /> แสดง HN เต็ม</label>
-    <button class="btn-sm" id="btnCaseCsv">CSV</button>`;
+    <button class="btn-sm" id="btnCaseCsv">CSV</button>
+    ${caseFilter.residentId ? `<button class="btn-sm" id="btnRcostMark">ทำเครื่องหมายว่าลงราชวิทยาลัยแล้ว (ตามที่กรอง)</button>` : ""}`;
   $$("#caseFilters [data-cf]").forEach(el => {
     const ev = el.tagName === "INPUT" ? "input" : "change";
     el.addEventListener(ev, () => { caseFilter[el.dataset.cf] = el.value; renderLogbook(); });
   });
   $("#hnToggle").addEventListener("change", (e) => { showHn = e.target.checked; renderLogbook(); });
   $("#btnCaseCsv").addEventListener("click", () => download("logbook-cases.csv", toCsv(caseCsvRows(filterCases())), "text/csv;charset=utf-8"));
+  $("#btnRcostMark")?.addEventListener("click", () => {
+    const list = filterCases(), rid = caseFilter.residentId;
+    if (!confirm("ทำเครื่องหมายว่าได้ลงระบบราชวิทยาลัยแล้ว " + list.length + " เคส?")) return;
+    list.forEach(c => {
+      const p = c.participants?.find(x => x.residentId === rid);
+      if (p) p.rcost = { done: true, at: todayISO() };
+    });
+    store.save(); renderAll(); toast("ทำเครื่องหมายแล้ว " + list.length + " เคส");
+  });
 
   const rows = filterCases();
   $("#caseTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
@@ -3394,6 +3571,7 @@ function renderLogbook() {
     store.save(); renderAll(); toast("เพิ่มเป็นผู้ช่วยที่ 1 แล้ว — แก้บทบาทได้ที่ปุ่มแก้ไข");
   }));
   $$("#logbookSummary [data-printlog]").forEach(b => b.addEventListener("click", () => printLogbook(b.dataset.printlog)));
+  $$("#logbookSummary [data-worksheet]").forEach(b => b.addEventListener("click", () => printRcostWorksheet(b.dataset.worksheet)));
 
   /* เติมผู้ร่วมผ่าตัดจากข้อเสนอของตารางหมุนเวียนทีเดียวทั้งหมด แล้วค่อยไล่ยืนยันทีหลัง */
   const bulk = un.map(c => ({ c, sug: suggestAttendees(c) })).filter(x => x.sug.length);
@@ -3422,6 +3600,9 @@ function filterCases() {
     (caseFilter.residentId || !caseFilter.role || c.participants?.some(p => p.role === caseFilter.role)) &&
     (!caseFilter.subspecialty || c.subspecialty === caseFilter.subspecialty) &&
     (!caseFilter.ay || (c.date && academicYear(c.date) === caseFilter.ay)) &&
+    (!caseFilter.rcost || (caseFilter.residentId
+      ? (caseFilter.rcost === "yes") === rcostDone(c, caseFilter.residentId)
+      : (caseFilter.rcost === "yes") === !!c.participants?.some(p => p.rcost?.done))) &&
     (!q || (c.operation + " " + c.diagnosis).toLowerCase().includes(q))
   ).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }
@@ -3441,7 +3622,7 @@ function editCaseParticipants(id) {
     </div>
     <h4>ใครร่วมผ่าตัดเคสนี้</h4>
     ${sug.length ? `<p class="small muted">ข้อเสนอจากตารางหมุนเวียน: ${sug.map(x => esc(store.resident(x.residentId)?.name || "")).join(", ")}</p>` : ""}
-    <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th></tr></thead>
+    <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th><th>ลงระบบราชวิทยาลัยแล้ว</th></tr></thead>
       <tbody>${store.data.residents.map(r => {
         const p = (c.participants || []).find(x => x.residentId === r.id);
         const isSug = sug.some(x => x.residentId === r.id);
@@ -3450,6 +3631,7 @@ function editCaseParticipants(id) {
           <td><select data-role="${r.id}"><option value="">— ไม่ได้ร่วม —</option>
             ${CASE_ROLES.map(x => `<option value="${x.id}" ${p?.role === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></td>
           <td style="text-align:center"><input type="checkbox" data-ver="${r.id}" ${p?.verified ? "checked" : ""} /></td>
+          <td style="text-align:center"><input type="checkbox" data-rcost="${r.id}" ${p?.rcost?.done ? "checked" : ""} /></td>
         </tr>`;
       }).join("")}</tbody></table></div>
     <label class="f" style="margin-top:.6rem"><span>บันทึกเพิ่มเติม (เช่น ขั้นตอนที่ทำเอง)</span>
@@ -3461,9 +3643,11 @@ function editCaseParticipants(id) {
           const role = $('#dlgBody [data-role="' + r.id + '"]')?.value;
           if (!role) return;
           const old = (c.participants || []).find(x => x.residentId === r.id);
+          const rcostDone = !!$('#dlgBody [data-rcost="' + r.id + '"]')?.checked;
           list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
                       verified: !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked,
-                      verifiedBy: $('#dlgBody [data-ver="' + r.id + '"]')?.checked ? (c.primarySurgeon || "") : "" });
+                      verifiedBy: $('#dlgBody [data-ver="' + r.id + '"]')?.checked ? (c.primarySurgeon || "") : "",
+                      rcost: { done: rcostDone, at: rcostDone ? (old?.rcost?.at || todayISO()) : "" } });
         });
         c.participants = list;
         c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
@@ -3527,6 +3711,28 @@ function caseCsvRows(list) {
     });
   });
   return rows;
+}
+
+/* ใบกรอกสำหรับนำไปลงระบบ logbook ของราชวิทยาลัย — เฉพาะเคสที่ยังไม่ได้ลง */
+function printRcostWorksheet(residentId) {
+  const r = store.resident(residentId); if (!r) return;
+  const pending = rcostPending(r.id).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const html = reportHead("ใบกรอก logbook ราชวิทยาลัย — " + r.name,
+    "ชั้นปีที่ " + r.year + " · เคสที่ยังไม่ได้บันทึกในระบบราชวิทยาลัย " + pending.length + " เคส") + `
+  <div class="card">
+    <p class="small muted">หน้านี้เป็นเพียงใบช่วยกรอก — ระบบ logbook ของราชวิทยาลัยยังเป็นที่บันทึกอย่างเป็นทางการ
+      และต้องแนบฟิล์มกับ operative note ในระบบนั้นด้วยตนเอง เมื่อกรอกครบแล้วให้กลับมาทำเครื่องหมายในหน้า Logbook</p>
+    <table><thead><tr><th>✓</th><th>วันที่</th><th>HN</th><th>Diagnosis</th><th>Operation</th><th>บทบาท</th><th>ศัลยแพทย์</th></tr></thead>
+      <tbody>${pending.map(c => {
+        const p = c.participants.find(x => x.residentId === r.id);
+        return `<tr><td style="width:2rem">☐</td><td>${fmtDate(c.date)}</td><td class="mono">${esc(c.hn || "—")}</td>
+          <td class="small">${esc(c.diagnosis || "—")}</td>
+          <td class="small">${esc(c.operation || "—")}${c.side ? " (" + esc(c.side) + ")" : ""}</td>
+          <td class="small">${esc(ROLE_BY_ID[p?.role]?.th || "")}</td>
+          <td class="small">${esc(c.primarySurgeon || "—")}</td></tr>`;
+      }).join("") || "<tr><td colspan='7'>ลงครบแล้วทุกเคส</td></tr>"}</tbody></table>
+  </div>`;
+  printReport(html);
 }
 
 function printLogbook(residentId) {
@@ -4426,6 +4632,7 @@ function init() {
     } catch (err) { toast("ดึงจาก API ไม่สำเร็จ: " + err.message); }
   });
   $("#btnCaseSettings").addEventListener("click", caseSettingsDialog);
+  $("#btnSyncSettings").addEventListener("click", syncSettingsDialog);
   $("#btnPrintTalks").addEventListener("click", printTalks);
   $("#btnTalkCsv").addEventListener("click", () => download("presentation-schedule.csv", toCsv(talkCsvRows()), "text/csv;charset=utf-8"));
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
@@ -4448,6 +4655,7 @@ function init() {
   });
 
   setupApp();
+  setupSync();
   $("#btnDiagnose").addEventListener("click", async () => {
     renderDiagnostics([["", "กำลังตรวจ…"]]);
     renderDiagnostics(await diagnoseQueueLink());

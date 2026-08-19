@@ -1,0 +1,66 @@
+{
+ "t": {
+  "updatedAt": "2026-08-19T14:18:37.214Z",
+  "items": [
+   {
+    "ref": "1",
+    "date": "2026-08-01",
+    "diagnosis": "dx",
+    "operation": "op"
+   }
+  ]
+ },
+ "resident01": {
+  "updatedAt": "2026-08-19T14:23:36.658Z",
+  "items": [
+   {
+    "ref": "demo-res_a-0",
+    "date": "2026-08-16",
+    "diagnosis": "Closed intertrochanteric fracture, right",
+    "operation": "Proximal femoral nail, right (แก้ไขทดสอบ)"
+   },
+   {
+    "ref": "demo-res_a-1",
+    "date": "2026-08-10",
+    "diagnosis": "Closed femoral neck fracture, left",
+    "operation": "Bipolar hemiarthroplasty, left hip"
+   },
+   {
+    "ref": "demo-res_a-2",
+    "date": "2026-08-04",
+    "diagnosis": "Aseptic loosening of TKA, right",
+    "operation": "Revision total knee arthroplasty, right"
+   },
+   {
+    "ref": "demo-res_a-3",
+    "date": "2026-07-29",
+    "diagnosis": "Prosthetic joint infection, left knee",
+    "operation": "Two-stage revision: spacer insertion, left knee"
+   },
+   {
+    "ref": "demo-res_a-4",
+    "date": "2026-07-23",
+    "diagnosis": "Closed intertrochanteric fracture, right",
+    "operation": "Proximal femoral nail, right"
+   },
+   {
+    "ref": "demo-res_a-5",
+    "date": "2026-07-17",
+    "diagnosis": "Closed femoral neck fracture, left",
+    "operation": "Bipolar hemiarthroplasty, left hip"
+   },
+   {
+    "ref": "demo-res_a-6",
+    "date": "2026-07-11",
+    "diagnosis": "Primary osteoarthritis, right knee",
+    "operation": "Total knee arthroplasty, right"
+   },
+   {
+    "ref": "demo-res_a-7",
+    "date": "2026-07-05",
+    "diagnosis": "Prosthetic joint infection, left knee",
+    "operation": "Two-stage revision: spacer insertion, left knee"
+   }
+  ]
+ }
+}
