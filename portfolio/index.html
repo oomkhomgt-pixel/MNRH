@@ -1,0 +1,2073 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light" />
+<!-- Same reasoning as the queue demo: this page carries the hospital's name and is reachable
+     by anyone with the link, so keep it out of search results. A robots.txt at the domain
+     root is not ours to write on a project Pages site, so the per-page tag is what applies. -->
+<meta name="robots" content="noindex, nofollow" />
+<title>แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ — รพ.มหาราชนครราชสีมา</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --ink:#12181f; --ink-2:#3d4a57; --muted:#6b7a89;
+  --line:#e2e7ec; --line-2:#cfd8e0;
+  --brand:#1f6f8b; --brand-ink:#12475b; --brand-soft:#e8f2f6;
+  --ok:#1f7a4d; --ok-soft:#e6f4ec;
+  --warn:#a8630a; --warn-soft:#fdf1de;
+  --bad:#a32d2d; --bad-soft:#fbebeb;
+  --shadow:0 1px 2px rgba(16,24,32,.05),0 4px 14px rgba(16,24,32,.05);
+  --r:12px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai","Sarabun","Leelawadee UI",Tahoma,sans-serif;
+  font-size:15px; line-height:1.55; -webkit-text-size-adjust:100%;
+}
+h1,h2,h3,h4{margin:0 0 .4rem; line-height:1.3; font-weight:650}
+h1{font-size:1.25rem} h2{font-size:1.05rem} h3{font-size:.98rem} h4{font-size:.9rem}
+p{margin:0 0 .6rem}
+a{color:var(--brand-ink)}
+small,.small{font-size:.82rem}
+.muted{color:var(--muted)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85em}
+
+/* ---------- layout ---------- */
+.topbar{position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:.7rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.brandmark{display:flex;gap:.6rem;align-items:center;min-width:0}
+.brandmark .dot{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+.brandmark .t{min-width:0}
+.brandmark .t b{display:block;font-size:.95rem;line-height:1.2}
+.brandmark .t span{display:block;font-size:.76rem;color:var(--muted)}
+.topbar .spacer{flex:1}
+nav.tabs{max-width:1180px;margin:0 auto;padding:0 .5rem;display:flex;gap:.15rem;overflow-x:auto;scrollbar-width:thin}
+nav.tabs button{
+  border:0;background:none;padding:.6rem .75rem;font:inherit;font-size:.9rem;color:var(--ink-2);
+  border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;border-radius:6px 6px 0 0
+}
+nav.tabs button:hover{background:#f2f5f7}
+nav.tabs button[aria-current="true"]{color:var(--brand-ink);border-bottom-color:var(--brand);font-weight:650}
+main{max-width:1180px;margin:0 auto;padding:1rem 1rem 4rem}
+.view{display:none} .view.on{display:block}
+
+/* ---------- primitives ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:1rem;margin-bottom:1rem}
+.card>h2,.card>h3{margin-top:0}
+.grid{display:grid;gap:1rem}
+@media(min-width:780px){.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}}
+.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.between{display:flex;gap:.75rem;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+hr{border:0;border-top:1px solid var(--line);margin:.9rem 0}
+
+button,.btn{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line-2);background:#fff;color:var(--ink);padding:.45rem .8rem}
+button:hover{background:#f4f7f9}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.btn-primary:hover{background:var(--brand-ink)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--brand-ink)}
+.btn-sm{padding:.28rem .55rem;font-size:.84rem}
+.btn-danger{color:var(--bad);border-color:#e9c9c9}
+.btn-danger:hover{background:var(--bad-soft)}
+
+label.f{display:block;margin-bottom:.65rem}
+label.f>span{display:block;font-size:.83rem;color:var(--ink-2);margin-bottom:.2rem;font-weight:600}
+input,select,textarea{
+  font:inherit;width:100%;padding:.45rem .6rem;border:1px solid var(--line-2);border-radius:9px;background:#fff;color:var(--ink)
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+textarea{min-height:80px;resize:vertical}
+input[type=checkbox],input[type=radio]{width:auto}
+
+.tag{display:inline-flex;align-items:center;gap:.3rem;padding:.12rem .5rem;border-radius:999px;font-size:.78rem;border:1px solid var(--line-2);background:#fbfcfd;color:var(--ink-2);white-space:nowrap}
+.tag.b{background:var(--brand-soft);border-color:#cfe2ea;color:var(--brand-ink)}
+.tag.ok{background:var(--ok-soft);border-color:#c7e6d5;color:var(--ok)}
+.tag.warn{background:var(--warn-soft);border-color:#f0dcb8;color:var(--warn)}
+.tag.bad{background:var(--bad-soft);border-color:#eecccc;color:var(--bad)}
+.chip{display:inline-block;width:9px;height:9px;border-radius:3px;flex:none}
+
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{text-align:left;padding:.5rem .55rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.8rem;color:var(--muted);font-weight:650;white-space:nowrap}
+tbody tr:hover{background:#fafbfc}
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+.stat{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:.8rem}
+.stat b{display:block;font-size:1.55rem;line-height:1.15}
+.stat span{font-size:.8rem;color:var(--muted)}
+
+.bar{height:8px;border-radius:99px;background:#eef1f4;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--brand);border-radius:99px}
+.bar>i.done{background:var(--ok)}
+.bar>i.low{background:var(--warn)}
+
+.dropzone{
+  border:2px dashed var(--line-2);border-radius:14px;background:#fcfdfe;padding:1.6rem 1rem;text-align:center;cursor:pointer
+}
+.dropzone.hot{border-color:var(--brand);background:var(--brand-soft)}
+.dropzone h3{margin-bottom:.2rem}
+
+.matrix{border-collapse:separate;border-spacing:2px;font-size:.8rem}
+.matrix td.cell{width:34px;height:26px;text-align:center;border-radius:6px;background:#eef1f4;color:var(--muted);border:0;padding:0}
+.matrix td.cell.has{background:var(--ok-soft);color:var(--ok);font-weight:650}
+.matrix td.cell.gap{background:var(--bad-soft);color:var(--bad)}
+.matrix th{font-weight:600;color:var(--ink-2);font-size:.78rem;padding:.2rem .35rem;border:0}
+.matrix th.v{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;height:92px;vertical-align:bottom}
+.row>select,.row>input:not([type=checkbox]):not([type=radio]){width:auto;min-width:150px;max-width:100%}
+
+dialog{border:0;border-radius:14px;padding:0;max-width:min(720px,94vw);width:100%;box-shadow:0 12px 48px rgba(10,20,30,.28)}
+dialog::backdrop{background:rgba(15,23,32,.42)}
+.dlg-head{padding:.85rem 1rem;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:1rem}
+.dlg-body{padding:1rem;max-height:min(70vh,640px);overflow:auto}
+.dlg-foot{padding:.75rem 1rem;border-top:1px solid var(--line);display:flex;gap:.5rem;justify-content:flex-end;background:#fafbfc;border-radius:0 0 14px 14px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.2rem;z-index:60;background:#12181f;color:#fff;padding:.6rem 1rem;border-radius:10px;box-shadow:var(--shadow);font-size:.9rem;max-width:90vw}
+.notice{border-left:3px solid var(--brand);background:var(--brand-soft);padding:.6rem .8rem;border-radius:0 9px 9px 0;font-size:.87rem}
+.notice.warn{border-color:var(--warn);background:var(--warn-soft)}
+.empty{text-align:center;color:var(--muted);padding:1.6rem 1rem;font-size:.9rem}
+ul.clean{list-style:none;margin:0;padding:0}
+ul.clean li{padding:.35rem 0;border-bottom:1px dotted var(--line)}
+ul.clean li:last-child{border-bottom:0}
+details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .7rem;font-size:.87rem}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.excerpt{background:#f7f9fa;border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-size:.84rem;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.timeline{border-left:2px solid var(--line);padding-left:.9rem;margin-left:.35rem}
+.timeline .ev{position:relative;padding-bottom:.8rem}
+.timeline .ev::before{content:"";position:absolute;left:-1.24rem;top:.35rem;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff}
+.timeline .ev.todo::before{background:#c9d2da}
+
+@media print{
+  body{background:#fff}
+  .topbar,nav.tabs,.no-print,.dropzone{display:none!important}
+  main{max-width:none;padding:0}
+  .card{box-shadow:none;border-color:#ccc;break-inside:avoid;page-break-inside:avoid}
+  .view{display:none!important} .view.on{display:block!important}
+}
+</style>
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="topbar-in">
+    <div class="brandmark">
+      <div class="dot">OR</div>
+      <div class="t">
+        <b>แฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์</b>
+        <span>กลุ่มงานออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา · หน้าสาธิต ข้อมูลสมมติ</span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="row">
+      <span class="tag" id="storeState">—</span>
+      <button class="btn-sm" id="btnExport">สำรองข้อมูล</button>
+      <button class="btn-sm" id="btnImport">นำเข้า</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-view="ingest" aria-current="true">รับสไลด์ (บันทึกอัตโนมัติ)</button>
+    <button data-view="residents">แพทย์ประจำบ้าน</button>
+    <button data-view="activities">กิจกรรมทั้งหมด</button>
+    <button data-view="research">งานวิจัย</button>
+    <button data-view="coverage">ความครอบคลุมอนุสาขา</button>
+    <button data-view="wfme">มาตรฐาน WFME</button>
+    <button data-view="settings">ตั้งค่า &amp; ข้อมูล</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ INGEST ============ -->
+  <section class="view on" id="view-ingest">
+    <div class="card">
+      <div class="between">
+        <div>
+          <h1>รับสไลด์ที่นำเสนอ แล้วบันทึกเข้าแฟ้มอัตโนมัติ</h1>
+          <p class="muted small">วางไฟล์ <b>.pptx</b> หรือ <b>.pdf</b> ที่ใช้นำเสนอ ระบบจะอ่านชื่อเรื่อง ผู้จัดทำ วันที่ และเนื้อหาในสไลด์
+            เพื่อเดา <b>ประเภทกิจกรรม</b> และ <b>อนุสาขา</b> ให้เอง ผู้ใช้เพียงตรวจแล้วกดยืนยัน — ไฟล์ไม่ถูกส่งออกจากเครื่องนี้</p>
+        </div>
+        <button class="btn-sm no-print" id="btnManualAdd">+ บันทึกด้วยมือ</button>
+      </div>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="เลือกไฟล์สไลด์">
+        <h3>ลากไฟล์สไลด์มาวางที่นี่</h3>
+        <p class="muted small" style="margin:0">รองรับ .pptx (อ่านได้ครบที่สุด) และ .pdf · เลือกหลายไฟล์พร้อมกันได้</p>
+        <input type="file" id="filepick" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple hidden />
+      </div>
+      <div id="ingestQueue"></div>
+    </div>
+    <div class="grid g4" id="ingestStats"></div>
+    <div class="card">
+      <h2>บันทึกล่าสุด</h2>
+      <div id="recentActivities"></div>
+    </div>
+  </section>
+
+  <!-- ============ RESIDENTS ============ -->
+  <section class="view" id="view-residents">
+    <div class="card no-print">
+      <div class="between">
+        <h1>แพทย์ประจำบ้าน</h1>
+        <div class="row">
+          <button class="btn-sm" id="btnAddResident">+ เพิ่มแพทย์ประจำบ้าน</button>
+          <button class="btn-sm" id="btnPrintPortfolio">พิมพ์แฟ้มรายบุคคล</button>
+        </div>
+      </div>
+      <div id="residentList"></div>
+    </div>
+    <div id="residentDetail"></div>
+  </section>
+
+  <!-- ============ ACTIVITIES ============ -->
+  <section class="view" id="view-activities">
+    <div class="card">
+      <h1>กิจกรรมทั้งหมด</h1>
+      <div class="row no-print" id="activityFilters"></div>
+      <div id="activityTable"></div>
+    </div>
+  </section>
+
+  <!-- ============ RESEARCH ============ -->
+  <section class="view" id="view-research">
+    <div class="card">
+      <div class="between">
+        <h1>ความก้าวหน้างานวิจัย</h1>
+        <button class="btn-sm no-print" id="btnAddResearch">+ เพิ่มโครงการ</button>
+      </div>
+      <p class="muted small">แต่ละโครงการติดตามเป็นขั้น ระบบเตือนเมื่อขั้นใดเลยกำหนด และนับการนำเสนอความก้าวหน้าที่บันทึกจากสไลด์เข้ามาให้เอง</p>
+      <div id="researchList"></div>
+    </div>
+  </section>
+
+  <!-- ============ COVERAGE ============ -->
+  <section class="view" id="view-coverage">
+    <div class="card">
+      <h1>ความครอบคลุมอนุสาขาออร์โธปิดิกส์</h1>
+      <p class="muted small">แถว = แพทย์ประจำบ้าน, คอลัมน์ = อนุสาขา, ตัวเลข = จำนวนกิจกรรมที่บันทึกไว้ · ช่องแดงคืออนุสาขาที่ยังไม่มีผลงานเลย</p>
+      <div class="row no-print" id="coverageFilters"></div>
+      <div id="coverageMatrix"></div>
+    </div>
+    <div class="card">
+      <h2>หัวข้อที่เคยนำเสนอ แยกตามอนุสาขา</h2>
+      <div id="topicBank"></div>
+    </div>
+  </section>
+
+  <!-- ============ WFME ============ -->
+  <section class="view" id="view-wfme">
+    <div class="card">
+      <h1>หลักฐานตามมาตรฐาน WFME (Postgraduate Medical Education)</h1>
+      <p class="muted small">ทุกกิจกรรมที่บันทึกจะถูกผูกกับหัวข้อมาตรฐาน WFME ที่ใช้อ้างเป็นหลักฐานได้
+        หน้านี้รวมว่าแต่ละหมวดมีหลักฐานอะไรอยู่ในระบบบ้าง และยังขาดอะไร</p>
+      <div class="notice warn small" id="wfmeCaveat"></div>
+      <div class="row no-print" style="margin-top:.8rem">
+        <button class="btn-sm btn-primary" id="btnWfmeReport">สร้างรายงานหลักฐาน (พิมพ์ได้)</button>
+        <button class="btn-sm" id="btnWfmeCsv">ดาวน์โหลดตารางหลักฐาน (CSV)</button>
+      </div>
+    </div>
+    <div id="wfmeAreas"></div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="view" id="view-settings">
+    <div class="card">
+      <h1>ข้อมูลหลักสูตร</h1>
+      <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
+        ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
+      <div id="programmeEditor"></div>
+    </div>
+    <div class="card">
+      <div class="between"><h2>ทะเบียนเอกสารหลักสูตร</h2>
+        <button class="btn-sm no-print" id="btnAddDoc">+ เพิ่มเอกสาร</button></div>
+      <p class="muted small">บันทึกว่ามีเอกสารอะไร เก็บไว้ที่ใด ทบทวนล่าสุดเมื่อไร และใช้เป็นหลักฐานของมาตรฐานข้อใด
+        (ตัวเอกสารไม่ได้ถูกอัปโหลดเข้าหน้านี้)</p>
+      <div id="docRegister"></div>
+    </div>
+    <div class="card">
+      <h1>เกณฑ์จำนวนกิจกรรมต่อชั้นปี</h1>
+      <p class="muted small">ค่าเหล่านี้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ยังไม่ใช่เกณฑ์ทางการของหลักสูตร
+        กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
+      <div class="tbl-wrap"><div id="requirementEditor"></div></div>
+    </div>
+    <div class="card">
+      <h2>คำสำคัญที่ใช้จัดกลุ่มอนุสาขา</h2>
+      <p class="muted small">ระบบเดาอนุสาขาจากคำที่พบในสไลด์ เพิ่มคำของกลุ่มงานเองได้ (คั่นด้วยจุลภาค) เพื่อให้เดาแม่นขึ้น</p>
+      <div id="keywordEditor"></div>
+    </div>
+    <div class="card">
+      <h2>ข้อมูลในเครื่องนี้</h2>
+      <p class="small muted" id="storageInfo"></p>
+      <div class="row">
+        <button id="btnExport2">สำรองข้อมูลเป็นไฟล์ JSON</button>
+        <button id="btnImport2">นำเข้าไฟล์สำรอง</button>
+        <button id="btnCsvAll">ดาวน์โหลดกิจกรรมทั้งหมด (CSV)</button>
+        <button id="btnSeed">โหลดข้อมูลสาธิตใหม่</button>
+        <button class="btn-danger" id="btnWipe">ลบข้อมูลทั้งหมดในเครื่องนี้</button>
+      </div>
+      <input type="file" id="importPick" accept="application/json,.json" hidden />
+    </div>
+    <div class="card">
+      <h2>ข้อจำกัดของหน้าสาธิตนี้</h2>
+      <ul class="clean small">
+        <li>ข้อมูลเก็บอยู่ใน <b>เบราว์เซอร์ของเครื่องนี้เท่านั้น</b> (localStorage) ไม่มีเซิร์ฟเวอร์ ไม่มีการรับส่งข้อมูลออกนอกเครื่อง เปิดคนละเครื่องจะไม่เห็นข้อมูลกัน</li>
+        <li>ระบบเก็บ <b>ข้อความที่อ่านได้จากสไลด์และลายนิ้วมือไฟล์ (SHA-256)</b> ไว้เป็นหลักฐาน แต่ <b>ไม่ได้เก็บตัวไฟล์</b> ต้นฉบับต้องเก็บไว้ที่อื่นตามระบบของกลุ่มงาน</li>
+        <li>การเดาประเภทกิจกรรมและอนุสาขาเป็นการช่วยกรอก ไม่ใช่คำตัดสิน ผู้บันทึกต้องตรวจก่อนยืนยันเสมอ</li>
+        <li>ข้อมูลตัวอย่างทั้งหมดเป็นข้อมูลสมมติ ไม่มีข้อมูลผู้ป่วยจริง</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ PRINTABLE REPORT TARGET ============ -->
+  <section class="view" id="view-report"><div id="reportBody"></div></section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div class="dlg-head"><h3 id="dlgTitle">—</h3><button class="btn-sm btn-ghost" value="cancel" type="submit">ปิด</button></div>
+    <div class="dlg-body" id="dlgBody"></div>
+    <div class="dlg-foot" id="dlgFoot"></div>
+  </form>
+</dialog>
+<script>
+"use strict";
+/* =====================================================================
+   แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ — หน้าสาธิตแบบไฟล์เดียว
+   ไม่มี build step, ไม่มี dependency ภายนอก, ไม่มีการเชื่อมต่อเครือข่าย
+   ===================================================================== */
+
+const APP = { key: "mnrh_ortho_portfolio_v1", version: 1 };
+
+/* ---------------------------------------------------------------------
+   1) อนุสาขาออร์โธปิดิกส์ + คำสำคัญที่ใช้เดาจากเนื้อสไลด์
+   คำสำคัญแก้ไขเพิ่มได้ในหน้า "ตั้งค่า" และถูกเก็บรวมกับข้อมูล
+   --------------------------------------------------------------------- */
+const SUBSPECIALTIES = [
+  { id:"trauma",      th:"อุบัติเหตุทางออร์โธปิดิกส์", en:"Orthopaedic Trauma",
+    kw:["fracture","fx","nonunion","malunion","nail","plate","external fixator","ex-fix","damage control","polytrauma","open fracture","gustilo","ao/ota","pelvic ring","acetabular fracture","หัก","กระดูกหัก","ไม่ติด","ดามกระดูก","อุบัติเหตุ"] },
+  { id:"spine",       th:"กระดูกสันหลัง", en:"Spine",
+    kw:["spine","spinal","lumbar","cervical","thoracolumbar","disc","spondylolisthesis","stenosis","myelopathy","radiculopathy","scoliosis","kyphosis","pedicle screw","laminectomy","discectomy","fusion","cauda equina","กระดูกสันหลัง","หมอนรองกระดูก","หลังคด"] },
+  { id:"arthroplasty",th:"ข้อเทียมและการผ่าตัดแก้ไขข้อ", en:"Adult Reconstruction / Arthroplasty",
+    kw:["arthroplasty","tha","tka","uka","total hip","total knee","revision arthroplasty","periprosthetic","osteoarthritis","oa knee","oa hip","hemiarthroplasty","bearing","polyethylene","อวัยวะเทียม","ข้อเทียม","ข้อเข่าเสื่อม","ข้อสะโพกเสื่อม"] },
+  { id:"sports",      th:"เวชศาสตร์การกีฬาและการส่องกล้องข้อ", en:"Sports Medicine / Arthroscopy",
+    kw:["acl","pcl","mcl","meniscus","meniscal","arthroscopy","arthroscopic","patellar instability","rotator cuff tear","return to play","cartilage","osteochondral","สาย เอ็นไขว้","เอ็นไขว้","ส่องกล้องข้อ","นักกีฬา"] },
+  { id:"hand",        th:"มือและจุลศัลยกรรม", en:"Hand & Microsurgery",
+    kw:["hand","wrist","carpal","scaphoid","flexor tendon","extensor tendon","replantation","microsurgery","nerve repair","brachial plexus","dupuytren","trigger finger","carpal tunnel","de quervain","มือ","ข้อมือ","เส้นประสาท","ต่อนิ้ว","จุลศัลยกรรม"] },
+  { id:"foot",        th:"เท้าและข้อเท้า", en:"Foot & Ankle",
+    kw:["foot","ankle","hallux valgus","flatfoot","pes planus","charcot","achilles","calcaneus","lisfranc","diabetic foot","plantar fasciitis","เท้า","ข้อเท้า","เท้าเบาหวาน","เอ็นร้อยหวาย"] },
+  { id:"pediatric",   th:"ออร์โธปิดิกส์เด็ก", en:"Paediatric Orthopaedics",
+    kw:["paediatric","pediatric","ddh","developmental dysplasia","clubfoot","ponseti","perthes","scfe","supracondylar","physis","growth plate","limb length discrepancy","cerebral palsy","เด็ก","ข้อสะโพกเคลื่อนแต่กำเนิด","เท้าปุก"] },
+  { id:"oncology",    th:"เนื้องอกกระดูกและเนื้อเยื่ออ่อน", en:"Musculoskeletal Oncology",
+    kw:["tumour","tumor","sarcoma","osteosarcoma","ewing","chondrosarcoma","gct","giant cell tumor","metastasis","metastatic bone","biopsy","limb salvage","enneking","เนื้องอก","มะเร็งกระดูก","แพร่กระจาย"] },
+  { id:"shoulder",    th:"ไหล่และข้อศอก", en:"Shoulder & Elbow",
+    kw:["shoulder","glenohumeral","rotator cuff","bankart","hill-sachs","frozen shoulder","adhesive capsulitis","proximal humerus","elbow","olecranon","terrible triad","reverse shoulder","ไหล่","ข้อศอก","ไหล่ติด","ไหล่หลุด"] },
+  { id:"infection",   th:"การติดเชื้อระบบกระดูกและข้อ", en:"Musculoskeletal Infection",
+    kw:["osteomyelitis","septic arthritis","pji","prosthetic joint infection","necrotizing fasciitis","tuberculosis","pott","debridement","antibiotic cement","spacer","การติดเชื้อ","ติดเชื้อในข้อ","กระดูกอักเสบ","วัณโรคกระดูก"] },
+  { id:"metabolic",   th:"โรคกระดูกเมตาบอลิกและกระดูกพรุน", en:"Metabolic Bone Disease / Osteoporosis",
+    kw:["osteoporosis","osteoporotic","fragility fracture","bisphosphonate","denosumab","vitamin d","bmd","dexa","frax","rickets","osteomalacia","fracture liaison","กระดูกพรุน","กระดูกบาง","ฮอร์โมนกระดูก"] },
+  { id:"basic",       th:"วิทยาศาสตร์พื้นฐานและชีวกลศาสตร์", en:"Basic Science / Biomechanics",
+    kw:["biomechanics","bone healing","fracture healing","anatomy","histology","implant material","titanium","stainless","biomaterial","statistic","research methodology","evidence-based","ชีวกลศาสตร์","กายวิภาค","ระเบียบวิธีวิจัย","สถิติ"] },
+  { id:"general",     th:"ทั่วไป / ยังไม่ระบุอนุสาขา", en:"General / Unclassified", kw:[] }
+];
+const SUB_BY_ID = Object.fromEntries(SUBSPECIALTIES.map(s => [s.id, s]));
+
+/* ---------------------------------------------------------------------
+   2) ประเภทกิจกรรมของแพทย์ประจำบ้าน + หัวข้อมาตรฐาน WFME ที่ใช้อ้างได้
+   --------------------------------------------------------------------- */
+const ACTIVITY_TYPES = [
+  { id:"topic",      th:"นำเสนอหัวข้อวิชาการ", en:"Topic presentation", icon:"T",
+    kw:["topic review","topic presentation","interesting case","review article","academic conference","หัวข้อ","ทบทวนวรรณกรรม","topic"],
+    wfme:["2.1","2.3","3.1","6.5"] },
+  { id:"preop",      th:"Pre-operative conference", en:"Pre-operative conference", icon:"P",
+    kw:["pre-op","preop","pre operative","preoperative","operative plan","planning conference","แผนผ่าตัด","ก่อนผ่าตัด"],
+    wfme:["2.5","2.6","3.1"] },
+  { id:"postop",     th:"Post-operative conference / M&M", en:"Post-operative conference / M&M", icon:"O",
+    kw:["post-op","postop","post operative","postoperative","morbidity","mortality","m&m","complication","outcome review","หลังผ่าตัด","ภาวะแทรกซ้อน"],
+    wfme:["2.5","2.6","3.1","7.1"] },
+  { id:"traumafilm", th:"Trauma film conference", en:"Trauma film conference", icon:"F",
+    kw:["trauma film","film conference","x-ray reading","radiograph review","trauma round","อ่านฟิล์ม","ฟิล์มอุบัติเหตุ","เอกซเรย์"],
+    wfme:["2.3","2.6","6.2"] },
+  { id:"journal",    th:"Journal club", en:"Journal club", icon:"J",
+    kw:["journal club","critical appraisal","randomized controlled trial","meta-analysis","systematic review","level of evidence","วารสารสโมสร","วิจารณ์บทความ"],
+    wfme:["2.2","6.5","3.1"] },
+  { id:"research",   th:"ความก้าวหน้างานวิจัย", en:"Research progression", icon:"R",
+    kw:["research progress","proposal","thesis","dissertation","irb","ethics committee","data collection","preliminary result","งานวิจัย","โครงร่างวิจัย","ความก้าวหน้า","จริยธรรมการวิจัย"],
+    wfme:["2.2","6.5","9.0"] }
+];
+const TYPE_BY_ID = Object.fromEntries(ACTIVITY_TYPES.map(t => [t.id, t]));
+
+/* ---------------------------------------------------------------------
+   3) โครงมาตรฐาน WFME — Postgraduate Medical Education
+      หัวข้อด้านล่างเป็น "ฉบับย่อสำหรับใช้งานภายใน" เรียบเรียงตามโครง 9 หมวด
+      ของ WFME Global Standards for Quality Improvement: PGME (ฉบับปรับปรุง 2015)
+      ยังไม่ได้ทาบกับเอกสารต้นฉบับทีละข้อ ให้ผู้รับผิดชอบหลักสูตรตรวจสอบ
+      ถ้อยคำและหมายเลขกับเอกสารทางการก่อนใช้ยื่นประเมินจริง
+   --------------------------------------------------------------------- */
+const WFME_AREAS = [
+  { n:"1", th:"พันธกิจและผลลัพธ์", en:"Mission and Outcomes", subs:[
+    { id:"1.1", th:"พันธกิจของหลักสูตร", en:"Mission" },
+    { id:"1.2", th:"ความเป็นวิชาชีพและอิสระทางวิชาชีพ", en:"Professionalism and professional autonomy" },
+    { id:"1.3", th:"ผลลัพธ์การเรียนรู้ของผู้เข้าฝึกอบรม", en:"Educational outcomes" },
+    { id:"1.4", th:"การมีส่วนร่วมในการกำหนดพันธกิจและผลลัพธ์", en:"Participation in formulation of mission and outcomes" }
+  ]},
+  { n:"2", th:"หลักสูตรและการจัดการเรียนการสอน", en:"Educational Programme", subs:[
+    { id:"2.1", th:"กรอบของหลักสูตร", en:"Framework of the programme" },
+    { id:"2.2", th:"วิธีการทางวิทยาศาสตร์และการวิจัย", en:"Scientific method" },
+    { id:"2.3", th:"เนื้อหาของหลักสูตร", en:"Programme content" },
+    { id:"2.4", th:"โครงสร้าง องค์ประกอบ และระยะเวลา", en:"Programme structure, composition and duration" },
+    { id:"2.5", th:"การจัดระบบการเรียนการสอน", en:"Organisation of education" },
+    { id:"2.6", th:"ความสัมพันธ์ระหว่างการฝึกอบรมกับงานบริการ", en:"Relation between training and service" }
+  ]},
+  { n:"3", th:"การประเมินผู้เข้าฝึกอบรม", en:"Assessment of Trainees", subs:[
+    { id:"3.1", th:"วิธีการประเมิน", en:"Assessment methods" },
+    { id:"3.2", th:"ความสัมพันธ์ระหว่างการประเมินกับการเรียนรู้", en:"Relationship between assessment and learning" }
+  ]},
+  { n:"4", th:"ผู้เข้าฝึกอบรม", en:"Trainees", subs:[
+    { id:"4.1", th:"นโยบายการรับและการคัดเลือก", en:"Admission policy and selection" },
+    { id:"4.2", th:"จำนวนผู้เข้าฝึกอบรม", en:"Number of trainees" },
+    { id:"4.3", th:"การให้คำปรึกษาและการสนับสนุน", en:"Trainee counselling and support" },
+    { id:"4.4", th:"การมีผู้แทนของผู้เข้าฝึกอบรม", en:"Trainee representation" },
+    { id:"4.5", th:"สภาพการทำงาน", en:"Working conditions" }
+  ]},
+  { n:"5", th:"อาจารย์ผู้ให้การฝึกอบรม", en:"Staffing", subs:[
+    { id:"5.1", th:"นโยบายการสรรหาและคัดเลือกอาจารย์", en:"Recruitment and selection policy" },
+    { id:"5.2", th:"หน้าที่และการพัฒนาอาจารย์", en:"Trainer obligations and development" }
+  ]},
+  { n:"6", th:"ทรัพยากรทางการศึกษา", en:"Educational Resources", subs:[
+    { id:"6.1", th:"อาคารสถานที่และสิ่งอำนวยความสะดวก", en:"Physical facilities" },
+    { id:"6.2", th:"สถานที่ฝึกปฏิบัติทางคลินิก", en:"Clinical training settings" },
+    { id:"6.3", th:"เทคโนโลยีสารสนเทศ", en:"Information technology" },
+    { id:"6.4", th:"ทีมผู้ให้บริการทางคลินิก", en:"Clinical teams" },
+    { id:"6.5", th:"การวิจัยและผลงานวิชาการ", en:"Medical research and scholarship" },
+    { id:"6.6", th:"ความเชี่ยวชาญด้านแพทยศาสตรศึกษา", en:"Educational expertise" },
+    { id:"6.7", th:"การฝึกอบรมในสถาบันหรือสถานที่อื่น", en:"Training in other institutions/settings" }
+  ]},
+  { n:"7", th:"การประเมินหลักสูตร", en:"Programme Evaluation", subs:[
+    { id:"7.1", th:"กลไกการติดตามและประเมินหลักสูตร", en:"Mechanisms for programme monitoring and evaluation" },
+    { id:"7.2", th:"ข้อมูลป้อนกลับจากอาจารย์และผู้เข้าฝึกอบรม", en:"Trainer and trainee feedback" },
+    { id:"7.3", th:"ผลการปฏิบัติงานของผู้สำเร็จการฝึกอบรม", en:"Performance of qualified doctors" },
+    { id:"7.4", th:"การมีส่วนร่วมของผู้มีส่วนได้ส่วนเสีย", en:"Involvement of stakeholders" }
+  ]},
+  { n:"8", th:"การบริหารและธรรมาภิบาล", en:"Governance and Administration", subs:[
+    { id:"8.1", th:"ธรรมาภิบาล", en:"Governance" },
+    { id:"8.2", th:"ผู้นำทางวิชาการ", en:"Academic leadership" },
+    { id:"8.3", th:"งบประมาณและการจัดสรรทรัพยากร", en:"Educational budget and resource allocation" },
+    { id:"8.4", th:"การบริหารจัดการและงานธุรการ", en:"Administration and management" },
+    { id:"8.5", th:"ข้อกำหนดและระเบียบที่เกี่ยวข้อง", en:"Requirements and regulations" }
+  ]},
+  { n:"9", th:"การพัฒนาอย่างต่อเนื่อง", en:"Continuous Renewal", subs:[
+    { id:"9.0", th:"การทบทวนและปรับปรุงหลักสูตรอย่างต่อเนื่อง", en:"Continuous renewal of the programme" }
+  ]}
+];
+const WFME_SUBS = WFME_AREAS.flatMap(a => a.subs.map(s => ({ ...s, area:a.n, areaTh:a.th, areaEn:a.en })));
+const WFME_BY_ID = Object.fromEntries(WFME_SUBS.map(s => [s.id, s]));
+
+/* หลักฐานอื่นในระบบที่ไม่ได้มาจากกิจกรรมโดยตรง ผูกกับหมวด WFME ไว้ล่วงหน้า */
+const WFME_SOURCES = [
+  { key:"assessment", label:"แบบประเมินหลังการนำเสนอ (ผู้ประเมิน คะแนน ข้อเสนอแนะ)", subs:["3.1","3.2","7.2"] },
+  { key:"coverage",   label:"ตารางความครอบคลุมอนุสาขาและรายการหัวข้อที่นำเสนอ",       subs:["2.3","2.4","7.1"] },
+  { key:"gaps",       label:"รายการส่วนขาดเทียบเกณฑ์ต่อชั้นปี",                       subs:["7.1","9.0"] },
+  { key:"research",   label:"ทะเบียนโครงการวิจัยและขั้นความก้าวหน้า",                  subs:["2.2","6.5"] },
+  { key:"advisor",    label:"อาจารย์ที่ปรึกษาประจำตัวและบันทึกการให้คำปรึกษา",         subs:["4.3","5.2"] },
+  { key:"logtrail",   label:"ร่องรอยการบันทึก (ผู้บันทึก เวลา ลายนิ้วมือไฟล์)",        subs:["8.4","3.1"] }
+];
+
+/* ---------------------------------------------------------------------
+   4) เกณฑ์ตั้งต้นต่อชั้นปี — ค่าสาธิต แก้ไขได้ในหน้าตั้งค่า
+   --------------------------------------------------------------------- */
+const DEFAULT_REQUIREMENTS = {
+  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:4 },
+  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:7 },
+  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:9 },
+  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:10 }
+};
+const RESEARCH_STAGES = [
+  { id:"topic",     th:"อนุมัติหัวข้อ" },
+  { id:"proposal",  th:"เสนอโครงร่างวิจัย" },
+  { id:"ec",        th:"ผ่านคณะกรรมการจริยธรรมการวิจัย" },
+  { id:"collect",   th:"เก็บข้อมูล" },
+  { id:"analyse",   th:"วิเคราะห์ข้อมูล" },
+  { id:"present",   th:"นำเสนอผลงาน" },
+  { id:"publish",   th:"ตีพิมพ์ / ส่งตีพิมพ์" }
+];
+
+/* =====================================================================
+   5) เครื่องมือพื้นฐาน
+   ===================================================================== */
+const $  = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const uid = (p = "id") => p + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const daysAgoISO = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+const daysAheadISO = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  if (isNaN(d)) return iso;
+  try { return d.toLocaleDateString("th-TH", { day:"numeric", month:"short", year:"numeric" }); }
+  catch { return iso; }
+}
+/* ปีการศึกษาไทยเริ่ม 1 มิ.ย. — ใช้จัดกลุ่มกิจกรรมตามรอบการฝึกอบรม */
+function academicYear(iso) {
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return "—";
+  const y = d.getMonth() + 1 >= 6 ? d.getFullYear() : d.getFullYear() - 1;
+  return String(y + 543);
+}
+function pct(a, b) { return b > 0 ? Math.min(100, Math.round((a / b) * 100)) : (a > 0 ? 100 : 0); }
+function toast(msg, ms = 2600) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  t.style.bottom = (1.2 + document.querySelectorAll(".toast").length * 3.1) + "rem";
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), ms);
+}
+function download(name, text, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function toCsv(rows) {
+  const cell = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  /* BOM ช่วยให้ Excel ภาษาไทยอ่านไฟล์ได้ถูกต้อง */
+  return "﻿" + rows.map(r => r.map(cell).join(",")).join("\r\n");
+}
+async function sha256(buf) {
+  try {
+    const h = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch { return ""; }
+}
+
+/* =====================================================================
+   6) ที่เก็บข้อมูล (localStorage เท่านั้น)
+   ===================================================================== */
+const store = {
+  data: null,
+  load() {
+    try {
+      const raw = localStorage.getItem(APP.key);
+      if (raw) { this.data = JSON.parse(raw); this.migrate(); return; }
+    } catch (e) { console.warn("อ่านข้อมูลเดิมไม่ได้", e); }
+    this.data = seedData();
+    this.save();
+  },
+  migrate() {
+    const d = this.data;
+    d.residents ||= []; d.activities ||= []; d.research ||= [];
+    d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
+    d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
+    d.programme.documents ||= []; d.programme.outcomes ||= [];
+    d.keywords ||= {};
+    d.meta ||= { created: new Date().toISOString() };
+  },
+  save() {
+    try {
+      this.data.meta.updated = new Date().toISOString();
+      localStorage.setItem(APP.key, JSON.stringify(this.data));
+      renderStoreState();
+    } catch (e) {
+      toast("บันทึกลงเครื่องไม่สำเร็จ — พื้นที่เก็บของเบราว์เซอร์อาจเต็ม");
+      console.error(e);
+    }
+  },
+  reset() { this.data = seedData(); this.save(); },
+  wipe() {
+    localStorage.removeItem(APP.key);
+    this.data = { residents:[], activities:[], research:[], requirements: structuredClone(DEFAULT_REQUIREMENTS),
+                  programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
+    this.save();
+  },
+  resident(id) { return this.data.residents.find(r => r.id === id); },
+  activitiesOf(id) { return this.data.activities.filter(a => a.residentId === id); },
+  keywordsFor(subId) {
+    const base = SUB_BY_ID[subId]?.kw || [];
+    const extra = this.data.keywords?.[subId] || [];
+    return base.concat(extra);
+  }
+};
+
+/* =====================================================================
+   7) ข้อมูลสาธิต (สมมติทั้งหมด — ไม่มีบุคคลหรือผู้ป่วยจริง)
+   ===================================================================== */
+function seedData() {
+  const residents = [
+    { id:"res_a", name:"พญ. กมลชนก ศรีวัฒนา",  nick:"R4-A", year:4, cohort:"2565", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
+    { id:"res_b", name:"นพ. ธนกฤต อินทรพัฒน์",  nick:"R4-B", year:4, cohort:"2565", advisor:"พญ. สุภาวดี ข้อดี",        email:"" },
+    { id:"res_c", name:"นพ. ณัฐพงษ์ บุญมาก",     nick:"R3-A", year:3, cohort:"2566", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
+    { id:"res_d", name:"พญ. ปิยะฉัตร แสนสุข",    nick:"R3-B", year:3, cohort:"2566", advisor:"นพ. อรรถพล กระดูกงาม",    email:"" },
+    { id:"res_e", name:"นพ. วรินทร ชัยมงคล",     nick:"R2-A", year:2, cohort:"2567", advisor:"พญ. สุภาวดี ข้อดี",        email:"" },
+    { id:"res_f", name:"พญ. อรอนงค์ ทองดี",      nick:"R2-B", year:2, cohort:"2567", advisor:"นพ. อรรถพล กระดูกงาม",    email:"" },
+    { id:"res_g", name:"นพ. ภาณุพงศ์ เรืองศรี",  nick:"R1-A", year:1, cohort:"2568", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
+    { id:"res_h", name:"พญ. ชนากานต์ พูนผล",     nick:"R1-B", year:1, cohort:"2568", advisor:"พญ. สุภาวดี ข้อดี",        email:"" }
+  ];
+
+  /* [ผู้นำเสนอ, ประเภท, อนุสาขา, ชื่อเรื่อง, กี่วันก่อน, คะแนน(ถ้ามี)] */
+  const rows = [
+    ["res_a","topic","arthroplasty","Periprosthetic joint infection: two-stage revision — เมื่อไรจึงควรเลือก",12,4.6],
+    ["res_a","journal","arthroplasty","Cemented vs cementless hemiarthroplasty in elderly femoral neck fracture: an RCT appraisal",26,4.4],
+    ["res_a","postop","trauma","Post-op review: intertrochanteric fracture ที่เกิด lag screw cut-out",33,4.2],
+    ["res_a","research","spine","ความก้าวหน้างานวิจัย: ผลการรักษา thoracolumbar burst fracture ด้วย percutaneous fixation",8,null],
+    ["res_a","preop","spine","Pre-op conference: L4-5 spondylolisthesis เตรียม TLIF",47,null],
+    ["res_a","topic","oncology","Giant cell tumour of bone: denosumab กับบทบาทในการผ่าตัด",61,4.5],
+    ["res_b","topic","sports","ACL reconstruction: graft choice ในผู้ป่วยไทย",19,4.3],
+    ["res_b","traumafilm","trauma","Trauma film: open tibial fracture Gustilo IIIB ร่วมกับ compartment syndrome",5,null],
+    ["res_b","preop","arthroplasty","Pre-op conference: revision TKA จาก aseptic loosening",40,null],
+    ["res_b","research","sports","ความก้าวหน้างานวิจัย: return to play หลัง ACL reconstruction — ผลเบื้องต้น",15,null],
+    ["res_b","postop","sports","Post-op review: arthroscopic meniscal repair ที่ล้มเหลว",54,4.0],
+    ["res_b","topic","infection","Necrotizing fasciitis ของแขนขา: การวินิจฉัยและ debridement",72,4.7],
+    ["res_c","topic","spine","Cervical myelopathy: การเลือกผ่าตัดทางหน้าหรือหลัง",22,4.1],
+    ["res_c","traumafilm","trauma","Trauma film: pelvic ring injury ร่วมกับภาวะช็อก",9,null],
+    ["res_c","preop","trauma","Pre-op conference: distal femur fracture ในผู้ป่วยกระดูกพรุน",30,null],
+    ["res_c","journal","metabolic","Zoledronic acid หลัง hip fracture: การวิจารณ์บทความ",44,4.2],
+    ["res_c","research","trauma","ความก้าวหน้างานวิจัย: ระยะเวลารอผ่าตัดกับผลลัพธ์ใน hip fracture",17,null],
+    ["res_c","topic","hand","Flexor tendon injury zone II: การซ่อมและการฟื้นฟู",66,4.3],
+    ["res_d","topic","pediatric","Supracondylar humerus fracture ในเด็ก: pitfalls ที่พบบ่อย",14,4.5],
+    ["res_d","traumafilm","trauma","Trauma film: bilateral femoral shaft fracture ในผู้ป่วยหลายระบบ",6,null],
+    ["res_d","postop","pediatric","Post-op review: DDH ที่มี AVN หลัง closed reduction",37,4.0],
+    ["res_d","preop","foot","Pre-op conference: Charcot foot reconstruction ในผู้ป่วยเบาหวาน",50,null],
+    ["res_d","research","pediatric","ความก้าวหน้างานวิจัย: ผล Ponseti ในเด็กเท้าปุก รพ.มหาราชนครราชสีมา",11,null],
+    ["res_e","topic","trauma","Damage control orthopaedics: หลักการและการนำไปใช้",21,4.0],
+    ["res_e","traumafilm","trauma","Trauma film: distal radius fracture หลายรูปแบบ",4,null],
+    ["res_e","preop","trauma","Pre-op conference: femoral shaft fracture เตรียม intramedullary nail",28,null],
+    ["res_e","postop","infection","Post-op review: septic arthritis ของข้อเข่าหลังส่องกล้องล้างข้อ",42,3.8],
+    ["res_e","journal","trauma","Early vs delayed fixation ใน tibial plateau fracture",58,4.1],
+    ["res_f","topic","shoulder","Rotator cuff tear: การเลือกผู้ป่วยเพื่อผ่าตัดซ่อม",24,4.2],
+    ["res_f","traumafilm","trauma","Trauma film: proximal humerus fracture ในผู้สูงอายุ",7,null],
+    ["res_f","preop","shoulder","Pre-op conference: recurrent shoulder dislocation เตรียม Latarjet",35,null],
+    ["res_f","postop","trauma","Post-op review: ankle fracture ที่ syndesmosis ยังกว้าง",49,4.0],
+    ["res_g","traumafilm","trauma","Trauma film: อ่านฟิล์มกระดูกหักในเวรอุบัติเหตุ สัปดาห์ที่ผ่านมา",3,null],
+    ["res_g","preop","trauma","Pre-op conference: closed both-bone forearm fracture",18,null],
+    ["res_g","topic","basic","Fracture healing: ชีววิทยาและปัจจัยที่รบกวน",31,3.9],
+    ["res_g","postop","trauma","Post-op review: superficial wound infection หลัง ORIF",45,null],
+    ["res_h","traumafilm","trauma","Trauma film: hip fracture ในผู้สูงอายุ 3 ราย",2,null],
+    ["res_h","topic","metabolic","Osteoporosis: การประเมินและการเริ่มยาหลังกระดูกหัก",27,4.1],
+    ["res_h","preop","arthroplasty","Pre-op conference: primary TKA ในผู้ป่วยเข่าโก่งมาก",39,null],
+    ["res_h","postop","trauma","Post-op review: DVT หลังผ่าตัดกระดูกสะโพก",52,null]
+  ];
+
+  const staff = ["นพ. ประสิทธิ์ วงศ์กระดูก","พญ. สุภาวดี ข้อดี","นพ. อรรถพล กระดูกงาม"];
+  const activities = rows.map((r, i) => {
+    const [residentId, type, sub, title, ago, score] = r;
+    const date = daysAgoISO(ago);
+    return {
+      id: uid("act"),
+      residentId, type, subspecialty: sub, title,
+      date,
+      academicYear: academicYear(date),
+      source: i % 3 === 0 ? "manual" : "slides",
+      evidence: i % 3 === 0 ? null : {
+        fileName: title.slice(0, 28).replace(/[^฀-๿a-zA-Z0-9]+/g, "_") + ".pptx",
+        fileType: "pptx", slideCount: 12 + (i % 18), hash: "",
+        excerpt: "(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)",
+        detectedBy: "keyword", confidence: 0.7
+      },
+      wfme: TYPE_BY_ID[type]?.wfme.slice() || [],
+      assessment: score == null ? null : {
+        by: staff[i % staff.length], score,
+        comment: "เนื้อหาครบถ้วน อ้างอิงหลักฐานเชิงประจักษ์ได้ดี ควรฝึกการสรุปประเด็นให้กระชับขึ้น",
+        at: date
+      },
+      verified: score != null || ago > 20,
+      verifiedBy: score != null ? staff[i % staff.length] : (ago > 20 ? staff[(i + 1) % staff.length] : ""),
+      note: "",
+      createdAt: new Date(Date.now() - ago * 86400000).toISOString()
+    };
+  });
+
+  const research = [
+    { id:uid("rs"), residentId:"res_a", title:"ผลการรักษา thoracolumbar burst fracture ด้วย percutaneous pedicle screw fixation",
+      advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"spine", type:"Retrospective cohort",
+      stages:{ topic:{done:daysAgoISO(400)}, proposal:{done:daysAgoISO(330)}, ec:{done:daysAgoISO(300)},
+               collect:{done:daysAgoISO(90)}, analyse:{due:daysAheadISO(20)}, present:{due:daysAheadISO(80)}, publish:{due:daysAheadISO(240)} } },
+    { id:uid("rs"), residentId:"res_b", title:"อัตราการกลับไปเล่นกีฬาหลังผ่าตัดสร้างเอ็นไขว้หน้าในผู้ป่วยไทย",
+      advisor:"พญ. สุภาวดี ข้อดี", subspecialty:"sports", type:"Prospective cohort",
+      stages:{ topic:{done:daysAgoISO(380)}, proposal:{done:daysAgoISO(310)}, ec:{done:daysAgoISO(280)},
+               collect:{due:daysAheadISO(45)}, analyse:{due:daysAheadISO(110)}, present:{due:daysAheadISO(160)}, publish:{} } },
+    { id:uid("rs"), residentId:"res_c", title:"ความสัมพันธ์ระหว่างระยะเวลารอผ่าตัดกับผลลัพธ์ในผู้ป่วยกระดูกสะโพกหัก",
+      advisor:"นพ. อรรถพล กระดูกงาม", subspecialty:"trauma", type:"Retrospective cohort",
+      stages:{ topic:{done:daysAgoISO(240)}, proposal:{done:daysAgoISO(150)}, ec:{due:daysAgoISO(20)},
+               collect:{due:daysAheadISO(60)}, analyse:{}, present:{}, publish:{} } },
+    { id:uid("rs"), residentId:"res_d", title:"ผลการรักษาเท้าปุกด้วยวิธี Ponseti ในโรงพยาบาลมหาราชนครราชสีมา",
+      advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"pediatric", type:"Retrospective review",
+      stages:{ topic:{done:daysAgoISO(200)}, proposal:{done:daysAgoISO(120)}, ec:{done:daysAgoISO(95)},
+               collect:{due:daysAheadISO(30)}, analyse:{}, present:{}, publish:{} } }
+  ];
+
+  const programme = {
+    mission: "ผลิตแพทย์ออร์โธปิดิกส์ที่ให้การดูแลผู้ป่วยกระดูกและข้อได้อย่างปลอดภัยตามมาตรฐานวิชาชีพ " +
+             "มีเจตคติที่ดี เรียนรู้ต่อเนื่องด้วยตนเอง และตอบสนองต่อปัญหาสุขภาพของประชาชนในเขตสุขภาพที่ 9 (ข้อความตัวอย่างสำหรับสาธิต)",
+    outcomes: [
+      "ให้การวินิจฉัยและดูแลผู้ป่วยอุบัติเหตุทางออร์โธปิดิกส์ได้ด้วยตนเองอย่างปลอดภัย",
+      "ทำหัตถการและการผ่าตัดพื้นฐานทางออร์โธปิดิกส์ได้ตามระดับความสามารถที่หลักสูตรกำหนด",
+      "ประเมินหลักฐานเชิงประจักษ์และนำมาใช้ในการตัดสินใจทางคลินิกได้",
+      "ทำงานวิจัยและนำเสนอผลงานวิชาการได้อย่างน้อยหนึ่งเรื่องก่อนสำเร็จการฝึกอบรม",
+      "สื่อสารกับผู้ป่วย ญาติ และทีมสหวิชาชีพได้อย่างเหมาะสม และปฏิบัติตามจริยธรรมวิชาชีพ"
+    ],
+    reviewed: daysAgoISO(120),
+    documents: [
+      { id: uid("doc"), title:"หลักสูตรการฝึกอบรมแพทย์ประจำบ้าน สาขาออร์โธปิดิกส์ (เล่มหลักสูตร)", subs:["2.1","2.4","8.5"], location:"สำนักงานกลุ่มงานออร์โธปิดิกส์ / แฟ้มหลักสูตร", updated: daysAgoISO(300) },
+      { id: uid("doc"), title:"ตารางหมุนเวียนการปฏิบัติงานและตารางกิจกรรมวิชาการประจำสัปดาห์", subs:["2.5","2.6","4.5"], location:"บอร์ดกลุ่มงาน / ไฟล์ส่วนกลาง", updated: daysAgoISO(45) },
+      { id: uid("doc"), title:"ระเบียบการประเมินผลและเกณฑ์การเลื่อนชั้นปี", subs:["3.1","3.2"], location:"แฟ้มการประเมินผล", updated: daysAgoISO(200) },
+      { id: uid("doc"), title:"รายงานการประชุมคณะกรรมการการศึกษาหลังปริญญา", subs:["7.1","8.1","8.2","9.0"], location:"แฟ้มรายงานการประชุม", updated: daysAgoISO(30) },
+      { id: uid("doc"), title:"แบบสอบถามความคิดเห็นแพทย์ประจำบ้านต่อหลักสูตร (รายปี)", subs:["7.2","4.4"], location:"งานแพทยศาสตรศึกษา", updated: daysAgoISO(160) }
+    ]
+  };
+
+  return {
+    residents, activities, research, programme,
+    requirements: structuredClone(DEFAULT_REQUIREMENTS),
+    keywords: {},
+    meta: { created:new Date().toISOString(), demo:true }
+  };
+}
+
+/* =====================================================================
+   8) อ่านไฟล์สไลด์ในเครื่อง — .pptx (zip + XML) และ .pdf (best effort)
+      ทั้งหมดทำงานในเบราว์เซอร์ ไม่มีการอัปโหลดไฟล์ไปที่ใด
+   ===================================================================== */
+
+/* --- zip ขั้นต่ำที่พอสำหรับ .pptx --- */
+async function inflateRaw(bytes, format = "deflate-raw") {
+  if (typeof DecompressionStream === "undefined") throw new Error("เบราว์เซอร์นี้ยังไม่รองรับการแตกไฟล์ในเครื่อง (DecompressionStream)");
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function readZipIndex(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  const floor = Math.max(0, u8.length - 66000);
+  for (let i = u8.length - 22; i >= floor; i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  if (eocd < 0) throw new Error("ไฟล์นี้ไม่ใช่ .pptx ที่อ่านได้ (หา central directory ไม่พบ)");
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder("utf-8");
+  const entries = [];
+  for (let i = 0; i < count && off + 46 <= u8.length; i++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method   = dv.getUint16(off + 10, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const nameLen  = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const cmtLen   = dv.getUint16(off + 32, true);
+    const local    = dv.getUint32(off + 42, true);
+    const name     = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    entries.push({ name, method, compSize, local });
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return { u8, dv, entries };
+}
+
+async function zipRead(zip, name) {
+  const e = zip.entries.find(x => x.name === name);
+  if (!e) return null;
+  /* ขนาดใน local header อาจเป็น 0 เมื่อใช้ data descriptor จึงยึดขนาดจาก central directory */
+  const nameLen  = zip.dv.getUint16(e.local + 26, true);
+  const extraLen = zip.dv.getUint16(e.local + 28, true);
+  const start = e.local + 30 + nameLen + extraLen;
+  const raw = zip.u8.subarray(start, start + e.compSize);
+  const out = e.method === 0 ? raw : await inflateRaw(raw);
+  return new TextDecoder("utf-8").decode(out);
+}
+
+const xmlText = (xml, tag) => {
+  const m = xml.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">"));
+  return m ? decodeEntities(m[1].replace(/<[^>]+>/g, "")) : "";
+};
+const decodeEntities = (s) => String(s)
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&amp;/g, "&");
+
+/* ดึงข้อความจาก .pptx: ชื่อเรื่อง ผู้จัดทำ วันที่สร้าง จำนวนสไลด์ และข้อความทุกสไลด์ */
+async function parsePptx(buf) {
+  const zip = readZipIndex(buf);
+  const core = await zipRead(zip, "docProps/core.xml").catch(() => null);
+  const meta = {};
+  if (core) {
+    meta.title    = xmlText(core, "dc:title").trim();
+    meta.author   = (xmlText(core, "dc:creator") || xmlText(core, "cp:lastModifiedBy")).trim();
+    meta.lastBy   = xmlText(core, "cp:lastModifiedBy").trim();
+    meta.created  = (xmlText(core, "dcterms:created") || "").slice(0, 10);
+    meta.modified = (xmlText(core, "dcterms:modified") || "").slice(0, 10);
+  }
+  const slideNames = zip.entries
+    .map(e => e.name)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => (+a.match(/(\d+)/)[1]) - (+b.match(/(\d+)/)[1]));
+  const slides = [];
+  for (const n of slideNames) {
+    const xml = await zipRead(zip, n).catch(() => null);
+    if (!xml) continue;
+    const runs = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)).map(m => decodeEntities(m[1]));
+    /* รวม run ที่อยู่ย่อหน้าเดียวกันแบบหยาบ ๆ ด้วยการต่อบรรทัด */
+    slides.push(runs.join("\n").split(/\n+/).map(s => s.trim()).filter(Boolean));
+  }
+  const notes = [];
+  for (const n of zip.entries.map(e => e.name).filter(n => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n))) {
+    const xml = await zipRead(zip, n).catch(() => null);
+    if (xml) notes.push(Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)).map(m => decodeEntities(m[1])).join(" "));
+  }
+  return {
+    kind: "pptx", meta, slides, notes,
+    slideCount: slides.length,
+    firstSlide: slides[0] || [],
+    text: slides.flat().join("\n") + "\n" + notes.join("\n")
+  };
+}
+
+/* .pdf: อ่าน metadata ได้แน่นอน ส่วนเนื้อความอ่านได้เท่าที่ฟอนต์เอื้อ (ภาษาไทยมักอ่านไม่ออก) */
+async function parsePdf(buf) {
+  const u8 = new Uint8Array(buf);
+  const latin = new TextDecoder("latin1").decode(u8);
+  const meta = {};
+  const pdfStr = (raw) => {
+    if (!raw) return "";
+    if (raw[0] === "<") {
+      const hex = raw.slice(1, -1).replace(/[^0-9a-fA-F]/g, "");
+      const bytes = hex.match(/.{1,2}/g)?.map(h => parseInt(h, 16)) || [];
+      if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+        let out = ""; for (let i = 2; i < bytes.length; i += 2) out += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+        return out;
+      }
+      return bytes.map(b => String.fromCharCode(b)).join("");
+    }
+    let s = raw.slice(1, -1).replace(/\\([()\\])/g, "$1");
+    if (s.charCodeAt(0) === 0xFE && s.charCodeAt(1) === 0xFF) {
+      let out = ""; for (let i = 2; i < s.length; i += 2) out += String.fromCharCode((s.charCodeAt(i) << 8) | s.charCodeAt(i + 1));
+      return out;
+    }
+    return s;
+  };
+  const grab = (key) => {
+    const m = latin.match(new RegExp("/" + key + "\\s*(\\([^)]*\\)|<[0-9a-fA-F\\s]*>)"));
+    return m ? pdfStr(m[1]) : "";
+  };
+  meta.title  = grab("Title").trim();
+  meta.author = grab("Author").trim();
+  const cd = latin.match(/\/CreationDate\s*\(D:(\d{4})(\d{2})(\d{2})/);
+  if (cd) meta.created = cd[1] + "-" + cd[2] + "-" + cd[3];
+  const pageCount = (latin.match(/\/Type\s*\/Page[^s]/g) || []).length;
+
+  /* ลองแตก content stream เพื่อดึงข้อความ — สำเร็จบ้างไม่สำเร็จบ้าง ตามการฝังฟอนต์ */
+  const chunks = [];
+  const re = /stream\r?\n/g; let m, guard = 0;
+  while ((m = re.exec(latin)) && guard++ < 400) {
+    const start = m.index + m[0].length;
+    const end = latin.indexOf("endstream", start);
+    if (end < 0) continue;
+    const head = latin.slice(Math.max(0, m.index - 400), m.index);
+    if (!/FlateDecode/.test(head)) continue;
+    try {
+      const out = await inflateRaw(u8.subarray(start, end), "deflate");
+      chunks.push(new TextDecoder("latin1").decode(out));
+    } catch { /* stream นี้แตกไม่ได้ ข้ามไป */ }
+  }
+  const pieces = [];
+  for (const c of chunks) {
+    for (const t of c.matchAll(/\(((?:[^()\\]|\\.)*)\)\s*(?:Tj|TJ|')/g)) pieces.push(t[1].replace(/\\([()\\])/g, "$1"));
+    for (const arr of c.matchAll(/\[((?:[^\[\]\\]|\\.)*)\]\s*TJ/g)) {
+      for (const t of arr[1].matchAll(/\(((?:[^()\\]|\\.)*)\)/g)) pieces.push(t[1].replace(/\\([()\\])/g, "$1"));
+    }
+  }
+  const body = pieces.join(" ").replace(/\s+/g, " ").trim();
+  /* ถ้าอ่านออกมาแล้วเป็นอักขระเพี้ยนเป็นส่วนใหญ่ ถือว่าอ่านเนื้อความไม่ได้ */
+  const readable = body ? (body.match(/[a-zA-Z฀-๿0-9 .,:%()\-]/g) || []).length / body.length : 0;
+  const text = readable > 0.75 ? body : "";
+  return {
+    kind: "pdf", meta, slides: text ? [text.split(/(?<=\.)\s+/).slice(0, 40)] : [], notes: [],
+    slideCount: pageCount, firstSlide: text ? text.slice(0, 300).split(/\s{2,}/) : [],
+    text, textUnreadable: !!body && !text
+  };
+}
+
+async function parseSlideFile(file) {
+  const buf = await file.arrayBuffer();
+  const lower = file.name.toLowerCase();
+  let parsed;
+  if (lower.endsWith(".pptx")) parsed = await parsePptx(buf);
+  else if (lower.endsWith(".pdf")) parsed = await parsePdf(buf);
+  else throw new Error("รองรับเฉพาะ .pptx และ .pdf");
+  parsed.hash = await sha256(buf);
+  parsed.fileName = file.name;
+  parsed.fileSize = file.size;
+  parsed.fileModified = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : "";
+  return parsed;
+}
+
+/* =====================================================================
+   9) เดาประเภทกิจกรรม / อนุสาขา / ชื่อเรื่อง / ผู้นำเสนอ / วันที่
+   ===================================================================== */
+const normalise = (s) => String(s || "").toLowerCase().replace(/[​\r]/g, " ").replace(/\s+/g, " ");
+
+function scoreKeywords(hay, words) {
+  let score = 0; const hits = [];
+  for (const w of words) {
+    const needle = w.toLowerCase();
+    if (!needle) continue;
+    let idx = 0, n = 0;
+    while ((idx = hay.indexOf(needle, idx)) !== -1) { n++; idx += needle.length; if (n > 6) break; }
+    if (n) { score += n * (needle.length > 8 ? 2 : 1); hits.push(w); }
+  }
+  return { score, hits };
+}
+
+function guessTitle(parsed) {
+  const metaTitle = (parsed.meta?.title || "").trim();
+  const bad = /^(powerpoint|presentation|งานนำเสนอ|slide\s?\d*|untitled|เอกสารไม่มีชื่อ)/i;
+  if (metaTitle && !bad.test(metaTitle) && metaTitle.length > 3) return metaTitle;
+  const first = (parsed.firstSlide || []).filter(t => t.length > 3 && t.length < 160);
+  if (first.length) return first.sort((a, b) => b.length - a.length)[0];
+  return parsed.fileName.replace(/\.(pptx|pdf)$/i, "").replace(/[_-]+/g, " ").trim();
+}
+
+function guessDate(parsed) {
+  const fn = parsed.fileName || "";
+  const iso = fn.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+  if (iso) {
+    const [_, y, mo, d] = iso;
+    if (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) return y + "-" + mo + "-" + d;
+  }
+  const be = fn.match(/(\d{2})[-_.](\d{2})[-_.](25\d{2})/);   /* 12-05-2568 */
+  if (be) return String(+be[3] - 543) + "-" + be[2] + "-" + be[1];
+  return parsed.meta?.created || parsed.fileModified || todayISO();
+}
+
+/* จับคู่ชื่อผู้จัดทำไฟล์กับรายชื่อแพทย์ประจำบ้าน (ตัดคำนำหน้าออกก่อน) */
+function matchResident(parsed) {
+  const strip = (s) => normalise(s).replace(/^(นพ\.|พญ\.|นาย|นาง|นางสาว|dr\.?|md)\s*/g, "").replace(/[.\s]/g, "");
+  const cands = [parsed.meta?.author, parsed.meta?.lastBy, parsed.fileName].filter(Boolean).map(strip);
+  let best = null;
+  for (const r of store.data.residents) {
+    const keys = [strip(r.name), strip(r.nick || "")].filter(k => k.length >= 3);
+    for (const k of keys) {
+      for (const c of cands) {
+        if (c.includes(k) || k.includes(c)) { best ||= r; }
+        else {
+          /* จับคู่จากชื่อต้นอย่างเดียว เผื่อไฟล์ใส่แค่ชื่อเล่นหรือชื่อจริง */
+          const given = strip(r.name.split(/\s+/).slice(1).join(""));
+          if (given.length >= 4 && c.includes(given)) best ||= r;
+        }
+      }
+    }
+    if (best) break;
+  }
+  return best;
+}
+
+function classify(parsed) {
+  const title = guessTitle(parsed);
+  const hay = normalise(title + " " + title + " " + title + " " + (parsed.text || "") + " " + parsed.fileName);
+
+  const typeScores = ACTIVITY_TYPES.map(t => ({ t, ...scoreKeywords(hay, t.kw) })).sort((a, b) => b.score - a.score);
+  const subScores  = SUBSPECIALTIES.filter(s => s.id !== "general")
+    .map(s => ({ s, ...scoreKeywords(hay, store.keywordsFor(s.id)) })).sort((a, b) => b.score - a.score);
+
+  const topType = typeScores[0], topSub = subScores[0];
+  const conf = (top, second) => {
+    if (!top || top.score === 0) return 0;
+    const sep = second && second.score > 0 ? top.score / (top.score + second.score) : 1;
+    const mass = Math.min(1, top.score / 6);
+    return Math.round((0.55 * sep + 0.45 * mass) * 100) / 100;
+  };
+  /* สัญญาณเสริม: บทความอ้างอิงจำนวนมาก + DOI มักเป็น journal club หรือความก้าวหน้างานวิจัย */
+  const doiCount = (hay.match(/doi|10\.\d{4}\//g) || []).length;
+  const refCount = (hay.match(/et al|j bone joint|jbjs|clin orthop|injury\.|acta orthop/g) || []).length;
+
+  return {
+    title,
+    date: guessDate(parsed),
+    resident: matchResident(parsed),
+    type: topType.score > 0 ? topType.t.id : (refCount > 3 ? "journal" : "topic"),
+    typeHits: topType.hits, typeConfidence: conf(topType, typeScores[1]),
+    subspecialty: topSub.score > 0 ? topSub.s.id : "general",
+    subHits: topSub.hits, subConfidence: conf(topSub, subScores[1]),
+    alternatives: {
+      types: typeScores.filter(x => x.score > 0).slice(0, 3).map(x => ({ id:x.t.id, score:x.score })),
+      subs:  subScores.filter(x => x.score > 0).slice(0, 3).map(x => ({ id:x.s.id, score:x.score }))
+    },
+    signals: { doiCount, refCount, slideCount: parsed.slideCount || 0 }
+  };
+}
+
+/* =====================================================================
+   10) หน้ารับสไลด์ — วางไฟล์ → ระบบเดา → ตรวจ → บันทึก
+   ===================================================================== */
+const pending = new Map();
+
+function setupIngest() {
+  const dz = $("#dropzone"), pick = $("#filepick");
+  dz.addEventListener("click", () => pick.click());
+  dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick.click(); } });
+  pick.addEventListener("change", () => { handleFiles(Array.from(pick.files || [])); pick.value = ""; });
+  ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("hot"); }));
+  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("hot"); }));
+  dz.addEventListener("drop", (e) => handleFiles(Array.from(e.dataTransfer?.files || [])));
+  /* วางไฟล์ที่ใดก็ได้บนหน้า ไม่ต้องเล็งกล่อง */
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    if (e.target.closest("#dropzone")) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) { showView("ingest"); handleFiles(files); }
+  });
+}
+
+async function handleFiles(files) {
+  const usable = files.filter(f => /\.(pptx|pdf)$/i.test(f.name));
+  if (!usable.length) { toast("รองรับเฉพาะไฟล์ .pptx และ .pdf"); return; }
+  for (const f of usable) {
+    const key = uid("pend");
+    pending.set(key, { state: "reading", fileName: f.name });
+    renderIngestQueue();
+    try {
+      const parsed = await parseSlideFile(f);
+      const guess = classify(parsed);
+      const dup = store.data.activities.find(a => a.evidence?.hash && parsed.hash && a.evidence.hash === parsed.hash);
+      pending.set(key, { state: "ready", parsed, guess, dup, form: {
+        residentId: guess.resident?.id || "",
+        type: guess.type, subspecialty: guess.subspecialty,
+        title: guess.title, date: guess.date, note: ""
+      }});
+    } catch (err) {
+      pending.set(key, { state: "error", fileName: f.name, message: err.message || String(err) });
+    }
+    renderIngestQueue();
+  }
+}
+
+function renderIngestQueue() {
+  const box = $("#ingestQueue");
+  if (!pending.size) { box.innerHTML = ""; return; }
+  box.innerHTML = Array.from(pending.entries()).map(([key, item]) => {
+    if (item.state === "reading") return `<div class="card"><b>${esc(item.fileName)}</b><p class="muted small" style="margin:0">กำลังอ่านไฟล์…</p></div>`;
+    if (item.state === "error") return `
+      <div class="card"><div class="between"><b>${esc(item.fileName)}</b>
+        <button class="btn-sm" data-drop="${key}">ปิด</button></div>
+        <p class="tag bad" style="margin-top:.4rem">อ่านไฟล์ไม่สำเร็จ: ${esc(item.message)}</p>
+        <p class="small muted">บันทึกด้วยมือแทนได้จากปุ่ม “+ บันทึกด้วยมือ” ด้านบน</p></div>`;
+
+    const { parsed, guess, form, dup } = item;
+    const outline = (parsed.slides || []).slice(0, 6)
+      .map((s, i) => "สไลด์ " + (i + 1) + ": " + s.slice(0, 4).join(" · "))
+      .join("\n");
+    const confTag = (c) => c >= 0.66 ? `<span class="tag ok">มั่นใจ ${Math.round(c*100)}%</span>`
+                      : c >= 0.34 ? `<span class="tag warn">พอเดาได้ ${Math.round(c*100)}%</span>`
+                      : `<span class="tag bad">เดาไม่ชัด — โปรดเลือกเอง</span>`;
+    return `
+    <div class="card" data-pend="${key}">
+      <div class="between">
+        <div style="min-width:0">
+          <h3 style="margin-bottom:.15rem">${esc(parsed.fileName)}</h3>
+          <div class="row small muted">
+            <span>${parsed.kind === "pptx" ? "PowerPoint" : "PDF"}</span>·
+            <span>${parsed.slideCount || "?"} สไลด์</span>·
+            <span>${Math.round((parsed.fileSize || 0) / 1024)} KB</span>
+            ${parsed.meta?.author ? "·<span>ผู้จัดทำในไฟล์: " + esc(parsed.meta.author) + "</span>" : ""}
+          </div>
+        </div>
+        <button class="btn-sm" data-drop="${key}">ทิ้ง</button>
+      </div>
+
+      ${dup ? `<p class="notice warn small">ไฟล์นี้เคยบันทึกแล้วเมื่อ ${fmtDate(dup.date)} (“${esc(dup.title)}”) — ลายนิ้วมือไฟล์ตรงกัน หากบันทึกซ้ำจะมีสองรายการ</p>` : ""}
+      ${parsed.textUnreadable ? `<p class="notice small">อ่านข้อความในไฟล์ PDF นี้ไม่ออก (ฟอนต์ฝังแบบที่ถอดไม่ได้) ระบบจึงเดาจากชื่อไฟล์และ metadata เท่านั้น — .pptx จะอ่านได้ครบกว่า</p>` : ""}
+
+      <div class="grid g2" style="margin-top:.7rem">
+        <div>
+          <label class="f"><span>ผู้นำเสนอ</span>
+            <select data-f="residentId" data-k="${key}">
+              <option value="">— เลือกแพทย์ประจำบ้าน —</option>
+              ${store.data.residents.map(r => `<option value="${r.id}" ${form.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}
+            </select>
+          </label>
+          <label class="f"><span>ชื่อเรื่อง</span>
+            <input data-f="title" data-k="${key}" value="${esc(form.title)}" />
+          </label>
+          <label class="f"><span>วันที่นำเสนอ</span>
+            <input type="date" data-f="date" data-k="${key}" value="${esc(form.date)}" />
+          </label>
+        </div>
+        <div>
+          <label class="f"><span>ประเภทกิจกรรม ${guess.typeHits.length ? "· พบคำว่า " + esc(guess.typeHits.slice(0,3).join(", ")) : ""}</span>
+            <select data-f="type" data-k="${key}">
+              ${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${form.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}
+            </select>
+          </label>
+          <div style="margin:-.35rem 0 .6rem">${confTag(guess.typeConfidence)}</div>
+          <label class="f"><span>อนุสาขา ${guess.subHits.length ? "· พบคำว่า " + esc(guess.subHits.slice(0,3).join(", ")) : ""}</span>
+            <select data-f="subspecialty" data-k="${key}">
+              ${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${form.subspecialty === s.id ? "selected" : ""}>${esc(s.th)} — ${esc(s.en)}</option>`).join("")}
+            </select>
+          </label>
+          <div style="margin:-.35rem 0 .6rem">${confTag(guess.subConfidence)}</div>
+        </div>
+      </div>
+
+      <details>
+        <summary>ดูสิ่งที่ระบบอ่านได้จากไฟล์ (จะถูกเก็บเป็นหลักฐาน)</summary>
+        <div class="excerpt" style="margin-top:.5rem">${esc(outline || parsed.text.slice(0, 900) || "(อ่านข้อความไม่ได้)")}</div>
+        <p class="small muted" style="margin-top:.4rem">
+          ลายนิ้วมือไฟล์ SHA-256: <span class="mono">${esc((parsed.hash || "—").slice(0, 24))}…</span> ·
+          อ้างอิงที่พบ ${guess.signals.refCount} จุด · DOI ${guess.signals.doiCount} จุด
+        </p>
+      </details>
+
+      <hr />
+      <div class="between">
+        <div class="row small muted">
+          <span>จะบันทึกเป็นหลักฐานของ WFME:</span>
+          ${(TYPE_BY_ID[form.type]?.wfme || []).map(id => `<span class="tag b">${id} ${esc(WFME_BY_ID[id]?.th || "")}</span>`).join("")}
+        </div>
+        <button class="btn-primary" data-save="${key}" ${form.residentId ? "" : "disabled"}>บันทึกเข้าแฟ้ม</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  box.querySelectorAll("[data-f]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const item = pending.get(inp.dataset.k); if (!item) return;
+      item.form[inp.dataset.f] = inp.value;
+      if (inp.dataset.f === "type" || inp.dataset.f === "residentId") renderIngestQueue();
+    });
+    inp.addEventListener("input", () => {
+      const item = pending.get(inp.dataset.k); if (!item) return;
+      if (inp.dataset.f === "title" || inp.dataset.f === "date") item.form[inp.dataset.f] = inp.value;
+    });
+  });
+  box.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", () => { pending.delete(b.dataset.drop); renderIngestQueue(); }));
+  box.querySelectorAll("[data-save]").forEach(b => b.addEventListener("click", () => savePending(b.dataset.save)));
+}
+
+function savePending(key) {
+  const item = pending.get(key); if (!item || !item.form.residentId) return;
+  const { parsed, guess, form } = item;
+  const excerpt = (parsed.slides || []).slice(0, 8).map((s, i) => (i + 1) + ". " + s.join(" · ")).join("\n").slice(0, 4000)
+                  || (parsed.text || "").slice(0, 2000);
+  const act = {
+    id: uid("act"),
+    residentId: form.residentId,
+    type: form.type,
+    subspecialty: form.subspecialty,
+    title: form.title.trim() || parsed.fileName,
+    date: form.date || todayISO(),
+    academicYear: academicYear(form.date || todayISO()),
+    source: "slides",
+    evidence: {
+      fileName: parsed.fileName, fileType: parsed.kind, fileSize: parsed.fileSize,
+      slideCount: parsed.slideCount, hash: parsed.hash, excerpt,
+      metaTitle: parsed.meta?.title || "", metaAuthor: parsed.meta?.author || "",
+      metaCreated: parsed.meta?.created || "",
+      detectedBy: "auto", confidence: guess.subConfidence,
+      autoType: guess.type, autoSub: guess.subspecialty,
+      autoTypeHits: guess.typeHits.slice(0, 6), autoSubHits: guess.subHits.slice(0, 6),
+      correctedByUser: guess.type !== form.type || guess.subspecialty !== form.subspecialty,
+      refCount: guess.signals.refCount, doiCount: guess.signals.doiCount
+    },
+    wfme: (TYPE_BY_ID[form.type]?.wfme || []).slice(),
+    assessment: null, verified: false, verifiedBy: "", note: "",
+    createdAt: new Date().toISOString()
+  };
+  /* ถ้าเป็นการนำเสนอความก้าวหน้างานวิจัย ให้ผูกกับโครงการของแพทย์ท่านนั้นโดยอัตโนมัติ */
+  if (act.type === "research") {
+    const proj = store.data.research.find(p => p.residentId === act.residentId);
+    if (proj) {
+      act.researchId = proj.id;
+      proj.updates ||= [];
+      proj.updates.push({ date: act.date, title: act.title, activityId: act.id });
+    }
+  }
+  store.data.activities.push(act);
+  store.save();
+  pending.delete(key);
+  renderIngestQueue();
+  renderAll();
+  const r = store.resident(act.residentId);
+  toast("บันทึกแล้ว: " + (r ? r.name : "") + " — " + TYPE_BY_ID[act.type].th);
+}
+
+/* =====================================================================
+   11) การคิดความก้าวหน้าเทียบเกณฑ์
+   ===================================================================== */
+const currentAY = () => academicYear(todayISO());
+
+function progressFor(res, ay = currentAY()) {
+  const req = store.data.requirements[res.year] || {};
+  const all = store.activitiesOf(res.id);
+  const inYear = ay ? all.filter(a => a.academicYear === ay) : all;
+  const lines = ACTIVITY_TYPES.map(t => {
+    const need = +(req[t.id] || 0);
+    const done = inYear.filter(a => a.type === t.id).length;
+    return { type: t, need, done, pct: pct(done, need), short: Math.max(0, need - done) };
+  });
+  const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
+  const subsNeed = +(req.subspecialties || 0);
+  const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0);
+  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0);
+  return {
+    ay, lines, subsDone, subsNeed, missingSubs,
+    overall: pct(doneTotal, requiredTotal),
+    subsPct: pct(subsDone.size, subsNeed),
+    total: all.length, inYear: inYear.length,
+    assessed: all.filter(a => a.assessment).length,
+    verified: all.filter(a => a.verified).length,
+    lastActivity: all.map(a => a.date).sort().pop() || ""
+  };
+}
+
+function gapsFor(res) {
+  const p = progressFor(res);
+  const out = [];
+  p.lines.filter(l => l.short > 0).forEach(l => out.push({
+    level: l.done === 0 ? "bad" : "warn",
+    text: TYPE_BY_ID[l.type.id].th + " ยังขาดอีก " + l.short + " ครั้ง (ทำแล้ว " + l.done + "/" + l.need + " ในปีการศึกษา " + p.ay + ")"
+  }));
+  if (p.subsNeed && p.subsDone.size < p.subsNeed) out.push({
+    level: "warn",
+    text: "ความครอบคลุมอนุสาขา " + p.subsDone.size + "/" + p.subsNeed + " — ยังไม่มีผลงานใน " + p.missingSubs.slice(0, 4).map(s => s.th).join(", ") + (p.missingSubs.length > 4 ? " และอื่น ๆ" : "")
+  });
+  const proj = store.data.research.filter(r => r.residentId === res.id);
+  if (!proj.length) out.push({ level:"bad", text:"ยังไม่มีโครงการวิจัยในระบบ" });
+  proj.forEach(pj => {
+    const late = RESEARCH_STAGES.filter(s => { const st = pj.stages?.[s.id] || {}; return st.due && !st.done && st.due < todayISO(); });
+    if (late.length) out.push({ level:"bad", text:"งานวิจัย “" + pj.title.slice(0, 40) + "…” เลยกำหนดขั้น " + late.map(s => s.th).join(", ") });
+  });
+  const unverified = store.activitiesOf(res.id).filter(a => !a.verified).length;
+  if (unverified) out.push({ level:"warn", text:"มี " + unverified + " รายการที่อาจารย์ยังไม่รับรอง" });
+  return out;
+}
+
+const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ? "low" : ""}" style="width:${Math.max(2, v)}%"></i></div>`;
+
+/* =====================================================================
+   12) หน้าแพทย์ประจำบ้าน
+   ===================================================================== */
+let selectedResident = null;
+
+function renderResidents() {
+  const list = $("#residentList");
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  if (!rs.length) { list.innerHTML = `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`; $("#residentDetail").innerHTML = ""; return; }
+  list.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>แพทย์ประจำบ้าน</th><th>ชั้นปี</th><th>อาจารย์ที่ปรึกษา</th><th style="min-width:150px">ความก้าวหน้าปีนี้</th><th>อนุสาขา</th><th>บันทึกล่าสุด</th><th>ส่วนขาด</th><th></th></tr></thead>
+    <tbody>${rs.map(r => {
+      const p = progressFor(r), g = gapsFor(r);
+      const bad = g.filter(x => x.level === "bad").length;
+      return `<tr>
+        <td><b>${esc(r.name)}</b><br /><span class="small muted">${esc(r.nick || "")} · รุ่น ${esc(r.cohort || "—")}</span></td>
+        <td>ปี ${r.year}</td>
+        <td class="small">${esc(r.advisor || "—")}</td>
+        <td>${barFor(p.overall)}<span class="small muted">${p.overall}% · ${p.inYear} กิจกรรมปีนี้</span></td>
+        <td><span class="tag ${p.subsPct >= 100 ? "ok" : "warn"}">${p.subsDone.size}/${p.subsNeed || "—"}</span></td>
+        <td class="small">${fmtDate(p.lastActivity)}</td>
+        <td>${g.length ? `<span class="tag ${bad ? "bad" : "warn"}">${g.length} รายการ</span>` : `<span class="tag ok">ครบตามเกณฑ์</span>`}</td>
+        <td><button class="btn-sm" data-res="${r.id}">เปิดแฟ้ม</button></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+  list.querySelectorAll("[data-res]").forEach(b => b.addEventListener("click", () => { selectedResident = b.dataset.res; renderResidentDetail(); $("#residentDetail").scrollIntoView({ behavior:"smooth", block:"start" }); }));
+  if (!selectedResident || !store.resident(selectedResident)) selectedResident = rs[0].id;
+  renderResidentDetail();
+}
+
+function renderResidentDetail() {
+  const box = $("#residentDetail");
+  const r = store.resident(selectedResident);
+  if (!r) { box.innerHTML = ""; return; }
+  const p = progressFor(r), gaps = gapsFor(r);
+  const acts = store.activitiesOf(r.id).sort((a, b) => b.date.localeCompare(a.date));
+  const projects = store.data.research.filter(x => x.residentId === r.id);
+  const subsCount = {};
+  acts.forEach(a => subsCount[a.subspecialty] = (subsCount[a.subspecialty] || 0) + 1);
+  const scores = acts.filter(a => a.assessment?.score).map(a => a.assessment.score);
+  const meanScore = scores.length ? (scores.reduce((s, x) => s + x, 0) / scores.length).toFixed(2) : "—";
+
+  box.innerHTML = `
+  <div class="card">
+    <div class="between">
+      <div>
+        <h2 style="margin-bottom:.1rem">${esc(r.name)} <span class="tag b">ชั้นปีที่ ${r.year}</span></h2>
+        <p class="small muted" style="margin:0">รุ่น ${esc(r.cohort || "—")} · อาจารย์ที่ปรึกษา ${esc(r.advisor || "—")} · ปีการศึกษา ${p.ay}</p>
+      </div>
+      <div class="row no-print">
+        <button class="btn-sm" data-edit-res="${r.id}">แก้ไขข้อมูล</button>
+        <button class="btn-sm btn-primary" data-portfolio="${r.id}">พิมพ์แฟ้มสะสมงาน</button>
+      </div>
+    </div>
+
+    <div class="grid g4" style="margin:.8rem 0">
+      <div class="stat"><b>${p.total}</b><span>กิจกรรมสะสมทั้งหมด</span></div>
+      <div class="stat"><b>${p.overall}%</b><span>ความก้าวหน้าเทียบเกณฑ์ปีนี้</span></div>
+      <div class="stat"><b>${p.subsDone.size}/${p.subsNeed || "—"}</b><span>อนุสาขาที่ครอบคลุม</span></div>
+      <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
+    </div>
+
+    <h3>ความก้าวหน้าตามเกณฑ์ ปีการศึกษา ${p.ay}</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>กิจกรรม</th><th>ทำแล้ว</th><th>เกณฑ์</th><th style="min-width:140px">ความก้าวหน้า</th><th>หลักฐาน WFME</th></tr></thead>
+      <tbody>${p.lines.map(l => `<tr>
+        <td>${esc(l.type.th)}</td><td><b>${l.done}</b></td><td>${l.need || "—"}</td>
+        <td>${barFor(l.pct)}</td>
+        <td class="small">${l.type.wfme.map(id => `<span class="tag">${id}</span>`).join(" ")}</td>
+      </tr>`).join("")}</tbody></table></div>
+
+    <h3 style="margin-top:1rem">อนุสาขาที่มีผลงานแล้ว</h3>
+    <div class="row">${SUBSPECIALTIES.filter(s => s.id !== "general").map(s => {
+      const n = subsCount[s.id] || 0;
+      return `<span class="tag ${n ? "ok" : "bad"}">${esc(s.th)} ${n || 0}</span>`;
+    }).join("")}</div>
+
+    ${gaps.length ? `<h3 style="margin-top:1rem">สิ่งที่ยังขาด</h3>
+      <ul class="clean">${gaps.map(g => `<li><span class="tag ${g.level}">${g.level === "bad" ? "ต้องตาม" : "เฝ้าระวัง"}</span> ${esc(g.text)}</li>`).join("")}</ul>`
+      : `<p class="notice" style="margin-top:1rem">ครบตามเกณฑ์ที่ตั้งไว้ทุกข้อในปีการศึกษานี้</p>`}
+
+    ${projects.length ? `<h3 style="margin-top:1rem">งานวิจัย</h3>${projects.map(pj => researchBlock(pj, true)).join("")}` : ""}
+
+    <h3 style="margin-top:1rem">บันทึกกิจกรรม (${acts.length} รายการ)</h3>
+    <div class="timeline">${acts.slice(0, 40).map(a => `
+      <div class="ev">
+        <div class="row" style="gap:.4rem">
+          <span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span>
+          <span class="tag">${esc(SUB_BY_ID[a.subspecialty]?.th || a.subspecialty)}</span>
+          <span class="small muted">${fmtDate(a.date)}</span>
+          ${a.verified ? `<span class="tag ok">อาจารย์รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}
+          ${a.source === "slides" ? `<span class="tag">จากสไลด์</span>` : `<span class="tag">บันทึกด้วยมือ</span>`}
+        </div>
+        <div>${esc(a.title)}</div>
+        ${a.assessment ? `<div class="small muted">ประเมิน ${a.assessment.score}/5 โดย ${esc(a.assessment.by)} — ${esc(a.assessment.comment || "")}</div>` : ""}
+        <div class="no-print row small" style="margin-top:.2rem">
+          <button class="btn-sm btn-ghost" data-act-open="${a.id}">รายละเอียด / ประเมิน</button>
+        </div>
+      </div>`).join("") || `<p class="empty">ยังไม่มีบันทึก</p>`}</div>
+  </div>`;
+
+  box.querySelectorAll("[data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+  box.querySelector("[data-edit-res]")?.addEventListener("click", () => editResident(r.id));
+  box.querySelector("[data-portfolio]")?.addEventListener("click", () => printPortfolio(r.id));
+}
+
+/* =====================================================================
+   13) หน้ากิจกรรมทั้งหมด
+   ===================================================================== */
+const filters = { residentId:"", type:"", subspecialty:"", ay:"", q:"", verified:"" };
+
+function renderActivityFilters() {
+  const ays = Array.from(new Set(store.data.activities.map(a => a.academicYear))).sort().reverse();
+  $("#activityFilters").innerHTML = `
+    <select data-flt="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r => `<option value="${r.id}" ${filters.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
+    <select data-flt="type"><option value="">ทุกประเภท</option>${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${filters.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
+    <select data-flt="subspecialty"><option value="">ทุกอนุสาขา</option>${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${filters.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select>
+    <select data-flt="ay"><option value="">ทุกปีการศึกษา</option>${ays.map(y => `<option value="${y}" ${filters.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>
+    <select data-flt="verified"><option value="">ทั้งรับรองแล้วและยังไม่</option><option value="yes" ${filters.verified === "yes" ? "selected" : ""}>รับรองแล้ว</option><option value="no" ${filters.verified === "no" ? "selected" : ""}>ยังไม่รับรอง</option></select>
+    <input data-flt="q" placeholder="ค้นหาชื่อเรื่อง…" value="${esc(filters.q)}" style="max-width:220px" />
+    <button class="btn-sm" id="btnCsvFiltered">ดาวน์โหลด CSV ตามที่กรอง</button>`;
+  $$("#activityFilters [data-flt]").forEach(el => {
+    const ev = el.tagName === "INPUT" ? "input" : "change";
+    el.addEventListener(ev, () => { filters[el.dataset.flt] = el.value; renderActivityTable(); });
+  });
+  $("#btnCsvFiltered").addEventListener("click", () => download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(filterActivities())), "text/csv;charset=utf-8"));
+}
+
+function filterActivities() {
+  const q = filters.q.trim().toLowerCase();
+  return store.data.activities.filter(a =>
+    (!filters.residentId || a.residentId === filters.residentId) &&
+    (!filters.type || a.type === filters.type) &&
+    (!filters.subspecialty || a.subspecialty === filters.subspecialty) &&
+    (!filters.ay || a.academicYear === filters.ay) &&
+    (!filters.verified || (filters.verified === "yes" ? a.verified : !a.verified)) &&
+    (!q || a.title.toLowerCase().includes(q))
+  ).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function renderActivityTable() {
+  const rows = filterActivities();
+  $("#activityTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>แพทย์ประจำบ้าน</th><th>ประเภท</th><th>อนุสาขา</th><th>ชื่อเรื่อง</th><th>ที่มา</th><th>ประเมิน</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${rows.map(a => {
+      const r = store.resident(a.residentId);
+      return `<tr>
+        <td class="small">${fmtDate(a.date)}<br /><span class="muted">ปีการศึกษา ${a.academicYear}</span></td>
+        <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
+        <td><span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span></td>
+        <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.th || a.subspecialty)}</td>
+        <td>${esc(a.title)}</td>
+        <td class="small">${a.source === "slides" ? "สไลด์ " + esc(a.evidence?.fileType || "") : "ด้วยมือ"}</td>
+        <td class="small">${a.assessment ? a.assessment.score + "/5" : "—"}</td>
+        <td>${a.verified ? `<span class="tag ok">รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}</td>
+        <td class="no-print"><button class="btn-sm" data-act-open="${a.id}">เปิด</button></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">แสดง ${rows.length} รายการ จากทั้งหมด ${store.data.activities.length} รายการ</p>`
+    : `<p class="empty">ไม่พบรายการตามเงื่อนไขที่เลือก</p>`;
+  $$("#activityTable [data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+}
+
+function activityCsvRows(list) {
+  const head = ["วันที่","ปีการศึกษา","แพทย์ประจำบ้าน","ชั้นปี","ประเภทกิจกรรม","อนุสาขา (ไทย)","Subspecialty (EN)","ชื่อเรื่อง","ที่มา","ไฟล์","จำนวนสไลด์","SHA-256","ระบบเดาประเภท","ระบบเดาอนุสาขา","ผู้ใช้แก้ผลเดา","คะแนนประเมิน","ผู้ประเมิน","ข้อเสนอแนะ","รับรองโดย","หัวข้อ WFME"];
+  return [head].concat(list.map(a => {
+    const r = store.resident(a.residentId), e = a.evidence || {};
+    return [a.date, a.academicYear, r?.name || "", r?.year || "", TYPE_BY_ID[a.type]?.en || a.type,
+      SUB_BY_ID[a.subspecialty]?.th || "", SUB_BY_ID[a.subspecialty]?.en || "", a.title,
+      a.source === "slides" ? "slides" : "manual", e.fileName || "", e.slideCount || "", e.hash || "",
+      e.autoType || "", e.autoSub || "", e.correctedByUser ? "yes" : "no",
+      a.assessment?.score ?? "", a.assessment?.by || "", a.assessment?.comment || "",
+      a.verified ? (a.verifiedBy || "yes") : "", (a.wfme || []).join(" ")];
+  }));
+}
+
+/* =====================================================================
+   14) หน้างานวิจัย
+   ===================================================================== */
+function researchBlock(pj, compact) {
+  const r = store.resident(pj.residentId);
+  const done = RESEARCH_STAGES.filter(s => pj.stages?.[s.id]?.done).length;
+  const late = RESEARCH_STAGES.filter(s => { const st = pj.stages?.[s.id] || {}; return st.due && !st.done && st.due < todayISO(); });
+  const linked = store.data.activities.filter(a => a.researchId === pj.id || (a.type === "research" && a.residentId === pj.residentId));
+  return `<div class="card" style="${compact ? "box-shadow:none;margin:.6rem 0" : ""}">
+    <div class="between">
+      <div style="min-width:0">
+        <h3 style="margin-bottom:.15rem">${esc(pj.title)}</h3>
+        <p class="small muted" style="margin:0">${esc(r?.name || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.th || "—")} · ${esc(pj.type || "—")} · ที่ปรึกษา ${esc(pj.advisor || "—")}</p>
+      </div>
+      <div class="row no-print">
+        <span class="tag ${late.length ? "bad" : done === RESEARCH_STAGES.length ? "ok" : "b"}">${done}/${RESEARCH_STAGES.length} ขั้น</span>
+        <button class="btn-sm" data-rs-edit="${pj.id}">แก้ไขขั้นตอน</button>
+      </div>
+    </div>
+    ${barFor(pct(done, RESEARCH_STAGES.length))}
+    <div class="timeline" style="margin-top:.7rem">
+      ${RESEARCH_STAGES.map(s => {
+        const st = pj.stages?.[s.id] || {};
+        const overdue = st.due && !st.done && st.due < todayISO();
+        return `<div class="ev ${st.done ? "" : "todo"}">
+          <div class="row" style="gap:.4rem">
+            <b class="small">${esc(s.th)}</b>
+            ${st.done ? `<span class="tag ok">เสร็จ ${fmtDate(st.done)}</span>`
+              : st.due ? `<span class="tag ${overdue ? "bad" : "warn"}">${overdue ? "เลยกำหนด" : "กำหนด"} ${fmtDate(st.due)}</span>`
+              : `<span class="tag">ยังไม่กำหนด</span>`}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+    ${linked.length ? `<p class="small muted" style="margin:.4rem 0 0">มีการนำเสนอความก้าวหน้าที่บันทึกไว้ ${linked.length} ครั้ง ล่าสุด ${fmtDate(linked.map(a => a.date).sort().pop())}</p>` : `<p class="small muted" style="margin:.4rem 0 0">ยังไม่มีการนำเสนอความก้าวหน้าที่บันทึกเข้าระบบ</p>`}
+  </div>`;
+}
+
+function renderResearch() {
+  const box = $("#researchList");
+  const list = store.data.research.slice().sort((a, b) => (a.residentId).localeCompare(b.residentId));
+  box.innerHTML = list.length ? list.map(pj => researchBlock(pj, false)).join("") : `<p class="empty">ยังไม่มีโครงการวิจัยในระบบ</p>`;
+  box.querySelectorAll("[data-rs-edit]").forEach(b => b.addEventListener("click", () => editResearch(b.dataset.rsEdit)));
+}
+
+/* =====================================================================
+   15) หน้าความครอบคลุมอนุสาขา
+   ===================================================================== */
+const covFilter = { type:"", ay:"" };
+
+function renderCoverage() {
+  const ays = Array.from(new Set(store.data.activities.map(a => a.academicYear))).sort().reverse();
+  $("#coverageFilters").innerHTML = `
+    <select data-cov="type"><option value="">ทุกประเภทกิจกรรม</option>${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${covFilter.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
+    <select data-cov="ay"><option value="">ตลอดหลักสูตร</option>${ays.map(y => `<option value="${y}" ${covFilter.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>`;
+  $$("#coverageFilters [data-cov]").forEach(el => el.addEventListener("change", () => { covFilter[el.dataset.cov] = el.value; renderCoverage(); }));
+
+  const subs = SUBSPECIALTIES.filter(s => s.id !== "general");
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const cell = (rid, sid) => store.data.activities.filter(a =>
+    a.residentId === rid && a.subspecialty === sid &&
+    (!covFilter.type || a.type === covFilter.type) && (!covFilter.ay || a.academicYear === covFilter.ay)).length;
+
+  $("#coverageMatrix").innerHTML = `<div class="tbl-wrap"><table class="matrix">
+    <thead><tr><th style="text-align:left">แพทย์ประจำบ้าน</th>${subs.map(s => `<th class="v" title="${esc(s.en)}">${esc(s.th)}</th>`).join("")}<th>รวม</th></tr></thead>
+    <tbody>${rs.map(r => {
+      const cells = subs.map(s => cell(r.id, s.id));
+      const total = cells.reduce((a, b) => a + b, 0);
+      return `<tr><th style="text-align:left;white-space:nowrap">${esc(r.name)}<br /><span class="muted small">ปี ${r.year}</span></th>
+        ${cells.map((n, i) => `<td class="cell ${n ? "has" : "gap"}" title="${esc(r.name)} · ${esc(subs[i].th)}">${n || "0"}</td>`).join("")}
+        <td class="cell has">${total}</td></tr>`;
+    }).join("")}
+    <tr><th style="text-align:left">รวมทั้งกลุ่ม</th>${subs.map(s => {
+      const n = rs.reduce((acc, r) => acc + cell(r.id, s.id), 0);
+      return `<td class="cell ${n ? "has" : "gap"}">${n}</td>`;
+    }).join("")}<td class="cell"></td></tr></tbody></table></div>`;
+
+  const bank = {};
+  store.data.activities.filter(a => !covFilter.type || a.type === covFilter.type)
+    .filter(a => !covFilter.ay || a.academicYear === covFilter.ay)
+    .forEach(a => { (bank[a.subspecialty] ||= []).push(a); });
+  $("#topicBank").innerHTML = SUBSPECIALTIES.map(s => {
+    const items = (bank[s.id] || []).sort((a, b) => b.date.localeCompare(a.date));
+    if (!items.length) return "";
+    return `<details style="margin-bottom:.5rem"><summary><b>${esc(s.th)}</b> — ${esc(s.en)} (${items.length} หัวข้อ)</summary>
+      <ul class="clean small" style="margin-top:.4rem">${items.map(a => {
+        const r = store.resident(a.residentId);
+        return `<li>${esc(a.title)} <span class="muted">— ${esc(r?.name || "")} · ${esc(TYPE_BY_ID[a.type]?.th || "")} · ${fmtDate(a.date)}</span></li>`;
+      }).join("")}</ul></details>`;
+  }).join("") || `<p class="empty">ยังไม่มีข้อมูล</p>`;
+}
+
+/* =====================================================================
+   16) หน้ามาตรฐาน WFME
+   ===================================================================== */
+function wfmeEvidence() {
+  const map = {};
+  WFME_SUBS.forEach(s => map[s.id] = { activities: [], sources: [], docs: [] });
+  store.data.activities.forEach(a => (a.wfme || []).forEach(id => map[id]?.activities.push(a)));
+  WFME_SOURCES.forEach(src => src.subs.forEach(id => map[id]?.sources.push(src)));
+  const pg = store.data.programme || {};
+  if (pg.mission)            map["1.1"].sources.push({ label:"พันธกิจของหลักสูตรที่บันทึกไว้ในระบบ" });
+  if (pg.outcomes?.length)   map["1.3"].sources.push({ label:"ผลลัพธ์การเรียนรู้ " + pg.outcomes.length + " ข้อ ที่บันทึกไว้ในระบบ" });
+  if (pg.outcomes?.length)   map["2.1"].sources.push({ label:"ผลลัพธ์การเรียนรู้ที่ใช้กำกับกรอบหลักสูตร" });
+  if (pg.reviewed)           map["9.0"].sources.push({ label:"ทบทวนพันธกิจและผลลัพธ์ล่าสุด " + fmtDate(pg.reviewed) });
+  (pg.documents || []).forEach(d => (d.subs || []).forEach(id => map[id]?.docs.push(d)));
+  return map;
+}
+
+function renderWfme() {
+  $("#wfmeCaveat").innerHTML = `หัวข้อมาตรฐานด้านล่างเรียบเรียงตามโครง <b>9 หมวด</b> ของ WFME Global Standards for Quality Improvement:
+    Postgraduate Medical Education (ฉบับปรับปรุง ค.ศ. 2015) เพื่อใช้จัดหมวดหลักฐานภายในกลุ่มงาน
+    <b>ยังไม่ได้ทาบถ้อยคำกับเอกสารต้นฉบับทีละข้อ</b> ก่อนนำไปใช้ยื่นประเมินจริง ผู้รับผิดชอบหลักสูตรควรตรวจสอบหมายเลขและถ้อยคำกับเอกสารทางการของ WFME
+    และเทียบกับเกณฑ์ของแพทยสภา/ราชวิทยาลัยแพทย์ออร์โธปิดิกส์แห่งประเทศไทยอีกชั้นหนึ่ง`;
+
+  const ev = wfmeEvidence();
+  $("#wfmeAreas").innerHTML = WFME_AREAS.map(area => {
+    const rows = area.subs.map(s => {
+      const e = ev[s.id];
+      const n = e.activities.length;
+      const byType = {};
+      e.activities.forEach(a => byType[a.type] = (byType[a.type] || 0) + 1);
+      const status = n ? "ok" : (e.sources.length || e.docs.length) ? "warn" : "bad";
+      return `<tr>
+        <td class="mono">${s.id}</td>
+        <td><b>${esc(s.th)}</b><br /><span class="small muted">${esc(s.en)}</span></td>
+        <td>${n ? `<b>${n}</b> กิจกรรม<br /><span class="small muted">${Object.entries(byType).map(([t, c]) => (TYPE_BY_ID[t]?.th || t) + " " + c).join(" · ")}</span>` : `<span class="small muted">—</span>`}</td>
+        <td class="small">${[...e.sources.map(x => "• " + esc(x.label)),
+              ...e.docs.map(d => "📄 " + esc(d.title) + (d.updated ? ' <span class="muted">(ทบทวน ' + fmtDate(d.updated) + ")</span>" : ""))]
+              .join("<br />") || `<span class="muted">ยังไม่ผูกเอกสารในทะเบียน — เพิ่มได้ที่หน้า “ตั้งค่า &amp; ข้อมูล”</span>`}</td>
+        <td><span class="tag ${status}">${status === "ok" ? "มีหลักฐานในระบบ" : status === "warn" ? "มีบางส่วน" : "ยังไม่มีหลักฐาน"}</span></td>
+      </tr>`;
+    }).join("");
+    const total = area.subs.reduce((n, s) => n + ev[s.id].activities.length + ev[s.id].docs.length + ev[s.id].sources.length, 0);
+    return `<div class="card">
+      <div class="between"><h2>หมวดที่ ${area.n} · ${esc(area.th)} <span class="small muted">${esc(area.en)}</span></h2>
+        <span class="tag ${total ? "ok" : "warn"}">${total} รายการหลักฐาน</span></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>ข้อ</th><th>หัวข้อ</th><th>กิจกรรมที่ผูกไว้</th><th>หลักฐานอื่นในระบบ</th><th>สถานะ</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    </div>`;
+  }).join("");
+}
+
+function wfmeCsvRows() {
+  const ev = wfmeEvidence();
+  const rows = [["WFME area","Area (TH)","Sub-area","หัวข้อ (TH)","Sub-area (EN)","จำนวนกิจกรรม","ประเภทกิจกรรมที่ผูกไว้","หลักฐานอื่น / เอกสารที่ผูกไว้"]];
+  WFME_SUBS.forEach(s => {
+    const e = ev[s.id];
+    const byType = {}; e.activities.forEach(a => byType[a.type] = (byType[a.type] || 0) + 1);
+    rows.push([s.area, s.areaTh, s.id, s.th, s.en, e.activities.length,
+      Object.entries(byType).map(([t, c]) => (TYPE_BY_ID[t]?.en || t) + "=" + c).join("; "),
+      e.sources.map(x => x.label).concat(e.docs.map(d => d.title)).join("; ")]);
+  });
+  return rows;
+}
+
+/* =====================================================================
+   17) หน้าตั้งค่า
+   ===================================================================== */
+function renderSettings() {
+  const years = [1, 2, 3, 4];
+  $("#requirementEditor").innerHTML = `<table>
+    <thead><tr><th>เกณฑ์ต่อปีการศึกษา</th>${years.map(y => `<th>ชั้นปีที่ ${y}</th>`).join("")}</tr></thead>
+    <tbody>
+      ${ACTIVITY_TYPES.map(t => `<tr><td>${esc(t.th)}</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|${t.id}" value="${store.data.requirements[y]?.[t.id] ?? 0}" /></td>`).join("")}</tr>`).join("")}
+      <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
+        <td><input type="number" min="0" max="12" style="width:80px" data-req="${y}|subspecialties" value="${store.data.requirements[y]?.subspecialties ?? 0}" /></td>`).join("")}</tr>
+    </tbody></table>
+    <p class="small muted" style="margin-top:.5rem">แก้แล้วบันทึกทันที ตัวเลขจะไปคิดความก้าวหน้าในหน้าอื่นทันที</p>`;
+  $$("#requirementEditor [data-req]").forEach(inp => inp.addEventListener("change", () => {
+    const [y, k] = inp.dataset.req.split("|");
+    store.data.requirements[y] ||= {};
+    store.data.requirements[y][k] = Math.max(0, +inp.value || 0);
+    store.save(); renderAll();
+    toast("ปรับเกณฑ์แล้ว");
+  }));
+
+  $("#keywordEditor").innerHTML = SUBSPECIALTIES.filter(s => s.id !== "general").map(s => `
+    <label class="f"><span>${esc(s.th)} — ${esc(s.en)}
+      <span class="muted" style="font-weight:400">(คำตั้งต้น ${SUB_BY_ID[s.id].kw.length} คำ)</span></span>
+      <input data-kw="${s.id}" placeholder="เพิ่มคำของกลุ่มงาน คั่นด้วย , เช่น hemiarthroplasty, เปลี่ยนข้อสะโพก"
+        value="${esc((store.data.keywords?.[s.id] || []).join(", "))}" /></label>`).join("");
+  $$("#keywordEditor [data-kw]").forEach(inp => inp.addEventListener("change", () => {
+    const words = inp.value.split(",").map(w => w.trim()).filter(Boolean);
+    store.data.keywords[inp.dataset.kw] = words;
+    store.save(); toast("บันทึกคำสำคัญแล้ว");
+  }));
+
+  const raw = localStorage.getItem(APP.key) || "";
+  $("#storageInfo").textContent =
+    "แพทย์ประจำบ้าน " + store.data.residents.length + " คน · กิจกรรม " + store.data.activities.length + " รายการ · โครงการวิจัย " +
+    store.data.research.length + " โครงการ · ขนาดข้อมูลในเครื่องประมาณ " + Math.round(raw.length / 1024) + " KB" +
+    (store.data.meta?.updated ? " · แก้ไขล่าสุด " + new Date(store.data.meta.updated).toLocaleString("th-TH") : "");
+}
+
+/* --- ข้อมูลหลักสูตร: พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสาร --- */
+function renderProgramme() {
+  const pg = store.data.programme || (store.data.programme = { mission:"", outcomes:[], reviewed:"", documents:[] });
+  $("#programmeEditor").innerHTML = `
+    <label class="f"><span>พันธกิจของหลักสูตร <span class="muted">(WFME 1.1)</span></span>
+      <textarea id="pgMission" placeholder="ระบุพันธกิจของหลักสูตรตามที่คณะกรรมการหลักสูตรกำหนด">${esc(pg.mission || "")}</textarea></label>
+    <label class="f"><span>ผลลัพธ์การเรียนรู้ที่คาดหวัง — บรรทัดละหนึ่งข้อ <span class="muted">(WFME 1.3 / 2.1)</span></span>
+      <textarea id="pgOutcomes" style="min-height:130px" placeholder="เช่น ให้การดูแลผู้ป่วยอุบัติเหตุทางออร์โธปิดิกส์ได้ด้วยตนเอง">${esc((pg.outcomes || []).join("\n"))}</textarea></label>
+    <div class="row">
+      <label class="f" style="margin:0"><span>ทบทวนพันธกิจ/ผลลัพธ์ล่าสุด <span class="muted">(WFME 9)</span></span>
+        <input type="date" id="pgReviewed" value="${esc(pg.reviewed || "")}" /></label>
+      <button class="btn-primary" id="btnSaveProgramme" style="align-self:flex-end">บันทึกข้อมูลหลักสูตร</button>
+    </div>`;
+  $("#btnSaveProgramme").addEventListener("click", () => {
+    pg.mission = $("#pgMission").value.trim();
+    pg.outcomes = $("#pgOutcomes").value.split("\n").map(x => x.trim()).filter(Boolean);
+    pg.reviewed = $("#pgReviewed").value;
+    store.save(); renderWfme(); toast("บันทึกข้อมูลหลักสูตรแล้ว");
+  });
+
+  const docs = pg.documents || [];
+  $("#docRegister").innerHTML = docs.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>เอกสาร</th><th>ใช้เป็นหลักฐานข้อ</th><th>เก็บไว้ที่</th><th>ทบทวนล่าสุด</th><th></th></tr></thead>
+    <tbody>${docs.map(d => `<tr>
+      <td>${esc(d.title)}</td>
+      <td class="small">${(d.subs || []).map(id => `<span class="tag b">${id}</span>`).join(" ") || "—"}</td>
+      <td class="small">${esc(d.location || "—")}</td>
+      <td class="small">${d.updated ? fmtDate(d.updated) : "—"}</td>
+      <td class="no-print"><button class="btn-sm" data-doc="${d.id}">แก้ไข</button></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีเอกสารในทะเบียน</p>`;
+  $$("#docRegister [data-doc]").forEach(b => b.addEventListener("click", () => editDoc(b.dataset.doc)));
+}
+
+function editDoc(id) {
+  const pg = store.data.programme;
+  const d = id ? pg.documents.find(x => x.id === id) : null;
+  const body = `
+    <label class="f"><span>ชื่อเอกสาร</span><input name="title" value="${esc(d?.title || "")}" placeholder="เช่น รายงานการประชุมคณะกรรมการหลักสูตร" /></label>
+    <div class="grid g2">
+      <label class="f"><span>เก็บไว้ที่</span><input name="location" value="${esc(d?.location || "")}" placeholder="เช่น แฟ้มหลักสูตร สำนักงานกลุ่มงาน" /></label>
+      <label class="f"><span>ทบทวนล่าสุด</span><input type="date" name="updated" value="${esc(d?.updated || "")}" /></label>
+    </div>
+    <span class="small" style="font-weight:600">ใช้เป็นหลักฐานของมาตรฐานข้อใด</span>
+    <div class="row" style="margin:.35rem 0 0;max-height:220px;overflow:auto">
+      ${WFME_SUBS.map(x => `<label class="tag" style="cursor:pointer">
+        <input type="checkbox" data-sub="${x.id}" ${(d?.subs || []).includes(x.id) ? "checked" : ""} /> ${x.id} ${esc(x.th)}</label>`).join("")}
+    </div>`;
+  showDialog(d ? "แก้ไขเอกสาร" : "เพิ่มเอกสารเข้าทะเบียน", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อเอกสาร"); return false; }
+        const subs = $$('#dlgBody [data-sub]').filter(c => c.checked).map(c => c.dataset.sub);
+        const rec = { title, location: dlgVal("location"), updated: dlgVal("updated"), subs };
+        if (d) Object.assign(d, rec); else pg.documents.push({ id: uid("doc"), ...rec });
+        store.save(); renderProgramme(); renderWfme(); toast("บันทึกแล้ว");
+      }},
+    ...(d ? [{ label:"ลบเอกสาร", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบเอกสารนี้ออกจากทะเบียน?")) return false;
+        pg.documents = pg.documents.filter(x => x.id !== d.id);
+        store.save(); renderProgramme(); renderWfme(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* =====================================================================
+   18) กล่องโต้ตอบ (แก้ไข / ประเมิน / บันทึกด้วยมือ)
+   ===================================================================== */
+function showDialog(title, bodyHtml, buttons) {
+  $("#dlgTitle").textContent = title;
+  $("#dlgBody").innerHTML = bodyHtml;
+  const foot = $("#dlgFoot"); foot.innerHTML = "";
+  (buttons || []).forEach(b => {
+    const el = document.createElement("button");
+    el.type = "button"; el.textContent = b.label; el.className = b.cls || "";
+    el.addEventListener("click", () => { if (b.onClick && b.onClick() === false) return; $("#dlg").close(); });
+    foot.appendChild(el);
+  });
+  const close = document.createElement("button");
+  close.type = "button"; close.textContent = "ปิด";
+  close.addEventListener("click", () => $("#dlg").close());
+  foot.appendChild(close);
+  $("#dlg").showModal();
+}
+const dlgVal = (name) => { const el = $('#dlgBody [name="' + name + '"]'); return el ? el.value.trim() : ""; };
+
+function openActivity(id) {
+  const a = store.data.activities.find(x => x.id === id); if (!a) return;
+  const r = store.resident(a.residentId), e = a.evidence || {};
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? new Date(a.createdAt).toLocaleString("th-TH") : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
+      <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
+    </div>
+    <label class="f"><span>ชื่อเรื่อง</span><input name="title" value="${esc(a.title)}" /></label>
+    <div class="grid g2">
+      <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${a.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${a.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>วันที่นำเสนอ</span><input type="date" name="date" value="${esc(a.date)}" /></label>
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    </div>
+    <hr />
+    <h4>การประเมินหลังนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
+    <div class="grid g2">
+      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || "")}" placeholder="ชื่ออาจารย์" /></label>
+      <label class="f"><span>คะแนนรวม (0–5)</span><input type="number" name="assessScore" min="0" max="5" step="0.1" value="${a.assessment?.score ?? ""}" /></label>
+    </div>
+    <label class="f"><span>ข้อเสนอแนะ</span><textarea name="assessComment" placeholder="จุดเด่น จุดที่ควรพัฒนา และสิ่งที่ควรทำต่อ">${esc(a.assessment?.comment || "")}</textarea></label>
+    <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note">${esc(a.note || "")}</textarea></label>
+    ${e.fileName ? `<hr /><h4>หลักฐานจากไฟล์</h4>
+      <div class="kv">
+        <dt>ไฟล์</dt><dd>${esc(e.fileName)} · ${e.slideCount || "?"} สไลด์ · ${Math.round((e.fileSize || 0) / 1024)} KB</dd>
+        <dt>SHA-256</dt><dd class="mono" style="word-break:break-all">${esc(e.hash || "—")}</dd>
+        <dt>ระบบเดา</dt><dd>ประเภท ${esc(TYPE_BY_ID[e.autoType]?.th || "—")} · อนุสาขา ${esc(SUB_BY_ID[e.autoSub]?.th || "—")}
+          ${e.correctedByUser ? `<span class="tag warn">ผู้บันทึกแก้ผลเดา</span>` : `<span class="tag ok">ผู้บันทึกยืนยันตามที่ระบบเดา</span>`}</dd>
+        <dt>คำที่จับได้</dt><dd class="small">${esc([...(e.autoTypeHits || []), ...(e.autoSubHits || [])].join(", ") || "—")}</dd>
+      </div>
+      <div class="excerpt" style="margin-top:.5rem">${esc(e.excerpt || "—")}</div>` : ""}`;
+
+  showDialog("รายละเอียดกิจกรรม", body, [
+    { label: a.verified ? "ยกเลิกการรับรอง" : "อาจารย์รับรอง", cls: a.verified ? "" : "btn-primary", onClick: () => {
+        a.verified = !a.verified;
+        a.verifiedBy = a.verified ? (dlgVal("assessBy") || "อาจารย์ผู้รับรอง") : "";
+        a.verifiedAt = a.verified ? new Date().toISOString() : "";
+        applyActivityEdits(a); store.save(); renderAll(); toast(a.verified ? "รับรองแล้ว" : "ยกเลิกการรับรองแล้ว");
+      }},
+    { label:"บันทึกการแก้ไข", cls:"btn-primary", onClick: () => { applyActivityEdits(a); store.save(); renderAll(); toast("บันทึกแล้ว"); } },
+    { label:"ลบรายการ", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบกิจกรรมนี้ออกจากแฟ้ม? การลบย้อนกลับไม่ได้")) return false;
+        store.data.activities = store.data.activities.filter(x => x.id !== a.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}
+  ]);
+}
+
+function applyActivityEdits(a) {
+  a.title = dlgVal("title") || a.title;
+  a.type = dlgVal("type") || a.type;
+  a.subspecialty = dlgVal("subspecialty") || a.subspecialty;
+  a.date = dlgVal("date") || a.date;
+  a.residentId = dlgVal("residentId") || a.residentId;
+  a.academicYear = academicYear(a.date);
+  a.wfme = (TYPE_BY_ID[a.type]?.wfme || []).slice();
+  a.note = ($('#dlgBody [name="note"]')?.value || "").trim();
+  const score = dlgVal("assessScore"), by = dlgVal("assessBy"), comment = ($('#dlgBody [name="assessComment"]')?.value || "").trim();
+  a.assessment = (score || by || comment) ? { score: score === "" ? null : +score, by, comment, at: todayISO() } : null;
+}
+
+function manualAdd() {
+  if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน จึงจะบันทึกกิจกรรมได้"); showView("residents"); return; }
+  const body = `
+    <p class="small muted">ใช้เมื่อไม่มีไฟล์สไลด์ เช่น การอ่านฟิล์มหน้าจอ หรือกิจกรรมที่นำเสนอด้วยปากเปล่า</p>
+    <div class="grid g2">
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+      <label class="f"><span>วันที่</span><input type="date" name="date" value="${todayISO()}" /></label>
+      <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}">${esc(t.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}">${esc(s.th)}</option>`).join("")}</select></label>
+    </div>
+    <label class="f"><span>ชื่อเรื่อง</span><input name="title" placeholder="เช่น Pre-op conference: distal radius fracture" /></label>
+    <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note"></textarea></label>`;
+  showDialog("บันทึกกิจกรรมด้วยมือ", body, [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
+    const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อเรื่อง"); return false; }
+    const date = dlgVal("date") || todayISO(), type = dlgVal("type");
+    store.data.activities.push({
+      id: uid("act"), residentId: dlgVal("residentId"), type, subspecialty: dlgVal("subspecialty"),
+      title, date, academicYear: academicYear(date), source: "manual", evidence: null,
+      wfme: (TYPE_BY_ID[type]?.wfme || []).slice(), assessment: null, verified: false, verifiedBy: "",
+      note: ($('#dlgBody [name="note"]')?.value || "").trim(), createdAt: new Date().toISOString()
+    });
+    store.save(); renderAll(); toast("บันทึกแล้ว");
+  }}]);
+}
+
+function editResident(id) {
+  const r = id ? store.resident(id) : null;
+  const body = `
+    <label class="f"><span>ชื่อ-สกุล</span><input name="name" value="${esc(r?.name || "")}" placeholder="นพ. / พญ. …" /></label>
+    <div class="grid g2">
+      <label class="f"><span>ชื่อย่อในระบบ</span><input name="nick" value="${esc(r?.nick || "")}" placeholder="เช่น R2-A" /></label>
+      <label class="f"><span>ชั้นปี</span><select name="year">${[1,2,3,4].map(y => `<option value="${y}" ${r?.year === y ? "selected" : ""}>ชั้นปีที่ ${y}</option>`).join("")}</select></label>
+      <label class="f"><span>รุ่น (ปีที่เข้าฝึกอบรม)</span><input name="cohort" value="${esc(r?.cohort || "")}" placeholder="เช่น 2567" /></label>
+      <label class="f"><span>อาจารย์ที่ปรึกษา</span><input name="advisor" value="${esc(r?.advisor || "")}" /></label>
+    </div>`;
+  showDialog(r ? "แก้ไขข้อมูลแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อ"); return false; }
+        const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort: dlgVal("cohort"), advisor: dlgVal("advisor") };
+        if (r) Object.assign(r, rec); else { const nr = { id: uid("res"), ...rec }; store.data.residents.push(nr); selectedResident = nr.id; }
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(r ? [{ label:"ลบรายชื่อนี้", cls:"btn-danger", onClick: () => {
+        const n = store.activitiesOf(r.id).length;
+        if (!confirm("ลบ " + r.name + " และกิจกรรม " + n + " รายการที่ผูกไว้? การลบย้อนกลับไม่ได้")) return false;
+        store.data.residents = store.data.residents.filter(x => x.id !== r.id);
+        store.data.activities = store.data.activities.filter(a => a.residentId !== r.id);
+        store.data.research = store.data.research.filter(p => p.residentId !== r.id);
+        selectedResident = null; store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+function editResearch(id) {
+  const pj = id ? store.data.research.find(x => x.id === id) : null;
+  const body = `
+    <label class="f"><span>ชื่อโครงการ</span><input name="title" value="${esc(pj?.title || "")}" /></label>
+    <div class="grid g2">
+      <label class="f"><span>ผู้วิจัย</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>อาจารย์ที่ปรึกษางานวิจัย</span><input name="advisor" value="${esc(pj?.advisor || "")}" /></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${pj?.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>รูปแบบการวิจัย</span><input name="type" value="${esc(pj?.type || "")}" placeholder="เช่น Retrospective cohort" /></label>
+    </div>
+    <hr /><h4>ขั้นความก้าวหน้า</h4>
+    <div class="tbl-wrap"><table><thead><tr><th>ขั้น</th><th>วันที่เสร็จ</th><th>กำหนดส่ง</th></tr></thead><tbody>
+    ${RESEARCH_STAGES.map(s => `<tr><td>${esc(s.th)}</td>
+      <td><input type="date" name="done_${s.id}" value="${esc(pj?.stages?.[s.id]?.done || "")}" /></td>
+      <td><input type="date" name="due_${s.id}" value="${esc(pj?.stages?.[s.id]?.due || "")}" /></td></tr>`).join("")}
+    </tbody></table></div>`;
+  showDialog(pj ? "แก้ไขโครงการวิจัย" : "เพิ่มโครงการวิจัย", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อโครงการ"); return false; }
+        const stages = {};
+        RESEARCH_STAGES.forEach(s => {
+          const done = dlgVal("done_" + s.id), due = dlgVal("due_" + s.id);
+          stages[s.id] = {}; if (done) stages[s.id].done = done; if (due) stages[s.id].due = due;
+        });
+        const rec = { title, residentId: dlgVal("residentId"), advisor: dlgVal("advisor"),
+                      subspecialty: dlgVal("subspecialty"), type: dlgVal("type"), stages };
+        if (pj) Object.assign(pj, rec); else store.data.research.push({ id: uid("rs"), updates: [], ...rec });
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(pj ? [{ label:"ลบโครงการ", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบโครงการวิจัยนี้?")) return false;
+        store.data.research = store.data.research.filter(x => x.id !== pj.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* =====================================================================
+   19) รายงานที่พิมพ์ได้
+   ===================================================================== */
+let viewBeforePrint = "ingest";
+
+function printReport(html) {
+  $("#reportBody").innerHTML = html;
+  viewBeforePrint = $$(".view").find(v => v.classList.contains("on"))?.id.replace("view-", "") || "ingest";
+  showView("report");
+  setTimeout(() => window.print(), 60);
+}
+window.addEventListener("afterprint", () => { if ($("#view-report").classList.contains("on")) showView(viewBeforePrint); });
+
+function reportHead(title, sub) {
+  return `<div class="card">
+    <h1 style="margin-bottom:.1rem">${esc(title)}</h1>
+    <p class="small muted" style="margin:0">กลุ่มงานออร์โธปิดิกส์ โรงพยาบาลมหาราชนครราชสีมา · ${esc(sub)} · พิมพ์เมื่อ ${new Date().toLocaleString("th-TH")}</p>
+    <p class="small muted" style="margin:.3rem 0 0">เอกสารนี้สร้างจากหน้าสาธิต ข้อมูลตัวอย่างเป็นข้อมูลสมมติ</p>
+  </div>`;
+}
+
+function printPortfolio(residentId) {
+  const r = store.resident(residentId); if (!r) return;
+  const p = progressFor(r), gaps = gapsFor(r);
+  const acts = store.activitiesOf(r.id).sort((a, b) => a.date.localeCompare(b.date));
+  const projects = store.data.research.filter(x => x.residentId === r.id);
+  const html = reportHead("แฟ้มสะสมงานแพทย์ประจำบ้าน — " + r.name, "ชั้นปีที่ " + r.year + " · รุ่น " + (r.cohort || "—") + " · ปีการศึกษา " + p.ay) + `
+  <div class="card">
+    <h2>1. ความก้าวหน้าเทียบเกณฑ์หลักสูตร</h2>
+    <table><thead><tr><th>กิจกรรม</th><th>ทำแล้ว</th><th>เกณฑ์</th><th>คิดเป็น</th><th>หัวข้อ WFME ที่ใช้อ้าง</th></tr></thead>
+      <tbody>${p.lines.map(l => `<tr><td>${esc(l.type.th)}</td><td>${l.done}</td><td>${l.need || "—"}</td><td>${l.pct}%</td><td>${l.type.wfme.join(", ")}</td></tr>`).join("")}
+      <tr><td>ความครอบคลุมอนุสาขา</td><td>${p.subsDone.size}</td><td>${p.subsNeed || "—"}</td><td>${p.subsPct}%</td><td>2.3, 2.4</td></tr></tbody></table>
+    ${gaps.length ? `<h3 style="margin-top:.8rem">สิ่งที่ยังขาด</h3><ul>${gaps.map(g => `<li>${esc(g.text)}</li>`).join("")}</ul>` : `<p>ครบตามเกณฑ์ที่กำหนดไว้ในปีการศึกษานี้</p>`}
+  </div>
+  <div class="card">
+    <h2>2. บันทึกกิจกรรมทั้งหมด (${acts.length} รายการ)</h2>
+    <table><thead><tr><th>วันที่</th><th>ประเภท</th><th>อนุสาขา</th><th>ชื่อเรื่อง</th><th>หลักฐาน</th><th>ประเมิน</th><th>รับรอง</th></tr></thead>
+      <tbody>${acts.map(a => `<tr>
+        <td>${fmtDate(a.date)}</td><td>${esc(TYPE_BY_ID[a.type]?.th || a.type)}</td>
+        <td>${esc(SUB_BY_ID[a.subspecialty]?.th || "")}</td><td>${esc(a.title)}</td>
+        <td class="small">${a.evidence?.fileName ? esc(a.evidence.fileName) + " · " + (a.evidence.slideCount || "?") + " สไลด์<br /><span class='mono'>" + esc((a.evidence.hash || "").slice(0, 16)) + "…</span>" : "บันทึกด้วยมือ"}</td>
+        <td>${a.assessment?.score != null ? a.assessment.score + "/5" : "—"}</td>
+        <td class="small">${a.verified ? esc(a.verifiedBy || "รับรองแล้ว") : "—"}</td></tr>`).join("")}</tbody></table>
+  </div>
+  ${projects.length ? `<div class="card"><h2>3. งานวิจัย</h2>${projects.map(pj => `
+    <h3>${esc(pj.title)}</h3>
+    <p class="small">ที่ปรึกษา ${esc(pj.advisor || "—")} · ${esc(pj.type || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.th || "—")}</p>
+    <table><thead><tr><th>ขั้น</th><th>วันที่เสร็จ</th><th>กำหนด</th></tr></thead><tbody>
+      ${RESEARCH_STAGES.map(s => { const st = pj.stages?.[s.id] || {}; return `<tr><td>${esc(s.th)}</td><td>${st.done ? fmtDate(st.done) : "—"}</td><td>${st.due ? fmtDate(st.due) : "—"}</td></tr>`; }).join("")}
+    </tbody></table>`).join("")}</div>` : ""}
+  <div class="card">
+    <h2>${projects.length ? "4" : "3"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
+    ${acts.filter(a => a.assessment?.comment).map(a => `<p><b>${fmtDate(a.date)} — ${esc(a.title)}</b><br />
+      ${esc(a.assessment.comment)} <span class="small muted">(${esc(a.assessment.by || "—")}, ${a.assessment.score ?? "—"}/5)</span></p>`).join("") || "<p>ยังไม่มีข้อเสนอแนะที่บันทึกไว้</p>"}
+    <div class="row" style="margin-top:2.4rem;gap:3rem">
+      <div>ลงชื่อ ............................................<br /><span class="small muted">แพทย์ประจำบ้าน</span></div>
+      <div>ลงชื่อ ............................................<br /><span class="small muted">อาจารย์ที่ปรึกษา</span></div>
+      <div>ลงชื่อ ............................................<br /><span class="small muted">ประธานการฝึกอบรม</span></div>
+    </div>
+  </div>`;
+  printReport(html);
+}
+
+function printWfmeReport() {
+  const ev = wfmeEvidence();
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const html = reportHead("รายงานหลักฐานตามมาตรฐาน WFME", "หลักสูตรการฝึกอบรมแพทย์ประจำบ้าน สาขาออร์โธปิดิกส์") + `
+  <div class="card">
+    <h2>สรุปภาพรวม</h2>
+    <table><thead><tr><th>รายการ</th><th>จำนวน</th></tr></thead><tbody>
+      <tr><td>แพทย์ประจำบ้านในระบบ</td><td>${store.data.residents.length}</td></tr>
+      <tr><td>กิจกรรมที่บันทึกไว้ทั้งหมด</td><td>${store.data.activities.length}</td></tr>
+      <tr><td>กิจกรรมที่บันทึกอัตโนมัติจากไฟล์สไลด์</td><td>${store.data.activities.filter(a => a.source === "slides").length}</td></tr>
+      <tr><td>กิจกรรมที่มีแบบประเมิน</td><td>${store.data.activities.filter(a => a.assessment).length}</td></tr>
+      <tr><td>กิจกรรมที่อาจารย์รับรองแล้ว</td><td>${store.data.activities.filter(a => a.verified).length}</td></tr>
+      <tr><td>โครงการวิจัยที่กำลังดำเนินการ</td><td>${store.data.research.length}</td></tr>
+    </tbody></table>
+  </div>
+  ${(store.data.programme?.mission || store.data.programme?.outcomes?.length) ? `<div class="card">
+    <h2>พันธกิจและผลลัพธ์การเรียนรู้ที่บันทึกไว้ <span class="small muted">(WFME 1.1, 1.3)</span></h2>
+    ${store.data.programme.mission ? `<p>${esc(store.data.programme.mission)}</p>` : ""}
+    ${store.data.programme.outcomes?.length ? `<ol>${store.data.programme.outcomes.map(o => `<li>${esc(o)}</li>`).join("")}</ol>` : ""}
+    ${store.data.programme.reviewed ? `<p class="small muted">ทบทวนล่าสุด ${fmtDate(store.data.programme.reviewed)}</p>` : ""}
+  </div>` : ""}
+  <div class="card">
+    <h2>หลักฐานรายหมวดมาตรฐาน</h2>
+    <p class="small muted">หมวดและหัวข้อเรียบเรียงตามโครง 9 หมวดของ WFME Global Standards for Quality Improvement: Postgraduate Medical Education (2015)
+      เพื่อใช้จัดหมวดหลักฐานภายใน ยังต้องทาบถ้อยคำกับเอกสารต้นฉบับก่อนใช้ยื่นประเมินจริง</p>
+    <table><thead><tr><th>ข้อ</th><th>หัวข้อ</th><th>หลักฐานในระบบ</th></tr></thead><tbody>
+      ${WFME_SUBS.map(s => {
+        const e = ev[s.id]; const byType = {};
+        e.activities.forEach(a => byType[a.type] = (byType[a.type] || 0) + 1);
+        const parts = [];
+        if (e.activities.length) parts.push(e.activities.length + " กิจกรรม (" + Object.entries(byType).map(([t, c]) => (TYPE_BY_ID[t]?.th || t) + " " + c).join(", ") + ")");
+        e.sources.forEach(x => parts.push(x.label));
+        e.docs.forEach(d => parts.push("เอกสาร: " + d.title + (d.location ? " — เก็บที่ " + d.location : "")));
+        return `<tr><td class="mono">${s.id}</td><td>${esc(s.th)}<br /><span class="small muted">${esc(s.en)}</span></td>
+          <td class="small">${parts.length ? parts.map(esc).join("<br />") : "— ต้องใช้เอกสารอื่นของหลักสูตร —"}</td></tr>`;
+      }).join("")}
+    </tbody></table>
+  </div>
+  <div class="card">
+    <h2>ความก้าวหน้ารายบุคคล</h2>
+    <table><thead><tr><th>แพทย์ประจำบ้าน</th><th>ชั้นปี</th><th>กิจกรรมสะสม</th><th>ความก้าวหน้าปีนี้</th><th>อนุสาขาที่ครอบคลุม</th><th>รับรองแล้ว</th></tr></thead>
+    <tbody>${rs.map(r => { const p = progressFor(r); return `<tr><td>${esc(r.name)}</td><td>${r.year}</td><td>${p.total}</td>
+      <td>${p.overall}%</td><td>${p.subsDone.size}/${p.subsNeed || "—"}</td><td>${p.verified}</td></tr>`; }).join("")}</tbody></table>
+  </div>`;
+  printReport(html);
+}
+
+/* =====================================================================
+   20) สำรอง / นำเข้า ข้อมูล
+   ===================================================================== */
+function exportJson() {
+  download("ortho-portfolio-" + todayISO() + ".json", JSON.stringify(store.data, null, 2), "application/json");
+  toast("ดาวน์โหลดไฟล์สำรองแล้ว");
+}
+function importJson(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const data = JSON.parse(fr.result);
+      if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
+      if (!confirm("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม) ดำเนินการต่อ?")) return;
+      store.data = data; store.migrate(); store.save(); selectedResident = null; renderAll();
+      toast("นำเข้าข้อมูลแล้ว");
+    } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
+  };
+  fr.readAsText(file);
+}
+
+/* =====================================================================
+   21) การสลับหน้า และการวาดใหม่ทั้งหมด
+   ===================================================================== */
+function showView(name) {
+  $$(".view").forEach(v => v.classList.toggle("on", v.id === "view-" + name));
+  $$("#tabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.view === name)));
+  if (name !== "report") location.hash = name;
+  window.scrollTo({ top: 0 });
+}
+
+function renderStoreState() {
+  const el = $("#storeState");
+  if (el) el.textContent = "เก็บในเครื่องนี้ · " + store.data.activities.length + " กิจกรรม";
+}
+
+function renderIngestStats() {
+  const acts = store.data.activities, ay = currentAY();
+  const behind = store.data.residents.filter(r => gapsFor(r).some(g => g.level === "bad")).length;
+  $("#ingestStats").innerHTML = `
+    <div class="stat"><b>${acts.length}</b><span>กิจกรรมสะสมทั้งหมด</span></div>
+    <div class="stat"><b>${acts.filter(a => a.academicYear === ay).length}</b><span>กิจกรรมในปีการศึกษา ${ay}</span></div>
+    <div class="stat"><b>${acts.filter(a => !a.verified).length}</b><span>รอการรับรองจากอาจารย์</span></div>
+    <div class="stat"><b>${behind}</b><span>แพทย์ประจำบ้านที่มีส่วนขาดต้องตาม</span></div>`;
+  const recent = acts.slice().sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date)).slice(0, 8);
+  $("#recentActivities").innerHTML = recent.length ? `<ul class="clean">${recent.map(a => {
+    const r = store.resident(a.residentId);
+    return `<li class="row" style="justify-content:space-between">
+      <span><b>${esc(a.title)}</b><br /><span class="small muted">${esc(r?.name || "")} · ${esc(TYPE_BY_ID[a.type]?.th || "")} · ${esc(SUB_BY_ID[a.subspecialty]?.th || "")} · ${fmtDate(a.date)}</span></span>
+      <button class="btn-sm no-print" data-act-open="${a.id}">เปิด</button></li>`;
+  }).join("")}</ul>` : `<p class="empty">ยังไม่มีบันทึก — ลากไฟล์สไลด์มาวางด้านบนเพื่อเริ่ม</p>`;
+  $$("#recentActivities [data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+}
+
+function renderAll() {
+  renderStoreState();
+  renderIngestStats();
+  renderResidents();
+  renderActivityFilters();
+  renderActivityTable();
+  renderResearch();
+  renderCoverage();
+  renderWfme();
+  renderSettings();
+  renderProgramme();
+}
+
+/* =====================================================================
+   22) เริ่มทำงาน
+   ===================================================================== */
+function init() {
+  store.load();
+  setupIngest();
+
+  $("#tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-view]"); if (b) showView(b.dataset.view);
+  });
+  $("#btnManualAdd").addEventListener("click", manualAdd);
+  $("#btnAddResident").addEventListener("click", () => editResident(null));
+  $("#btnAddResearch").addEventListener("click", () => editResearch(null));
+  $("#btnAddDoc").addEventListener("click", () => editDoc(null));
+  $("#btnPrintPortfolio").addEventListener("click", () => selectedResident ? printPortfolio(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
+  $("#btnWfmeReport").addEventListener("click", printWfmeReport);
+  $("#btnWfmeCsv").addEventListener("click", () => download("wfme-evidence-map.csv", toCsv(wfmeCsvRows()), "text/csv;charset=utf-8"));
+  $("#btnCsvAll").addEventListener("click", () => download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8"));
+  [$("#btnExport"), $("#btnExport2")].forEach(b => b.addEventListener("click", exportJson));
+  [$("#btnImport"), $("#btnImport2")].forEach(b => b.addEventListener("click", () => $("#importPick").click()));
+  $("#importPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; });
+  $("#btnSeed").addEventListener("click", () => {
+    if (!confirm("โหลดข้อมูลสาธิตใหม่ ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่ทั้งหมด ดำเนินการต่อ?")) return;
+    store.reset(); selectedResident = null; renderAll(); toast("โหลดข้อมูลสาธิตใหม่แล้ว");
+  });
+  $("#btnWipe").addEventListener("click", () => {
+    if (!confirm("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน")) return;
+    store.wipe(); selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
+  });
+
+  renderAll();
+  const hash = location.hash.replace("#", "");
+  showView($("#view-" + hash) ? hash : "ingest");
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
