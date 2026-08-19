@@ -135,6 +135,21 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .7rem;font-size:.87rem}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
 .excerpt{background:#f7f9fa;border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-size:.84rem;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+table.cal{border-collapse:separate;border-spacing:3px}
+table.cal th{font-size:.78rem;text-align:center;padding:.2rem}
+table.cal th.who{text-align:left;min-width:150px}
+table.cal td{padding:0;vertical-align:top;min-width:132px}
+table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
+.sess{display:block;width:100%;text-align:left;border:1px solid var(--line);border-left:4px solid var(--brand);
+  border-radius:8px;padding:.3rem .4rem;margin-bottom:3px;background:#fff;font-size:.78rem;line-height:1.3;cursor:pointer}
+.sess:hover{background:#f4f7f9}
+.sess b{display:block;font-weight:600}
+.sess .who{display:block;color:var(--muted);font-size:.74rem}
+.sess.done{background:var(--ok-soft)}
+.sess.due{background:var(--warn-soft)}
+.sess .pill{font-size:.68rem;border-radius:4px;padding:0 .25rem;background:#eef1f4;color:var(--ink-2)}
+.nowcard{border:1px solid var(--line);border-radius:var(--r);padding:.7rem .8rem;background:#fff}
+.nowcard .svc{font-weight:650}
 .timeline{border-left:2px solid var(--line);padding-left:.9rem;margin-left:.35rem}
 .timeline .ev{position:relative;padding-bottom:.8rem}
 .timeline .ev::before{content:"";position:absolute;left:-1.24rem;top:.35rem;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff}
@@ -168,6 +183,7 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
   </div>
   <nav class="tabs" id="tabs">
     <button data-view="ingest" aria-current="true">รับสไลด์ (บันทึกอัตโนมัติ)</button>
+    <button data-view="rotation">ตารางหมุนเวียน &amp; เวร</button>
     <button data-view="residents">แพทย์ประจำบ้าน</button>
     <button data-view="activities">กิจกรรมทั้งหมด</button>
     <button data-view="research">งานวิจัย</button>
@@ -200,6 +216,60 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
     <div class="card">
       <h2>บันทึกล่าสุด</h2>
       <div id="recentActivities"></div>
+    </div>
+  </section>
+
+  <!-- ============ ROTATION CALENDAR ============ -->
+  <section class="view" id="view-rotation">
+    <div class="card">
+      <div class="between">
+        <div>
+          <h1>ตอนนี้ใครอยู่หน่วยไหน</h1>
+          <p class="muted small" id="nowStamp">—</p>
+        </div>
+        <div class="row no-print">
+          <button class="btn-sm" id="btnAddRotation">+ กำหนดช่วงหมุนเวียน</button>
+          <button class="btn-sm" id="btnPrintRoster">พิมพ์ตารางสัปดาห์</button>
+        </div>
+      </div>
+      <div id="nowBoard"></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <h2>เซสชันที่รอการประเมิน — แยกตามอาจารย์ผู้รับผิดชอบ</h2>
+        <span class="tag warn" id="pendingCount">—</span>
+      </div>
+      <p class="muted small">ย้อนหลัง 14 วัน · อาจารย์ผู้รับผิดชอบเซสชันเป็นผู้ประเมินเมื่อจบเซสชัน กดที่รายการเพื่อกรอกแบบประเมิน</p>
+      <div id="pendingBoard"></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <h2>ตารางประจำสัปดาห์</h2>
+        <div class="row no-print">
+          <button class="btn-sm" id="weekPrev">‹ สัปดาห์ก่อน</button>
+          <b class="small" id="weekLabel">—</b>
+          <button class="btn-sm" id="weekNext">สัปดาห์ถัดไป ›</button>
+          <button class="btn-sm" id="weekToday">สัปดาห์นี้</button>
+        </div>
+      </div>
+      <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อบันทึกการประเมินท้ายเซสชัน
+        · <span class="tag ok">ประเมินแล้ว</span> <span class="tag warn">รอประเมิน</span> <span class="tag">ยังไม่ถึงกำหนด</span></p>
+      <div id="weekGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>ช่วงหมุนเวียนทั้งหมด</h2>
+      <div id="rotationTable"></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <h2>การประเมินท้ายเซสชันล่าสุด</h2>
+        <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
+      </div>
+      <div id="evalList"></div>
     </div>
   </section>
 
@@ -277,6 +347,19 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
       <div id="programmeEditor"></div>
     </div>
     <div class="card">
+      <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
+        <button class="btn-sm no-print" id="btnAddStaff">+ เพิ่มอาจารย์</button></div>
+      <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชันและผู้ประเมินท้ายเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
+      <div id="staffTable"></div>
+    </div>
+    <div class="card">
+      <div class="between"><h2>หน่วยที่หมุนเวียนและตารางประจำสัปดาห์</h2>
+        <button class="btn-sm no-print" id="btnAddService">+ เพิ่มหน่วย</button></div>
+      <p class="muted small">แต่ละหน่วยมีตารางกิจกรรมประจำสัปดาห์ ระบบใช้ตารางนี้ร่วมกับช่วงหมุนเวียนเพื่อสร้างเซสชันในปฏิทินโดยอัตโนมัติ
+        ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษทั้งหมด</p>
+      <div id="serviceTable"></div>
+    </div>
+    <div class="card">
       <div class="between"><h2>ทะเบียนเอกสารหลักสูตร</h2>
         <button class="btn-sm no-print" id="btnAddDoc">+ เพิ่มเอกสาร</button></div>
       <p class="muted small">บันทึกว่ามีเอกสารอะไร เก็บไว้ที่ใด ทบทวนล่าสุดเมื่อไร และใช้เป็นหลักฐานของมาตรฐานข้อใด
@@ -342,31 +425,31 @@ const APP = { key: "mnrh_ortho_portfolio_v1", version: 1 };
    คำสำคัญแก้ไขเพิ่มได้ในหน้า "ตั้งค่า" และถูกเก็บรวมกับข้อมูล
    --------------------------------------------------------------------- */
 const SUBSPECIALTIES = [
-  { id:"trauma",      th:"อุบัติเหตุทางออร์โธปิดิกส์", en:"Orthopaedic Trauma",
+  { id:"trauma", en:"Orthopaedic Trauma",
     kw:["fracture","fx","nonunion","malunion","nail","plate","external fixator","ex-fix","damage control","polytrauma","open fracture","gustilo","ao/ota","pelvic ring","acetabular fracture","หัก","กระดูกหัก","ไม่ติด","ดามกระดูก","อุบัติเหตุ"] },
-  { id:"spine",       th:"กระดูกสันหลัง", en:"Spine",
+  { id:"spine", en:"Spine",
     kw:["spine","spinal","lumbar","cervical","thoracolumbar","disc","spondylolisthesis","stenosis","myelopathy","radiculopathy","scoliosis","kyphosis","pedicle screw","laminectomy","discectomy","fusion","cauda equina","กระดูกสันหลัง","หมอนรองกระดูก","หลังคด"] },
-  { id:"arthroplasty",th:"ข้อเทียมและการผ่าตัดแก้ไขข้อ", en:"Adult Reconstruction / Arthroplasty",
+  { id:"arthroplasty", en:"Adult Reconstruction / Arthroplasty",
     kw:["arthroplasty","tha","tka","uka","total hip","total knee","revision arthroplasty","periprosthetic","osteoarthritis","oa knee","oa hip","hemiarthroplasty","bearing","polyethylene","อวัยวะเทียม","ข้อเทียม","ข้อเข่าเสื่อม","ข้อสะโพกเสื่อม"] },
-  { id:"sports",      th:"เวชศาสตร์การกีฬาและการส่องกล้องข้อ", en:"Sports Medicine / Arthroscopy",
+  { id:"sports", en:"Sports Medicine / Arthroscopy",
     kw:["acl","pcl","mcl","meniscus","meniscal","arthroscopy","arthroscopic","patellar instability","rotator cuff tear","return to play","cartilage","osteochondral","สาย เอ็นไขว้","เอ็นไขว้","ส่องกล้องข้อ","นักกีฬา"] },
-  { id:"hand",        th:"มือและจุลศัลยกรรม", en:"Hand & Microsurgery",
+  { id:"hand", en:"Hand & Microsurgery",
     kw:["hand","wrist","carpal","scaphoid","flexor tendon","extensor tendon","replantation","microsurgery","nerve repair","brachial plexus","dupuytren","trigger finger","carpal tunnel","de quervain","มือ","ข้อมือ","เส้นประสาท","ต่อนิ้ว","จุลศัลยกรรม"] },
-  { id:"foot",        th:"เท้าและข้อเท้า", en:"Foot & Ankle",
+  { id:"foot", en:"Foot & Ankle",
     kw:["foot","ankle","hallux valgus","flatfoot","pes planus","charcot","achilles","calcaneus","lisfranc","diabetic foot","plantar fasciitis","เท้า","ข้อเท้า","เท้าเบาหวาน","เอ็นร้อยหวาย"] },
-  { id:"pediatric",   th:"ออร์โธปิดิกส์เด็ก", en:"Paediatric Orthopaedics",
+  { id:"pediatric", en:"Paediatric Orthopaedics",
     kw:["paediatric","pediatric","ddh","developmental dysplasia","clubfoot","ponseti","perthes","scfe","supracondylar","physis","growth plate","limb length discrepancy","cerebral palsy","เด็ก","ข้อสะโพกเคลื่อนแต่กำเนิด","เท้าปุก"] },
-  { id:"oncology",    th:"เนื้องอกกระดูกและเนื้อเยื่ออ่อน", en:"Musculoskeletal Oncology",
+  { id:"oncology", en:"Musculoskeletal Oncology",
     kw:["tumour","tumor","sarcoma","osteosarcoma","ewing","chondrosarcoma","gct","giant cell tumor","metastasis","metastatic bone","biopsy","limb salvage","enneking","เนื้องอก","มะเร็งกระดูก","แพร่กระจาย"] },
-  { id:"shoulder",    th:"ไหล่และข้อศอก", en:"Shoulder & Elbow",
+  { id:"shoulder", en:"Shoulder & Elbow",
     kw:["shoulder","glenohumeral","rotator cuff","bankart","hill-sachs","frozen shoulder","adhesive capsulitis","proximal humerus","elbow","olecranon","terrible triad","reverse shoulder","ไหล่","ข้อศอก","ไหล่ติด","ไหล่หลุด"] },
-  { id:"infection",   th:"การติดเชื้อระบบกระดูกและข้อ", en:"Musculoskeletal Infection",
+  { id:"infection", en:"Musculoskeletal Infection",
     kw:["osteomyelitis","septic arthritis","pji","prosthetic joint infection","necrotizing fasciitis","tuberculosis","pott","debridement","antibiotic cement","spacer","การติดเชื้อ","ติดเชื้อในข้อ","กระดูกอักเสบ","วัณโรคกระดูก"] },
-  { id:"metabolic",   th:"โรคกระดูกเมตาบอลิกและกระดูกพรุน", en:"Metabolic Bone Disease / Osteoporosis",
+  { id:"metabolic", en:"Metabolic Bone Disease / Osteoporosis",
     kw:["osteoporosis","osteoporotic","fragility fracture","bisphosphonate","denosumab","vitamin d","bmd","dexa","frax","rickets","osteomalacia","fracture liaison","กระดูกพรุน","กระดูกบาง","ฮอร์โมนกระดูก"] },
-  { id:"basic",       th:"วิทยาศาสตร์พื้นฐานและชีวกลศาสตร์", en:"Basic Science / Biomechanics",
+  { id:"basic", en:"Basic Science / Biomechanics",
     kw:["biomechanics","bone healing","fracture healing","anatomy","histology","implant material","titanium","stainless","biomaterial","statistic","research methodology","evidence-based","ชีวกลศาสตร์","กายวิภาค","ระเบียบวิธีวิจัย","สถิติ"] },
-  { id:"general",     th:"ทั่วไป / ยังไม่ระบุอนุสาขา", en:"General / Unclassified", kw:[] }
+  { id:"general", en:"General / Unclassified", kw:[] }
 ];
 const SUB_BY_ID = Object.fromEntries(SUBSPECIALTIES.map(s => [s.id, s]));
 
@@ -475,10 +558,10 @@ const WFME_SOURCES = [
    4) เกณฑ์ตั้งต้นต่อชั้นปี — ค่าสาธิต แก้ไขได้ในหน้าตั้งค่า
    --------------------------------------------------------------------- */
 const DEFAULT_REQUIREMENTS = {
-  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:4 },
-  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:7 },
-  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:9 },
-  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:10 }
+  1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:4,  sessionEval:20 },
+  2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:7,  sessionEval:24 },
+  3: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:3, subspecialties:9,  sessionEval:24 },
+  4: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:2, subspecialties:10, sessionEval:24 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -491,6 +574,33 @@ const RESEARCH_STAGES = [
 ];
 
 /* =====================================================================
+   4b) ตารางหมุนเวียนและการประเมินท้ายเซสชัน
+   --------------------------------------------------------------------- */
+const SESSION_PARTS = [
+  { id:"am",   th:"เช้า",           time:"08:00–12:00" },
+  { id:"pm",   th:"บ่าย",           time:"13:00–16:00" },
+  { id:"call", th:"นอกเวลา / อยู่เวร", time:"16:00–08:00" }
+];
+const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
+const DAY_NAMES = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
+const DAY_SHORT = ["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
+
+/* ระดับการให้ปฏิบัติงานด้วยตนเอง (entrustment) ใช้ในแบบประเมินท้ายเซสชัน */
+const ENTRUST_LEVELS = [
+  { v:1, th:"สังเกตการณ์เท่านั้น" },
+  { v:2, th:"ทำได้ภายใต้การกำกับใกล้ชิด" },
+  { v:3, th:"ทำได้โดยมีอาจารย์พร้อมช่วยเมื่อเรียก" },
+  { v:4, th:"ทำได้เองโดยกำกับห่าง ๆ" },
+  { v:5, th:"ทำได้เองและสอนผู้อื่นได้" }
+];
+const EVAL_ITEMS = [
+  { id:"knowledge",    th:"ความรู้และการตัดสินใจทางคลินิก" },
+  { id:"skill",        th:"ทักษะการตรวจและหัตถการ" },
+  { id:"professional", th:"ความเป็นวิชาชีพ การสื่อสาร และการทำงานเป็นทีม" }
+];
+const SERVICE_COLOURS = ["#1f6f8b","#7a4fa3","#1f7a4d","#a8630a","#a32d2d","#2b5fa8","#8a7015","#0f766e"];
+
+/* ---------------------------------------------------------------------
    5) เครื่องมือพื้นฐาน
    ===================================================================== */
 const $  = (sel, root = document) => root.querySelector(sel);
@@ -563,6 +673,7 @@ const store = {
     d.residents ||= []; d.activities ||= []; d.research ||= [];
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
+    d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= [];
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
@@ -580,7 +691,8 @@ const store = {
   reset() { this.data = seedData(); this.save(); },
   wipe() {
     localStorage.removeItem(APP.key);
-    this.data = { residents:[], activities:[], research:[], requirements: structuredClone(DEFAULT_REQUIREMENTS),
+    this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[],
+                  requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
   },
@@ -596,6 +708,48 @@ const store = {
 /* =====================================================================
    7) ข้อมูลสาธิต (สมมติทั้งหมด — ไม่มีบุคคลหรือผู้ป่วยจริง)
    ===================================================================== */
+/* --- สร้างรายการเซสชันของวันหนึ่งจากช่วงหมุนเวียน + ตารางประจำสัปดาห์ของหน่วย --- */
+function computeSessions(iso, data) {
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return [];
+  const dow = d.getDay();
+  const out = [];
+  (data.rotations || []).forEach(rot => {
+    if (rot.start && iso < rot.start) return;
+    if (rot.end && iso > rot.end) return;
+    const svc = (data.services || []).find(x => x.id === rot.serviceId);
+    if (!svc) return;
+    (svc.template || []).forEach((t, i) => {
+      if (t.day !== dow) return;
+      out.push({
+        key: rot.id + "|" + iso + "|" + i,
+        rotationId: rot.id, residentId: rot.residentId, serviceId: svc.id,
+        date: iso, part: t.part, name: t.name,
+        location: t.location || svc.site || "",
+        staffId: t.staffId || rot.supervisorId || ""
+      });
+    });
+  });
+  return out.sort((a, b) => SESSION_PARTS.findIndex(p => p.id === a.part) - SESSION_PARTS.findIndex(p => p.id === b.part));
+}
+const sessionsForDate = (iso) => computeSessions(iso, store.data);
+const rotationOn = (residentId, iso) => (store.data.rotations || []).find(r =>
+  r.residentId === residentId && (!r.start || iso >= r.start) && (!r.end || iso <= r.end));
+const serviceById = (id) => (store.data.services || []).find(x => x.id === id);
+const staffById   = (id) => (store.data.staff || []).find(x => x.id === id);
+const staffName   = (id) => staffById(id)?.name || "—";
+const evalForKey  = (key) => (store.data.sessionEvals || []).find(e => e.key === key);
+const serviceColour = (id) => {
+  const i = (store.data.services || []).findIndex(x => x.id === id);
+  return SERVICE_COLOURS[(i < 0 ? 0 : i) % SERVICE_COLOURS.length];
+};
+function mondayOf(iso) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   /* ให้จันทร์เป็นวันแรกของสัปดาห์ */
+  return d.toISOString().slice(0, 10);
+}
+const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
 function seedData() {
   const residents = [
     { id:"res_a", name:"พญ. กมลชนก ศรีวัฒนา",  nick:"R4-A", year:4, cohort:"2565", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
@@ -700,6 +854,123 @@ function seedData() {
                collect:{due:daysAheadISO(30)}, analyse:{}, present:{}, publish:{} } }
   ];
 
+  /* --- อาจารย์ผู้รับผิดชอบและหน่วยที่หมุนเวียน --- */
+  const staffRoster = [
+    { id:"st_1", name:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"trauma",       role:"หัวหน้ากลุ่มงาน" },
+    { id:"st_2", name:"พญ. สุภาวดี ข้อดี",        subspecialty:"arthroplasty", role:"อาจารย์แพทย์" },
+    { id:"st_3", name:"นพ. อรรถพล กระดูกงาม",     subspecialty:"spine",        role:"อาจารย์แพทย์" },
+    { id:"st_4", name:"พญ. ณิชา หัตถศิลป์",       subspecialty:"hand",         role:"อาจารย์แพทย์" },
+    { id:"st_5", name:"นพ. กิตติชัย เด็กดี",       subspecialty:"pediatric",    role:"อาจารย์แพทย์" },
+    { id:"st_6", name:"นพ. ธีรเดช กีฬาเวช",       subspecialty:"sports",       role:"อาจารย์แพทย์" },
+    { id:"st_7", name:"พญ. พิมพ์ชนก มณีรัตน์",     subspecialty:"oncology",     role:"อาจารย์แพทย์" }
+  ];
+
+  const services = [
+    { id:"svc_trauma", name:"Orthopaedic Trauma Service", subspecialty:"trauma", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
+      template:[
+        { day:1, part:"am", name:"Trauma ward round", staffId:"st_1" },
+        { day:1, part:"pm", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
+        { day:3, part:"am", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
+        { day:4, part:"am", name:"Trauma film & ward round", staffId:"st_1" },
+        { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
+        { day:6, part:"call", name:"เวรอุบัติเหตุนอกเวลา", staffId:"st_1", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_arthro", name:"Adult Reconstruction Service", subspecialty:"arthroplasty", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"am", name:"Ward round", staffId:"st_2" },
+        { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:2, part:"pm", name:"Pre-operative conference", staffId:"st_2" },
+        { day:4, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:5, part:"am", name:"OPD — joint clinic", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" }
+      ] },
+    { id:"svc_spine", name:"Spine Service", subspecialty:"spine", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"pm", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
+        { day:2, part:"am", name:"Ward round", staffId:"st_3" },
+        { day:3, part:"am", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
+        { day:4, part:"pm", name:"OPD — spine clinic", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Spine case conference", staffId:"st_3" }
+      ] },
+    { id:"svc_hand", name:"Hand & Microsurgery Service", subspecialty:"hand", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"am", name:"OPD — hand clinic", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
+        { day:2, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" },
+        { day:3, part:"pm", name:"Ward round & dressing", staffId:"st_4" },
+        { day:5, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" }
+      ] },
+    { id:"svc_ped", name:"Paediatric Orthopaedics Service", subspecialty:"pediatric", site:"หอผู้ป่วยกุมารเวชกรรม",
+      template:[
+        { day:2, part:"am", name:"OPD — paediatric clinic", staffId:"st_5", location:"OPD กุมารเวชกรรม" },
+        { day:3, part:"am", name:"OR — paediatric list", staffId:"st_5", location:"ห้องผ่าตัด 4" },
+        { day:4, part:"am", name:"Ward round", staffId:"st_5" },
+        { day:5, part:"pm", name:"Ponseti casting clinic", staffId:"st_5" }
+      ] },
+    { id:"svc_sports", name:"Sports Medicine & Arthroscopy Service", subspecialty:"sports", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
+        { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
+        { day:4, part:"pm", name:"Ward round", staffId:"st_6" },
+        { day:5, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" }
+      ] },
+    { id:"svc_onc", name:"Musculoskeletal Oncology Service", subspecialty:"oncology", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:2, part:"pm", name:"Tumour board", staffId:"st_7" },
+        { day:3, part:"am", name:"OR — tumour list", staffId:"st_7", location:"ห้องผ่าตัด 4" },
+        { day:4, part:"am", name:"OPD — tumour clinic", staffId:"st_7", location:"OPD ออร์โธปิดิกส์" }
+      ] },
+    { id:"svc_er", name:"Emergency & Acute Care", subspecialty:"trauma", site:"ห้องฉุกเฉิน",
+      template:[
+        { day:1, part:"call", name:"เวรห้องฉุกเฉิน", staffId:"st_1", location:"ห้องฉุกเฉิน" },
+        { day:2, part:"am", name:"Acute care round", staffId:"st_1" },
+        { day:4, part:"call", name:"เวรห้องฉุกเฉิน", staffId:"st_1", location:"ห้องฉุกเฉิน" },
+        { day:0, part:"call", name:"เวรวันหยุด", staffId:"st_1", location:"ห้องฉุกเฉิน" }
+      ] }
+  ];
+
+  /* บล็อกหมุนเวียนปัจจุบันและบล็อกก่อนหน้า */
+  const curStart = mondayOf(daysAgoISO(18)), curEnd = addDaysISO(mondayOf(daysAgoISO(18)), 41);
+  const prevEnd = addDaysISO(curStart, -1), prevStart = addDaysISO(curStart, -42);
+  const curPlan = [
+    ["res_a","svc_arthro","st_2"], ["res_b","svc_sports","st_6"], ["res_c","svc_spine","st_3"], ["res_d","svc_ped","st_5"],
+    ["res_e","svc_trauma","st_1"], ["res_f","svc_hand","st_4"],   ["res_g","svc_er","st_1"],    ["res_h","svc_trauma","st_1"]
+  ];
+  const prevPlan = [
+    ["res_a","svc_onc","st_7"],    ["res_b","svc_trauma","st_1"], ["res_c","svc_trauma","st_1"], ["res_d","svc_hand","st_4"],
+    ["res_e","svc_er","st_1"],     ["res_f","svc_arthro","st_2"], ["res_g","svc_trauma","st_1"], ["res_h","svc_er","st_1"]
+  ];
+  const rotations = [
+    ...curPlan.map(([rid, sid, sup]) => ({ id: uid("rot"), residentId: rid, serviceId: sid, supervisorId: sup, start: curStart, end: curEnd, note:"" })),
+    ...prevPlan.map(([rid, sid, sup]) => ({ id: uid("rot"), residentId: rid, serviceId: sid, supervisorId: sup, start: prevStart, end: prevEnd, note:"" }))
+  ];
+
+  /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
+  const remarks = [
+    "เตรียมผู้ป่วยมาดี นำเสนอ film ได้ครบ ควรฝึกวางแผนทางเลือกสำรองเมื่อ implant ไม่พอดี",
+    "ทำหัตถการได้คล่องขึ้นชัดเจน ครั้งหน้าลองเป็นผู้ผ่าตัดหลักภายใต้การกำกับ",
+    "สื่อสารกับญาติได้ดีมาก ควรบันทึกเวชระเบียนให้ครบถ้วนกว่านี้",
+    "ยังต้องทบทวน indication ของการผ่าตัด แนะนำอ่าน guideline ก่อนออกตรวจครั้งหน้า",
+    "ตรวจร่างกายเป็นระบบดี ตัดสินใจส่ง investigation ได้เหมาะสม"
+  ];
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const sessionEvals = [];
+  for (let back = 21; back >= 1; back--) {
+    const iso = daysAgoISO(back);
+    computeSessions(iso, { rotations, services }).forEach((ses, i) => {
+      if ((back + i) % 3 === 0) return;
+      const res = residents.find(r => r.id === ses.residentId);
+      const base = Math.min(4.8, 2.5 + (res?.year || 1) * 0.4 + ((back + i) % 3) * 0.15);
+      sessionEvals.push({
+        id: uid("ev"), key: ses.key, date: iso, part: ses.part,
+        residentId: ses.residentId, serviceId: ses.serviceId, staffId: ses.staffId,
+        sessionName: ses.name, location: ses.location,
+        scores: { knowledge: r1(base), skill: r1(base - 0.2), professional: r1(Math.min(5, base + 0.3)) },
+        entrust: Math.max(1, Math.min(5, Math.round(base - 0.4))),
+        comment: remarks[(back + i) % remarks.length],
+        createdAt: iso + "T16:40:00"
+      });
+    });
+  }
+
   const programme = {
     mission: "ผลิตแพทย์ออร์โธปิดิกส์ที่ให้การดูแลผู้ป่วยกระดูกและข้อได้อย่างปลอดภัยตามมาตรฐานวิชาชีพ " +
              "มีเจตคติที่ดี เรียนรู้ต่อเนื่องด้วยตนเอง และตอบสนองต่อปัญหาสุขภาพของประชาชนในเขตสุขภาพที่ 9 (ข้อความตัวอย่างสำหรับสาธิต)",
@@ -722,6 +993,7 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
+    staff: staffRoster, services, rotations, sessionEvals,
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
     meta: { created:new Date().toISOString(), demo:true }
@@ -1102,7 +1374,7 @@ function renderIngestQueue() {
           <div style="margin:-.35rem 0 .6rem">${confTag(guess.typeConfidence)}</div>
           <label class="f"><span>อนุสาขา ${guess.subHits.length ? "· พบคำว่า " + esc(guess.subHits.slice(0,3).join(", ")) : ""}</span>
             <select data-f="subspecialty" data-k="${key}">
-              ${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${form.subspecialty === s.id ? "selected" : ""}>${esc(s.th)} — ${esc(s.en)}</option>`).join("")}
+              ${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${form.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}
             </select>
           </label>
           <div style="margin:-.35rem 0 .6rem">${confTag(guess.subConfidence)}</div>
@@ -1205,13 +1477,22 @@ function progressFor(res, ay = currentAY()) {
     const done = inYear.filter(a => a.type === t.id).length;
     return { type: t, need, done, pct: pct(done, need), short: Math.max(0, need - done) };
   });
+  const evalsAll  = (store.data.sessionEvals || []).filter(e => e.residentId === res.id);
+  const evalsYear = ay ? evalsAll.filter(e => academicYear(e.date) === ay) : evalsAll;
+  const evalNeed  = +(req.sessionEval || 0);
+  const entrusts  = evalsAll.map(e => e.entrust).filter(v => typeof v === "number");
   const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
   const subsNeed = +(req.subspecialties || 0);
   const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
-  const requiredTotal = lines.reduce((n, l) => n + l.need, 0);
-  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0);
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + evalNeed;
+  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0) + Math.min(evalsYear.length, evalNeed);
   return {
     ay, lines, subsDone, subsNeed, missingSubs,
+    sessionEval: {
+      done: evalsYear.length, need: evalNeed, pct: pct(evalsYear.length, evalNeed), total: evalsAll.length,
+      meanEntrust: entrusts.length ? Math.round((entrusts.reduce((a, b) => a + b, 0) / entrusts.length) * 10) / 10 : null,
+      pending: pendingEvaluations(14, res.id).length
+    },
     overall: pct(doneTotal, requiredTotal),
     subsPct: pct(subsDone.size, subsNeed),
     total: all.length, inYear: inYear.length,
@@ -1230,7 +1511,7 @@ function gapsFor(res) {
   }));
   if (p.subsNeed && p.subsDone.size < p.subsNeed) out.push({
     level: "warn",
-    text: "ความครอบคลุมอนุสาขา " + p.subsDone.size + "/" + p.subsNeed + " — ยังไม่มีผลงานใน " + p.missingSubs.slice(0, 4).map(s => s.th).join(", ") + (p.missingSubs.length > 4 ? " และอื่น ๆ" : "")
+    text: "ความครอบคลุมอนุสาขา " + p.subsDone.size + "/" + p.subsNeed + " — ยังไม่มีผลงานใน " + p.missingSubs.slice(0, 4).map(s => s.en).join(", ") + (p.missingSubs.length > 4 ? " และอื่น ๆ" : "")
   });
   const proj = store.data.research.filter(r => r.residentId === res.id);
   if (!proj.length) out.push({ level:"bad", text:"ยังไม่มีโครงการวิจัยในระบบ" });
@@ -1238,12 +1519,412 @@ function gapsFor(res) {
     const late = RESEARCH_STAGES.filter(s => { const st = pj.stages?.[s.id] || {}; return st.due && !st.done && st.due < todayISO(); });
     if (late.length) out.push({ level:"bad", text:"งานวิจัย “" + pj.title.slice(0, 40) + "…” เลยกำหนดขั้น " + late.map(s => s.th).join(", ") });
   });
+  if (p.sessionEval.need && p.sessionEval.done < p.sessionEval.need) out.push({
+    level: p.sessionEval.done === 0 ? "bad" : "warn",
+    text: "การประเมินท้ายเซสชัน " + p.sessionEval.done + "/" + p.sessionEval.need + " ครั้งในปีการศึกษา " + p.ay
+  });
+  if (p.sessionEval.pending) out.push({
+    level:"warn",
+    text: "มีเซสชันใน 14 วันที่ผ่านมา " + p.sessionEval.pending + " เซสชันที่อาจารย์ผู้รับผิดชอบยังไม่ได้ประเมิน"
+  });
+  const rotNow = rotationOn(res.id, todayISO());
+  if (!rotNow) out.push({ level:"warn", text:"ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้" });
   const unverified = store.activitiesOf(res.id).filter(a => !a.verified).length;
   if (unverified) out.push({ level:"warn", text:"มี " + unverified + " รายการที่อาจารย์ยังไม่รับรอง" });
   return out;
 }
 
 const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ? "low" : ""}" style="width:${Math.max(2, v)}%"></i></div>`;
+
+/* =====================================================================
+   11b) หน้าตารางหมุนเวียนและเวร
+   ===================================================================== */
+let weekStart = mondayOf(todayISO());
+const daysBetween = (a, b) => Math.round((Date.parse(b + "T00:00:00") - Date.parse(a + "T00:00:00")) / 86400000);
+const sessionByKey = (key) => {
+  const iso = String(key).split("|")[1];
+  return sessionsForDate(iso).find(x => x.key === key) || null;
+};
+const evalMean = (ev) => {
+  const v = Object.values(ev.scores || {}).filter(x => typeof x === "number");
+  return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
+};
+/* เซสชันที่ผ่านไปแล้วแต่ยังไม่มีผลประเมิน = งานค้างของอาจารย์ผู้รับผิดชอบ */
+function sessionStatus(ses) {
+  if (evalForKey(ses.key)) return "done";
+  return ses.date < todayISO() ? "due" : (ses.date === todayISO() ? "today" : "future");
+}
+function pendingEvaluations(days = 14, residentId = null) {
+  const out = [];
+  for (let i = 1; i <= days; i++) {
+    sessionsForDate(daysAgoISO(i)).forEach(ses => {
+      if (residentId && ses.residentId !== residentId) return;
+      if (!evalForKey(ses.key)) out.push(ses);
+    });
+  }
+  return out;
+}
+
+function renderRotation() {
+  const today = todayISO();
+  const dow = new Date(today + "T00:00:00").getDay();
+  $("#nowStamp").textContent = "ข้อมูล ณ วัน" + DAY_NAMES[dow] + "ที่ " + fmtDate(today) +
+    " · เซสชันวันนี้ " + sessionsForDate(today).length + " เซสชัน · รอการประเมินย้อนหลัง 14 วัน " + pendingEvaluations().length + " เซสชัน";
+
+  /* --- ตอนนี้ใครอยู่หน่วยไหน --- */
+  const todaySessions = sessionsForDate(today);
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  $("#nowBoard").innerHTML = rs.length ? `<div class="grid g2">${rs.map(r => {
+    const rot = rotationOn(r.id, today);
+    const svc = rot ? serviceById(rot.serviceId) : null;
+    const mine = todaySessions.filter(x => x.residentId === r.id);
+    const span = rot ? Math.max(1, daysBetween(rot.start, rot.end)) : 0;
+    const gone = rot ? Math.max(0, daysBetween(rot.start, today)) : 0;
+    return `<div class="nowcard">
+      <div class="between" style="gap:.4rem">
+        <div style="min-width:0">
+          <b>${esc(r.name)}</b> <span class="tag">ปี ${r.year}</span>
+          ${svc ? `<div class="svc" style="color:${serviceColour(svc.id)}">${esc(svc.name)}</div>
+            <div class="small muted">${esc(svc.site || "—")} · อาจารย์ผู้กำกับ ${esc(staffName(rot.supervisorId))}</div>
+            <div class="small muted">บล็อก ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · เหลืออีก ${Math.max(0, span - gone)} วัน</div>`
+          : `<div class="small"><span class="tag bad">ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>`}
+        </div>
+        ${svc ? `<span class="tag b">${esc(SUB_BY_ID[svc.subspecialty]?.en || "")}</span>` : ""}
+      </div>
+      ${rot ? barFor(pct(gone, span)) : ""}
+      <div style="margin-top:.5rem">
+        ${mine.length ? mine.map(ses => sessionChip(ses, true)).join("")
+          : `<p class="small muted" style="margin:0">วันนี้ไม่มีเซสชันตามตารางของหน่วย</p>`}
+      </div>
+    </div>`;
+  }).join("")}</div>` : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
+
+  /* --- งานประเมินที่ค้างอยู่ แยกตามอาจารย์ผู้รับผิดชอบ --- */
+  const pend = pendingEvaluations(14);
+  $("#pendingCount").textContent = pend.length + " เซสชัน";
+  const byStaff = {};
+  pend.forEach(ses => (byStaff[ses.staffId || "-"] ||= []).push(ses));
+  $("#pendingBoard").innerHTML = pend.length ? `<div class="grid g2">${Object.entries(byStaff)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([sid, list]) => `<div class="nowcard">
+      <div class="between"><b>${esc(staffName(sid))}</b><span class="tag warn">${list.length} รอประเมิน</span></div>
+      <div style="margin-top:.4rem">${list.slice(0, 6).map(ses => {
+        const r = store.resident(ses.residentId);
+        return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
+          <span class="pill">${fmtDate(ses.date)}</span> <span class="pill">${esc(PART_BY_ID[ses.part]?.th || "")}</span>
+          <b>${esc(ses.name)}</b>
+          <span class="who">${esc(r?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
+      }).join("")}
+      ${list.length > 6 ? `<p class="small muted" style="margin:.2rem 0 0">และอีก ${list.length - 6} เซสชัน</p>` : ""}</div>
+    </div>`).join("")}</div>`
+    : `<p class="empty">ไม่มีเซสชันค้างประเมินใน 14 วันที่ผ่านมา</p>`;
+
+  /* --- ตารางประจำสัปดาห์ --- */
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
+  $("#weekLabel").textContent = fmtDate(days[0]) + " – " + fmtDate(days[6]);
+  const byDay = days.map(iso => sessionsForDate(iso));
+  $("#weekGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="cal">
+    <thead><tr><th class="who">แพทย์ประจำบ้าน</th>
+      ${days.map((iso, i) => `<th${iso === today ? ' style="color:var(--brand-ink)"' : ""}>${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]} ${fmtDate(iso).replace(/ \d{4}$/, "")}</th>`).join("")}
+    </tr></thead>
+    <tbody>${rs.map(r => `<tr>
+      <th class="who">${esc(r.name)}<br /><span class="small muted">ปี ${r.year}${(() => {
+        const rot = rotationOn(r.id, weekStart) || rotationOn(r.id, days[6]);
+        const svc = rot ? serviceById(rot.serviceId) : null;
+        return svc ? " · " + esc(svc.name) : "";
+      })()}</span></th>
+      ${days.map((iso, i) => {
+        const mine = byDay[i].filter(x => x.residentId === r.id);
+        return `<td class="${iso === today ? "today" : ""}">${mine.map(ses => sessionChip(ses, false)).join("") ||
+          `<span class="small muted" style="padding-left:.2rem">—</span>`}</td>`;
+      }).join("")}
+    </tr>`).join("")}</tbody></table></div>` : "";
+  $$("#weekGrid .sess, #nowBoard .sess, #pendingBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
+
+  /* --- ช่วงหมุนเวียนทั้งหมด --- */
+  const rots = (store.data.rotations || []).slice().sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  $("#rotationTable").innerHTML = rots.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>ช่วงวันที่</th><th>แพทย์ประจำบ้าน</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${rots.map(rot => {
+      const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
+      const state = today < rot.start ? ["", "จะเริ่ม " + fmtDate(rot.start)] : today > rot.end ? ["", "ผ่านไปแล้ว"] : ["ok", "กำลังหมุนเวียนอยู่"];
+      return `<tr>
+        <td class="small">${fmtDate(rot.start)}<br />ถึง ${fmtDate(rot.end)}</td>
+        <td>${esc(r?.name || "—")}<br /><span class="small muted">ปี ${r?.year || "—"}</span></td>
+        <td><span style="color:${serviceColour(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span></td>
+        <td class="small">${esc(SUB_BY_ID[svc?.subspecialty]?.en || "—")}</td>
+        <td class="small">${esc(svc?.site || "—")}</td>
+        <td class="small">${esc(staffName(rot.supervisorId))}</td>
+        <td><span class="tag ${state[0]}">${state[1]}</span></td>
+        <td class="no-print"><button class="btn-sm" data-rot="${rot.id}">แก้ไข</button></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่ได้กำหนดช่วงหมุนเวียน</p>`;
+  $$("#rotationTable [data-rot]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rot)));
+
+  /* --- ผลประเมินท้ายเซสชันล่าสุด --- */
+  const evs = (store.data.sessionEvals || []).slice().sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 15);
+  $("#evalList").innerHTML = evs.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>แพทย์ประจำบ้าน</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>คะแนนเฉลี่ย</th><th>ระดับการทำได้เอง</th><th>ข้อเสนอแนะ</th></tr></thead>
+    <tbody>${evs.map(ev => {
+      const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
+      return `<tr>
+        <td class="small">${fmtDate(ev.date)}<br /><span class="muted">${esc(PART_BY_ID[ev.part]?.th || "")}</span></td>
+        <td class="small">${esc(r?.name || "—")}</td>
+        <td class="small">${esc(ev.sessionName || "")}<br /><span class="muted">${esc(svc?.name || "")}</span></td>
+        <td class="small">${esc(staffName(ev.staffId))}</td>
+        <td><b>${evalMean(ev) ?? "—"}</b>/5</td>
+        <td class="small">${ev.entrust ? "ระดับ " + ev.entrust : "—"}</td>
+        <td class="small">${esc((ev.comment || "").slice(0, 90))}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">บันทึกไว้ทั้งหมด ${store.data.sessionEvals.length} ครั้ง</p>`
+    : `<p class="empty">ยังไม่มีการประเมินท้ายเซสชัน</p>`;
+}
+
+function sessionChip(ses, withDate) {
+  const st = sessionStatus(ses);
+  const ev = evalForKey(ses.key);
+  const svc = serviceById(ses.serviceId);
+  const cls = st === "done" ? "done" : st === "due" ? "due" : "";
+  return `<button class="sess ${cls}" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
+    <span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>
+    ${withDate ? `<span class="pill">${esc(PART_BY_ID[ses.part]?.time || "")}</span>` : ""}
+    <b>${esc(ses.name)}</b>
+    <span class="who">${esc(staffName(ses.staffId))}${ses.location ? " · " + esc(ses.location) : ""}</span>
+    <span class="who">${ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(SUB_BY_ID[svc.subspecialty]?.en || "") : ""}</span>
+  </button>`;
+}
+
+/* --- แบบประเมินท้ายเซสชัน --- */
+function openSession(key) {
+  const ses = sessionByKey(key);
+  if (!ses) { toast("ไม่พบเซสชันนี้แล้ว (ตารางหรือช่วงหมุนเวียนอาจถูกแก้ไข)"); return; }
+  const r = store.resident(ses.residentId), svc = serviceById(ses.serviceId), ev = evalForKey(key);
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>เซสชัน</dt><dd>${esc(ses.name)} · ${esc(PART_BY_ID[ses.part]?.th || "")} ${esc(PART_BY_ID[ses.part]?.time || "")}</dd>
+      <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(ses.date + "T00:00:00").getDay()]}ที่ ${fmtDate(ses.date)}</dd>
+      <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(SUB_BY_ID[svc?.subspecialty]?.en || "")}</span></dd>
+      <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
+    </div>
+    <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
+      <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    <h4>ประเมินท้ายเซสชัน <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 5.2 / 7.2)</span></h4>
+    <div class="grid g3">
+      ${EVAL_ITEMS.map(it => `<label class="f"><span>${esc(it.th)}</span>
+        <select name="sc_${it.id}">
+          <option value="">—</option>
+          ${[1,2,3,4,5].map(v => `<option value="${v}" ${String(ev?.scores?.[it.id] ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}
+        </select></label>`).join("")}
+    </div>
+    <label class="f"><span>ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ (entrustment)</span>
+      <select name="entrust"><option value="">—</option>
+        ${ENTRUST_LEVELS.map(l => `<option value="${l.v}" ${String(ev?.entrust ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}
+      </select></label>
+    <label class="f"><span>ข้อเสนอแนะให้แพทย์ประจำบ้าน (feedback ทันทีหลังเซสชัน)</span>
+      <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
+    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"}</p>` : ""}`;
+
+  showDialog(ev ? "แก้ไขผลประเมินท้ายเซสชัน" : "ประเมินท้ายเซสชัน", body, [
+    { label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
+        const scores = {};
+        EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
+        const comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
+        const entrust = dlgVal("entrust");
+        if (!Object.keys(scores).length && !comment && !entrust) { toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false; }
+        const rec = {
+          key: ses.key, date: ses.date, part: ses.part, residentId: ses.residentId, serviceId: ses.serviceId,
+          staffId: dlgVal("staffId") || ses.staffId, sessionName: ses.name, location: ses.location,
+          scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
+        };
+        if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
+        store.save(); renderAll(); toast("บันทึกผลประเมินแล้ว");
+      }},
+    ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบผลประเมินของเซสชันนี้?")) return false;
+        store.data.sessionEvals = store.data.sessionEvals.filter(x => x.id !== ev.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* --- ช่วงหมุนเวียน --- */
+function editRotation(id) {
+  const rot = id ? store.data.rotations.find(x => x.id === id) : null;
+  if (!store.data.services.length) { toast("เพิ่มหน่วยที่หมุนเวียนก่อนที่หน้า “ตั้งค่า & ข้อมูล”"); return; }
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>แพทย์ประจำบ้าน</span><select name="residentId">
+        ${store.data.residents.map(r => `<option value="${r.id}" ${rot?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+      <label class="f"><span>หน่วย (service)</span><select name="serviceId">
+        ${store.data.services.map(x => `<option value="${x.id}" ${rot?.serviceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>เริ่ม</span><input type="date" name="start" value="${esc(rot?.start || mondayOf(todayISO()))}" /></label>
+      <label class="f"><span>สิ้นสุด</span><input type="date" name="end" value="${esc(rot?.end || addDaysISO(mondayOf(todayISO()), 27))}" /></label>
+      <label class="f"><span>อาจารย์ผู้กำกับประจำบล็อก</span><select name="supervisorId">
+        ${(store.data.staff || []).map(x => `<option value="${x.id}" ${rot?.supervisorId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    </div>
+    <label class="f"><span>บันทึกเพิ่มเติม</span><input name="note" value="${esc(rot?.note || "")}" /></label>
+    <p class="small muted">เซสชันในปฏิทินจะถูกสร้างจากตารางประจำสัปดาห์ของหน่วยที่เลือก ตลอดช่วงวันที่นี้</p>`;
+  showDialog(rot ? "แก้ไขช่วงหมุนเวียน" : "กำหนดช่วงหมุนเวียน", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const start = dlgVal("start"), end = dlgVal("end");
+        if (!start || !end || end < start) { toast("ช่วงวันที่ไม่ถูกต้อง"); return false; }
+        const rec = { residentId: dlgVal("residentId"), serviceId: dlgVal("serviceId"), start, end,
+                      supervisorId: dlgVal("supervisorId"), note: dlgVal("note") };
+        if (rot) Object.assign(rot, rec); else store.data.rotations.push({ id: uid("rot"), ...rec });
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(rot ? [{ label:"ลบช่วงนี้", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบช่วงหมุนเวียนนี้? ผลประเมินที่บันทึกไว้แล้วจะยังอยู่ในระบบ")) return false;
+        store.data.rotations = store.data.rotations.filter(x => x.id !== rot.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* --- ทะเบียนอาจารย์ --- */
+function renderStaffTable() {
+  const st = store.data.staff || [];
+  $("#staffTable").innerHTML = st.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>ชื่อ</th><th>บทบาท</th><th>Subspecialty</th><th>เซสชันต่อสัปดาห์ที่รับผิดชอบ</th><th>ประเมินแล้ว</th><th></th></tr></thead>
+    <tbody>${st.map(x => {
+      const load = (store.data.services || []).reduce((n, svc) => n + (svc.template || []).filter(t => t.staffId === x.id).length, 0);
+      const done = (store.data.sessionEvals || []).filter(e => e.staffId === x.id).length;
+      return `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.role || "—")}</td>
+        <td class="small">${esc(SUB_BY_ID[x.subspecialty]?.en || "—")}</td>
+        <td>${load}</td><td>${done}</td>
+        <td class="no-print"><button class="btn-sm" data-staff="${x.id}">แก้ไข</button></td></tr>`;
+    }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีรายชื่ออาจารย์</p>`;
+  $$("#staffTable [data-staff]").forEach(b => b.addEventListener("click", () => editStaff(b.dataset.staff)));
+}
+
+function editStaff(id) {
+  const x = id ? store.data.staff.find(y => y.id === id) : null;
+  const body = `
+    <label class="f"><span>ชื่อ-สกุล</span><input name="name" value="${esc(x?.name || "")}" /></label>
+    <div class="grid g2">
+      <label class="f"><span>บทบาท</span><input name="role" value="${esc(x?.role || "")}" placeholder="เช่น อาจารย์แพทย์" /></label>
+      <label class="f"><span>Subspecialty</span><select name="subspecialty">
+        ${SUBSPECIALTIES.map(sp => `<option value="${sp.id}" ${x?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
+    </div>`;
+  showDialog(x ? "แก้ไขข้อมูลอาจารย์" : "เพิ่มอาจารย์", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อ"); return false; }
+        const rec = { name, role: dlgVal("role"), subspecialty: dlgVal("subspecialty") };
+        if (x) Object.assign(x, rec); else store.data.staff.push({ id: uid("st"), ...rec });
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(x ? [{ label:"ลบรายชื่อ", cls:"btn-danger", onClick: () => {
+        if (!confirm("ลบ " + x.name + " ออกจากทะเบียน? เซสชันที่ผูกไว้จะไม่มีผู้รับผิดชอบ")) return false;
+        store.data.staff = store.data.staff.filter(y => y.id !== x.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+}
+
+/* --- หน่วยที่หมุนเวียน + ตารางประจำสัปดาห์ --- */
+function renderServiceTable() {
+  const svcs = store.data.services || [];
+  $("#serviceTable").innerHTML = svcs.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>ตารางประจำสัปดาห์</th><th>กำลังหมุนเวียน</th><th></th></tr></thead>
+    <tbody>${svcs.map(svc => {
+      const now = (store.data.rotations || []).filter(r => r.serviceId === svc.id && r.start <= todayISO() && r.end >= todayISO()).length;
+      return `<tr>
+        <td><span style="color:${serviceColour(svc.id)};font-weight:600">${esc(svc.name)}</span></td>
+        <td class="small">${esc(SUB_BY_ID[svc.subspecialty]?.en || "—")}</td>
+        <td class="small">${esc(svc.site || "—")}</td>
+        <td class="small">${(svc.template || []).map(t => DAY_SHORT[t.day] + " " + (PART_BY_ID[t.part]?.th || "") + " — " + esc(t.name)).join("<br />") || "—"}</td>
+        <td>${now} คน</td>
+        <td class="no-print"><button class="btn-sm" data-svc="${svc.id}">แก้ไข</button></td></tr>`;
+    }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีหน่วยที่หมุนเวียน</p>`;
+  $$("#serviceTable [data-svc]").forEach(b => b.addEventListener("click", () => editService(b.dataset.svc)));
+}
+
+let draftTemplate = [];
+function renderDraftTemplate() {
+  const box = $("#tplRows"); if (!box) return;
+  box.innerHTML = draftTemplate.map((t, i) => `<tr>
+    <td><select data-t="day" data-i="${i}">${DAY_NAMES.map((d, n) => `<option value="${n}" ${t.day === n ? "selected" : ""}>${d}</option>`).join("")}</select></td>
+    <td><select data-t="part" data-i="${i}">${SESSION_PARTS.map(pt => `<option value="${pt.id}" ${t.part === pt.id ? "selected" : ""}>${pt.th}</option>`).join("")}</select></td>
+    <td><input data-t="name" data-i="${i}" value="${esc(t.name || "")}" placeholder="เช่น OR — trauma list" /></td>
+    <td><select data-t="staffId" data-i="${i}"><option value="">—</option>${(store.data.staff || []).map(x => `<option value="${x.id}" ${t.staffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></td>
+    <td><input data-t="location" data-i="${i}" value="${esc(t.location || "")}" placeholder="สถานที่" /></td>
+    <td><button type="button" class="btn-sm btn-danger" data-del="${i}">ลบ</button></td>
+  </tr>`).join("");
+  $$("#tplRows [data-t]").forEach(el => el.addEventListener("change", () => {
+    const i = +el.dataset.i, f = el.dataset.t;
+    draftTemplate[i][f] = f === "day" ? +el.value : el.value;
+  }));
+  $$("#tplRows [data-del]").forEach(b => b.addEventListener("click", () => { draftTemplate.splice(+b.dataset.del, 1); renderDraftTemplate(); }));
+}
+
+function editService(id) {
+  const svc = id ? store.data.services.find(x => x.id === id) : null;
+  draftTemplate = structuredClone(svc?.template || []);
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>ชื่อหน่วย (ภาษาอังกฤษ)</span><input name="name" value="${esc(svc?.name || "")}" placeholder="เช่น Foot &amp; Ankle Service" /></label>
+      <label class="f"><span>Subspecialty</span><select name="subspecialty">
+        ${SUBSPECIALTIES.map(sp => `<option value="${sp.id}" ${svc?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
+    </div>
+    <label class="f"><span>สถานที่หลัก</span><input name="site" value="${esc(svc?.site || "")}" placeholder="เช่น หอผู้ป่วยอุบัติเหตุ ชั้น 4" /></label>
+    <h4>ตารางกิจกรรมประจำสัปดาห์</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>วัน</th><th>ช่วง</th><th>ชื่อเซสชัน</th><th>อาจารย์ผู้รับผิดชอบ</th><th>สถานที่</th><th></th></tr></thead>
+      <tbody id="tplRows"></tbody></table></div>
+    <button type="button" class="btn-sm" id="btnTplAdd" style="margin-top:.5rem">+ เพิ่มเซสชัน</button>`;
+  showDialog(svc ? "แก้ไขหน่วยที่หมุนเวียน" : "เพิ่มหน่วยที่หมุนเวียน", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อหน่วย"); return false; }
+        const rec = { name, subspecialty: dlgVal("subspecialty"), site: dlgVal("site"),
+                      template: draftTemplate.filter(t => (t.name || "").trim()) };
+        if (svc) Object.assign(svc, rec); else store.data.services.push({ id: uid("svc"), ...rec });
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(svc ? [{ label:"ลบหน่วยนี้", cls:"btn-danger", onClick: () => {
+        const n = (store.data.rotations || []).filter(r => r.serviceId === svc.id).length;
+        if (!confirm("ลบ " + svc.name + " และช่วงหมุนเวียน " + n + " ช่วงที่ผูกไว้?")) return false;
+        store.data.services = store.data.services.filter(x => x.id !== svc.id);
+        store.data.rotations = store.data.rotations.filter(r => r.serviceId !== svc.id);
+        store.save(); renderAll(); toast("ลบแล้ว");
+      }}] : [])
+  ]);
+  renderDraftTemplate();
+  $("#btnTplAdd").addEventListener("click", () => { draftTemplate.push({ day:1, part:"am", name:"", staffId:"", location:"" }); renderDraftTemplate(); });
+}
+
+function evalCsvRows() {
+  const head = ["วันที่","ช่วง","แพทย์ประจำบ้าน","ชั้นปี","Service","Subspecialty","เซสชัน","สถานที่","ผู้ประเมิน",
+                ...EVAL_ITEMS.map(i => i.th), "คะแนนเฉลี่ย","ระดับ entrustment","ข้อเสนอแนะ","บันทึกเมื่อ"];
+  return [head].concat((store.data.sessionEvals || []).slice().sort((a, b) => a.date.localeCompare(b.date)).map(ev => {
+    const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
+    return [ev.date, PART_BY_ID[ev.part]?.th || ev.part, r?.name || "", r?.year || "", svc?.name || "",
+      SUB_BY_ID[svc?.subspecialty]?.en || "", ev.sessionName || "", ev.location || "", staffName(ev.staffId),
+      ...EVAL_ITEMS.map(i => ev.scores?.[i.id] ?? ""), evalMean(ev) ?? "", ev.entrust ?? "", ev.comment || "",
+      ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : ""];
+  }));
+}
+
+function printRoster() {
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
+  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const html = reportHead("ตารางหมุนเวียนและเวรประจำสัปดาห์", fmtDate(days[0]) + " – " + fmtDate(days[6])) + `
+  <div class="card"><table>
+    <thead><tr><th>แพทย์ประจำบ้าน</th><th>หน่วย</th>${days.map(iso => `<th>${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]}<br />${fmtDate(iso).replace(/ \d{4}$/, "")}</th>`).join("")}</tr></thead>
+    <tbody>${rs.map(r => {
+      const rot = rotationOn(r.id, days[0]) || rotationOn(r.id, days[6]);
+      const svc = rot ? serviceById(rot.serviceId) : null;
+      return `<tr><td>${esc(r.name)}<br /><span class="small muted">ปี ${r.year}</span></td>
+        <td class="small">${esc(svc?.name || "—")}<br /><span class="muted">${esc(staffName(rot?.supervisorId))}</span></td>
+        ${days.map(iso => `<td class="small">${sessionsForDate(iso).filter(x => x.residentId === r.id)
+          .map(x => (PART_BY_ID[x.part]?.th || "") + " " + esc(x.name) + "<br /><span class='muted'>" + esc(staffName(x.staffId)) + "</span>").join("<br />") || "—"}</td>`).join("")}
+      </tr>`;
+    }).join("")}</tbody></table>
+    <p class="small muted">ผู้รับผิดชอบแต่ละเซสชันเป็นผู้ประเมินแพทย์ประจำบ้านเมื่อจบเซสชัน</p>
+  </div>`;
+  printReport(html);
+}
 
 /* =====================================================================
    12) หน้าแพทย์ประจำบ้าน
@@ -1293,6 +1974,12 @@ function renderResidentDetail() {
       <div>
         <h2 style="margin-bottom:.1rem">${esc(r.name)} <span class="tag b">ชั้นปีที่ ${r.year}</span></h2>
         <p class="small muted" style="margin:0">รุ่น ${esc(r.cohort || "—")} · อาจารย์ที่ปรึกษา ${esc(r.advisor || "—")} · ปีการศึกษา ${p.ay}</p>
+        ${(() => {
+          const rot = rotationOn(r.id, todayISO()); const svc = rot ? serviceById(rot.serviceId) : null;
+          return svc ? `<p class="small" style="margin:.2rem 0 0">ขณะนี้อยู่หน่วย <b style="color:${serviceColour(svc.id)}">${esc(svc.name)}</b>
+            · ${esc(svc.site || "")} · อาจารย์ผู้กำกับ ${esc(staffName(rot.supervisorId))} · ถึง ${fmtDate(rot.end)}</p>`
+            : `<p class="small" style="margin:.2rem 0 0"><span class="tag warn">ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้</span></p>`;
+        })()}
       </div>
       <div class="row no-print">
         <button class="btn-sm" data-edit-res="${r.id}">แก้ไขข้อมูล</button>
@@ -1305,6 +1992,8 @@ function renderResidentDetail() {
       <div class="stat"><b>${p.overall}%</b><span>ความก้าวหน้าเทียบเกณฑ์ปีนี้</span></div>
       <div class="stat"><b>${p.subsDone.size}/${p.subsNeed || "—"}</b><span>อนุสาขาที่ครอบคลุม</span></div>
       <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
+      <div class="stat"><b>${p.sessionEval.total}</b><span>ประเมินท้ายเซสชันสะสม</span></div>
+      <div class="stat"><b>${p.sessionEval.meanEntrust ?? "—"}</b><span>ระดับ entrustment เฉลี่ย (เต็ม 5)</span></div>
     </div>
 
     <h3>ความก้าวหน้าตามเกณฑ์ ปีการศึกษา ${p.ay}</h3>
@@ -1314,12 +2003,16 @@ function renderResidentDetail() {
         <td>${esc(l.type.th)}</td><td><b>${l.done}</b></td><td>${l.need || "—"}</td>
         <td>${barFor(l.pct)}</td>
         <td class="small">${l.type.wfme.map(id => `<span class="tag">${id}</span>`).join(" ")}</td>
-      </tr>`).join("")}</tbody></table></div>
+      </tr>`).join("")}
+      <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td><td><b>${p.sessionEval.done}</b></td><td>${p.sessionEval.need || "—"}</td>
+        <td>${barFor(p.sessionEval.pct)}</td>
+        <td class="small"><span class="tag">3.1</span> <span class="tag">3.2</span> <span class="tag">5.2</span> <span class="tag">7.2</span></td></tr>
+      </tbody></table></div>
 
     <h3 style="margin-top:1rem">อนุสาขาที่มีผลงานแล้ว</h3>
     <div class="row">${SUBSPECIALTIES.filter(s => s.id !== "general").map(s => {
       const n = subsCount[s.id] || 0;
-      return `<span class="tag ${n ? "ok" : "bad"}">${esc(s.th)} ${n || 0}</span>`;
+      return `<span class="tag ${n ? "ok" : "bad"}">${esc(s.en)} ${n || 0}</span>`;
     }).join("")}</div>
 
     ${gaps.length ? `<h3 style="margin-top:1rem">สิ่งที่ยังขาด</h3>
@@ -1328,12 +2021,32 @@ function renderResidentDetail() {
 
     ${projects.length ? `<h3 style="margin-top:1rem">งานวิจัย</h3>${projects.map(pj => researchBlock(pj, true)).join("")}` : ""}
 
+    ${(() => {
+      const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => b.date.localeCompare(a.date));
+      const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+      if (!evs.length && !rots.length) return "";
+      return `<h3 style="margin-top:1rem">การหมุนเวียนและการประเมินท้ายเซสชัน</h3>
+      ${rots.length ? `<div class="row" style="margin-bottom:.5rem">${rots.slice(0, 6).map(rot => {
+        const svc = serviceById(rot.serviceId);
+        return `<span class="tag" title="${esc(staffName(rot.supervisorId))}">${esc(svc?.name || "—")} · ${fmtDate(rot.start)}–${fmtDate(rot.end)}</span>`;
+      }).join("")}</div>` : ""}
+      ${evs.length ? `<div class="tbl-wrap"><table>
+        <thead><tr><th>วันที่</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>เฉลี่ย</th><th>entrustment</th><th>ข้อเสนอแนะ</th></tr></thead>
+        <tbody>${evs.slice(0, 12).map(ev => `<tr>
+          <td class="small">${fmtDate(ev.date)}</td>
+          <td class="small">${esc(ev.sessionName || "")}<br /><span class="muted">${esc(serviceById(ev.serviceId)?.name || "")}</span></td>
+          <td class="small">${esc(staffName(ev.staffId))}</td>
+          <td>${evalMean(ev) ?? "—"}</td><td>${ev.entrust ?? "—"}</td>
+          <td class="small">${esc((ev.comment || "").slice(0, 80))}</td></tr>`).join("")}</tbody></table></div>
+        ${evs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${evs.length} ครั้ง</p>` : ""}` : ""}`;
+    })()}
+
     <h3 style="margin-top:1rem">บันทึกกิจกรรม (${acts.length} รายการ)</h3>
     <div class="timeline">${acts.slice(0, 40).map(a => `
       <div class="ev">
         <div class="row" style="gap:.4rem">
           <span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span>
-          <span class="tag">${esc(SUB_BY_ID[a.subspecialty]?.th || a.subspecialty)}</span>
+          <span class="tag">${esc(SUB_BY_ID[a.subspecialty]?.en || a.subspecialty)}</span>
           <span class="small muted">${fmtDate(a.date)}</span>
           ${a.verified ? `<span class="tag ok">อาจารย์รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}
           ${a.source === "slides" ? `<span class="tag">จากสไลด์</span>` : `<span class="tag">บันทึกด้วยมือ</span>`}
@@ -1361,7 +2074,7 @@ function renderActivityFilters() {
   $("#activityFilters").innerHTML = `
     <select data-flt="residentId"><option value="">ทุกคน</option>${store.data.residents.map(r => `<option value="${r.id}" ${filters.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
     <select data-flt="type"><option value="">ทุกประเภท</option>${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${filters.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
-    <select data-flt="subspecialty"><option value="">ทุกอนุสาขา</option>${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${filters.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select>
+    <select data-flt="subspecialty"><option value="">ทุกอนุสาขา</option>${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${filters.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select>
     <select data-flt="ay"><option value="">ทุกปีการศึกษา</option>${ays.map(y => `<option value="${y}" ${filters.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>
     <select data-flt="verified"><option value="">ทั้งรับรองแล้วและยังไม่</option><option value="yes" ${filters.verified === "yes" ? "selected" : ""}>รับรองแล้ว</option><option value="no" ${filters.verified === "no" ? "selected" : ""}>ยังไม่รับรอง</option></select>
     <input data-flt="q" placeholder="ค้นหาชื่อเรื่อง…" value="${esc(filters.q)}" style="max-width:220px" />
@@ -1395,7 +2108,7 @@ function renderActivityTable() {
         <td class="small">${fmtDate(a.date)}<br /><span class="muted">ปีการศึกษา ${a.academicYear}</span></td>
         <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
         <td><span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span></td>
-        <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.th || a.subspecialty)}</td>
+        <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.en || a.subspecialty)}</td>
         <td>${esc(a.title)}</td>
         <td class="small">${a.source === "slides" ? "สไลด์ " + esc(a.evidence?.fileType || "") : "ด้วยมือ"}</td>
         <td class="small">${a.assessment ? a.assessment.score + "/5" : "—"}</td>
@@ -1409,11 +2122,11 @@ function renderActivityTable() {
 }
 
 function activityCsvRows(list) {
-  const head = ["วันที่","ปีการศึกษา","แพทย์ประจำบ้าน","ชั้นปี","ประเภทกิจกรรม","อนุสาขา (ไทย)","Subspecialty (EN)","ชื่อเรื่อง","ที่มา","ไฟล์","จำนวนสไลด์","SHA-256","ระบบเดาประเภท","ระบบเดาอนุสาขา","ผู้ใช้แก้ผลเดา","คะแนนประเมิน","ผู้ประเมิน","ข้อเสนอแนะ","รับรองโดย","หัวข้อ WFME"];
+  const head = ["วันที่","ปีการศึกษา","แพทย์ประจำบ้าน","ชั้นปี","ประเภทกิจกรรม","Subspecialty","ชื่อเรื่อง","ที่มา","ไฟล์","จำนวนสไลด์","SHA-256","ระบบเดาประเภท","ระบบเดาอนุสาขา","ผู้ใช้แก้ผลเดา","คะแนนประเมิน","ผู้ประเมิน","ข้อเสนอแนะ","รับรองโดย","หัวข้อ WFME"];
   return [head].concat(list.map(a => {
     const r = store.resident(a.residentId), e = a.evidence || {};
     return [a.date, a.academicYear, r?.name || "", r?.year || "", TYPE_BY_ID[a.type]?.en || a.type,
-      SUB_BY_ID[a.subspecialty]?.th || "", SUB_BY_ID[a.subspecialty]?.en || "", a.title,
+      SUB_BY_ID[a.subspecialty]?.en || "", a.title,
       a.source === "slides" ? "slides" : "manual", e.fileName || "", e.slideCount || "", e.hash || "",
       e.autoType || "", e.autoSub || "", e.correctedByUser ? "yes" : "no",
       a.assessment?.score ?? "", a.assessment?.by || "", a.assessment?.comment || "",
@@ -1433,7 +2146,7 @@ function researchBlock(pj, compact) {
     <div class="between">
       <div style="min-width:0">
         <h3 style="margin-bottom:.15rem">${esc(pj.title)}</h3>
-        <p class="small muted" style="margin:0">${esc(r?.name || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.th || "—")} · ${esc(pj.type || "—")} · ที่ปรึกษา ${esc(pj.advisor || "—")}</p>
+        <p class="small muted" style="margin:0">${esc(r?.name || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.en || "—")} · ${esc(pj.type || "—")} · ที่ปรึกษา ${esc(pj.advisor || "—")}</p>
       </div>
       <div class="row no-print">
         <span class="tag ${late.length ? "bad" : done === RESEARCH_STAGES.length ? "ok" : "b"}">${done}/${RESEARCH_STAGES.length} ขั้น</span>
@@ -1485,7 +2198,7 @@ function renderCoverage() {
     (!covFilter.type || a.type === covFilter.type) && (!covFilter.ay || a.academicYear === covFilter.ay)).length;
 
   $("#coverageMatrix").innerHTML = `<div class="tbl-wrap"><table class="matrix">
-    <thead><tr><th style="text-align:left">แพทย์ประจำบ้าน</th>${subs.map(s => `<th class="v" title="${esc(s.en)}">${esc(s.th)}</th>`).join("")}<th>รวม</th></tr></thead>
+    <thead><tr><th style="text-align:left">แพทย์ประจำบ้าน</th>${subs.map(s => `<th class="v">${esc(s.en)}</th>`).join("")}<th>รวม</th></tr></thead>
     <tbody>${rs.map(r => {
       const cells = subs.map(s => cell(r.id, s.id));
       const total = cells.reduce((a, b) => a + b, 0);
@@ -1505,7 +2218,7 @@ function renderCoverage() {
   $("#topicBank").innerHTML = SUBSPECIALTIES.map(s => {
     const items = (bank[s.id] || []).sort((a, b) => b.date.localeCompare(a.date));
     if (!items.length) return "";
-    return `<details style="margin-bottom:.5rem"><summary><b>${esc(s.th)}</b> — ${esc(s.en)} (${items.length} หัวข้อ)</summary>
+    return `<details style="margin-bottom:.5rem"><summary><b>${esc(s.en)}</b> (${items.length} หัวข้อ)</summary>
       <ul class="clean small" style="margin-top:.4rem">${items.map(a => {
         const r = store.resident(a.residentId);
         return `<li>${esc(a.title)} <span class="muted">— ${esc(r?.name || "")} · ${esc(TYPE_BY_ID[a.type]?.th || "")} · ${fmtDate(a.date)}</span></li>`;
@@ -1527,6 +2240,16 @@ function wfmeEvidence() {
   if (pg.outcomes?.length)   map["2.1"].sources.push({ label:"ผลลัพธ์การเรียนรู้ที่ใช้กำกับกรอบหลักสูตร" });
   if (pg.reviewed)           map["9.0"].sources.push({ label:"ทบทวนพันธกิจและผลลัพธ์ล่าสุด " + fmtDate(pg.reviewed) });
   (pg.documents || []).forEach(d => (d.subs || []).forEach(id => map[id]?.docs.push(d)));
+
+  const evalN = (store.data.sessionEvals || []).length;
+  if (evalN) ["3.1","3.2","5.2","7.2"].forEach(id =>
+    map[id]?.sources.push({ label:"แบบประเมินท้ายเซสชันโดยอาจารย์ผู้รับผิดชอบ " + evalN + " ครั้ง (workplace-based assessment)" }));
+  const rotN = (store.data.rotations || []).length, svcN = (store.data.services || []).length;
+  if (rotN) ["2.4","2.5","2.6","6.2"].forEach(id =>
+    map[id]?.sources.push({ label:"ตารางหมุนเวียน " + rotN + " ช่วง ใน " + svcN + " หน่วย พร้อมตารางเซสชันประจำสัปดาห์" }));
+  const staffN = (store.data.staff || []).length;
+  if (staffN) ["5.1","5.2","6.4"].forEach(id =>
+    map[id]?.sources.push({ label:"ทะเบียนอาจารย์ผู้รับผิดชอบ " + staffN + " ท่าน พร้อมเซสชันที่รับผิดชอบและผลการประเมินที่บันทึก" }));
   return map;
 }
 
@@ -1588,6 +2311,8 @@ function renderSettings() {
     <tbody>
       ${ACTIVITY_TYPES.map(t => `<tr><td>${esc(t.th)}</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|${t.id}" value="${store.data.requirements[y]?.[t.id] ?? 0}" /></td>`).join("")}</tr>`).join("")}
+      <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|sessionEval" value="${store.data.requirements[y]?.sessionEval ?? 0}" /></td>`).join("")}</tr>
       <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
         <td><input type="number" min="0" max="12" style="width:80px" data-req="${y}|subspecialties" value="${store.data.requirements[y]?.subspecialties ?? 0}" /></td>`).join("")}</tr>
     </tbody></table>
@@ -1601,7 +2326,7 @@ function renderSettings() {
   }));
 
   $("#keywordEditor").innerHTML = SUBSPECIALTIES.filter(s => s.id !== "general").map(s => `
-    <label class="f"><span>${esc(s.th)} — ${esc(s.en)}
+    <label class="f"><span>${esc(s.en)}
       <span class="muted" style="font-weight:400">(คำตั้งต้น ${SUB_BY_ID[s.id].kw.length} คำ)</span></span>
       <input data-kw="${s.id}" placeholder="เพิ่มคำของกลุ่มงาน คั่นด้วย , เช่น hemiarthroplasty, เปลี่ยนข้อสะโพก"
         value="${esc((store.data.keywords?.[s.id] || []).join(", "))}" /></label>`).join("");
@@ -1714,7 +2439,7 @@ function openActivity(id) {
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" value="${esc(a.title)}" /></label>
     <div class="grid g2">
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${a.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select></label>
-      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${a.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${a.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>วันที่นำเสนอ</span><input type="date" name="date" value="${esc(a.date)}" /></label>
       <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
@@ -1730,7 +2455,7 @@ function openActivity(id) {
       <div class="kv">
         <dt>ไฟล์</dt><dd>${esc(e.fileName)} · ${e.slideCount || "?"} สไลด์ · ${Math.round((e.fileSize || 0) / 1024)} KB</dd>
         <dt>SHA-256</dt><dd class="mono" style="word-break:break-all">${esc(e.hash || "—")}</dd>
-        <dt>ระบบเดา</dt><dd>ประเภท ${esc(TYPE_BY_ID[e.autoType]?.th || "—")} · อนุสาขา ${esc(SUB_BY_ID[e.autoSub]?.th || "—")}
+        <dt>ระบบเดา</dt><dd>ประเภท ${esc(TYPE_BY_ID[e.autoType]?.th || "—")} · อนุสาขา ${esc(SUB_BY_ID[e.autoSub]?.en || "—")}
           ${e.correctedByUser ? `<span class="tag warn">ผู้บันทึกแก้ผลเดา</span>` : `<span class="tag ok">ผู้บันทึกยืนยันตามที่ระบบเดา</span>`}</dd>
         <dt>คำที่จับได้</dt><dd class="small">${esc([...(e.autoTypeHits || []), ...(e.autoSubHits || [])].join(", ") || "—")}</dd>
       </div>
@@ -1773,7 +2498,7 @@ function manualAdd() {
       <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
       <label class="f"><span>วันที่</span><input type="date" name="date" value="${todayISO()}" /></label>
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}">${esc(t.th)}</option>`).join("")}</select></label>
-      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}">${esc(s.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}">${esc(s.en)}</option>`).join("")}</select></label>
     </div>
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" placeholder="เช่น Pre-op conference: distal radius fracture" /></label>
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note"></textarea></label>`;
@@ -1825,7 +2550,7 @@ function editResearch(id) {
     <div class="grid g2">
       <label class="f"><span>ผู้วิจัย</span><select name="residentId">${store.data.residents.map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
       <label class="f"><span>อาจารย์ที่ปรึกษางานวิจัย</span><input name="advisor" value="${esc(pj?.advisor || "")}" /></label>
-      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${pj?.subspecialty === s.id ? "selected" : ""}>${esc(s.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${pj?.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>รูปแบบการวิจัย</span><input name="type" value="${esc(pj?.type || "")}" placeholder="เช่น Retrospective cohort" /></label>
     </div>
     <hr /><h4>ขั้นความก้าวหน้า</h4>
@@ -1889,24 +2614,48 @@ function printPortfolio(residentId) {
       <tr><td>ความครอบคลุมอนุสาขา</td><td>${p.subsDone.size}</td><td>${p.subsNeed || "—"}</td><td>${p.subsPct}%</td><td>2.3, 2.4</td></tr></tbody></table>
     ${gaps.length ? `<h3 style="margin-top:.8rem">สิ่งที่ยังขาด</h3><ul>${gaps.map(g => `<li>${esc(g.text)}</li>`).join("")}</ul>` : `<p>ครบตามเกณฑ์ที่กำหนดไว้ในปีการศึกษานี้</p>`}
   </div>
+  ${(() => {
+    const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+    const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => a.date.localeCompare(b.date));
+    if (!rots.length && !evs.length) return "";
+    const byService = {};
+    evs.forEach(e => { const k = serviceById(e.serviceId)?.name || "—"; (byService[k] ||= []).push(e); });
+    return `<div class="card">
+      <h2>2. การหมุนเวียนและการประเมินท้ายเซสชัน</h2>
+      ${rots.length ? `<table><thead><tr><th>ช่วง</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th></tr></thead>
+        <tbody>${rots.map(rot => { const svc = serviceById(rot.serviceId); return `<tr>
+          <td>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</td><td>${esc(svc?.name || "—")}</td>
+          <td>${esc(SUB_BY_ID[svc?.subspecialty]?.en || "—")}</td><td>${esc(svc?.site || "—")}</td>
+          <td>${esc(staffName(rot.supervisorId))}</td></tr>`; }).join("")}</tbody></table>` : ""}
+      ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
+        <table><thead><tr><th>Service</th><th>จำนวนครั้ง</th><th>คะแนนเฉลี่ย</th><th>entrustment เฉลี่ย</th></tr></thead>
+        <tbody>${Object.entries(byService).map(([name, list]) => {
+          const ms = list.map(evalMean).filter(v => v != null);
+          const en = list.map(e => e.entrust).filter(v => typeof v === "number");
+          return `<tr><td>${esc(name)}</td><td>${list.length}</td>
+            <td>${ms.length ? (ms.reduce((a, b) => a + b, 0) / ms.length).toFixed(2) : "—"}</td>
+            <td>${en.length ? (en.reduce((a, b) => a + b, 0) / en.length).toFixed(1) : "—"}</td></tr>`;
+        }).join("")}</tbody></table>` : ""}
+    </div>`;
+  })()}
   <div class="card">
-    <h2>2. บันทึกกิจกรรมทั้งหมด (${acts.length} รายการ)</h2>
+    <h2>3. บันทึกกิจกรรมทั้งหมด (${acts.length} รายการ)</h2>
     <table><thead><tr><th>วันที่</th><th>ประเภท</th><th>อนุสาขา</th><th>ชื่อเรื่อง</th><th>หลักฐาน</th><th>ประเมิน</th><th>รับรอง</th></tr></thead>
       <tbody>${acts.map(a => `<tr>
         <td>${fmtDate(a.date)}</td><td>${esc(TYPE_BY_ID[a.type]?.th || a.type)}</td>
-        <td>${esc(SUB_BY_ID[a.subspecialty]?.th || "")}</td><td>${esc(a.title)}</td>
+        <td>${esc(SUB_BY_ID[a.subspecialty]?.en || "")}</td><td>${esc(a.title)}</td>
         <td class="small">${a.evidence?.fileName ? esc(a.evidence.fileName) + " · " + (a.evidence.slideCount || "?") + " สไลด์<br /><span class='mono'>" + esc((a.evidence.hash || "").slice(0, 16)) + "…</span>" : "บันทึกด้วยมือ"}</td>
         <td>${a.assessment?.score != null ? a.assessment.score + "/5" : "—"}</td>
         <td class="small">${a.verified ? esc(a.verifiedBy || "รับรองแล้ว") : "—"}</td></tr>`).join("")}</tbody></table>
   </div>
-  ${projects.length ? `<div class="card"><h2>3. งานวิจัย</h2>${projects.map(pj => `
+  ${projects.length ? `<div class="card"><h2>4. งานวิจัย</h2>${projects.map(pj => `
     <h3>${esc(pj.title)}</h3>
-    <p class="small">ที่ปรึกษา ${esc(pj.advisor || "—")} · ${esc(pj.type || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.th || "—")}</p>
+    <p class="small">ที่ปรึกษา ${esc(pj.advisor || "—")} · ${esc(pj.type || "—")} · ${esc(SUB_BY_ID[pj.subspecialty]?.en || "—")}</p>
     <table><thead><tr><th>ขั้น</th><th>วันที่เสร็จ</th><th>กำหนด</th></tr></thead><tbody>
       ${RESEARCH_STAGES.map(s => { const st = pj.stages?.[s.id] || {}; return `<tr><td>${esc(s.th)}</td><td>${st.done ? fmtDate(st.done) : "—"}</td><td>${st.due ? fmtDate(st.due) : "—"}</td></tr>`; }).join("")}
     </tbody></table>`).join("")}</div>` : ""}
   <div class="card">
-    <h2>${projects.length ? "4" : "3"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
+    <h2>${projects.length ? "5" : "4"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
     ${acts.filter(a => a.assessment?.comment).map(a => `<p><b>${fmtDate(a.date)} — ${esc(a.title)}</b><br />
       ${esc(a.assessment.comment)} <span class="small muted">(${esc(a.assessment.by || "—")}, ${a.assessment.score ?? "—"}/5)</span></p>`).join("") || "<p>ยังไม่มีข้อเสนอแนะที่บันทึกไว้</p>"}
     <div class="row" style="margin-top:2.4rem;gap:3rem">
@@ -2009,11 +2758,13 @@ function renderIngestStats() {
     <div class="stat"><b>${acts.filter(a => a.academicYear === ay).length}</b><span>กิจกรรมในปีการศึกษา ${ay}</span></div>
     <div class="stat"><b>${acts.filter(a => !a.verified).length}</b><span>รอการรับรองจากอาจารย์</span></div>
     <div class="stat"><b>${behind}</b><span>แพทย์ประจำบ้านที่มีส่วนขาดต้องตาม</span></div>`;
+  $("#ingestStats").insertAdjacentHTML("beforeend",
+    `<div class="stat"><b>${pendingEvaluations().length}</b><span>เซสชันใน 14 วันที่ยังไม่ได้ประเมิน</span></div>`);
   const recent = acts.slice().sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date)).slice(0, 8);
   $("#recentActivities").innerHTML = recent.length ? `<ul class="clean">${recent.map(a => {
     const r = store.resident(a.residentId);
     return `<li class="row" style="justify-content:space-between">
-      <span><b>${esc(a.title)}</b><br /><span class="small muted">${esc(r?.name || "")} · ${esc(TYPE_BY_ID[a.type]?.th || "")} · ${esc(SUB_BY_ID[a.subspecialty]?.th || "")} · ${fmtDate(a.date)}</span></span>
+      <span><b>${esc(a.title)}</b><br /><span class="small muted">${esc(r?.name || "")} · ${esc(TYPE_BY_ID[a.type]?.th || "")} · ${esc(SUB_BY_ID[a.subspecialty]?.en || "")} · ${fmtDate(a.date)}</span></span>
       <button class="btn-sm no-print" data-act-open="${a.id}">เปิด</button></li>`;
   }).join("")}</ul>` : `<p class="empty">ยังไม่มีบันทึก — ลากไฟล์สไลด์มาวางด้านบนเพื่อเริ่ม</p>`;
   $$("#recentActivities [data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
@@ -2022,6 +2773,9 @@ function renderIngestStats() {
 function renderAll() {
   renderStoreState();
   renderIngestStats();
+  renderRotation();
+  renderStaffTable();
+  renderServiceTable();
   renderResidents();
   renderActivityFilters();
   renderActivityTable();
@@ -2046,6 +2800,14 @@ function init() {
   $("#btnAddResident").addEventListener("click", () => editResident(null));
   $("#btnAddResearch").addEventListener("click", () => editResearch(null));
   $("#btnAddDoc").addEventListener("click", () => editDoc(null));
+  $("#btnAddStaff").addEventListener("click", () => editStaff(null));
+  $("#btnAddService").addEventListener("click", () => editService(null));
+  $("#btnAddRotation").addEventListener("click", () => editRotation(null));
+  $("#btnPrintRoster").addEventListener("click", printRoster);
+  $("#btnEvalCsv").addEventListener("click", () => download("session-evaluations.csv", toCsv(evalCsvRows()), "text/csv;charset=utf-8"));
+  $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
+  $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
+  $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
   $("#btnPrintPortfolio").addEventListener("click", () => selectedResident ? printPortfolio(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnWfmeReport").addEventListener("click", printWfmeReport);
   $("#btnWfmeCsv").addEventListener("click", () => download("wfme-evidence-map.csv", toCsv(wfmeCsvRows()), "text/csv;charset=utf-8"));

@@ -26,14 +26,38 @@
    ซึ่งใช้เตือนได้ด้วยเมื่อมีการนำไฟล์เดิมมาบันทึกซ้ำ
 4. **สรุปให้เห็นส่วนขาด** — ความก้าวหน้าเทียบเกณฑ์รายชั้นปี ตารางความครอบคลุมอนุสาขารายบุคคล
    คลังหัวข้อที่เคยนำเสนอ ทะเบียนงานวิจัยรายขั้น และรายการที่ยังไม่ได้รับการรับรองจากอาจารย์
-5. **พิมพ์ออกได้** — แฟ้มสะสมงานรายบุคคล (พร้อมช่องลงนาม) และรายงานหลักฐานตามมาตรฐาน WFME
+5. **ตารางหมุนเวียนและเวร** — หน้า “ตารางหมุนเวียน & เวร” ตอบคำถามว่า *ตอนนี้ใครอยู่หน่วยไหน*
+   * การ์ดรายคน: หน่วยที่กำลังหมุนเวียน (ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษ) สถานที่ อาจารย์ผู้กำกับประจำบล็อก
+     วันสิ้นสุดบล็อก และเซสชันของวันนี้
+   * ตารางประจำสัปดาห์: แถวคือแพทย์ประจำบ้าน คอลัมน์คือวัน แต่ละช่องคือเซสชัน (OR / OPD / ward round /
+     conference / เวรนอกเวลา) พร้อม **อาจารย์ผู้รับผิดชอบของเซสชันนั้น** เลื่อนดูสัปดาห์ก่อน–หลังได้ และพิมพ์ออกได้
+   * เซสชันถูกสร้างอัตโนมัติจาก *ช่วงหมุนเวียน* (ใคร อยู่หน่วยไหน ช่วงวันที่ใด) ประกอบกับ
+     *ตารางกิจกรรมประจำสัปดาห์ของหน่วย* ที่ตั้งไว้ในหน้าตั้งค่า จึงไม่ต้องกรอกทีละวัน
+6. **ประเมินท้ายเซสชัน** — กดที่เซสชันใดก็ได้เพื่อบันทึกแบบประเมิน: ผู้ประเมิน (ตั้งต้นเป็นอาจารย์ผู้รับผิดชอบเซสชันนั้น),
+   คะแนน 3 ด้าน (ความรู้/การตัดสินใจ, ทักษะหัตถการ, ความเป็นวิชาชีพและการสื่อสาร), ระดับการปฏิบัติงานด้วยตนเอง
+   ที่ไว้วางใจได้ (entrustment 1–5) และข้อเสนอแนะทันทีหลังเซสชัน
+   หน้าเดียวกันมีกระดาน **“เซสชันที่รอการประเมิน แยกตามอาจารย์ผู้รับผิดชอบ”** ย้อนหลัง 14 วัน
+   เพื่อให้เห็นว่าใครยังค้างประเมินอยู่กี่เซสชัน จำนวนครั้งที่ประเมินแล้วนับรวมเป็นเกณฑ์ความก้าวหน้าของแต่ละชั้นปีด้วย
+7. **พิมพ์ออกได้** — แฟ้มสะสมงานรายบุคคล (พร้อมช่องลงนาม) และรายงานหลักฐานตามมาตรฐาน WFME
    รวมถึงดาวน์โหลดเป็น CSV
+
+## ชื่ออนุสาขาเป็นภาษาอังกฤษทั้งหมด
+
+อนุสาขาที่ระบบเก็บและแสดงใช้ชื่อภาษาอังกฤษอย่างเดียว (Orthopaedic Trauma, Spine, Adult Reconstruction /
+Arthroplasty, Sports Medicine / Arthroscopy, Hand & Microsurgery, Foot & Ankle, Paediatric Orthopaedics,
+Musculoskeletal Oncology, Shoulder & Elbow, Musculoskeletal Infection, Metabolic Bone Disease /
+Osteoporosis, Basic Science / Biomechanics) ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน และไฟล์ CSV
+ส่วนคำสำคัญที่ใช้เดาอนุสาขายังมีทั้งคำไทยและคำอังกฤษ เพื่อให้จับสไลด์ที่เขียนด้วยภาษาไทยได้
 
 ## การผูกกับมาตรฐาน WFME
 
 ทุกกิจกรรมถูกผูกกับหัวข้อมาตรฐานไว้ตั้งแต่ตอนบันทึก เช่น topic presentation ผูกกับ 2.1, 2.3, 3.1, 6.5 และ
 trauma film conference ผูกกับ 2.3, 2.6, 6.2 หน้า “มาตรฐาน WFME” จึงแสดงได้ว่าแต่ละหัวข้อมีหลักฐานอะไรอยู่จริง
 กี่รายการ และหัวข้อใดยังไม่มี
+
+ตารางหมุนเวียน ตารางเซสชันประจำสัปดาห์ ทะเบียนอาจารย์ และแบบประเมินท้ายเซสชัน ถูกนับเป็นหลักฐานของหมวด
+2.4 / 2.5 / 2.6 (โครงสร้างหลักสูตรและความสัมพันธ์กับงานบริการ), 3.1 / 3.2 (วิธีการประเมินและความเชื่อมโยงกับการเรียนรู้),
+5.1 / 5.2 (อาจารย์และหน้าที่ของอาจารย์), 6.2 (สถานที่ฝึกปฏิบัติทางคลินิก) และ 6.4 (ทีมผู้ให้บริการทางคลินิก)
 
 สิ่งที่กิจกรรมการนำเสนอตอบไม่ได้ (พันธกิจ ผลลัพธ์การเรียนรู้ เอกสารหลักสูตร) บันทึกแยกไว้ในหน้า
 “ตั้งค่า & ข้อมูล” เป็นข้อความพันธกิจ รายการผลลัพธ์การเรียนรู้ และทะเบียนเอกสาร ที่ผูกเข้ากับหัวข้อมาตรฐานได้เอง
@@ -76,6 +100,15 @@ the programme can print an evidence report per standard area and per resident. T
 follows the 9 areas of the WFME Global Standards for Quality Improvement (PGME, 2015 revision) but has
 **not been reconciled word-for-word with the official document** — verify before using it for real
 accreditation. All demo data is fictitious.
+
+A second half of the page answers *where is each resident right now*: rotation blocks (resident x service x
+date range x supervising staff) combined with each service's weekly session template generate the calendar
+automatically — OR lists, OPD clinics, ward rounds, conferences and on-call duty, each carrying the staff
+member responsible for it. That staff member evaluates the resident at the end of the session: three domain
+scores, an entrustment level (1-5) and written feedback, with a per-staff board of sessions still awaiting
+evaluation over the last 14 days. Those evaluations count toward each year's requirements and serve as
+workplace-based assessment evidence for WFME areas 3, 5 and 7; the rotation schedule itself evidences 2.4,
+2.5, 2.6, 6.2 and 6.4. Subspecialty names are recorded and displayed in English throughout.
 
 Tested in headless Chromium: `.pptx`/`.pdf` ingestion, classification, persistence, exports and reports.
 Requires a browser with `DecompressionStream` (Chrome/Edge 80+, Safari 16.4+, Firefox 113+).
