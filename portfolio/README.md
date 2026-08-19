@@ -28,10 +28,12 @@
    คลังหัวข้อที่เคยนำเสนอ ทะเบียนงานวิจัยรายขั้น และรายการที่ยังไม่ได้รับการรับรองจากอาจารย์
 5. **ตาราง 3 แบบในหน้าเดียว** — หน้า “ตาราง: หมุนเวียน · เวร · นำเสนอ” เริ่มด้วยการ์ด *ตอนนี้ใครอยู่หน่วยไหน*
    (หน่วยที่กำลังหมุนเวียน สถานที่ อาจารย์ผู้กำกับ วันสิ้นสุดบล็อก และเซสชันของวันนี้) แล้วสลับดูได้ 3 แบบ
-   * **ตารางรายเดือน** — แถวคือแพทย์ประจำบ้าน คอลัมน์คือ 12 เดือนของปีการศึกษา (มิ.ย.–พ.ค.)
-     ช่องระบายสีตามสายหรืออนุสาขา: สายฟ้า สายขาว สายแดง สายเหลือง, ELE = elective และตัวย่ออนุสาขาเมื่อวน sub
-     (TR, SPN, ARP, HND, PED, SPT, ONC, ER) มีคำอธิบายสีกำกับ เลือกปีการศึกษาได้ กดที่ช่องเพื่อแก้ไขบล็อกนั้น
-     พิมพ์และดาวน์โหลด CSV ได้ · สีและตัวย่อของแต่ละหน่วยแก้ได้ในหน้าตั้งค่า
+   * **ตารางรายเดือน** — แถวคือแพทย์ประจำบ้าน คอลัมน์คือ 12 เดือนของปีการศึกษา **เริ่ม ก.ค. จบ มิ.ย.**
+     ช่องระบายสีตามหน่วยที่หมุนเวียน: สายฟ้า สายขาว สายแดง สายเหลือง, หน่วยอนุสาขา (TR/PED, HND/ONC, FT/SPT, SPN, ARP),
+     การวนนอกภาควิชา (ANES, RHEU, TRS, PM&R) และ ELE = free elective · ★ = ปี 3 ที่ทำหน้าที่หัวหน้าสายในเดือนนั้น
+     มีคำอธิบายสีกำกับ เลือกปีการศึกษาได้ กดที่ช่องเพื่อแก้ไขบล็อกนั้น พิมพ์และดาวน์โหลด CSV ได้
+     · ปุ่ม **“สร้างแผนอัตโนมัติ”** จัดแผนทั้งปีให้ตามกติกาด้านล่าง แล้วรายงานข้อที่ยังไม่ลงตัวให้ตรวจ
+     · สี ตัวย่อ ประเภทหน่วย และ subspecialty ที่หน่วยครอบคลุม แก้ได้ในหน้าตั้งค่า
    * **ตารางเวรรายสัปดาห์** — แถวคือแพทย์ประจำบ้าน คอลัมน์คือวัน แต่ละช่องคือหนึ่งเซสชัน (OR / OPD / ward round /
      conference / เวรนอกเวลา) พร้อม **อาจารย์ผู้รับผิดชอบของเซสชันนั้น** เซสชันถูกสร้างอัตโนมัติจาก *ช่วงหมุนเวียน*
      ประกอบกับ *ตารางกิจกรรมประจำสัปดาห์ของหน่วย* จึงไม่ต้องกรอกทีละวัน
@@ -81,6 +83,27 @@
 **ถ้าอยากให้อัตโนมัติเต็มรูปแบบ** ระบบคิวต้องเพิ่มการบันทึกผู้ร่วมผ่าตัดในเคส เช่นฟิลด์
 `attendees: [{ userId, role }]` หรือเติมชื่อลง `assistantSurgeonNames` ให้ครบ เมื่อมีข้อมูลนั้นแล้ว
 หน้านี้จะจับคู่ให้เองทันทีโดยไม่ต้องยืนยันทีละเคส
+
+## กติกาการจัดหมุนเวียนที่ระบบใช้
+
+ปีการศึกษาเริ่ม **1 กรกฎาคม** จบ **30 มิถุนายน** แบ่งเป็น 12 บล็อก บล็อกละ 1 เดือน
+
+| ชั้นปี | การหมุนเวียน |
+|---|---|
+| ปี 1 | วนนอกภาควิชา 3 เดือน — วิสัญญีวิทยา, โรคข้อ (rheumatology), ศัลยกรรมอุบัติเหตุ อย่างละ 1 เดือน · ที่เหลือวนตามสาย |
+| ปี 2 | เวชศาสตร์ฟื้นฟู (PM&R) 1 เดือน · ที่เหลือวนตามสาย |
+| ปี 3 | วนตามสาย + free elective 3 เดือน (ไปพร้อมกันได้ไม่เกิน 2 คน) · ทำหน้าที่หัวหน้าสายเมื่อสายนั้นไม่มีปี 4 |
+| ปี 4 | วนตาม sub/สาย ถึงเดือนกุมภาพันธ์ · จากนั้น free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย. |
+
+เงื่อนไขเพิ่มเติมที่ตัวจัดแผนพยายามรักษา
+
+- การวนนอกภาควิชาของชั้นปีเดียวกัน **ไม่ให้ชนกัน** (ไม่เกิน ⌈จำนวนคนในชั้นปี ÷ 3⌉ คนต่อเดือน)
+- การลงสาย **แบ่งจำนวนคนให้เท่ากันที่สุด** ในแต่ละเดือน และเลี่ยงการอยู่สายเดิมสองเดือนติด
+- หน่วยอนุสาขาที่อยู่คู่กัน: **Trauma/Paediatrics · Hand/Tumour · Foot & Ankle/Sports** ส่วน Spine และ Arthroplasty แยกหน่วย
+- ไม่มีการวน ER เป็นบล็อกแยก (งานห้องฉุกเฉินอยู่ในเวรของแต่ละสาย)
+
+ปุ่ม “สร้างแผนอัตโนมัติ” สร้างแผนทั้งปีตามกติกานี้ แล้วรายงานสิ่งที่ยังไม่ลงตัว เช่น เดือนที่สายใดไม่มีคนลง
+หรือเดือนที่ elective เต็มเพดาน เพื่อให้ผู้จัดตารางแก้เองต่อได้ (ทุกบล็อกยังกดแก้ทีละช่องได้ตามปกติ)
 
 ## ชื่ออนุสาขาเป็นภาษาอังกฤษทั้งหมด
 
@@ -161,9 +184,15 @@ follows the 9 areas of the WFME Global Standards for Quality Improvement (PGME, 
 accreditation. All demo data is fictitious.
 
 A second half of the page answers *where is each resident right now*, in three tables. A **monthly grid**
-(residents x the 12 months of the Thai academic year) colours each cell by the team or subspecialty the
-resident rotates through — the four ward teams named by colour (blue/white/red/yellow), elective, or a
-subspecialty service; colours and abbreviations are editable. A **weekly roster** expands the current
+(residents x the 12 blocks of the academic year, July through June) colours each cell by what the resident
+rotates through — the four ward teams named by colour, a paired subspecialty unit (trauma/paediatrics,
+hand/tumour, foot & ankle/sports, spine, arthroplasty), an out-of-department month, or free elective. A
+one-click planner lays out a whole year under the programme's rules (first-years take anaesthesia,
+rheumatology and trauma surgery for a month each; second-years take PM&R; third-years take three elective
+months, at most two of them away at once, and act as team chief when no fourth-year is on that team;
+fourth-years rotate subspecialties until February and then take free elective together through June), keeps
+out-of-department months from colliding within a year group, balances team numbers, and reports whatever it
+could not satisfy. Colours, abbreviations and unit types are editable. A **weekly roster** expands the current
 rotation into individual sessions — OR lists, OPD clinics, ward rounds, conferences, on-call — generated
 automatically from each service's weekly template, each carrying the staff member responsible for it. A
 **presentation schedule** records who presents what, on which day, at what time, in which room, and which

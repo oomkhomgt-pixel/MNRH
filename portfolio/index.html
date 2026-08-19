@@ -267,10 +267,22 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           </div>
           <div class="row no-print">
             <select id="ayPick"></select>
+            <button class="btn-sm btn-primary" id="btnGeneratePlan">สร้างแผนอัตโนมัติ</button>
             <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
             <button class="btn-sm" id="btnMonthCsv">CSV</button>
           </div>
         </div>
+        <details style="margin-bottom:.6rem"><summary>กติกาการจัดหมุนเวียนที่ระบบใช้</summary>
+          <ul class="clean small" style="margin-top:.4rem">
+            <li>ปีการศึกษาเริ่มเดือน <b>กรกฎาคม</b> จบเดือน <b>มิถุนายน</b> รวม 12 บล็อก บล็อกละ 1 เดือน</li>
+            <li><b>ปี 1</b> วนนอกภาควิชา 3 เดือน — วิสัญญี, โรคข้อ, ศัลยกรรมอุบัติเหตุ อย่างละ 1 เดือน ที่เหลือวนตามสาย</li>
+            <li><b>ปี 2</b> วนเวชศาสตร์ฟื้นฟู 1 เดือน ที่เหลือวนตามสาย</li>
+            <li><b>ปี 3</b> วนตามสาย + free elective 3 เดือน ไปพร้อมกันได้ไม่เกิน 2 คน และทำหน้าที่หัวหน้าสายเมื่อสายนั้นไม่มีปี 4</li>
+            <li><b>ปี 4</b> วนตาม sub/สาย ถึงเดือนกุมภาพันธ์ จากนั้น free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.</li>
+            <li>การวนนอกภาควิชาไม่ให้ชนกันในชั้นปีเดียวกัน และการลงสายแบ่งจำนวนคนให้เท่ากันที่สุด</li>
+            <li>หน่วยอนุสาขาที่อยู่คู่กัน: Trauma/Paediatrics · Hand/Tumour · Foot &amp; Ankle/Sports (Spine และ Arthroplasty แยกหน่วย)</li>
+          </ul></details>
+        <div id="planNotes"></div>
         <div class="row" id="monthLegend" style="margin-bottom:.6rem"></div>
         <div id="monthGrid"></div>
       </div>
@@ -752,11 +764,12 @@ function fmtDate(iso) {
   try { return d.toLocaleDateString("th-TH", { day:"numeric", month:"short", year:"numeric" }); }
   catch { return iso; }
 }
-/* ปีการศึกษาไทยเริ่ม 1 มิ.ย. — ใช้จัดกลุ่มกิจกรรมตามรอบการฝึกอบรม */
+/* ปีการศึกษาของหลักสูตรเริ่ม 1 ก.ค. และจบ 30 มิ.ย. — รอบหมุนเวียนแรกคือเดือนกรกฎาคม */
+const AY_START_MONTH = 7;
 function academicYear(iso) {
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d)) return "—";
-  const y = d.getMonth() + 1 >= 6 ? d.getFullYear() : d.getFullYear() - 1;
+  const y = d.getMonth() + 1 >= AY_START_MONTH ? d.getFullYear() : d.getFullYear() - 1;
   return String(y + 543);
 }
 function pct(a, b) { return b > 0 ? Math.min(100, Math.round((a / b) * 100)) : (a > 0 ? 100 : 0); }
@@ -899,6 +912,19 @@ const serviceInk = (id) => {
   const c = serviceColour(id);
   return inkOn(c) === "#12181f" ? darken(c, 0.55) : c;
 };
+const serviceSubs = (svc) => (svc?.subspecialties?.length ? svc.subspecialties : [svc?.subspecialty].filter(Boolean));
+const serviceCovers = (svc, subId) => serviceSubs(svc).includes(subId);
+const serviceSubLabel = (svc) => serviceSubs(svc).map(x => SUB_BY_ID[x]?.en || x).join(" / ");
+/* ปี 3 ทำหน้าที่หัวหน้าสายเมื่อเดือนนั้นไม่มีปี 4 อยู่ในสายเดียวกัน */
+function isChiefOn(residentId, iso) {
+  const r = store.resident(residentId);
+  if (!r || r.year !== 3) return false;
+  const rot = rotationOn(residentId, iso);
+  const svc = rot ? serviceById(rot.serviceId) : null;
+  if (!svc?.team) return false;
+  return !(store.data.rotations || []).some(x => x.serviceId === rot.serviceId &&
+    x.start <= iso && x.end >= iso && store.resident(x.residentId)?.year === 4);
+}
 const serviceAbbr = (id) => {
   const svc = serviceById(id);
   if (!svc) return "—";
@@ -910,14 +936,15 @@ function mondayOf(iso) {
   return d.toISOString().slice(0, 10);
 }
 const THAI_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-/* ปีการศึกษาไทยเริ่มเดือนมิถุนายน — คืนรายการ 12 เดือนของปีการศึกษานั้น */
+/* คืนรายการ 12 เดือนของปีการศึกษา เริ่ม ก.ค. จบ มิ.ย. */
 function ayMonths(ayBE) {
   const y0 = Number(ayBE) - 543;
   return Array.from({ length: 12 }, (_, i) => {
-    const mo = 5 + i;                          /* 5 = มิถุนายน */
+    const mo = (AY_START_MONTH - 1) + i;        /* 6 = กรกฎาคม */
     return { y: y0 + Math.floor(mo / 12), m: mo % 12 };
   });
 }
+const ayMonthIndex = (ayBE, calendarMonth) => ayMonths(ayBE).findIndex(x => x.m === calendarMonth);
 const monthStartISO = (mm) => mm.y + "-" + String(mm.m + 1).padStart(2, "0") + "-01";
 const monthEndISO   = (mm) => new Date(Date.UTC(mm.y, mm.m + 1, 0)).toISOString().slice(0, 10);
 const monthLabel    = (mm) => THAI_MONTHS[mm.m] + " " + String(mm.y + 543).slice(2);
@@ -929,6 +956,127 @@ function inkOn(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? "#12181f" : "#ffffff";
 }
 const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+/* =====================================================================
+   6b) ตัวจัดแผนหมุนเวียนรายปี ตามกติกาของกลุ่มงาน
+       · ปีการศึกษาเริ่ม ก.ค. จบ มิ.ย. (12 บล็อก บล็อกละ 1 เดือน)
+       · ปี 1 วนนอกภาควิชา 3 เดือน (วิสัญญี, โรคข้อ, ศัลยกรรมอุบัติเหตุ) ที่เหลือวนตามสาย
+       · ปี 2 วนเวชศาสตร์ฟื้นฟู 1 เดือน ที่เหลือวนตามสาย
+       · ปี 3 วนตามสาย + free elective 3 เดือน ไปพร้อมกันได้ไม่เกิน 2 คน
+       · ปี 4 วนตาม sub/สาย ถึงเดือน ก.พ. แล้ว free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.
+       · การวนนอกภาควิชาไม่ให้ชนกันในชั้นปี และการลงสายแบ่งคนให้เท่ากันที่สุด
+   ===================================================================== */
+const EXTERNAL_BY_YEAR = { 1: ["svc_anesth", "svc_rheum", "svc_traumasurg"], 2: ["svc_pmr"] };
+const R3_ELECTIVE_MONTHS = 3, R3_ELECTIVE_CONCURRENT_MAX = 2;
+const R4_ELECTIVE_FROM_MONTH = 2;   /* 2 = มีนาคม (0 = มกราคม) */
+
+function buildRotationPlan(ay, residents, services) {
+  const months = ayMonths(ay);
+  const idx = (calendarMonth) => months.findIndex(x => x.m === calendarMonth);
+  const teams = services.filter(x => x.team).map(x => x.id);
+  const subUnits = services.filter(x => x.subUnit).map(x => x.id);
+  const ELECTIVE = (services.find(x => x.elective) || {}).id || "svc_elective";
+  const grid = {}, warnings = [];
+  residents.forEach(r => grid[r.id] = new Array(12).fill(null));
+  const byYear = {};
+  residents.forEach(r => (byYear[r.year] || (byYear[r.year] = [])).push(r));
+
+  /* ปี 4 — free elective พร้อมกันทั้งชั้นปี ตั้งแต่ มี.ค. ถึงสิ้นปีการศึกษา */
+  const r4Start = idx(R4_ELECTIVE_FROM_MONTH);
+  (byYear[4] || []).forEach(r => { for (let i = r4Start; i < 12; i++) grid[r.id][i] = ELECTIVE; });
+
+  /* ปี 3 — free elective 3 เดือนติดกัน ไปพร้อมกันได้ไม่เกิน 2 คน */
+  const electiveLoad = new Array(12).fill(0);
+  (byYear[3] || []).forEach((r, i) => {
+    const pref = (i * 4) % 12;
+    let window = null;
+    for (let o = 0; o < 12 && !window; o++) {
+      const w = [0, 1, 2].map(k => (pref + o + k) % 12);
+      if (w.every(m => !grid[r.id][m] && electiveLoad[m] < R3_ELECTIVE_CONCURRENT_MAX)) window = w;
+    }
+    if (!window) {
+      window = [];
+      for (let m = 0; m < 12 && window.length < R3_ELECTIVE_MONTHS; m++)
+        if (!grid[r.id][m] && electiveLoad[m] < R3_ELECTIVE_CONCURRENT_MAX) window.push(m);
+      warnings.push("ปี 3: " + r.name + " ได้ elective ไม่ติดกัน เพราะเพดาน " + R3_ELECTIVE_CONCURRENT_MAX + " คนต่อเดือนเต็ม");
+    }
+    window.forEach(m => { grid[r.id][m] = ELECTIVE; electiveLoad[m]++; });
+  });
+
+  /* การวนนอกภาควิชา — กระจายไม่ให้ชนกันในชั้นปีเดียวกัน */
+  const placeExternal = (list, svcIds) => {
+    const busy = new Array(12).fill(0);
+    const cap = Math.max(1, Math.ceil(list.length / 3));
+    list.forEach((r, i) => {
+      svcIds.forEach((sid, k) => {
+        let m = (i + k * Math.floor(12 / Math.max(1, svcIds.length))) % 12, guard = 0;
+        while ((grid[r.id][m] || busy[m] >= cap) && guard++ < 12) m = (m + 1) % 12;
+        if (grid[r.id][m]) { warnings.push("หาเดือนว่างให้ " + r.name + " ไปวนนอกภาควิชาไม่ได้ครบ"); return; }
+        grid[r.id][m] = sid; busy[m]++;
+      });
+    });
+  };
+  Object.entries(EXTERNAL_BY_YEAR).forEach(([year, ids]) => placeExternal(byYear[year] || [], ids));
+
+  /* ปี 4 — เดือนที่เหลือวนตาม sub แล้วตามด้วยสาย */
+  (byYear[4] || []).forEach((r, i) => {
+    const seq = subUnits.concat(teams);
+    let k = 0;
+    for (let m = 0; m < 12; m++) {
+      if (grid[r.id][m]) continue;
+      grid[r.id][m] = seq[(i * 2 + k) % seq.length]; k++;
+    }
+  });
+
+  /* ปี 1–3 — ลงสาย โดยแบ่งคนต่อสายให้เท่ากันที่สุด และเลี่ยงสายเดิมสองเดือนติด */
+  for (let m = 0; m < 12; m++) {
+    const load = {}; teams.forEach(t => load[t] = 0);
+    residents.forEach(r => { const sid = grid[r.id][m]; if (sid in load) load[sid]++; });
+    (residents.filter(r => !grid[r.id][m]).sort((a, b) => b.year - a.year || a.id.localeCompare(b.id)))
+      .forEach((r, n) => {
+        const prev = m > 0 ? grid[r.id][m - 1] : null;
+        const order = teams.slice(n % teams.length).concat(teams.slice(0, n % teams.length));
+        const pick = order.slice().sort((x, y) =>
+          (load[x] - load[y]) || ((x === prev ? 1 : 0) - (y === prev ? 1 : 0)) ||
+          (order.indexOf(x) - order.indexOf(y)))[0];
+        grid[r.id][m] = pick; load[pick]++;
+      });
+  }
+
+  const supervisorFor = (serviceId) => {
+    const svc = services.find(x => x.id === serviceId);
+    return (svc?.template || []).find(t => t.staffId)?.staffId || "";
+  };
+  const rotations = [];
+  residents.forEach(r => grid[r.id].forEach((sid, m) => {
+    if (!sid) return;
+    rotations.push({
+      id: uid("rot"), residentId: r.id, serviceId: sid, supervisorId: supervisorFor(sid),
+      start: monthStartISO(months[m]), end: monthEndISO(months[m]), note: ""
+    });
+  }));
+
+  /* ตรวจกติกาที่เหลือแล้วรายงานกลับ */
+  months.forEach((mm, m) => {
+    const out = residents.filter(r => {
+      const svc = services.find(x => x.id === grid[r.id][m]);
+      return svc && svc.external;
+    });
+    Object.entries(byYear).forEach(([year, list]) => {
+      const n = out.filter(r => String(r.year) === year).length;
+      if (n > Math.max(1, Math.ceil(list.length / 3)))
+        warnings.push(monthLabel(mm) + ": ปี " + year + " ไปวนนอกภาควิชาพร้อมกัน " + n + " คน");
+    });
+    const el = residents.filter(r => r.year === 3 && grid[r.id][m] === ELECTIVE).length;
+    if (el > R3_ELECTIVE_CONCURRENT_MAX) warnings.push(monthLabel(mm) + ": ปี 3 ไป elective พร้อมกัน " + el + " คน");
+    teams.forEach(t => {
+      const n = residents.filter(r => grid[r.id][m] === t).length;
+      if (n === 0) warnings.push(monthLabel(mm) + ": " + (services.find(x => x.id === t)?.abbr || t) + " ไม่มีแพทย์ประจำบ้านลงสาย");
+    });
+  });
+
+  return { rotations, warnings, months };
+}
 
 function seedData() {
   const residents = [
@@ -1045,25 +1193,76 @@ function seedData() {
     { id:"st_7", name:"พญ. พิมพ์ชนก มณีรัตน์",     subspecialty:"oncology",     role:"อาจารย์แพทย์" }
   ];
 
+  /* หน่วยหมุนเวียน: สาย 4 สาย, หน่วยอนุสาขา (บางอนุสาขาอยู่คู่กัน), การวนนอกภาควิชา และ free elective */
   const services = [
-    { id:"svc_trauma", name:"Orthopaedic Trauma Service", subspecialty:"trauma", abbr:"TR", colour:"#a32d2d", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
+    { id:"svc_blue", name:"Blue Team (สายฟ้า)", team:true, subspecialties:["general"], abbr:"ฟ้า", colour:"#2b6fb5",
+      site:"หอผู้ป่วยออร์โธปิดิกส์ สายฟ้า",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
+        { day:2, part:"am", name:"OR — สายฟ้า", staffId:"st_1", location:"ห้องผ่าตัด 5" },
+        { day:3, part:"pm", name:"OPD — สายฟ้า", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
+        { day:4, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
+        { day:5, part:"call", name:"เวรสายฟ้า", staffId:"st_1", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_white", name:"White Team (สายขาว)", team:true, subspecialties:["general"], abbr:"ขาว", colour:"#e8edf2",
+      site:"หอผู้ป่วยออร์โธปิดิกส์ สายขาว",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
+        { day:2, part:"pm", name:"OPD — สายขาว", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" },
+        { day:4, part:"am", name:"OR — สายขาว", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:5, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
+        { day:2, part:"call", name:"เวรสายขาว", staffId:"st_2", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_red", name:"Red Team (สายแดง)", team:true, subspecialties:["general"], abbr:"แดง", colour:"#b91c1c",
+      site:"หอผู้ป่วยออร์โธปิดิกส์ สายแดง",
+      template:[
+        { day:1, part:"pm", name:"OR — สายแดง", staffId:"st_3", location:"ห้องผ่าตัด 7" },
+        { day:2, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
+        { day:3, part:"am", name:"OPD — สายแดง", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
+        { day:3, part:"call", name:"เวรสายแดง", staffId:"st_3", location:"ห้องฉุกเฉิน" }
+      ] },
+    { id:"svc_yellow", name:"Yellow Team (สายเหลือง)", team:true, subspecialties:["general"], abbr:"เหลือง", colour:"#eab308",
+      site:"หอผู้ป่วยออร์โธปิดิกส์ สายเหลือง",
+      template:[
+        { day:1, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
+        { day:3, part:"am", name:"OR — สายเหลือง", staffId:"st_4", location:"ห้องผ่าตัด 6" },
+        { day:4, part:"pm", name:"OPD — สายเหลือง", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
+        { day:4, part:"call", name:"เวรสายเหลือง", staffId:"st_4", location:"ห้องฉุกเฉิน" }
+      ] },
+
+    { id:"svc_trauma_ped", name:"Trauma / Paediatric Orthopaedics", subUnit:true, subspecialties:["trauma","pediatric"],
+      abbr:"TR/PED", colour:"#a32d2d", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
       template:[
         { day:1, part:"am", name:"Trauma ward round", staffId:"st_1" },
         { day:1, part:"pm", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
-        { day:3, part:"am", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
+        { day:2, part:"am", name:"OPD — paediatric clinic", staffId:"st_5", location:"OPD กุมารเวชกรรม" },
+        { day:3, part:"am", name:"OR — paediatric list", staffId:"st_5", location:"ห้องผ่าตัด 4" },
         { day:4, part:"am", name:"Trauma film & ward round", staffId:"st_1" },
-        { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
-        { day:6, part:"call", name:"เวรอุบัติเหตุนอกเวลา", staffId:"st_1", location:"ห้องฉุกเฉิน" }
+        { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" }
       ] },
-    { id:"svc_arthro", name:"Arthroplasty Service", subspecialty:"arthroplasty", abbr:"ARP", colour:"#7a4fa3", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_hand_tumour", name:"Hand / Musculoskeletal Tumour", subUnit:true, subspecialties:["hand","oncology"],
+      abbr:"HND/ONC", colour:"#a8630a", site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
-        { day:1, part:"am", name:"Ward round", staffId:"st_2" },
-        { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:2, part:"pm", name:"Pre-operative conference", staffId:"st_2" },
-        { day:4, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:5, part:"am", name:"OPD — joint clinic", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" }
+        { day:1, part:"am", name:"OPD — hand clinic", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
+        { day:2, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" },
+        { day:2, part:"pm", name:"Tumour board", staffId:"st_7" },
+        { day:3, part:"am", name:"OR — tumour list", staffId:"st_7", location:"ห้องผ่าตัด 4" },
+        { day:4, part:"am", name:"OPD — tumour clinic", staffId:"st_7", location:"OPD ออร์โธปิดิกส์" },
+        { day:5, part:"am", name:"Ward round", staffId:"st_4" }
       ] },
-    { id:"svc_spine", name:"Spine Service", subspecialty:"spine", abbr:"SPN", colour:"#1f7a4d", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_foot_sports", name:"Foot & Ankle / Sports", subUnit:true, subspecialties:["foot","sports"],
+      abbr:"FT/SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
+      template:[
+        { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
+        { day:2, part:"am", name:"OR — foot & ankle list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
+        { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
+        { day:4, part:"pm", name:"Ward round", staffId:"st_6" },
+        { day:5, part:"am", name:"OPD — foot clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" }
+      ] },
+    { id:"svc_spine", name:"Spine", subUnit:true, subspecialties:["spine"], abbr:"SPN", colour:"#1f7a4d",
+      site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
         { day:1, part:"pm", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
         { day:2, part:"am", name:"Ward round", staffId:"st_3" },
@@ -1071,105 +1270,28 @@ function seedData() {
         { day:4, part:"pm", name:"OPD — spine clinic", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
         { day:5, part:"am", name:"Spine case conference", staffId:"st_3" }
       ] },
-    { id:"svc_hand", name:"Hand & Microsurgery Service", subspecialty:"hand", abbr:"HND", colour:"#a8630a", site:"หอผู้ป่วยออร์โธปิดิกส์",
+    { id:"svc_arthro", name:"Arthroplasty", subUnit:true, subspecialties:["arthroplasty"], abbr:"ARP", colour:"#7a4fa3",
+      site:"หอผู้ป่วยออร์โธปิดิกส์",
       template:[
-        { day:1, part:"am", name:"OPD — hand clinic", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
-        { day:2, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" },
-        { day:3, part:"pm", name:"Ward round & dressing", staffId:"st_4" },
-        { day:5, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" }
+        { day:1, part:"am", name:"Ward round", staffId:"st_2" },
+        { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:2, part:"pm", name:"Pre-operative conference", staffId:"st_2" },
+        { day:4, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
+        { day:5, part:"am", name:"OPD — joint clinic", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" }
       ] },
-    { id:"svc_ped", name:"Paediatric Orthopaedics Service", subspecialty:"pediatric", abbr:"PED", colour:"#b5177e", site:"หอผู้ป่วยกุมารเวชกรรม",
-      template:[
-        { day:2, part:"am", name:"OPD — paediatric clinic", staffId:"st_5", location:"OPD กุมารเวชกรรม" },
-        { day:3, part:"am", name:"OR — paediatric list", staffId:"st_5", location:"ห้องผ่าตัด 4" },
-        { day:4, part:"am", name:"Ward round", staffId:"st_5" },
-        { day:5, part:"pm", name:"Ponseti casting clinic", staffId:"st_5" }
-      ] },
-    { id:"svc_sports", name:"Sports Service", subspecialty:"sports", abbr:"SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
-        { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
-        { day:4, part:"pm", name:"Ward round", staffId:"st_6" },
-        { day:5, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" }
-      ] },
-    { id:"svc_onc", name:"Musculoskeletal Oncology Service", subspecialty:"oncology", abbr:"ONC", colour:"#5b21b6", site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:2, part:"pm", name:"Tumour board", staffId:"st_7" },
-        { day:3, part:"am", name:"OR — tumour list", staffId:"st_7", location:"ห้องผ่าตัด 4" },
-        { day:4, part:"am", name:"OPD — tumour clinic", staffId:"st_7", location:"OPD ออร์โธปิดิกส์" }
-      ] },
-    { id:"svc_blue", name:"Blue Team (สายฟ้า)", subspecialty:"general", abbr:"ฟ้า", colour:"#2b6fb5", site:"หอผู้ป่วยออร์โธปิดิกส์ สายฟ้า",
-      template:[
-        { day:1, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
-        { day:2, part:"am", name:"OR — general list สายฟ้า", staffId:"st_1", location:"ห้องผ่าตัด 5" },
-        { day:3, part:"pm", name:"OPD — สายฟ้า", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
-        { day:4, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
-        { day:5, part:"call", name:"เวรสายฟ้า", staffId:"st_1", location:"ห้องฉุกเฉิน" }
-      ] },
-    { id:"svc_white", name:"White Team (สายขาว)", subspecialty:"general", abbr:"ขาว", colour:"#e8edf2", site:"หอผู้ป่วยออร์โธปิดิกส์ สายขาว",
-      template:[
-        { day:1, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
-        { day:2, part:"pm", name:"OPD — สายขาว", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" },
-        { day:4, part:"am", name:"OR — general list สายขาว", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:5, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
-        { day:2, part:"call", name:"เวรสายขาว", staffId:"st_2", location:"ห้องฉุกเฉิน" }
-      ] },
-    { id:"svc_red", name:"Red Team (สายแดง)", subspecialty:"general", abbr:"แดง", colour:"#b91c1c", site:"หอผู้ป่วยออร์โธปิดิกส์ สายแดง",
-      template:[
-        { day:1, part:"pm", name:"OR — general list สายแดง", staffId:"st_3", location:"ห้องผ่าตัด 7" },
-        { day:2, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
-        { day:3, part:"am", name:"OPD — สายแดง", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
-        { day:3, part:"call", name:"เวรสายแดง", staffId:"st_3", location:"ห้องฉุกเฉิน" }
-      ] },
-    { id:"svc_yellow", name:"Yellow Team (สายเหลือง)", subspecialty:"general", abbr:"เหลือง", colour:"#eab308", site:"หอผู้ป่วยออร์โธปิดิกส์ สายเหลือง",
-      template:[
-        { day:1, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
-        { day:3, part:"am", name:"OR — general list สายเหลือง", staffId:"st_4", location:"ห้องผ่าตัด 6" },
-        { day:4, part:"pm", name:"OPD — สายเหลือง", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
-        { day:4, part:"call", name:"เวรสายเหลือง", staffId:"st_4", location:"ห้องฉุกเฉิน" }
-      ] },
-    { id:"svc_elective", name:"Elective", subspecialty:"general", abbr:"ELE", colour:"#0f766e", site:"ตามที่แพทย์ประจำบ้านเลือก",
-      template:[
-        { day:2, part:"am", name:"Elective activity", staffId:"st_1" },
-        { day:4, part:"am", name:"Elective activity", staffId:"st_1" }
-      ] },
-    { id:"svc_er", name:"Emergency & Acute Care", subspecialty:"trauma", abbr:"ER", colour:"#0f766e", site:"ห้องฉุกเฉิน",
-      template:[
-        { day:1, part:"call", name:"เวรห้องฉุกเฉิน", staffId:"st_1", location:"ห้องฉุกเฉิน" },
-        { day:2, part:"am", name:"Acute care round", staffId:"st_1" },
-        { day:4, part:"call", name:"เวรห้องฉุกเฉิน", staffId:"st_1", location:"ห้องฉุกเฉิน" },
-        { day:0, part:"call", name:"เวรวันหยุด", staffId:"st_1", location:"ห้องฉุกเฉิน" }
-      ] }
-  ];
 
-  /* แผนหมุนเวียนรายเดือนตลอดปีการศึกษา — ชั้นปีต้นวนสาย ชั้นปีสูงวน subspecialty และ elective */
-  const ROTATION_PLAN = {
-    1: ["svc_blue","svc_white","svc_red","svc_yellow","svc_er","svc_blue","svc_white","svc_red","svc_yellow","svc_trauma","svc_er","svc_elective"],
-    2: ["svc_trauma","svc_blue","svc_hand","svc_white","svc_red","svc_sports","svc_yellow","svc_arthro","svc_er","svc_spine","svc_ped","svc_elective"],
-    3: ["svc_spine","svc_arthro","svc_sports","svc_hand","svc_ped","svc_onc","svc_blue","svc_red","svc_trauma","svc_white","svc_elective","svc_yellow"],
-    4: ["svc_arthro","svc_onc","svc_spine","svc_sports","svc_trauma","svc_hand","svc_ped","svc_elective","svc_blue","svc_red","svc_white","svc_yellow"]
-  };
-  const supervisorFor = (serviceId) => {
-    const svc = services.find(x => x.id === serviceId);
-    const first = svc?.template?.find(t => t.staffId);
-    return first?.staffId || "st_1";
-  };
+    { id:"svc_anesth",     name:"Anaesthesiology (นอกภาควิชา)",        external:true, subspecialties:["general"], abbr:"ANES", colour:"#475569", site:"กลุ่มงานวิสัญญีวิทยา", template:[] },
+    { id:"svc_rheum",      name:"Rheumatology (นอกภาควิชา)",          external:true, subspecialties:["general"], abbr:"RHEU", colour:"#6d28d9", site:"กลุ่มงานอายุรกรรม หน่วยโรคข้อ", template:[] },
+    { id:"svc_traumasurg", name:"Trauma Surgery (นอกภาควิชา)",        external:true, subspecialties:["general"], abbr:"TRS",  colour:"#be123c", site:"กลุ่มงานศัลยกรรมอุบัติเหตุ", template:[] },
+    { id:"svc_pmr",        name:"Rehabilitation Medicine (นอกภาควิชา)", external:true, subspecialties:["general"], abbr:"PM&R", colour:"#0e7490", site:"กลุ่มงานเวชศาสตร์ฟื้นฟู", template:[] },
+
+    { id:"svc_elective", name:"Free elective", elective:true, subspecialties:["general"], abbr:"ELE", colour:"#0f766e",
+      site:"ตามที่แพทย์ประจำบ้านเลือก", template:[] }
+  ];
+  services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
+
   const ay = academicYear(todayISO());
-  const months = ayMonths(ay);
-  const rotations = [];
-  residents.forEach((res, idx) => {
-    const plan = ROTATION_PLAN[res.year] || ROTATION_PLAN[1];
-    months.forEach((mm, i) => {
-      const serviceId = plan[(i + idx) % plan.length];
-      rotations.push({
-        id: uid("rot"), residentId: res.id, serviceId,
-        supervisorId: supervisorFor(serviceId),
-        start: monthStartISO(mm), end: monthEndISO(mm), note: ""
-      });
-    });
-  });
+  const rotations = buildRotationPlan(ay, residents, services).rotations;
 
   /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
   const remarks = [
@@ -1231,8 +1353,10 @@ function seedData() {
       const rot = rotations.find(r => r.residentId === res.id && r.start <= d && r.end >= d);
       if (!rot) continue;
       const svc = services.find(x => x.id === rot.serviceId);
-      let sub = svc?.subspecialty || "trauma";
-      if (sub === "general") sub = ["trauma","trauma","arthroplasty","infection"][(k + idx) % 4];
+      if (!svc || svc.external || svc.elective) continue;     /* เดือนที่ไปวนนอกภาควิชาไม่มีเคสของกลุ่มงาน */
+      const covered = (svc.subspecialties || []).filter(x => x !== "general");
+      const sub = covered.length ? covered[(k + idx) % covered.length]
+                                 : ["trauma","trauma","arthroplasty","infection"][(k + idx) % 4];
       const pool = OPS[sub] || OPS.trauma;
       const [dx, op] = pool[(k + idx) % pool.length];
       const senior = res.year >= 3;
@@ -1732,8 +1856,9 @@ function suggestAttendees(rec) {
     const rot = rotationOn(r.id, rec.date);
     const svc = rot ? serviceById(rot.serviceId) : null;
     if (!svc) return null;
-    if (svc.subspecialty === rec.subspecialty) return { residentId: r.id, reason: "หมุนเวียนอยู่ " + svc.name + " ในวันนั้น" };
-    if (svc.subspecialty === "general" && rec.caseClass === "emergency") return { residentId: r.id, reason: "อยู่สาย " + svc.name + " ในวันที่มีเคสฉุกเฉิน" };
+    if (svc.external || svc.elective) return null;
+    if (serviceCovers(svc, rec.subspecialty)) return { residentId: r.id, reason: "หมุนเวียนอยู่ " + svc.name + " ในวันนั้น" };
+    if (svc.team) return { residentId: r.id, reason: "อยู่" + svc.name + " ในวันนั้น" };
     return null;
   }).filter(Boolean);
 }
@@ -2192,12 +2317,14 @@ function renderRotation() {
       <div class="between" style="gap:.4rem">
         <div style="min-width:0">
           <b>${esc(r.name)}</b> <span class="tag">ปี ${r.year}</span>
-          ${svc ? `<div class="svc" style="color:${serviceInk(svc.id)}">${esc(svc.name)}</div>
+          ${svc ? `<div class="svc" style="color:${serviceInk(svc.id)}">${esc(svc.name)}
+              ${isChiefOn(r.id, today) ? `<span class="tag ok">หัวหน้าสาย</span>` : ""}
+              ${svc.external ? `<span class="tag">นอกภาควิชา</span>` : ""}</div>
             <div class="small muted">${esc(svc.site || "—")} · อาจารย์ผู้กำกับ ${esc(staffName(rot.supervisorId))}</div>
             <div class="small muted">บล็อก ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · เหลืออีก ${Math.max(0, span - gone)} วัน</div>`
           : `<div class="small"><span class="tag bad">ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>`}
         </div>
-        ${svc ? `<span class="tag b">${esc(SUB_BY_ID[svc.subspecialty]?.en || "")}</span>` : ""}
+        ${svc ? `<span class="tag b">${esc(serviceSubLabel(svc))}</span>` : ""}
       </div>
       ${rot ? barFor(pct(gone, span)) : ""}
       <div style="margin-top:.5rem">
@@ -2259,8 +2386,9 @@ function renderRotation() {
       return `<tr>
         <td class="small">${fmtDate(rot.start)}<br />ถึง ${fmtDate(rot.end)}</td>
         <td>${esc(r?.name || "—")}<br /><span class="small muted">ปี ${r?.year || "—"}</span></td>
-        <td><span style="color:${serviceInk(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span></td>
-        <td class="small">${esc(SUB_BY_ID[svc?.subspecialty]?.en || "—")}</td>
+        <td><span style="color:${serviceInk(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span>
+          ${isChiefOn(rot.residentId, rot.start) ? `<br /><span class="tag ok">หัวหน้าสาย</span>` : ""}</td>
+        <td class="small">${esc(svc ? serviceSubLabel(svc) : "—")}</td>
         <td class="small">${esc(svc?.site || "—")}</td>
         <td class="small">${esc(staffName(rot.supervisorId))}</td>
         <td><span class="tag ${state[0]}">${state[1]}</span></td>
@@ -2309,10 +2437,11 @@ function monthCellHtml(rot, mm, isNow) {
   const from = rot.start > monthStartISO(mm) ? +rot.start.slice(8, 10) : 1;
   const to   = rot.end   < monthEndISO(mm)   ? +rot.end.slice(8, 10)   : +monthEndISO(mm).slice(8, 10);
   const svc = serviceById(rot.serviceId);
+  const chief = isChiefOn(rot.residentId, rot.start);
   return `<button class="mcell ${isNow ? "now" : ""}" data-rotcell="${rot.id}"
     style="background:${colour};color:${ink}"
-    title="${esc(svc?.name || "")} · ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · ${esc(staffName(rot.supervisorId))}">
-    ${esc(serviceAbbr(rot.serviceId))}${partial ? `<small>${from}–${to}</small>` : ""}</button>`;
+    title="${esc(svc?.name || "")} · ${fmtDate(rot.start)} – ${fmtDate(rot.end)} · ${esc(staffName(rot.supervisorId))}${chief ? " · หัวหน้าสาย" : ""}">
+    ${esc(serviceAbbr(rot.serviceId))}${chief ? " ★" : ""}${partial ? `<small>${from}–${to}</small>` : ""}</button>`;
 }
 
 function renderMonthGrid() {
@@ -2338,9 +2467,10 @@ function renderMonthGrid() {
     </tr>`).join("")}</tbody></table></div>`
     : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
 
-  $("#monthLegend").innerHTML = (store.data.services || []).filter(x => usedIds.has(x.id))
+  $("#monthLegend").innerHTML = ((store.data.services || []).filter(x => usedIds.has(x.id))
     .map(x => `<span class="swatch"><i style="background:${serviceColour(x.id)}"></i>${esc(x.abbr || "")} — ${esc(x.name)}</span>`).join("")
-    || `<span class="small muted">ยังไม่มีการหมุนเวียนในปีการศึกษานี้</span>`;
+    || `<span class="small muted">ยังไม่มีการหมุนเวียนในปีการศึกษานี้</span>`) +
+    `<span class="swatch">★ หัวหน้าสาย (ปี 3 ในสายที่ไม่มีปี 4)</span>`;
 
   $$("#monthGrid [data-rotcell]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rotcell)));
 }
@@ -2533,7 +2663,7 @@ function sessionChip(ses, withDate) {
     ${withDate ? `<span class="pill">${esc(PART_BY_ID[ses.part]?.time || "")}</span>` : ""}
     <b>${esc(ses.name)}</b>
     <span class="who">${esc(staffName(ses.staffId))}${ses.location ? " · " + esc(ses.location) : ""}</span>
-    <span class="who">${ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(SUB_BY_ID[svc.subspecialty]?.en || "") : ""}</span>
+    <span class="who">${ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(serviceSubLabel(svc)) : ""}</span>
   </button>`;
 }
 
@@ -2547,7 +2677,7 @@ function openSession(key) {
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
       <dt>เซสชัน</dt><dd>${esc(ses.name)} · ${esc(PART_BY_ID[ses.part]?.th || "")} ${esc(PART_BY_ID[ses.part]?.time || "")}</dd>
       <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(ses.date + "T00:00:00").getDay()]}ที่ ${fmtDate(ses.date)}</dd>
-      <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(SUB_BY_ID[svc?.subspecialty]?.en || "")}</span></dd>
+      <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(svc ? serviceSubLabel(svc) : "")}</span></dd>
       <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
     </div>
     <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
@@ -2669,12 +2799,13 @@ function editStaff(id) {
 function renderServiceTable() {
   const svcs = store.data.services || [];
   $("#serviceTable").innerHTML = svcs.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>ตารางประจำสัปดาห์</th><th>กำลังหมุนเวียน</th><th></th></tr></thead>
+    <thead><tr><th>Service</th><th>ประเภท</th><th>Subspecialty</th><th>สถานที่</th><th>ตารางประจำสัปดาห์</th><th>กำลังหมุนเวียน</th><th></th></tr></thead>
     <tbody>${svcs.map(svc => {
       const now = (store.data.rotations || []).filter(r => r.serviceId === svc.id && r.start <= todayISO() && r.end >= todayISO()).length;
       return `<tr>
         <td><span style="color:${serviceInk(svc.id)};font-weight:600">${esc(svc.name)}</span></td>
-        <td class="small">${esc(SUB_BY_ID[svc.subspecialty]?.en || "—")}</td>
+        <td class="small">${svc.team ? "สาย" : svc.subUnit ? "หน่วยอนุสาขา" : svc.external ? "นอกภาควิชา" : svc.elective ? "elective" : "—"}</td>
+        <td class="small">${esc(serviceSubLabel(svc))}</td>
         <td class="small">${esc(svc.site || "—")}</td>
         <td class="small">${(svc.template || []).map(t => DAY_SHORT[t.day] + " " + (PART_BY_ID[t.part]?.th || "") + " — " + esc(t.name)).join("<br />") || "—"}</td>
         <td>${now} คน</td>
@@ -2707,8 +2838,14 @@ function editService(id) {
   const body = `
     <div class="grid g2">
       <label class="f"><span>ชื่อหน่วย (ภาษาอังกฤษ)</span><input name="name" value="${esc(svc?.name || "")}" placeholder="เช่น Foot &amp; Ankle Service" /></label>
-      <label class="f"><span>Subspecialty</span><select name="subspecialty">
-        ${SUBSPECIALTIES.map(sp => `<option value="${sp.id}" ${svc?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
+      <label class="f"><span>ประเภทหน่วย</span><select name="kind">
+        ${[["team","สาย (ทีมผู้ป่วยทั่วไป)"],["subUnit","หน่วยอนุสาขา"],["external","วนนอกภาควิชา"],["elective","free elective"]]
+          .map(([k, label]) => `<option value="${k}" ${svc?.[k] ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+    </div>
+    <span class="small" style="font-weight:600">Subspecialty ที่หน่วยนี้ครอบคลุม (เลือกได้หลายอัน — บางอนุสาขาอยู่คู่กัน)</span>
+    <div class="row" style="margin:.35rem 0 .8rem">
+      ${SUBSPECIALTIES.map(sp => `<label class="tag" style="cursor:pointer">
+        <input type="checkbox" data-sub="${sp.id}" ${serviceSubs(svc).includes(sp.id) ? "checked" : ""} /> ${esc(sp.en)}</label>`).join("")}
     </div>
     <div class="grid g2">
       <label class="f"><span>ตัวย่อในตารางรายเดือน</span><input name="abbr" value="${esc(svc?.abbr || "")}" placeholder="เช่น ฟ้า, TR, ELE" /></label>
@@ -2723,8 +2860,13 @@ function editService(id) {
   showDialog(svc ? "แก้ไขหน่วยที่หมุนเวียน" : "เพิ่มหน่วยที่หมุนเวียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อหน่วย"); return false; }
-        const rec = { name, subspecialty: dlgVal("subspecialty"), site: dlgVal("site"),
-                      abbr: dlgVal("abbr"), colour: dlgVal("colour"),
+        const subs = $$('#dlgBody [data-sub]').filter(c => c.checked).map(c => c.dataset.sub);
+        const kind = dlgVal("kind");
+        const rec = { name, site: dlgVal("site"), abbr: dlgVal("abbr"), colour: dlgVal("colour"),
+                      subspecialties: subs.length ? subs : ["general"],
+                      subspecialty: subs[0] || "general",
+                      team: kind === "team", subUnit: kind === "subUnit",
+                      external: kind === "external", elective: kind === "elective",
                       template: draftTemplate.filter(t => (t.name || "").trim()) };
         if (svc) Object.assign(svc, rec); else store.data.services.push({ id: uid("svc"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -3803,7 +3945,7 @@ function printPortfolio(residentId) {
       ${rots.length ? `<table><thead><tr><th>ช่วง</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th></tr></thead>
         <tbody>${rots.map(rot => { const svc = serviceById(rot.serviceId); return `<tr>
           <td>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</td><td>${esc(svc?.name || "—")}</td>
-          <td>${esc(SUB_BY_ID[svc?.subspecialty]?.en || "—")}</td><td>${esc(svc?.site || "—")}</td>
+          <td>${esc(svc ? serviceSubLabel(svc) : "—")}</td><td>${esc(svc?.site || "—")}</td>
           <td>${esc(staffName(rot.supervisorId))}</td></tr>`; }).join("")}</tbody></table>` : ""}
       ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
         <table><thead><tr><th>Service</th><th>จำนวนครั้ง</th><th>คะแนนเฉลี่ย</th><th>entrustment เฉลี่ย</th></tr></thead>
@@ -4005,6 +4147,22 @@ function init() {
     $$("[data-segview]").forEach(v => { v.hidden = v.dataset.segview !== b.dataset.seg; });
   });
   $("#ayPick").addEventListener("change", (e) => { ayView = e.target.value; renderMonthGrid(); });
+  $("#btnGeneratePlan").addEventListener("click", () => {
+    const ay = ayView || currentAY();
+    const months = ayMonths(ay);
+    const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+    const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
+    if (!store.data.residents.length) { toast("ยังไม่มีรายชื่อแพทย์ประจำบ้าน"); return; }
+    if (!confirm("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
+                 "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ)")) return;
+    const plan = buildRotationPlan(ay, store.data.residents, store.data.services);
+    store.data.rotations = (store.data.rotations || []).filter(r => !(r.start >= from && r.start <= to)).concat(plan.rotations);
+    store.save(); renderAll();
+    $("#planNotes").innerHTML = `<div class="notice ${plan.warnings.length ? "warn" : ""} small">
+      สร้างแผนปีการศึกษา ${esc(ay)} แล้ว ${plan.rotations.length} บล็อก
+      ${plan.warnings.length ? "<br />ข้อควรตรวจ:<br />• " + plan.warnings.map(esc).join("<br />• ") : "· ไม่พบข้อขัดกติกา"}</div>`;
+    toast("สร้างแผนหมุนเวียนแล้ว " + plan.rotations.length + " บล็อก");
+  });
   $("#btnPrintMonth").addEventListener("click", printMonthGrid);
   $("#btnMonthCsv").addEventListener("click", () => download("rotation-by-month.csv", toCsv(monthCsvRows()), "text/csv;charset=utf-8"));
   $("#btnAddTalk").addEventListener("click", () => editTalk(null));
