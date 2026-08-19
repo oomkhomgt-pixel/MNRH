@@ -591,6 +591,12 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="keywordEditor"></div>
     </div>
     <div class="card">
+      <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
+      <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
+        ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
+      <div id="backupPanel"></div>
+    </div>
+    <div class="card">
       <h2>ข้อมูลในเครื่องนี้</h2>
       <p class="small muted" id="storageInfo"></p>
       <div class="row">
@@ -928,6 +934,10 @@ const store = {
     d.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false };
     d.users ||= []; d.audit ||= [];
     d.epas ||= []; d.epaAssessments ||= [];
+    d.backup ||= { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" };
+    d.backupLog ||= [];
+    d.sync.mode ||= "logbook";
+    d.sync.cloudUrl ||= "";
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const remap = (o) => { if (o && LEGACY_SUBSPECIALTIES[o.subspecialty]) o.subspecialty = LEGACY_SUBSPECIALTIES[o.subspecialty]; };
@@ -958,6 +968,7 @@ const store = {
                   cases:[], orQueue:{ ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
                   sync:{ url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
                   users:[], audit:[], epas:[], epaAssessments:[], epaTargets:{ 1:{}, 2:{}, 3:{}, 4:{} },
+                  backup:{ lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" }, backupLog:[],
                   requirements: structuredClone(DEFAULT_REQUIREMENTS),
                   programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
     this.save();
@@ -1756,7 +1767,9 @@ function seedData() {
     residents, activities, research, programme,
     staff: staffRoster, services, rotations, sessionEvals, schedule, cases, users, audit: [],
     epas, epaTargets, epaAssessments,
-    sync: { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
+    backup: { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" }, backupLog: [],
+    sync: { url:"", cloudUrl:"", mode:"logbook", token:"", user:"", residentId:"", auto:true, withRole:false,
+            lastAt:"", lastStatus:"", pending:false },
     orQueue: { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
@@ -3506,10 +3519,12 @@ function syncPayloadItems() {
 let syncTimer = null, syncing = false, suppressDirty = false;
 function markDirty() {
   const cfg = syncCfg();
-  if (suppressDirty || !cfg.url || !cfg.auto) return;
+  const target = cfg.mode === "full" ? cfg.cloudUrl : cfg.url;
+  if (suppressDirty || !target || !cfg.auto) return;
   cfg.pending = true;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => syncNow(true), 5000);   /* รวบการแก้ไขหลายครั้งให้ส่งครั้งเดียว */
+  /* รวบการแก้ไขหลายครั้งให้ส่งครั้งเดียว — ส่งไปตามโหมดที่ตั้งไว้ */
+  syncTimer = setTimeout(() => (cfg.mode === "full" ? cloudPush(true) : syncNow(true)), 5000);
   paintSyncState();
 }
 
@@ -3549,7 +3564,7 @@ async function syncNow(quiet) {
 function paintSyncState() {
   const el = $("#syncState"); if (!el) return;
   const cfg = syncCfg();
-  if (!cfg.url) { el.hidden = true; return; }
+  if (!(cfg.mode === "full" ? cfg.cloudUrl : cfg.url)) { el.hidden = true; return; }
   el.hidden = false;
   el.className = "tag " + (syncing ? "b" : cfg.pending ? "warn" : "ok");
   el.textContent = syncing ? "กำลังซิงก์…" : cfg.pending ? "รอซิงก์" : "ซิงก์แล้ว";
@@ -3558,9 +3573,11 @@ function paintSyncState() {
 
 function setupSync() {
   const cfg = syncCfg();
-  window.addEventListener("online", () => { if (cfg.auto && cfg.pending) syncNow(true); });
-  setInterval(() => { if (cfg.auto && cfg.url && cfg.pending) syncNow(true); }, 10 * 60 * 1000);
-  if (cfg.auto && cfg.url) setTimeout(() => syncNow(true), 3000);
+  const push = (quiet) => (cfg.mode === "full" ? cloudPush(quiet) : syncNow(quiet));
+  const target = () => (cfg.mode === "full" ? cfg.cloudUrl : cfg.url);
+  window.addEventListener("online", () => { if (cfg.auto && cfg.pending) push(true); });
+  setInterval(() => { if (cfg.auto && target() && cfg.pending) push(true); }, 10 * 60 * 1000);
+  if (cfg.auto && target()) setTimeout(() => push(true), 3000);
   paintSyncState();
 }
 
@@ -3572,7 +3589,14 @@ function syncSettingsDialog() {
   const body = `
     <p class="small muted">ซิงก์ logbook ขึ้นเซิร์ฟเวอร์กลางอัตโนมัติ แยกตามผู้ใช้ เพื่อให้เปิดเครื่องอื่นก็เห็นข้อมูลเดิม
       · <b>ข้อมูลที่ส่งออกมีเพียง วันที่ผ่าตัด, diagnosis และ operation</b> ไม่มี HN ไม่มีชื่อผู้ป่วย ไม่มีอายุ/เพศ และไม่มีชื่อศัลยแพทย์</p>
-    <label class="f"><span>ที่อยู่ปลายทาง (PUT/GET)</span>
+    <label class="f"><span>โหมดการซิงก์</span>
+      <select name="mode">
+        <option value="full" ${cfg.mode === "full" ? "selected" : ""}>ฐานข้อมูลกลางของภาควิชา — ส่งข้อมูลทั้งชุด (คลาวด์ที่ภาควิชาดูแลเอง)</option>
+        <option value="logbook" ${cfg.mode !== "full" ? "selected" : ""}>เฉพาะ logbook — ส่งแค่ วันที่/diagnosis/operation (ปลายทางนอกภาควิชา)</option>
+      </select></label>
+    <label class="f"><span>ที่อยู่คลาวด์ของภาควิชา (โหมดข้อมูลทั้งชุด)</span>
+      <input name="cloudUrl" value="${esc(cfg.cloudUrl || "")}" placeholder="https://cloud.ortho-mnrh.example/api/portfolio/dataset" /></label>
+    <label class="f"><span>ที่อยู่ปลายทางเฉพาะ logbook (PUT/GET)</span>
       <input name="url" value="${esc(cfg.url)}" placeholder="https://portfolio.hospital.local/api/portfolio/logbook" /></label>
     <div class="grid g2">
       <label class="f"><span>ผู้ใช้ (เจ้าของ logbook)</span><select name="residentId">
@@ -3586,19 +3610,25 @@ function syncSettingsDialog() {
         <option value="0" ${!cfg.auto ? "selected" : ""}>ปิด — กดส่งเอง</option></select></label>
     </div>
     <label class="tag" style="cursor:pointer"><input type="checkbox" name="withRole" ${cfg.withRole ? "checked" : ""} /> ส่งบทบาทในเคสไปด้วย (surgeon / assistant)</label>
-    <h4 style="margin-top:.9rem">ตัวอย่างข้อมูลที่จะถูกส่ง (${syncPayloadItems().length} รายการ)</h4>
+    <p class="small muted">โหมดข้อมูลทั้งชุดจะส่ง ทะเบียนแพทย์ประจำบ้าน/อาจารย์ ตารางหมุนเวียน เซสชันและผลประเมิน กิจกรรม งานวิจัย
+      logbook EPA และเกณฑ์ต่าง ๆ ขึ้นคลาวด์ที่ภาควิชาดูแลเอง (<b>ไม่ส่งรหัสผ่านของบัญชี</b>)
+      · ส่วนโหมดเฉพาะ logbook ส่ง 3 ฟิลด์ตามด้านล่างเท่านั้น</p>
+    <h4 style="margin-top:.9rem">ตัวอย่างข้อมูลที่จะถูกส่งในโหมดเฉพาะ logbook (${syncPayloadItems().length} รายการ)</h4>
     <div class="excerpt">${esc(preview || "(ยังไม่มีรายการ)")}</div>
     <p class="small muted">สัญญาข้อมูลของปลายทาง: <span class="mono">PUT {url}</span> รับ <span class="mono">{user, updatedAt, items[]}</span>
       และ <span class="mono">GET {url}?user=…</span> คืน <span class="mono">{items[]}</span> — มีตัวอย่างเซิร์ฟเวอร์อ้างอิงในโฟลเดอร์ <span class="mono">sync-server/</span></p>`;
   showDialog("ซิงก์ logbook ขึ้นระบบกลาง", body, [
     { label:"บันทึกและซิงก์เลย", cls:"btn-primary", onClick: () => {
-        cfg.url = dlgVal("url"); cfg.user = dlgVal("user"); cfg.token = dlgVal("token");
+        cfg.url = dlgVal("url"); cfg.cloudUrl = dlgVal("cloudUrl"); cfg.mode = dlgVal("mode") || "logbook";
+        cfg.user = dlgVal("user"); cfg.token = dlgVal("token");
         cfg.residentId = dlgVal("residentId");
         cfg.auto = dlgVal("auto") === "1";
         cfg.withRole = !!$('#dlgBody [name="withRole"]')?.checked;
         store.save(); paintSyncState();
-        if (cfg.url) syncNow(false);
+        if (cfg.mode === "full") { if (cfg.cloudUrl) cloudPush(false); }
+        else if (cfg.url) syncNow(false);
       }},
+    { label:"ดึงข้อมูลทั้งชุดจากคลาวด์", onClick: () => { cloudPull(); } },
     { label:"ดึงจากระบบกลาง", onClick: async () => {
         if (!cfg.url) { toast("ยังไม่ได้ตั้งที่อยู่"); return false; }
         try {
@@ -3614,6 +3644,237 @@ function syncSettingsDialog() {
         return false;
       }}
   ]);
+}
+
+/* =====================================================================
+   13a2) ฐานข้อมูลกลางบนคลาวด์ของภาควิชา + สำรองลงฮาร์ดดิสก์ของภาควิชา
+        สองทางนี้ทำงานแยกกัน: คลาวด์คือชุดข้อมูลที่ใช้งานร่วมกัน ส่วนดิสก์คือสำเนาที่ถือไว้เอง
+   ===================================================================== */
+const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","activities",
+  "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users"];
+
+function fullPayload() {
+  const out = {};
+  SYNCED_KEYS.forEach(k => { out[k] = store.data[k]; });
+  /* รหัสผ่านของบัญชีไม่ถูกส่งขึ้นคลาวด์ */
+  out.users = (store.data.users || []).map(u => { const { pin, ...rest } = u; return rest; });
+  out.meta = { ...(store.data.meta || {}), pushedAt: new Date().toISOString() };
+  return out;
+}
+
+const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navigator.platform || "device");
+
+async function cloudPush(quiet) {
+  const cfg = syncCfg();
+  if (!cfg.cloudUrl) { if (!quiet) toast("ยังไม่ได้ตั้งที่อยู่คลาวด์ของภาควิชา"); return; }
+  if (syncing) return;
+  if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
+  syncing = true; paintSyncState();
+  try {
+    const res = await fetchWithTimeout(cfg.cloudUrl, {
+      method: "PUT", credentials: "include",
+      headers: Object.assign({ "Content-Type": "application/json" }, cfg.token ? { Authorization: "Bearer " + cfg.token } : {}),
+      body: JSON.stringify({ device: deviceName(), updatedAt: new Date().toISOString(), data: fullPayload() })
+    }, 20000);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json().catch(() => ({}));
+    cfg.lastAt = new Date().toISOString();
+    cfg.remoteAt = body.updatedAt || cfg.lastAt;
+    cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว " + Math.round((body.bytes || 0) / 1024) + " KB" +
+                     (body.versions ? " · เก็บย้อนหลัง " + body.versions + " รุ่น" : "");
+    cfg.pending = false;
+    if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว");
+  } catch (e) {
+    cfg.lastStatus = "ส่งขึ้นคลาวด์ไม่สำเร็จ: " + e.message;
+    cfg.pending = true;
+    if (!quiet) toast("ส่งขึ้นคลาวด์ไม่สำเร็จ: " + e.message);
+  } finally {
+    syncing = false; suppressDirty = true; store.save(); suppressDirty = false; paintSyncState();
+  }
+}
+
+async function cloudPull() {
+  const cfg = syncCfg();
+  if (!cfg.cloudUrl) { toast("ยังไม่ได้ตั้งที่อยู่คลาวด์"); return; }
+  try {
+    const res = await fetchWithTimeout(cfg.cloudUrl, {
+      credentials: "include", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
+    }, 20000);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json();
+    if (!body.data) { toast("บนคลาวด์ยังไม่มีข้อมูล"); return; }
+    const n = (body.data.residents || []).length, a = (body.data.activities || []).length;
+    if (!confirm("ดึงข้อมูลจากคลาวด์ (อัปเดตล่าสุด " + (body.updatedAt ? new Date(body.updatedAt).toLocaleString("th-TH") : "—") +
+                 " จากเครื่อง " + (body.device || "—") + ")\n" +
+                 "จะแทนที่ข้อมูลในเครื่องนี้ด้วย แพทย์ประจำบ้าน " + n + " คน · กิจกรรม " + a + " รายการ\n" +
+                 "ควรสำรองลงดิสก์ก่อนถ้ายังไม่ได้ทำ")) return;
+    /* บัญชีที่ดึงมาไม่มีรหัสผ่าน จึงต้องจำรหัสเดิมในเครื่องไว้ก่อนเขียนทับ ไม่งั้นจะล็อกอินไม่ได้อีก */
+    const localPins = new Map((store.data.users || []).map(u => [u.username, u.pin]));
+    SYNCED_KEYS.forEach(k => { if (body.data[k] !== undefined) store.data[k] = body.data[k]; });
+    (store.data.users || []).forEach(u => { if (!u.pin && localPins.get(u.username)) u.pin = localPins.get(u.username); });
+    store.migrate();
+    audit("ดึงข้อมูลจากคลาวด์", "อัปเดตล่าสุด " + (body.updatedAt || "—"));
+    suppressDirty = true; store.save(); suppressDirty = false;
+    renderAll(); applyPermissions();
+    toast("ดึงข้อมูลจากคลาวด์แล้ว");
+  } catch (e) { toast("ดึงจากคลาวด์ไม่สำเร็จ: " + e.message); }
+}
+
+/* --- สำรองลงฮาร์ดดิสก์ของภาควิชา --- */
+const backupCfg = () => (store.data.backup ||= { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" });
+const backupFileName = () => "ortho-portfolio-" + new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16) + ".json";
+const hasFsAccess = () => typeof window.showDirectoryPicker === "function";
+let backupDir = null;
+
+/* เก็บสิทธิ์เข้าถึงโฟลเดอร์ไว้ใน IndexedDB เพื่อไม่ต้องเลือกใหม่ทุกครั้งที่เปิดแอป */
+function idb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("ortho-portfolio-fs", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction("handles", mode);
+      const out = fn(tx.objectStore("handles"));
+      tx.oncomplete = () => resolve(out?.result ?? out);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+const saveDirHandle = (h) => idb("readwrite", (st) => st.put(h, "backupDir"));
+const readDirHandle = () => idb("readonly", (st) => st.get("backupDir"));
+
+async function ensureDirPermission(dir) {
+  if (!dir) return false;
+  if (typeof dir.queryPermission !== "function") return true;   /* ไม่มี API ตรวจสิทธิ์ — ลองเขียนแล้วดักข้อผิดพลาดแทน */
+  const opts = { mode: "readwrite" };
+  try {
+    if ((await dir.queryPermission(opts)) === "granted") return true;
+    return typeof dir.requestPermission === "function" && (await dir.requestPermission(opts)) === "granted";
+  } catch { return false; }
+}
+
+async function pickBackupFolder() {
+  if (!hasFsAccess()) { toast("เบราว์เซอร์นี้ยังเลือกโฟลเดอร์ไม่ได้ — ใช้ปุ่มดาวน์โหลดไฟล์แทน"); return; }
+  try {
+    backupDir = await window.showDirectoryPicker({ mode: "readwrite", id: "ortho-portfolio-backup" });
+    await saveDirHandle(backupDir);
+    backupCfg().folderName = backupDir.name;
+    audit("ตั้งโฟลเดอร์สำรองข้อมูล", backupDir.name);
+    store.save(); renderBackupPanel();
+    toast("ตั้งโฟลเดอร์สำรองเป็น " + backupDir.name + " แล้ว");
+  } catch { /* ผู้ใช้กดยกเลิก */ }
+}
+
+function logBackup(target, name, bytes) {
+  const b = backupCfg();
+  b.lastAt = new Date().toISOString(); b.lastTarget = target;
+  (store.data.backupLog ||= []).push({ at: b.lastAt, target, name, bytes, by: currentUser()?.displayName || "—" });
+  if (store.data.backupLog.length > 100) store.data.backupLog.splice(0, store.data.backupLog.length - 100);
+}
+
+async function backupToFolder(auto) {
+  const b = backupCfg();
+  if (!backupDir) backupDir = await readDirHandle().catch(() => null);
+  if (!backupDir || !(await ensureDirPermission(backupDir))) {
+    if (!auto) toast("ยังไม่ได้อนุญาตให้เขียนโฟลเดอร์สำรอง");
+    return false;
+  }
+  try {
+    const json = JSON.stringify(store.data);
+    const name = backupFileName();
+    const fh = await backupDir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(json); await w.close();
+
+    /* หมุนไฟล์เก่าออกตามจำนวนที่ตั้งไว้ */
+    const names = [];
+    for await (const [n, h] of backupDir.entries())
+      if (h.kind === "file" && /^ortho-portfolio-.*\.json$/.test(n)) names.push(n);
+    names.sort();
+    const extra = Math.max(0, names.length - Math.max(1, +b.keep || 20));
+    for (let i = 0; i < extra; i++) await backupDir.removeEntry(names[i]).catch(() => {});
+
+    logBackup("โฟลเดอร์ " + backupDir.name, name, json.length);
+    audit("สำรองข้อมูลลงดิสก์", name + " · " + Math.round(json.length / 1024) + " KB");
+    suppressDirty = true; store.save(); suppressDirty = false;
+    renderBackupPanel();
+    if (!auto) toast("สำรองลง " + backupDir.name + " แล้ว (" + Math.round(json.length / 1024) + " KB)");
+    return true;
+  } catch (e) {
+    if (!auto) toast("สำรองไม่สำเร็จ: " + e.message);
+    return false;
+  }
+}
+
+function backupToDownload() {
+  const json = JSON.stringify(store.data, null, 1);
+  const name = backupFileName();
+  download(name, json, "application/json");
+  logBackup("ดาวน์โหลด", name, json.length);
+  audit("สำรองข้อมูลเป็นไฟล์", name);
+  suppressDirty = true; store.save(); suppressDirty = false;
+  renderBackupPanel();
+}
+
+const backupOverdueDays = () => {
+  const b = backupCfg();
+  if (!b.lastAt) return Infinity;
+  return Math.floor((Date.now() - Date.parse(b.lastAt)) / 86400000);
+};
+
+async function autoBackupIfDue() {
+  const b = backupCfg();
+  if (!hasFsAccess() || backupOverdueDays() < (+b.everyDays || 7)) return;
+  if (!backupDir) backupDir = await readDirHandle().catch(() => null);
+  if (!backupDir) return;                       /* ยังไม่เคยเลือกโฟลเดอร์ — ไม่รบกวน */
+  /* สำรองอัตโนมัติเฉพาะเมื่อได้สิทธิ์ไว้แล้ว จะได้ไม่เด้งขออนุญาตตอนเปิดแอป */
+  try {
+    if (typeof backupDir.queryPermission !== "function") return;
+    if ((await backupDir.queryPermission({ mode: "readwrite" })) !== "granted") return;
+  } catch { return; }
+  await backupToFolder(true);
+}
+
+function renderBackupPanel() {
+  const box = $("#backupPanel"); if (!box) return;
+  const b = backupCfg();
+  const days = backupOverdueDays();
+  const overdue = days >= (+b.everyDays || 7);
+  const log = (store.data.backupLog || []).slice(-8).reverse();
+  box.innerHTML = `
+    <div class="notice ${overdue ? "warn" : ""} small">
+      ${b.lastAt
+        ? "สำรองล่าสุด " + new Date(b.lastAt).toLocaleString("th-TH") + " (" + (days === 0 ? "วันนี้" : days + " วันก่อน") + ") ที่ " + esc(b.lastTarget || "—")
+        : "ยังไม่เคยสำรองข้อมูลจากเครื่องนี้"}
+      ${overdue ? " · <b>ถึงกำหนดสำรองแล้ว</b>" : ""}
+      ${b.folderName ? " · โฟลเดอร์ที่ตั้งไว้: " + esc(b.folderName) : ""}
+    </div>
+    <div class="row no-print" style="margin:.7rem 0">
+      <button class="btn-sm btn-primary" id="btnBackupNow">สำรองลงโฟลเดอร์ตอนนี้</button>
+      <button class="btn-sm" id="btnBackupFolder">${b.folderName ? "เปลี่ยนโฟลเดอร์" : "เลือกโฟลเดอร์บนดิสก์ภาควิชา"}</button>
+      <button class="btn-sm" id="btnBackupDownload">ดาวน์โหลดเป็นไฟล์</button>
+      <button class="btn-sm" id="btnBackupRestore">กู้คืนจากไฟล์</button>
+    </div>
+    <div class="row">
+      <label class="f" style="margin:0"><span>สำรองทุกกี่วัน</span>
+        <input type="number" min="1" max="90" id="backupEvery" value="${+b.everyDays || 7}" style="width:90px" /></label>
+      <label class="f" style="margin:0"><span>เก็บย้อนหลังกี่ไฟล์</span>
+        <input type="number" min="1" max="200" id="backupKeep" value="${+b.keep || 20}" style="width:90px" /></label>
+    </div>
+    ${!hasFsAccess() ? `<p class="small muted">เบราว์เซอร์นี้ยังเขียนไฟล์ลงโฟลเดอร์โดยตรงไม่ได้ (รองรับใน Chrome/Edge บนคอมพิวเตอร์)
+      — ใช้ปุ่มดาวน์โหลดแล้วเก็บไฟล์ลงดิสก์ของภาควิชาเองแทน</p>` : ""}
+    ${log.length ? `<h4 style="margin-top:.8rem">ประวัติการสำรอง</h4>
+      <div class="tbl-wrap"><table><thead><tr><th>เวลา</th><th>ปลายทาง</th><th>ไฟล์</th><th>ขนาด</th><th>โดย</th></tr></thead>
+      <tbody>${log.map(x => `<tr><td class="small">${new Date(x.at).toLocaleString("th-TH")}</td>
+        <td class="small">${esc(x.target)}</td><td class="small mono">${esc(x.name)}</td>
+        <td class="small">${Math.round((x.bytes || 0) / 1024)} KB</td><td class="small">${esc(x.by || "")}</td></tr>`).join("")}
+      </tbody></table></div>` : ""}`;
+  $("#btnBackupNow").onclick = () => backupToFolder(false);
+  $("#btnBackupFolder").onclick = pickBackupFolder;
+  $("#btnBackupDownload").onclick = backupToDownload;
+  $("#btnBackupRestore").onclick = () => $("#importPick").click();
+  $("#backupEvery").onchange = (e) => { b.everyDays = Math.max(1, +e.target.value || 7); store.save(); renderBackupPanel(); };
+  $("#backupKeep").onchange = (e) => { b.keep = Math.max(1, +e.target.value || 20); store.save(); renderBackupPanel(); };
 }
 
 /* =====================================================================
@@ -4869,6 +5130,7 @@ function renderAll() {
   renderStoreState();
   renderUserTable();
   renderAuditLog();
+  renderBackupPanel();
   renderIngestStats();
   renderRotation();
   renderStaffTable();
@@ -5218,6 +5480,7 @@ function init() {
 
   setupApp();
   setupSync();
+  autoBackupIfDue();
   $("#btnDiagnose").addEventListener("click", async () => {
     renderDiagnostics([["", "กำลังตรวจ…"]]);
     renderDiagnostics(await diagnoseQueueLink());

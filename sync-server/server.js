@@ -19,6 +19,9 @@ const FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const TOKENS = JSON.parse(process.env.TOKENS || "{}");        /* { user: token } — ว่างไว้ = ไม่ตรวจ */
 const ROUTE = process.env.ROUTE || "/api/portfolio/logbook";
+const DATASET_ROUTE = process.env.DATASET_ROUTE || "/api/portfolio/dataset";
+const DATASET_FILE = process.env.DATASET_FILE || path.join(__dirname, "dataset.json");
+const KEEP_VERSIONS = +(process.env.KEEP_VERSIONS || 10);
 const ALLOWED_FIELDS = ["ref", "date", "diagnosis", "operation", "role"];
 const MAX_BODY = 2 * 1024 * 1024;
 
@@ -53,10 +56,49 @@ const authorised = (req, user) => {
   return !!user && TOKENS[user] && TOKENS[user] === token;
 };
 
+const loadDataset = () => { try { return JSON.parse(fs.readFileSync(DATASET_FILE, "utf8")); } catch { return { versions: [] }; } };
+const saveDataset = (doc) => fs.writeFileSync(DATASET_FILE, JSON.stringify(doc));
+
+const readBody = (req, res, origin, done) => {
+  let body = "", tooBig = false;
+  req.on("data", (chunk) => { body += chunk; if (body.length > MAX_BODY) { tooBig = true; req.destroy(); } });
+  req.on("end", () => {
+    if (tooBig) return send(res, 413, { error: "payload too large" }, origin);
+    try { done(JSON.parse(body)); } catch { send(res, 400, { error: "bad json" }, origin); }
+  });
+};
+
 http.createServer((req, res) => {
   const origin = req.headers.origin || "";
   const url = new URL(req.url, "http://localhost");
   if (req.method === "OPTIONS") return send(res, 204, {}, origin);
+
+  /* --- ชุดข้อมูลทั้งก้อนของภาควิชา (ฐานข้อมูลกลางบนคลาวด์) --- */
+  if (url.pathname === DATASET_ROUTE) {
+    if (req.method === "GET") {
+      const doc = loadDataset();
+      if (url.searchParams.get("versions") === "1")
+        return send(res, 200, { versions: (doc.versions || []).map(v => ({ at: v.at, device: v.device, bytes: v.bytes })) }, origin);
+      return send(res, 200, { updatedAt: doc.updatedAt || "", device: doc.device || "", data: doc.data || null }, origin);
+    }
+    if (req.method === "PUT") {
+      return readBody(req, res, origin, (parsed) => {
+        if (!parsed || typeof parsed.data !== "object") return send(res, 400, { error: "missing data" }, origin);
+        const doc = loadDataset();
+        const bytes = JSON.stringify(parsed.data).length;
+        doc.versions = [{ at: new Date().toISOString(), device: String(parsed.device || ""), bytes, data: parsed.data }]
+          .concat(doc.versions || []).slice(0, KEEP_VERSIONS);
+        doc.updatedAt = doc.versions[0].at;
+        doc.device = doc.versions[0].device;
+        doc.data = parsed.data;
+        saveDataset(doc);
+        console.log(new Date().toISOString(), "PUT dataset", bytes, "bytes from", doc.device);
+        return send(res, 200, { ok: true, updatedAt: doc.updatedAt, bytes, versions: doc.versions.length }, origin);
+      });
+    }
+    return send(res, 405, { error: "method not allowed" }, origin);
+  }
+
   if (url.pathname !== ROUTE) return send(res, 404, { error: "not found" }, origin);
 
   if (req.method === "GET") {
