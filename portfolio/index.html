@@ -398,6 +398,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
           อาจารย์ที่ออกตรวจ OPD วันพฤหัสบดี และวันหยุดราชการ
           · ช่องว่าง = ใช้ตามตารางประจำสัปดาห์ · ติ๊กวันหยุดแล้วคาบทั้งวันจะหายไปจากปฏิทิน
+          · เวร ER ในเวลาราชการ คนที่ชั้นปีน้อยที่สุดของสายจะ standby ที่ ER และรับ consult นอกแผนก ที่เหลือเข้า OR emergency
           · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p>
         <div id="dutyTable"></div>
       </div>
@@ -1217,6 +1218,7 @@ function computeSessions(iso, data) {
       const away = !!(svcById(rot?.serviceId)?.external || svcById(rot?.serviceId)?.elective);
       (cs.template || []).forEach((t, i) => {
         if (t.day !== dow) return;
+        if (t.staffOnly) return;                                    /* คาบของอาจารย์ล้วน ไม่มีแพทย์ประจำบ้านเข้า */
         if (t.years?.length && !t.years.includes(r.year)) return;   /* บางคาบจัดเฉพาะบางชั้นปี */
         if (away && t.whenAway === false) return;                   /* คนที่วนนอกภาควิชาไม่ต้องเข้า */
         push(cs.id + "@" + r.id, i, t, cs, r.id, rot);
@@ -1229,16 +1231,19 @@ function computeSessions(iso, data) {
   const duty = (data.duty || []).find(x => x.date === iso);
   if (duty?.holiday) out.length = 0;
   if (duty?.erServiceId || duty?.erResidentIds?.length) {
-    /* ถ้าไม่ได้ระบุตัวบุคคล ให้ตกกับทุกคนที่อยู่สายนั้นในวันนั้น */
-    const people = duty.erResidentIds?.length ? duty.erResidentIds
-      : (data.residents || []).filter(r => (data.rotations || []).some(x =>
-          x.residentId === r.id && x.serviceId === duty.erServiceId &&
-          (!x.start || iso >= x.start) && (!x.end || iso <= x.end))).map(r => r.id);
+    /* เวร ER ในเวลาราชการ: คนที่อ่อนอาวุโสที่สุดของสายนั้น standby ที่ ER และรับ consult นอกแผนก
+       ที่เหลือในสายเข้า OR emergency ตามตารางประจำสัปดาห์ตามปกติ
+       ระบุตัวเองได้ที่ตารางเวร ถ้าเว้นว่างระบบจะเลือกคนที่ชั้นปีน้อยที่สุดให้ */
+    const inTeam = (data.residents || []).filter(r => (data.rotations || []).some(x =>
+      x.residentId === r.id && x.serviceId === duty.erServiceId &&
+      (!x.start || iso >= x.start) && (!x.end || iso <= x.end)));
+    const junior = inTeam.slice().sort((a, b) => (a.year || 9) - (b.year || 9))[0];
+    const people = duty.erResidentIds?.length ? duty.erResidentIds : (junior ? [junior.id] : []);
     const svc = (data.services || []).find(x => x.id === duty.erServiceId);
     people.forEach(rid => out.push({
       key: "duty|" + iso + "|" + rid,
       rotationId: "", residentId: rid, serviceId: duty.erServiceId || "",
-      date: iso, part:"day", name:"อยู่เวร ER" + (svc ? " — " + svc.name : ""),
+      date: iso, part:"day", name:"standby ER + consult นอกแผนก" + (svc ? " — " + svc.name : ""),
       start:"", end:"", location: duty.location || "ห้องฉุกเฉิน",
       staffIds: (duty.erStaffIds || []).slice(), staffId: (duty.erStaffIds || [])[0] || "",
       kind:"duty",
@@ -1811,9 +1816,9 @@ function seedData() {
         { day:4, part:"pm", name:"Inter-hospital conference (ปี 4)", start:"13:00", end:"15:30",
           staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true, academic:true },
         /* จากหมายเหตุท้ายตารางเวร */
-        /* ปี 4 ไปประชุม inter-hospital ช่วงเดียวกัน จึงไม่ได้เข้าคลินิกนี้ */
+        /* คลินิกของอาจารย์ล้วน ไม่มีแพทย์ประจำบ้านเข้า — ปี 4 ก็ติดประชุม inter-hospital ช่วงเดียวกัน */
         { day:4, part:"pm", name:"คลินิกพิเศษออร์โธเด็ก", start:"13:00", end:"16:00",
-          staffIds:["st_23"], location:"OPD ออร์โธปิดิกส์", years:[1,2,3], whenAway:false }
+          staffIds:["st_23"], location:"OPD ออร์โธปิดิกส์", years:[], whenAway:false, staffOnly:true }
       ] }
   ];
   services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
@@ -3476,7 +3481,7 @@ function renderDutyTable() {
 
   box.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr><th>วันที่</th><th>วัน</th><th>OPD (สาย)</th><th>OPD (อาจารย์ — วันพฤหัสบดี)</th>
-      <th>ER (สาย)</th><th>อาจารย์เวร</th><th>แพทย์ประจำบ้านที่อยู่เวร</th><th>หยุด</th></tr></thead>
+      <th>ER (สาย)</th><th>อาจารย์เวร</th><th>ผู้ standby ER (เว้นว่าง = ชั้นปีน้อยสุดของสาย)</th><th>หยุด</th></tr></thead>
     <tbody>${days.map(iso => {
       const d = (store.data.duty || []).find(x => x.date === iso) || {};
       const dow = new Date(iso + "T00:00:00").getDay();

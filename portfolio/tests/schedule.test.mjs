@@ -17,14 +17,13 @@ export default async function run() {
       let iso = todayISO();
       while (new Date(iso + "T00:00:00").getDay() !== day) iso = addDaysISO(iso, 1);
       const all = sessionsForDate(iso).filter(s => s.kind === "central" && s.name === cs.template[0].name);
-      /* คาบส่วนกลางส่วนใหญ่ไม่ได้ระบุอาจารย์ประจำ — ตรวจว่าคาบที่ระบุไว้ ส่งชื่อมาถึงจริง */
-      const named = cs.template.find(t => t.staffIds?.length);
-      let namedOk = "ไม่มีคาบที่ระบุอาจารย์ไว้";
-      if (named) {
+      /* คาบของอาจารย์ล้วนต้องไม่สร้างคาบให้แพทย์ประจำบ้านเลย */
+      const staffOnlyRow = cs.template.find(t => t.staffOnly);
+      let staffOnlyHidden = "ไม่มีคาบของอาจารย์ล้วน";
+      if (staffOnlyRow) {
         let d = todayISO();
-        while (new Date(d + "T00:00:00").getDay() !== named.day) d = addDaysISO(d, 1);
-        const got = sessionsForDate(d).find(s => s.name === named.name);
-        namedOk = got?.staffIds.join(",") === named.staffIds.join(",");
+        while (new Date(d + "T00:00:00").getDay() !== staffOnlyRow.day) d = addDaysISO(d, 1);
+        staffOnlyHidden = !sessionsForDate(d).some(s => s.name === staffOnlyRow.name);
       }
       /* หนึ่งคาบมีอาจารย์ได้หลายคน — ทดสอบที่ตัวกลไก ไม่ผูกกับว่าข้อมูลจริงมีหรือไม่ */
       const two = store.data.staff.slice(0, 2).map(x => x.id);
@@ -33,11 +32,12 @@ export default async function run() {
       const multi = sessionsForDate(iso).find(s => s.name === "ทดสอบอาจารย์หลายคน")?.staffIds.length ?? 0;
       cs.template.pop();
       return { name: cs.name, gotIt: all.length, residents: store.data.residents.length,
-               namedOk, multiStaff: multi };
+               staffOnlyHidden, multiStaff: multi, multiNames: two.length };
     });
     t.check("มีตารางส่วนกลางของภาควิชาในข้อมูล", !!central.name, central.name);
     t.eq("คาบส่วนกลางเกิดกับแพทย์ประจำบ้านทุกคน", central.gotIt, central.residents);
-    t.check("คาบส่วนกลางที่ระบุอาจารย์ไว้ ส่งชื่อมาถึงคาบจริง", central.namedOk === true, String(central.namedOk));
+    t.check("คลินิกของอาจารย์ล้วน ไม่สร้างคาบให้แพทย์ประจำบ้าน",
+            central.staffOnlyHidden === true, String(central.staffOnlyHidden));
     t.check("หนึ่งคาบมีอาจารย์ได้หลายคน", central.multiStaff > 1, central.multiStaff + " คน");
 
     /* ---------- คาบส่วนกลางเฉพาะบางชั้นปี ---------- */
@@ -173,18 +173,28 @@ export default async function run() {
 
     const erDay = await page.evaluate(() => {
       const white = store.data.services.find(x => x.abbr === "ขาว");
-      const r = store.data.residents.find(x => rotationOn(x.id, "2026-08-06")?.serviceId === white.id);
+      const team = store.data.residents.filter(x => rotationOn(x.id, "2026-08-06")?.serviceId === white.id);
       const row = dutyRow("2026-08-06");
       row.erServiceId = white.id;
       row.erStaffIds = [store.data.staff[0].id];
-      const list = sessionsForDate("2026-08-06").filter(s => s.residentId === r.id);
-      const er = list.find(s => s.kind === "duty");
-      return { got: !!er, staff: er?.staffIds.length ?? 0,
-               teamOrLoses: list.some(s => s.kind === "team" && s.superseded) };
+      row.erResidentIds = [];
+      const all = sessionsForDate("2026-08-06");
+      const onEr = team.filter(r => all.some(s => s.residentId === r.id && s.kind === "duty"));
+      const junior = team.slice().sort((a, b) => a.year - b.year)[0];
+      const er = all.find(s => s.kind === "duty");
+      const mine = all.filter(s => s.residentId === junior.id);
+      const others = team.filter(r => r.id !== junior.id);
+      return { teamSize: team.length, onEr: onEr.length,
+               isJunior: onEr[0]?.id === junior.id, juniorYear: junior.year,
+               staff: er?.staffIds.length ?? 0,
+               juniorSkipsOr: mine.some(s => s.kind === "team" && s.superseded),
+               othersKeepOr: others.every(r => all.some(s => s.residentId === r.id && s.kind === "team" && !s.superseded)) };
     });
-    t.check("ระบุสาย ER ของวันนั้นแล้ว คนในสายได้คาบอยู่เวร", erDay.got);
+    t.check("เวร ER ตกกับคนเดียว ไม่ใช่ทั้งสาย", erDay.onEr === 1, erDay.onEr + " จาก " + erDay.teamSize + " คน");
+    t.check("คนที่ standby ER คือคนที่ชั้นปีน้อยที่สุดของสาย", erDay.isJunior, "ปี " + erDay.juniorYear);
     t.check("อาจารย์เวรของวันนั้นติดมากับคาบ", erDay.staff === 1);
-    t.check("คนอยู่เวร ER ไม่ต้องไปห้องผ่าตัดตามตารางสายวันนั้น", erDay.teamOrLoses);
+    t.check("คน standby ER ไม่ต้องไปห้องผ่าตัดวันนั้น", erDay.juniorSkipsOr);
+    t.check("คนที่เหลือในสายยังเข้า OR emergency ตามปกติ", erDay.othersKeepOr);
 
     /* วันหยุดลบเฉพาะคาบที่มาจากตารางประจำสัปดาห์ ส่วนที่ตารางเวรระบุไว้เองยังอยู่
        เพราะวันหยุดก็ยังต้องมีคนอยู่เวร */
