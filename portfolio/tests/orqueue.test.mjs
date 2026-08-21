@@ -109,6 +109,50 @@ export default async function run() {
     t.check("คำตอบไม่มีเคสอยู่ข้างใน → ไม่เงียบ", failures.garbage.startsWith("err:"), failures.garbage);
     t.check("ต่อไม่ติด → บอกว่าต่อไม่ได้ ไม่ใช่ค้าง", failures.wrongHost.startsWith("err:"), failures.wrongHost);
 
+    /* หน้าคอนโซลของตัวจำลอง — ต้องเปิดได้ และต้องบันทึกคำขอที่หน้าแฟ้มยิงมาจริง */
+    {
+      const cerr = [];
+      const cp = await browser.newPage();
+      cp.on("pageerror", e => cerr.push("uncaught: " + e.message));
+      cp.on("console", m => { if (m.type() === "error") cerr.push("console: " + m.text()); });
+      await cp.goto(mock.url + "/");
+      await cp.waitForFunction(() => document.querySelector("#sCount")?.textContent !== "…");
+      await cp.waitForTimeout(500);
+      const con = await cp.evaluate(async () => {
+        const log = await (await fetch("/api/_mock/log")).json();
+        return {
+          count: +document.querySelector("#sCount").textContent,
+          caseRows: document.querySelectorAll("#tCases tbody tr[data-id]").length,
+          fieldRows: (await (async () => { document.querySelector('[data-tab="fields"]').click();
+            await new Promise(r => setTimeout(r, 300));
+            return document.querySelectorAll("#tFields tbody tr").length; })()),
+          sawImport: log.entries.some(e => e.path === "/api/cases" && e.code === 200),
+          sawFail: log.entries.some(e => e.fail === "500" && e.code === 500),
+          armed: log.armed
+        };
+      });
+      t.check("หน้าคอนโซลเปิดได้และเห็นจำนวนเคส", con.count > 0, con.count + " เคส");
+      t.check("ตารางเคสแสดงรายการจริง", con.caseRows > 0, con.caseRows + " แถว");
+      t.check("ตารางฟิลด์บอกได้ว่าอะไรถูกนำเข้า อะไรถูกทิ้ง", con.fieldRows > 20, con.fieldRows + " ฟิลด์");
+      t.check("คอนโซลบันทึกคำขอที่หน้าแฟ้มยิงเข้ามา", con.sawImport);
+      t.check("คอนโซลแยกคำขอที่ถูกจำลองให้พังออกมาได้", con.sawFail);
+      t.check("คอนโซล: ไม่มี error หลุดในคอนโซล", cerr.length === 0, cerr.join(" | "));
+      await cp.close();
+    }
+
+    /* ตั้งอาการเสียค้างไว้จากคอนโซล ต้องมีผลกับการดึงครั้งถัดไปโดยไม่ต้องแก้ที่อยู่ API */
+    const armed = await page.evaluate(async (base) => {
+      await fetch(base + "/api/_mock/arm?mode=500&count=1");
+      Object.assign(store.data.orQueue, { apiBase: base, apiPath: "/api/cases" });
+      let first, second;
+      try { await importFromApi(); first = "ok"; } catch (e) { first = "err:" + e.message; }
+      try { const r = await importFromApi(); second = "ok:" + r.total; } catch (e) { second = "err:" + e.message; }
+      return { first, second };
+    }, mock.url);
+    t.check("อาการเสียที่ตั้งค้างไว้มีผลกับการดึงครั้งถัดไป",
+            armed.first.includes("HTTP 500"), armed.first);
+    t.check("แล้วหมดฤทธิ์เอง ครั้งต่อไปดึงได้ปกติ", armed.second.startsWith("ok"), armed.second);
+
     await page.close();
   } finally {
     await browser.close();

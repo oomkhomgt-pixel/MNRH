@@ -15,6 +15,8 @@
  * ผู้ป่วยเป็นข้อมูลสมมติทั้งหมด — ชื่ออาจารย์กับวันผ่าตัดอิงตารางจริงของกลุ่มงาน
  */
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { URL } = require("url");
 
 const PORT = +(process.env.PORT || 8088);
@@ -209,6 +211,19 @@ function buildCases() {
 
 const ALL = buildCases();
 
+/* --- บันทึกคำขอที่เข้ามา ให้หน้าคอนโซลดูได้ว่าหน้าแฟ้มถามอะไรมาบ้าง ---
+   เก็บไว้ในหน่วยความจำ 200 รายการล่าสุด ปิดเซิร์ฟเวอร์แล้วหาย ตั้งใจให้เป็นแบบนั้น */
+const LOG = [];
+let logSeq = 0;
+function record(entry) {
+  LOG.push({ seq: ++logSeq, at: new Date().toISOString(), ...entry });
+  if (LOG.length > 200) LOG.shift();
+}
+
+/* อาการเสียที่ตั้งค้างไว้จากหน้าคอนโซล — ใช้กับคำขอถัดไปกี่ครั้งก็ได้
+   ต่างจาก ?_fail=… ตรงที่ไม่ต้องแก้ที่อยู่ API ในหน้าแฟ้ม กดปุ่มแล้วกดดึงได้เลย */
+let armed = { mode: "", left: 0 };
+
 function send(res, code, body, origin) {
   const payload = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(code, {
@@ -228,27 +243,53 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, "http://localhost");
   const p = u.pathname.replace(/\/$/, "") || "/";
 
-  /* จำลองอาการเสียของระบบจริง ไว้ทดสอบว่าหน้าเว็บรับมืออย่างไร */
-  const fail = u.searchParams.get("_fail");
-  if (fail === "500")     return send(res, 500, { error: "internal error (จำลอง)" }, origin);
-  if (fail === "401")     return send(res, 401, { error: "unauthorised (จำลอง)" }, origin);
-  if (fail === "empty")   return send(res, 200, { cases: [] }, origin);
-  if (fail === "garbage") return send(res, 200, { note: "ไม่มีเคสในคำตอบ (จำลอง)" }, origin);
-  if (fail === "slow")    await new Promise(r => setTimeout(r, 30000));
+  /* --- หน้าคอนโซลกับเส้นทางที่มีไว้คุมตัวจำลอง ไม่ใช่ส่วนหนึ่งของ API ระบบคิว --- */
+  if (p === "/" || p === "/console") {
+    const html = fs.readFileSync(path.join(__dirname, "console.html"));
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    return res.end(html);
+  }
+  if (p === "/favicon.ico") { res.writeHead(204); return res.end(); }
+  if (p === "/api/_mock/log")
+    return send(res, 200, { seq: logSeq, armed,
+      entries: LOG.filter(e => e.seq > +(u.searchParams.get("after") || 0)) }, origin);
+  if (p === "/api/_mock/arm") {
+    armed = { mode: u.searchParams.get("mode") || "", left: +(u.searchParams.get("count") || 1) };
+    if (!armed.mode) armed.left = 0;
+    return send(res, 200, { ok: true, armed }, origin);
+  }
+  if (p === "/api/_mock/clear") { LOG.length = 0; return send(res, 200, { ok: true }, origin); }
+  if (p === "/api/_mock/sample")
+    return send(res, 200, { sample: ALL[0] || null, total: ALL.length }, origin);
 
-  if (p === "/" || p === "/health")
+  /* จำลองอาการเสียของระบบจริง ไว้ทดสอบว่าหน้าเว็บรับมืออย่างไร
+     มาจาก ?_fail=… ในที่อยู่ หรือจากปุ่มตั้งอาการเสียค้างไว้ในหน้าคอนโซล */
+  let fail = u.searchParams.get("_fail");
+  if (!fail && armed.left > 0) { fail = armed.mode; armed.left--; if (!armed.left) armed.mode = ""; }
+  const log = (code, note) => record({ method: req.method, path: p,
+    query: u.search.replace(/^\?/, ""), code, note, fail: fail || "" });
+  if (fail === "500")     { log(500, "จำลองระบบคิวล่ม"); return send(res, 500, { error: "internal error (จำลอง)" }, origin); }
+  if (fail === "401")     { log(401, "จำลองไม่ได้รับอนุญาต"); return send(res, 401, { error: "unauthorised (จำลอง)" }, origin); }
+  if (fail === "empty")   { log(200, "จำลองไม่มีเคสเลย"); return send(res, 200, { cases: [] }, origin); }
+  if (fail === "garbage") { log(200, "จำลองคำตอบไม่มีเคสอยู่ข้างใน"); return send(res, 200, { note: "ไม่มีเคสในคำตอบ (จำลอง)" }, origin); }
+  if (fail === "slow")    { log(200, "จำลองตอบช้า 30 วินาที"); await new Promise(r => setTimeout(r, 30000)); }
+
+  if (p === "/health")
     return send(res, 200, { ok: true, service: "or-queue-mock", cases: ALL.length,
                             range: [ALL[0]?.scheduledDate, ALL[ALL.length - 1]?.scheduledDate] }, origin);
 
   /* ระบบคิวจริงมีเส้นทางเหล่านี้ ใส่ไว้ให้ครบเผื่อทดสอบ */
-  if (p === "/api/auth/me")
+  if (p === "/api/auth/me") {
+    log(200, "ถามว่าใครเรียก");
     return send(res, 200, { user: { id: 5, username: "mock", fullName: "ผู้ใช้จำลอง",
                                     role: "resident", isAdmin: false }, demoMode: true }, origin);
+  }
 
   const hist = p.match(/^\/api\/cases\/(\d+)\/history$/);
   if (hist) {
     const c = ALL.find(x => String(x.id) === hist[1]);
-    if (!c) return send(res, 404, { error: "not found" }, origin);
+    if (!c) { log(404, "ไม่พบเคส"); return send(res, 404, { error: "not found" }, origin); }
+    log(200, "ประวัติเคส " + c.id);
     return send(res, 200, { caseId: c.id, history: [
       { at: c.createdAt, action: "created", byName: c.createdByName },
       { at: c.updatedAt, action: c.status === "done" ? "marked done" : "booked", byName: c.primarySurgeonName }
@@ -258,6 +299,7 @@ const server = http.createServer(async (req, res) => {
   const one = p.match(/^\/api\/cases\/(\d+)$/);
   if (one) {
     const hit = ALL.find(c => String(c.id) === one[1]);
+    log(hit ? 200 : 404, hit ? "เคสเดียว " + hit.id : "ไม่พบเคส");
     return hit ? send(res, 200, hit, origin) : send(res, 404, { error: "not found" }, origin);
   }
 
@@ -273,9 +315,11 @@ const server = http.createServer(async (req, res) => {
       .filter(c => !to || c.scheduledDate <= to);
     const limit = +(u.searchParams.get("limit") || 0);
     if (limit > 0) list = list.slice(0, limit);
+    log(200, "ส่ง " + list.length + " เคส");
     return send(res, 200, { scope, includeClosed, count: list.length, cases: list }, origin);
   }
 
+  log(404, "ไม่รู้จักเส้นทางนี้");
   send(res, 404, { error: "unknown path", tried: p }, origin);
 });
 
@@ -284,4 +328,5 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log("or-queue-mock: http://127.0.0.1:" + server.address().port + "  ·  " + ALL.length + " เคสจำลอง");
   console.log("  GET /api/cases?scope=all&includeClosed=true");
   console.log("  ทดสอบอาการเสีย: ?_fail=500 | 401 | empty | garbage | slow");
+  console.log("  หน้าคอนโซล: เปิดที่อยู่ข้างบนในเบราว์เซอร์");
 });
