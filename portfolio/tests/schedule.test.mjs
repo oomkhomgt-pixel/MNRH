@@ -306,6 +306,44 @@ export default async function run() {
     });
     t.eq("อาจารย์แลกวัน แพทย์ประจำบ้านยังอยู่สายเดิม ไม่ถูกย้ายตาม", stay.after, stay.before);
 
+    /* ---------- ขอไปเข้าคาบของสายอื่น ----------
+       ต้องได้รับอนุมัติก่อนจึงมีผล ระหว่างรออนุมัติตารางต้องไม่ขยับเลย */
+    const visit = await page.evaluate(() => {
+      store.data.visits = [];
+      const iso = todayISO();
+      const r = store.data.residents.find(x => visitOptions(x.id, iso).length &&
+        sessionsForDate(iso).some(s => s.residentId === x.id));
+      if (!r) return { none: true };
+      const o = visitOptions(r.id, iso)[0];
+      const names = () => sessionsForDate(iso).filter(x => x.residentId === r.id)
+        .map(x => x.name + (x.superseded ? "|แพ้" : "") + (x.visit ? "|ไปสายอื่น" : ""));
+      const before = names();
+      store.data.visits.push({ id: "v_test", residentId: r.id, date: iso, serviceId: o.serviceId,
+        index: o.index, reasonType: "research", reason: "เคสงานวิจัย", status: "pending" });
+      const pending = names();
+      store.data.visits[0].status = "approved";
+      const approved = names();
+      const ses = sessionsForDate(iso).find(x => x.residentId === r.id && x.visit);
+      /* กิจกรรมวิชาการต้องยังชนะคาบที่ไปสายอื่น */
+      const academic = sessionsForDate(iso).find(x => x.residentId === r.id && x.academic);
+      store.data.visits[0].status = "declined";
+      const declined = names();
+      store.data.visits = [];
+      return { before, pending, approved, declined,
+               ownTeamLost: approved.some(n => n.includes("|แพ้")),
+               visitPriority: ses?.priority, academicPriority: academic?.priority,
+               visitSuperseded: !!ses?.superseded, approvers: visitApprovers(r.id, iso).length };
+    });
+    t.eq("คำขอที่ยังไม่อนุมัติ ตารางไม่ขยับเลย", visit.pending, visit.before);
+    t.eq("ไม่อนุมัติ ตารางก็ไม่ขยับ", visit.declined, visit.before);
+    t.check("อนุมัติแล้วคาบของสายอื่นขึ้นในตาราง",
+            visit.approved.some(n => n.includes("|ไปสายอื่น")), visit.approved.join(" · "));
+    t.check("คาบของสายเดิมที่ชนกันกลายเป็นคาบที่ไม่ได้เข้า", visit.ownTeamLost, visit.approved.join(" · "));
+    t.check("คาบที่ไปสายอื่นยังแพ้กิจกรรมวิชาการ — วิชาการมาก่อนเสมอ",
+            visit.academicPriority > visit.visitPriority,
+            "วิชาการ " + visit.academicPriority + " · ไปสายอื่น " + visit.visitPriority);
+    t.check("มีอาจารย์ผู้อนุมัติที่ระบุตัวได้", visit.approvers > 0, visit.approvers + " คน");
+
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
   } finally {

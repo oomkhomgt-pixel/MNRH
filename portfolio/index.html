@@ -459,6 +459,19 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
       <div class="card">
         <div class="between">
+          <h2>ขอไปเข้าคาบของสายอื่น</h2>
+          <button class="btn-sm no-print" id="btnAddVisit">+ ขอไปเข้าคาบของสายอื่น</button>
+        </div>
+        <p class="muted small">ปกติแพทย์ประจำบ้านอยู่กับสายของตัวเองในเดือนนั้น แต่บางครั้งมีเหตุผลเฉพาะ —
+          เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก หรือตามเก็บหัตถการที่ยังขาดตามเกณฑ์ — จึงขอไปเข้าคาบของสายอื่นได้
+          · <b>ต้องให้อาจารย์ผู้กำกับของช่วงหมุนเวียนนั้นอนุมัติก่อน</b> ไม่ใช่ไปเองแล้วค่อยบอก
+          · ก่อนอนุมัติ คาบนั้นไม่ขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต
+          · อนุมัติแล้วคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น แต่กิจกรรมวิชาการยังมาก่อนอยู่ดี</p>
+        <div id="visitTable"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
           <h2>การประเมินท้ายเซสชันล่าสุด</h2>
           <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
         </div>
@@ -1108,6 +1121,9 @@ const store = {
     d.swaps ||= [];
     /* การแลกวันเดิมไม่มีขั้นตอบรับ ของที่บันทึกไว้ก่อนหน้านี้ถือว่าตกลงกันแล้ว */
     (d.swaps || []).forEach(sw => { sw.status ||= "accepted"; });
+    /* คำขอไปเข้าคาบของสายอื่นเป็นครั้งคราว — เคสงานวิจัย เคสที่หาดูยาก
+       ต้องให้อาจารย์ผู้กำกับของช่วงหมุนเวียนนั้นอนุมัติก่อน ไม่ใช่ไปเองได้ */
+    d.visits ||= [];
     /* เดิมบัญชีสาธิตใช้รหัส 1234 เหมือนกันหมด ตอนนี้แยกตามบทบาท
        ย้ายให้เฉพาะบัญชีที่ยังเป็นรหัสเดิม — ใครตั้งรหัสเองไว้แล้วไม่ยุ่ง */
     (d.users || []).forEach(u => {
@@ -1354,6 +1370,24 @@ function computeSessions(iso, data) {
   }
 
   /* สิ่งที่คนบันทึกไว้เองว่าวันนั้นไปเข้าคาบไหน มาก่อนลำดับความสำคัญที่ตั้งไว้ล่วงหน้าเสมอ */
+  /* ชั้นที่ห้า: คำขอไปเข้าคาบของสายอื่นที่ได้รับอนุมัติแล้ว
+     เกิดเป็นคาบจริงของวันนั้น และได้ลำดับเท่ากับการเลือกเข้าคาบรายวัน
+     คือชนะงานบริการตามตาราง แต่ยังแพ้กิจกรรมวิชาการ เพราะวิชาการมาก่อนเสมอ */
+  (data.visits || []).forEach(v => {
+    if (v.date !== iso || v.status !== "approved") return;
+    const svc = svcById(v.serviceId);
+    const t = (svc?.template || [])[v.index];
+    if (!t || t.day !== dow) return;          /* ตารางของสายนั้นถูกแก้ไปแล้ว คำขอเดิมจึงใช้ไม่ได้ */
+    const rot = (data.rotations || []).find(x => x.residentId === v.residentId &&
+      (!x.start || iso >= x.start) && (!x.end || iso <= x.end));
+    push("visit@" + v.id, v.index, t, svc, v.residentId, rot);
+    const ses = out[out.length - 1];
+    ses.visit = true;
+    ses.visitReason = v.reason || "";
+    ses.visitId = v.id;
+    ses.priority = PICKED_PRIORITY;
+  });
+
   (data.sessionPicks || []).forEach(pk => {
     if (pk.date !== iso) return;
     const ses = out.find(x => x.key === pk.key && x.residentId === pk.residentId);
@@ -3092,6 +3126,9 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  $$("#todayBody [data-visitok]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitok, true)));
+  $$("#todayBody [data-visitno]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitno, false)));
+  $$("#todayBody [data-tvisit]").forEach(b => b.addEventListener("click", () => openVisit(myResidentId(), b.dataset.tvisit)));
   $$("#todayBody [data-swapok]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapok, true)));
   $$("#todayBody [data-swapno]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapno, false)));
   $$("#todayBody [data-tswap]").forEach(b => b.addEventListener("click", () => {
@@ -3165,6 +3202,24 @@ function todayForResident(iso, all) {
       <button class="btn-sm" data-tgo="epa">EPA ของฉัน</button>
     </div>
   </div>`);
+
+  /* ขอไปเข้าคาบของสายอื่น — แสดงคำขอของตัวเองด้วย จะได้รู้ว่ารออยู่หรือถูกปฏิเสธไปแล้ว */
+  const visits = me ? visitsOfResident(me).filter(v => v.date >= addDaysISO(iso, -14)) : [];
+  out.push(`<div class="card">
+    <div class="between">
+      <h2>ขอไปเข้าคาบของสายอื่น</h2>
+      <button class="btn-sm no-print" data-tvisit="${esc(iso)}">+ ส่งคำขอ</button>
+    </div>
+    <p class="small muted" style="margin:.2rem 0 .5rem">เคสงานวิจัย เคสที่หาดูยาก หรือตามเก็บหัตถการที่ยังขาด —
+      ต้องให้อาจารย์ผู้กำกับอนุมัติก่อน ก่อนอนุมัติคาบนั้นจะยังไม่ขึ้นในตาราง</p>
+    ${visits.length ? visits.map(v => {
+      const [cls, th] = VISIT_STATUS[v.status] || VISIT_STATUS.pending;
+      return `<div class="sess" style="border-left-color:var(--line)">
+        <span class="pill">${fmtDate(v.date)}</span><span class="tag ${cls}">${esc(th)}</span>
+        <b>${esc(visitLabel(v))}</b>
+        <span class="who">${esc(v.reason || "")}${v.decidedBy ? " · โดย " + esc(v.decidedBy) : ""}</span></div>`;
+    }).join("") : `<p class="empty">ยังไม่มีคำขอในช่วงนี้</p>`}
+  </div>`);
   return out;
 }
 
@@ -3205,6 +3260,22 @@ function todayForStaff(iso, all) {
       <div class="row no-print" style="margin-top:.5rem">
         <button class="btn-sm btn-primary" data-swapok="${esc(sw.id)}">ตอบรับ</button>
         <button class="btn-sm" data-swapno="${esc(sw.id)}">ปฏิเสธ</button>
+      </div></div>`).join("")}
+  </div>`);
+
+  const vbox = pendingVisitsFor(sid);
+  if (vbox.length) out.push(`<div class="card">
+    <h2>คำขอไปเข้าคาบของสายอื่น รอคุณอนุมัติ <span class="tag warn">${vbox.length}</span></h2>
+    <p class="small muted" style="margin:.2rem 0 .6rem">คุณเป็นอาจารย์ผู้กำกับของเขาในช่วงนี้
+      · ก่อนอนุมัติ คาบนั้นยังไม่ขึ้นในตารางของเขา</p>
+    ${vbox.map(v => `<div class="nowcard" style="margin-bottom:.5rem">
+      <div class="between"><b>${esc(store.resident(v.residentId)?.name || "—")}</b>
+        <span class="tag">${fmtDate(v.date)}</span></div>
+      <div class="small">ขอไปเข้า <b>${esc(visitLabel(v))}</b></div>
+      <div class="small muted">${esc(v.reason || "")}</div>
+      <div class="row no-print" style="margin-top:.5rem">
+        <button class="btn-sm btn-primary" data-visitok="${esc(v.id)}">อนุมัติ</button>
+        <button class="btn-sm" data-visitno="${esc(v.id)}">ไม่อนุมัติ</button>
       </div></div>`).join("")}
   </div>`);
 
@@ -3289,6 +3360,8 @@ function todayForAdmin(iso, all) {
       <div class="stat"><b>${(store.data.activities || []).filter(a => !a.verified).length}</b><span>กิจกรรมรอรับรอง</span></div>
       <div class="stat"><b>${idle.length}</b><span>วันนี้ไม่มีคาบเลย</span></div>
       <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
+      <div class="stat"><b>${(store.data.visits || []).filter(v => v.status === "pending").length}</b><span>คำขอไปเข้าคาบสายอื่นรออนุมัติ</span></div>
+      <div class="stat"><b>${(store.data.swaps || []).filter(v => v.status === "pending").length}</b><span>คำขอแลกวันรอตอบรับ</span></div>
     </div>
     ${idle.length ? `<p class="small muted" style="margin-top:.7rem">ไม่มีคาบวันนี้:
       ${idle.slice(0, 12).map(r => esc(r.name) + " (ปี " + r.year + ")").join(" · ")}
@@ -3465,6 +3538,156 @@ function openSwapPicker() {
         return false;
       }}
   ]);
+}
+
+/* ============ ขอไปเข้าคาบของสายอื่น ============
+   ปกติแพทย์ประจำบ้านอยู่กับสายของตัวเองในเดือนนั้น แต่บางครั้งมีเหตุผลเฉพาะ —
+   เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก — จึงขอไปเข้าคาบของอาจารย์สายอื่นได้
+   เงื่อนไขคือต้องให้ "อาจารย์ผู้กำกับของช่วงหมุนเวียนนั้น" อนุมัติก่อน ไม่ใช่ไปเองแล้วค่อยบอก
+   ถ้าไม่มีการอนุมัติ คาบนั้นไม่เกิดขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต */
+const VISIT_REASONS = [
+  ["research", "เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่"],
+  ["interesting", "เคสที่หาดูยาก / น่าสนใจทางวิชาการ"],
+  ["make_up", "ตามเก็บหัตถการที่ยังขาดตามเกณฑ์"],
+  ["other", "อื่น ๆ (ระบุ)"]
+];
+const VISIT_STATUS = { pending:["warn","รออนุมัติ"], approved:["ok","อนุมัติแล้ว"], declined:["bad","ไม่อนุมัติ"] };
+
+/* ใครคือ "อาจารย์ผู้กำกับ" ของคนนั้นในวันนั้น
+   ถ้าช่วงหมุนเวียนระบุอาจารย์ผู้กำกับไว้ ก็คือคนนั้นคนเดียว
+   ถ้าไม่ได้ระบุ — ซึ่งเป็นเรื่องปกติ เพราะสายหนึ่งมีอาจารย์หลายคนหมุนกันตามวัน —
+   ให้เป็นอาจารย์ที่มีคาบกับสายของเขาในวันนั้น คือคนที่คุมเขาอยู่จริงในวันที่ขอ */
+function visitApprovers(residentId, iso) {
+  const rot = rotationOn(residentId, iso);
+  if (rot?.supervisorId) return [rot.supervisorId];
+  const ids = new Set();
+  sessionsForDate(iso).forEach(ses => {
+    if (ses.residentId !== residentId || ses.visit) return;
+    (ses.staffIds || []).forEach(id => id && ids.add(id));
+  });
+  return [...ids];
+}
+const supervisorOn = (residentId, iso) => visitApprovers(residentId, iso)[0] || "";
+const approverLabel = (residentId, iso) => {
+  const ids = visitApprovers(residentId, iso);
+  return ids.length ? ids.map(staffName).join(" / ") : "";
+};
+const canDecideVisit = (v) => !!v && v.status === "pending" &&
+  (canManage() || (myRole() === "staff" && !!currentUser()?.staffId &&
+                   visitApprovers(v.residentId, v.date).includes(currentUser().staffId)));
+const pendingVisitsFor = (staffId) => (store.data.visits || []).filter(v =>
+  v.status === "pending" && visitApprovers(v.residentId, v.date).includes(staffId))
+  .sort((a, b) => a.date.localeCompare(b.date));
+const visitsOfResident = (residentId) => (store.data.visits || [])
+  .filter(v => v.residentId === residentId).sort((a, b) => b.date.localeCompare(a.date));
+
+/* คาบของสายอื่นที่มีจริงในวันนั้น — ไม่รวมสายที่ตัวเองอยู่ เพราะไม่ต้องขอ */
+function visitOptions(residentId, iso) {
+  const dow = new Date(iso + "T00:00:00").getDay();
+  const own = rotationOn(residentId, iso)?.serviceId || "";
+  const out = [];
+  (store.data.services || []).filter(x => x.team || x.subUnit).forEach(svc => {
+    if (svc.id === own) return;
+    (svc.template || []).forEach((t, i) => {
+      if (t.day !== dow || t.staffOnly) return;
+      out.push({ serviceId: svc.id, index: i, svcName: svc.name, name: t.name, part: t.part,
+                 staff: (t.staffIds || []).map(staffName).join(" · ") });
+    });
+  });
+  return out;
+}
+
+function openVisit(residentId, iso) {
+  if (!canEditResidentData(residentId)) { toast("ขอแทนคนอื่นไม่ได้"); return; }
+  const date = iso || todayISO();
+  const opts = visitOptions(residentId, date);
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>ผู้ขอ</dt><dd>${esc(store.resident(residentId)?.name || "—")}</dd>
+      <dt>สายที่อยู่ตอนนี้</dt><dd>${esc(serviceById(rotationOn(residentId, date)?.serviceId)?.name || "—")}</dd>
+      <dt>ผู้อนุมัติ</dt><dd>${approverLabel(residentId, date)
+        ? esc(approverLabel(residentId, date)) + `<br /><span class="muted small">อาจารย์ที่คุมสายของคุณในวันนั้น — คนใดคนหนึ่งอนุมัติก็พอ</span>`
+        : `<span class="tag bad">วันนั้นไม่มีอาจารย์คุมสายของคุณในตาราง — ต้องให้ผู้จัดหลักสูตรอนุมัติ</span>`}</dd>
+    </div>
+    <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(date)}" /></label>
+    <label class="f"><span>คาบที่จะขอไปเข้า</span><select name="target">
+      ${opts.length ? opts.map(o => `<option value="${o.serviceId}|${o.index}">${esc(o.svcName)} · ${esc(o.name)}
+        (${esc(PART_BY_ID[o.part]?.th || o.part)}${o.staff ? " · " + esc(o.staff) : ""})</option>`).join("")
+        : `<option value="">— วันนั้นไม่มีคาบของสายอื่น —</option>`}</select></label>
+    <div class="grid g2">
+      <label class="f"><span>เหตุผล</span><select name="reasonType">${VISIT_REASONS.map(([id, th]) =>
+        `<option value="${id}">${esc(th)}</option>`).join("")}</select></label>
+      <label class="f"><span>รายละเอียด</span><input name="reason" placeholder="เช่น เคส TKA ที่อยู่ในงานวิจัยของตัวเอง" /></label>
+    </div>
+    <p class="small muted" style="margin-top:.6rem">คำขอนี้ยังไม่มีผลกับตารางจนกว่าอาจารย์ผู้กำกับจะอนุมัติ
+      · อนุมัติแล้วคาบนั้นจะขึ้นในตารางของคุณ และคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น
+      · กิจกรรมวิชาการยังมาก่อนอยู่ดี ถ้าชนกันคุณต้องเข้ากิจกรรมวิชาการ</p>`;
+  showDialog("ขอไปเข้าคาบของสายอื่น", body, [
+    { label:"ส่งคำขอ", cls:"btn-primary", onClick: () => {
+        const d = dlgVal("date"), target = dlgVal("target");
+        if (!d) { toast("เลือกวันที่ก่อน"); return false; }
+        if (!target) { toast("วันนั้นไม่มีคาบของสายอื่นให้ขอ"); return false; }
+        const [serviceId, index] = target.split("|");
+        const reasonType = dlgVal("reasonType"), detail = dlgVal("reason");
+        if (reasonType === "other" && !detail) { toast("เหตุผล “อื่น ๆ” ต้องระบุรายละเอียด"); return false; }
+        const label = (VISIT_REASONS.find(x => x[0] === reasonType) || [])[1] || "";
+        (store.data.visits ||= []).push({ id: uid("visit"), residentId, date: d, serviceId,
+          index: +index, reasonType, reason: detail || label, status: "pending",
+          requestedAt: new Date().toISOString(), decidedBy: "", decidedAt: "" });
+        audit("ขอไปเข้าคาบของสายอื่น", (store.resident(residentId)?.name || "") + " · " + fmtDate(d));
+        store.save(); renderAll();
+        const who = approverLabel(residentId, d);
+        toast(who ? "ส่งคำขอแล้ว — รอ " + who + " อนุมัติ" : "ส่งคำขอแล้ว — รอผู้จัดหลักสูตรอนุมัติ");
+      }}
+  ]);
+}
+
+function decideVisit(id, approve) {
+  const v = (store.data.visits || []).find(x => x.id === id);
+  if (!v) return;
+  if (!canDecideVisit(v)) { toast("อนุมัติได้เฉพาะอาจารย์ผู้กำกับของช่วงหมุนเวียนนั้น หรือผู้จัดหลักสูตร"); return; }
+  v.status = approve ? "approved" : "declined";
+  v.decidedBy = currentUser()?.displayName || "";
+  v.decidedByStaffId = currentUser()?.staffId || "";
+  v.decidedAt = new Date().toISOString();
+  audit(approve ? "อนุมัติให้ไปเข้าคาบของสายอื่น" : "ไม่อนุมัติให้ไปเข้าคาบของสายอื่น",
+        (store.resident(v.residentId)?.name || "") + " · " + fmtDate(v.date));
+  store.save(); renderAll();
+  toast(approve ? "อนุมัติแล้ว — คาบนั้นขึ้นในตารางของเขาแล้ว" : "ไม่อนุมัติ — ตารางของเขาไม่เปลี่ยน");
+}
+
+function visitLabel(v) {
+  const svc = serviceById(v.serviceId);
+  const t = (svc?.template || [])[v.index];
+  return (svc?.name || "—") + " · " + (t?.name || "คาบที่ถูกลบไปแล้ว");
+}
+
+function renderVisitTable() {
+  const box = $("#visitTable"); if (!box) return;
+  const today = todayISO();
+  const list = (store.data.visits || []).filter(v => canSeeResident(v.residentId))
+    .filter(v => v.date >= addDaysISO(today, -30))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  box.innerHTML = list.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>ผู้ขอ</th><th>ขอไปเข้า</th><th>เหตุผล</th><th>ผู้อนุมัติ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>${list.map(v => {
+      const [cls, th] = VISIT_STATUS[v.status] || VISIT_STATUS.pending;
+      const who = approverLabel(v.residentId, v.date);
+      return `<tr class="${v.date < today ? "muted" : ""}">
+        <td>${fmtDate(v.date)}</td>
+        <td>${esc(store.resident(v.residentId)?.name || "—")}</td>
+        <td>${esc(visitLabel(v))}</td>
+        <td class="small">${esc(v.reason || "")}</td>
+        <td class="small">${who ? esc(who) : `<span class="muted">ผู้จัดหลักสูตร</span>`}
+          ${v.decidedBy ? `<br /><span class="muted">โดย ${esc(v.decidedBy)}</span>` : ""}</td>
+        <td><span class="tag ${cls}">${esc(th)}</span></td>
+        <td class="row no-print">${canDecideVisit(v)
+          ? `<button class="btn-sm btn-primary" data-visitok="${esc(v.id)}">อนุมัติ</button>
+             <button class="btn-sm" data-visitno="${esc(v.id)}">ไม่อนุมัติ</button>` : ""}</td></tr>`;
+    }).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีคำขอไปเข้าคาบของสายอื่น</p>`;
+  $$("#visitTable [data-visitok]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitok, true)));
+  $$("#visitTable [data-visitno]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitno, false)));
 }
 
 function renderSwapTable() {
@@ -3901,7 +4124,8 @@ function sessionChip(ses, withDate) {
   const svc = serviceById(ses.serviceId);
   const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
-  const note = ses.advisory ? `<span class="tag">${ses.frontline ? "หน้างาน" : "ร่วมรับผิดชอบ"}</span>`
+  const note = ses.visit ? `<span class="tag ok">ได้รับอนุมัติให้ไปเข้าคาบสายอื่น${ses.visitReason ? " — " + esc(ses.visitReason) : ""}</span>`
+             : ses.advisory ? `<span class="tag">${ses.frontline ? "หน้างาน" : "ร่วมรับผิดชอบ"}</span>`
              : ses.academic ? `<span class="tag b">กิจกรรมวิชาการ — มาก่อนงานบริการ</span>`
              : ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
              : ses.superseded ? `<span class="tag warn">${ses.supersededByPick ? "วันนี้เลือกเข้า" : "ชน — ไปเข้า"} ${esc(ses.supersededBy)}</span>`
@@ -4769,7 +4993,7 @@ function syncSettingsDialog() {
    ===================================================================== */
 const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks","activities",
   "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users",
-  "duty","swaps"];
+  "duty","swaps","visits"];
 
 function fullPayload() {
   const out = {};
@@ -4792,7 +5016,7 @@ const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navi
    --------------------------------------------------------------------- */
 const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
-  "activities","research","cases","epas","epaAssessments","users","duty","swaps"];
+  "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits"];
 const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
 
 const readBaseline = () => { try { return JSON.parse(localStorage.getItem(BASELINE_KEY)); } catch { return null; } };
@@ -6439,6 +6663,7 @@ function renderAll() {
   renderWfme();
   renderDutyTable();
   renderSwapTable();
+  renderVisitTable();
   renderSettings();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
@@ -6783,6 +7008,11 @@ function init() {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
   };
   $("#btnAddSwap").addEventListener("click", openSwapPicker);
+  $("#btnAddVisit").addEventListener("click", () => {
+    const rid = myResidentId() || (canManage() ? (selectedResident || store.data.residents[0]?.id) : "");
+    if (!rid) { toast("บัญชีนี้ไม่ได้ผูกกับแพทย์ประจำบ้านคนใด"); return; }
+    openVisit(rid, todayISO());
+  });
   $("#dutyPrev").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, -1); renderDutyTable(); });
   $("#dutyNext").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, 1); renderDutyTable(); });
   $("#dutyFill").addEventListener("click", () => {

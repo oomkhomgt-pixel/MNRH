@@ -238,6 +238,65 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- ขอไปเข้าคาบของสายอื่น: ต้องผ่านอาจารย์ผู้กำกับ ---------- */
+    {
+      const { page } = await openAs(browser, srv.url, "resident");
+      const asRes = await page.evaluate(() => {
+        store.data.visits = [];
+        const me = myResidentId(), iso = todayISO();
+        const other = store.data.residents.find(x => x.id !== me).id;
+        /* ขอแทนคนอื่นต้องไม่ได้ */
+        openVisit(other, iso);
+        const openedOther = !!document.querySelector("#dlg")?.open;
+        if (openedOther) document.querySelector("#dlg").close();
+        /* ขอของตัวเองได้ */
+        openVisit(me, iso);
+        const openedMine = !!document.querySelector("#dlg")?.open;
+        if (openedMine) document.querySelector("#dlg").close();
+        /* อนุมัติให้ตัวเองไม่ได้ */
+        store.data.visits.push({ id: "v_p", residentId: me, date: iso, serviceId: "", index: 0,
+          reasonType: "research", reason: "x", status: "pending" });
+        decideVisit("v_p", true);
+        const status = store.data.visits[0].status;
+        store.data.visits = [];
+        return { openedOther, openedMine, status };
+      });
+      t.check("แพทย์ประจำบ้านขอแทนคนอื่นไม่ได้", !asRes.openedOther);
+      t.check("แพทย์ประจำบ้านขอของตัวเองได้", asRes.openedMine);
+      t.eq("แพทย์ประจำบ้านอนุมัติคำขอของตัวเองไม่ได้", asRes.status, "pending");
+      await page.close();
+
+      const { page: sp } = await openAs(browser, srv.url, "staff");
+      const asStaff = await sp.evaluate(() => {
+        store.data.visits = [];
+        const me = currentUser().staffId, iso = todayISO();
+        let mine = store.data.residents.find(r => visitApprovers(r.id, iso).includes(me));
+        if (!mine) {
+          /* วันนั้นอาจารย์คนนี้ไม่มีคาบกับใครเลย — ตั้งเป็นอาจารย์ผู้กำกับของช่วงหมุนเวียนแทน
+             เพื่อให้ทดสอบสิทธิ์ได้จริง ไม่ใช่ข้ามไปเงียบ ๆ */
+          const rot = (store.data.rotations || []).find(x =>
+            (!x.start || iso >= x.start) && (!x.end || iso <= x.end));
+          if (rot) { rot.supervisorId = me; mine = store.resident(rot.residentId); }
+        }
+        const notMine = store.data.residents.find(r => mine && r.id !== mine.id &&
+          !visitApprovers(r.id, iso).includes(me));
+        const mk = (id, rid) => store.data.visits.push({ id, residentId: rid, date: iso,
+          serviceId: "", index: 0, reasonType: "research", reason: "x", status: "pending" });
+        if (mine) mk("v_mine", mine.id);
+        if (notMine) mk("v_not", notMine.id);
+        decideVisit("v_mine", true);
+        decideVisit("v_not", true);
+        const out = Object.fromEntries(store.data.visits.map(v => [v.id, v.status]));
+        store.data.visits = [];
+        return { out, hasMine: !!mine, hasNotMine: !!notMine };
+      });
+      if (asStaff.hasMine)
+        t.eq("อาจารย์ที่คุมเขาอยู่ อนุมัติได้", asStaff.out.v_mine, "approved");
+      if (asStaff.hasNotMine)
+        t.eq("อาจารย์ที่ไม่ได้คุมเขา อนุมัติไม่ได้", asStaff.out.v_not, "pending");
+      await sp.close();
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);
