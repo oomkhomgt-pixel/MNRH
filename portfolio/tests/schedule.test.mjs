@@ -211,6 +211,67 @@ export default async function run() {
             holiday.withDuty.every(k => k === "duty"), holiday.withDuty.join(",") || "(ไม่เหลืออะไร)");
     t.eq("วันหยุดที่ไม่ได้ระบุเวรไว้ ไม่มีคาบเลย", holiday.bare, 0);
 
+    /* ---------- อาจารย์แลกวัน OR กัน ----------
+       จุดที่พลาดง่ายคือไปแก้ตารางประจำสัปดาห์ ซึ่งจะเปลี่ยนทั้งปีและทำให้ประวัติผิดย้อนหลัง
+       การแลกจึงต้องมีผลเฉพาะวันนั้น และต้องไม่ทำให้ผลประเมินที่ทำไว้แล้วหลุดจากคาบ */
+    const swap = await page.evaluate(() => {
+      store.data.swaps = [];
+      let target = null;
+      for (let i = 0; i < 14 && !target; i++) {
+        const iso = addDaysISO(todayISO(), -i);
+        const ses = sessionsForDate(iso).find(x => (x.staffIds || []).length && x.kind === "team");
+        if (ses) target = ses;
+      }
+      if (!target) return { none: true };
+      const other = store.data.staff.find(x => x.id !== target.staffIds[0]);
+      const at = (iso, key) => sessionsForDate(iso).find(x => x.key === key);
+      const nextWeek = addDaysISO(target.date, 7);
+      const sameSlotNextWeek = sessionsForDate(nextWeek).find(x => x.name === target.name &&
+        x.part === target.part && x.serviceId === target.serviceId);
+      const before = { label: sessionStaffLabel(target), nextWeek: sameSlotNextWeek ? sessionStaffLabel(sameSlotNextWeek) : "" };
+
+      store.data.swaps.push({ id: "sw_test", date: target.date, part: "", serviceId: "", pairId: "p_test",
+        fromStaffId: target.staffIds[0], toStaffId: other.id, note: "ทดสอบ", returnDate: "" });
+
+      const now = at(target.date, target.key);
+      const nw = sessionsForDate(nextWeek).find(x => x.name === target.name &&
+        x.part === target.part && x.serviceId === target.serviceId);
+      store.data.swaps = [];
+      return {
+        date: target.date, name: target.name,
+        beforeLabel: before.label, afterLabel: now ? sessionStaffLabel(now) : "",
+        keySurvived: !!now,
+        subs: now?.subs?.length || 0,
+        nextWeekBefore: before.nextWeek, nextWeekAfter: nw ? sessionStaffLabel(nw) : ""
+      };
+    });
+    t.check("แลกวันแล้ว ชื่อผู้รับผิดชอบของวันนั้นเปลี่ยน",
+            swap.afterLabel !== swap.beforeLabel, swap.beforeLabel + " → " + swap.afterLabel);
+    t.check("บอกด้วยว่ามาแทนใคร ไม่ใช่เปลี่ยนชื่อเงียบ ๆ",
+            swap.afterLabel.includes("แทน") && swap.subs > 0, swap.afterLabel);
+    t.check("รหัสคาบไม่เปลี่ยน — ผลประเมินที่ทำไว้แล้วยังผูกอยู่กับคาบเดิม", swap.keySurvived);
+    t.eq("สัปดาห์ถัดไปยังเป็นอาจารย์คนเดิม — การแลกไม่ลามไปทั้งปี",
+         swap.nextWeekAfter, swap.nextWeekBefore);
+
+    /* ใส่วันแลกกลับ ระบบต้องสร้างอีกฝั่งให้เอง ไม่งั้นมันคือการฝาก ไม่ใช่การแลก */
+    const pair = await page.evaluate(async () => {
+      store.data.swaps = [];
+      const iso = todayISO(), back = addDaysISO(iso, 7);
+      const a = store.data.staff[0].id, b = store.data.staff[1].id;
+      openSwap(iso, a, "", "");
+      document.querySelector('#dlgBody [name="toStaffId"]').value = b;
+      document.querySelector('#dlgBody [name="returnDate"]').value = back;
+      const save = [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("บันทึก"));
+      const realConfirm = window.confirm; window.confirm = () => true;
+      save.click();
+      window.confirm = realConfirm;
+      document.querySelector("#dlg").close();
+      const out = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId].join(">"));
+      store.data.swaps = [];
+      return { out, want: [[iso, a, b].join(">"), [back, b, a].join(">")] };
+    });
+    t.eq("ใส่วันแลกกลับแล้วอีกฝั่งถูกสร้างให้เอง", pair.out, pair.want);
+
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
   } finally {

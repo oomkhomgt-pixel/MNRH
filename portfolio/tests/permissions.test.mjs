@@ -187,6 +187,33 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- การแลกวัน OR: อาจารย์แลกได้เฉพาะคาบของตัวเอง ---------- */
+    {
+      const rows = [];
+      for (const role of ["resident", "staff", "admin"]) {
+        const { page } = await openAs(browser, srv.url, role);
+        rows.push(await page.evaluate(r => {
+          const mine = currentUser()?.staffId || "";
+          const other = (store.data.staff || []).find(x => x.id !== mine)?.id || "";
+          const before = (store.data.swaps || []).length;
+          /* ลองบันทึกทับคาบของอาจารย์คนอื่นด้วยการเรียกฟังก์ชันตรง ๆ */
+          openSwap(todayISO(), other, "", "");
+          const opened = !!document.querySelector("#dlg")?.open;
+          if (opened) document.querySelector("#dlg").close();
+          return { role: r, mine: canSwapFor(mine), other: canSwapFor(other),
+                   openedOther: opened, grew: (store.data.swaps || []).length > before };
+        }, role));
+        await page.close();
+      }
+      const [res, stf, adm] = rows;
+      t.check("แพทย์ประจำบ้านบันทึกการแลกวันไม่ได้เลย",
+              !res.mine && !res.other && !res.openedOther, JSON.stringify(res));
+      t.check("อาจารย์แลกวันของตัวเองได้", stf.mine);
+      t.check("อาจารย์แลกวันของอาจารย์คนอื่นไม่ได้ แม้เรียกฟังก์ชันตรง ๆ",
+              !stf.other && !stf.openedOther && !stf.grew, JSON.stringify(stf));
+      t.check("ผู้จัดหลักสูตรแลกวันแทนใครก็ได้", adm.other && adm.openedOther);
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);

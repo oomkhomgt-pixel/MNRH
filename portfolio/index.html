@@ -442,6 +442,20 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
       <div class="card">
         <div class="between">
+          <h2>การแลกวัน OR ของอาจารย์</h2>
+          <button class="btn-sm no-print" id="btnAddSwap" data-perm="staff">+ บันทึกการแลกวัน</button>
+        </div>
+        <p class="muted small">อาจารย์นัดแลกวันกันเองเป็นครั้งคราว บันทึกไว้ตรงนี้เป็น <b>ข้อยกเว้นของวันนั้น</b>
+          ไม่ใช่การแก้ตารางประจำสัปดาห์ — ถ้าไปแก้ตารางประจำสัปดาห์ สัปดาห์อื่นทั้งปีจะเปลี่ยนตามและประวัติที่ผ่านมาจะผิดย้อนหลัง
+          · ตารางและหน้า “วันนี้” จะขึ้นชื่อคนที่มาแทนพร้อมวงเล็บว่าแทนใคร
+          · ใส่วันที่แลกกลับแล้วระบบสร้างอีกฝั่งให้เอง จึงเป็นการแลก ไม่ใช่การฝาก
+          · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบ ไม่ได้เปลี่ยนตัวคาบ
+          · อาจารย์บันทึกได้เฉพาะคาบของตัวเอง ผู้จัดหลักสูตรบันทึกได้ทุกคาบ</p>
+        <div id="swapTable"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
           <h2>การประเมินท้ายเซสชันล่าสุด</h2>
           <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
         </div>
@@ -1086,6 +1100,9 @@ const store = {
     /* ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์ เช่น อาจารย์เวร ER รายวัน
        สายที่อยู่ ER วันพฤหัส OPD วันพฤหัสที่ลงเป็นชื่ออาจารย์ และวันหยุดราชการ */
     d.duty ||= [];
+    /* การแลกวัน OR ของอาจารย์ — เป็นข้อยกเว้นรายวัน ไม่ใช่การแก้ตารางประจำสัปดาห์
+       ถ้าไปแก้ตารางประจำสัปดาห์ สัปดาห์อื่นทั้งปีจะเปลี่ยนตามไปด้วย และประวัติที่ผ่านมาจะผิด */
+    d.swaps ||= [];
     /* เดิมบัญชีสาธิตใช้รหัส 1234 เหมือนกันหมด ตอนนี้แยกตามบทบาท
        ย้ายให้เฉพาะบัญชีที่ยังเป็นรหัสเดิม — ใครตั้งรหัสเองไว้แล้วไม่ยุ่ง */
     (d.users || []).forEach(u => {
@@ -1211,6 +1228,23 @@ function sessionsOverlap(a, b) {
   return a.start < b.end && b.start < a.end;
 }
 
+/* แทนที่ชื่ออาจารย์ตามที่บันทึกการแลกวันไว้ คืนทั้งรายชื่อใหม่และร่องรอยว่าใครแทนใคร
+   ร่องรอยสำคัญพอ ๆ กับชื่อใหม่ — แพทย์ประจำบ้านต้องรู้ว่าวันนี้ไม่ใช่อาจารย์ที่ตารางบอกไว้ */
+function applySwaps(staffIds, iso, part, serviceId, data) {
+  const list = (data.swaps || []).filter(sw => sw.date === iso &&
+    (!sw.part || partsOverlap(sw.part, part)) &&
+    (!sw.serviceId || sw.serviceId === serviceId));
+  if (!list.length) return { ids: staffIds, subs: [] };
+  const subs = [];
+  const ids = staffIds.map(id => {
+    const sw = list.find(x => x.fromStaffId === id && x.toStaffId && x.toStaffId !== id);
+    if (!sw) return id;
+    subs.push({ from: id, to: sw.toStaffId, note: sw.note || "", swapId: sw.id });
+    return sw.toStaffId;
+  });
+  return { ids, subs };
+}
+
 function computeSessions(iso, data) {
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d)) return [];
@@ -1222,16 +1256,19 @@ function computeSessions(iso, data) {
   const push = (keyBase, i, t, svc, residentId, rot) => {
     /* อาจารย์ผู้รับผิดชอบคาบมีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน
        ถ้าคาบนั้นไม่ได้ระบุใครไว้ ให้ตกเป็นอาจารย์ผู้กำกับประจำบล็อก */
-    const staffIds = t.staffIds?.length ? t.staffIds.slice()
-                   : t.staffId ? [t.staffId]
-                   : rot?.supervisorId ? [rot.supervisorId] : [];
+    const rawStaffIds = t.staffIds?.length ? t.staffIds.slice()
+                      : t.staffId ? [t.staffId]
+                      : rot?.supervisorId ? [rot.supervisorId] : [];
+    /* อาจารย์แลกวันกันเอง — เปลี่ยนเฉพาะชื่อผู้รับผิดชอบของวันนั้น
+       รหัสคาบ (key) ไม่เปลี่ยน ผลประเมินที่ทำไว้แล้วจึงยังผูกอยู่กับคาบเดิม ไม่หลุด */
+    const { ids: staffIds, subs } = applySwaps(rawStaffIds, iso, t.part, svc.id, data);
     out.push({
       key: keyBase + "|" + iso + "|" + i,
       rotationId: rot?.id || "", residentId, serviceId: svc.id,
       date: iso, part: t.part, name: t.name,
       start: t.start || "", end: t.end || "",
       location: t.location || svc.site || "",
-      staffIds, staffId: staffIds[0] || "",
+      staffIds, staffId: staffIds[0] || "", subs,
       kind: serviceKind(svc), academic: !!t.academic,
       priority: typeof t.priority === "number" ? t.priority
               : t.academic ? (prio.academic ?? 40)
@@ -3049,6 +3086,10 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  $$("#todayBody [data-tswap]").forEach(b => b.addEventListener("click", () => {
+    const [date, staffId, part, serviceId] = b.dataset.tswap.split("|");
+    openSwap(date, staffId, part, serviceId);
+  }));
 }
 
 /* --- แพทย์ประจำบ้าน: ของฉันคนเดียว --- */
@@ -3148,6 +3189,12 @@ function todayForStaff(iso, all) {
         <div class="between"><b>${esc(first.name)}</b>
           <span class="tag">${esc(PART_BY_ID[first.part]?.th || first.part)}${first.start ? " " + esc(sessionTimeLabel(first)) : ""}</span></div>
         <div class="small muted">${esc(first.location || "—")}</div>
+        ${(first.subs || []).some(x => x.to === sid)
+          ? `<p class="notice warn small" style="margin:.4rem 0 0">วันนี้คุณมาแทน ${esc(staffName(first.subs.find(x => x.to === sid).from))}</p>` : ""}
+        <div class="row no-print" style="margin-top:.4rem">
+          <button class="btn-sm" data-tswap="${esc(first.date)}|${esc(sid)}|${esc(first.part)}|${esc(first.serviceId)}">
+            ${(first.subs || []).length ? "แก้การแลกวัน" : "แลกวันนี้ให้คนอื่น"}</button>
+        </div>
         <div style="margin-top:.4rem">${list.map(ses => {
           const r = store.resident(ses.residentId);
           return `<button class="sess ${evalForKey(ses.key) ? "done" : ""}" data-sess="${esc(ses.key)}"
@@ -3221,6 +3268,140 @@ function todayForAdmin(iso, all) {
     </div>
   </div>`);
   return out;
+}
+
+/* ============ การแลกวัน OR ของอาจารย์ ============
+   อาจารย์นัดแลกวันกันเองอยู่แล้ว ตารางประจำสัปดาห์จึงไม่ตรงกับความจริงเป็นครั้งคราว
+   ทางที่ผิดคือไปแก้ตารางประจำสัปดาห์ เพราะสัปดาห์อื่นทั้งปีจะเปลี่ยนตาม และประวัติที่ผ่านมาจะผิดย้อนหลัง
+   ทางที่ถูกคือบันทึกเป็น "ข้อยกเว้นของวันนั้น" ทับตารางเดิม — เหมือนที่ตารางเวรรายเดือนทำกับ ER
+   ถ้าระบุวันแลกกลับด้วย ระบบจะสร้างอีกฝั่งให้เอง จึงเป็นการ "แลก" ไม่ใช่การ "ฝาก" */
+const canSwapFor = (staffId) =>
+  canManage() || (myRole() === "staff" && !!staffId && currentUser()?.staffId === staffId);
+
+function swapsOn(iso) { return (store.data.swaps || []).filter(x => x.date === iso); }
+
+/* คนที่มารับแทน ติดคาบอื่นในวันเดียวกันอยู่หรือไม่ — ต้องบอกก่อนบันทึก ไม่ใช่ปล่อยให้ไปชนหน้างาน */
+function staffBusyOn(staffId, iso, part, ignoreServiceId) {
+  if (!staffId) return [];
+  const seen = new Set();
+  return sessionsForDate(iso).filter(ses => {
+    if (!(ses.staffIds || []).includes(staffId)) return false;
+    if (ignoreServiceId && ses.serviceId === ignoreServiceId) return false;
+    if (part && !partsOverlap(ses.part, part)) return false;
+    const k = ses.name + "|" + ses.part;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+function openSwap(iso, fromStaffId, part, serviceId) {
+  if (!canSwapFor(fromStaffId)) {
+    toast("บันทึกการแลกวันได้เฉพาะอาจารย์เจ้าของคาบนั้นเอง หรือผู้จัดหลักสูตร"); return;
+  }
+  const existing = swapsOn(iso).find(x => x.fromStaffId === fromStaffId &&
+    (!part || !x.part || partsOverlap(x.part, part)));
+  const staffList = (store.data.staff || []).filter(x => x.id !== fromStaffId);
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(iso + "T00:00:00").getDay()]}ที่ ${fmtDate(iso)}</dd>
+      <dt>คาบเดิมของ</dt><dd><b>${esc(staffName(fromStaffId))}</b></dd>
+    </div>
+    <div class="grid g2">
+      <label class="f"><span>ให้ใครมาแทน</span><select name="toStaffId"><option value="">—</option>
+        ${staffList.map(x => `<option value="${x.id}" ${existing?.toStaffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ช่วงไหน</span><select name="part"><option value="">ทั้งวัน</option>
+        ${SESSION_PARTS.map(p => `<option value="${p.id}" ${existing?.part === p.id ? "selected" : ""}>${esc(p.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>วันที่แลกกลับ <span class="muted">(ไม่ใส่ก็ได้)</span></span>
+        <input type="date" name="returnDate" value="${esc(existing?.returnDate || "")}" /></label>
+      <label class="f"><span>หมายเหตุ</span><input name="note" value="${esc(existing?.note || "")}" placeholder="เช่น ติดประชุมวิชาการ" /></label>
+    </div>
+    <p class="small muted" style="margin-top:.6rem">ใส่วันที่แลกกลับแล้วระบบจะสร้างอีกฝั่งให้เอง —
+      วันนั้น ${esc(staffName(fromStaffId))} จะไปยืนแทนคนที่มารับวันนี้ · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย
+      เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบของวันนั้น ไม่ได้เปลี่ยนตัวคาบ</p>
+    <div id="swapWarn"></div>`;
+  showDialog("แลกวัน OR — " + fmtDate(iso), body, [
+    { label: existing ? "บันทึกการแก้ไข" : "บันทึกการแลก", cls:"btn-primary", onClick: () => {
+        const toStaffId = dlgVal("toStaffId");
+        if (!toStaffId) { toast("เลือกอาจารย์ที่มาแทนก่อน"); return false; }
+        const pt = dlgVal("part"), returnDate = dlgVal("returnDate"), note = dlgVal("note");
+        const busy = staffBusyOn(toStaffId, iso, pt, serviceId);
+        if (busy.length && !confirm(staffName(toStaffId) + " มีคาบอื่นในวันนั้นอยู่แล้ว (" +
+            busy.map(b => b.name).join(", ") + ") บันทึกต่อหรือไม่?")) return false;
+        const pairId = existing?.pairId || uid("pair");
+        const base = { date: iso, part: pt, serviceId: serviceId || "", fromStaffId, toStaffId,
+                       note, returnDate, pairId, by: currentUser()?.displayName || "", at: new Date().toISOString() };
+        store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== pairId);
+        store.data.swaps.push({ id: uid("swap"), ...base });
+        /* อีกฝั่งของการแลก — วันที่แลกกลับ คนเดิมไปยืนแทนคนที่มารับวันนี้ */
+        if (returnDate) store.data.swaps.push({ id: uid("swap"), ...base, date: returnDate,
+          fromStaffId: toStaffId, toStaffId: fromStaffId, returnDate: iso });
+        audit("บันทึกการแลกวัน OR", staffName(fromStaffId) + " → " + staffName(toStaffId) + " วันที่ " + iso);
+        store.save(); renderAll(); toast("บันทึกการแลกวันแล้ว");
+      }},
+    ...(existing ? [{ label:"ยกเลิกการแลก", cls:"btn-danger", onClick: () => {
+        store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== existing.pairId);
+        audit("ยกเลิกการแลกวัน OR", staffName(fromStaffId) + " วันที่ " + iso);
+        store.save(); renderAll(); toast("ยกเลิกแล้ว");
+      }}] : [])
+  ]);
+  /* เตือนทันทีที่เลือกคน ไม่ต้องรอกดบันทึกแล้วค่อยรู้ว่าเขาติดอยู่ */
+  const warn = () => {
+    const to = dlgVal("toStaffId"), pt = dlgVal("part");
+    const busy = to ? staffBusyOn(to, iso, pt, serviceId) : [];
+    $("#swapWarn").innerHTML = busy.length
+      ? `<p class="notice warn small">${esc(staffName(to))} มีคาบอื่นในวันนั้นอยู่แล้ว:
+         ${busy.map(b => esc(b.name) + " (" + esc(PART_BY_ID[b.part]?.th || b.part) + ")").join(" · ")}</p>` : "";
+  };
+  $('#dlgBody [name="toStaffId"]')?.addEventListener("change", warn);
+  $('#dlgBody [name="part"]')?.addEventListener("change", warn);
+  warn();
+}
+
+/* เลือกวันกับเจ้าของคาบก่อน แล้วค่อยเข้าหน้าแลกวันจริง
+   อาจารย์ถูกล็อกให้เป็นตัวเองเสมอ จะได้ไม่แลกวันแทนคนอื่นโดยไม่ได้ตกลงกัน */
+function openSwapPicker() {
+  const mine = currentUser()?.staffId || "";
+  if (!canManage() && !mine) { toast("บัญชีนี้ไม่ได้ผูกกับอาจารย์คนใด จึงบันทึกการแลกวันไม่ได้"); return; }
+  const list = canManage() ? (store.data.staff || []) : (store.data.staff || []).filter(x => x.id === mine);
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>วันที่จะแลก</span><input type="date" name="date" value="${todayISO()}" /></label>
+      <label class="f"><span>คาบเดิมของ</span><select name="fromStaffId">${list.map(x =>
+        `<option value="${x.id}" ${x.id === mine ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    </div>
+    ${canManage() ? "" : `<p class="small muted" style="margin-top:.6rem">บัญชีอาจารย์บันทึกได้เฉพาะคาบของตัวเอง</p>`}`;
+  showDialog("แลกวัน OR", body, [
+    { label:"ถัดไป", cls:"btn-primary", onClick: () => {
+        const date = dlgVal("date"), from = dlgVal("fromStaffId");
+        if (!date || !from) { toast("เลือกวันที่และอาจารย์ก่อน"); return false; }
+        closeDialog(); openSwap(date, from, "", "");
+        return false;
+      }}
+  ]);
+}
+
+function renderSwapTable() {
+  const box = $("#swapTable"); if (!box) return;
+  const today = todayISO();
+  const list = (store.data.swaps || []).slice()
+    .filter(x => x.date >= addDaysISO(today, -30))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  box.innerHTML = list.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>ช่วง</th><th>คาบเดิมของ</th><th>มาแทนโดย</th><th>แลกกลับ</th><th>หมายเหตุ</th><th></th></tr></thead>
+    <tbody>${list.map(sw => `<tr class="${sw.date < today ? "muted" : ""}">
+      <td>${fmtDate(sw.date)}</td>
+      <td>${esc(sw.part ? PART_BY_ID[sw.part]?.th || sw.part : "ทั้งวัน")}</td>
+      <td>${esc(staffName(sw.fromStaffId))}</td>
+      <td><b>${esc(staffName(sw.toStaffId))}</b></td>
+      <td>${sw.returnDate ? fmtDate(sw.returnDate) : `<span class="tag warn">ไม่ได้แลกกลับ</span>`}</td>
+      <td class="small">${esc(sw.note || "")}</td>
+      <td><button class="btn-sm" data-swap="${esc(sw.date)}|${esc(sw.fromStaffId)}|${esc(sw.part || "")}"
+        ${canSwapFor(sw.fromStaffId) ? "" : "disabled"}>แก้</button></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีการแลกวันที่บันทึกไว้ (ย้อนหลัง 30 วันขึ้นไป)</p>`;
+  $$("#swapTable [data-swap]").forEach(b => b.addEventListener("click", () => {
+    const [date, from, part] = b.dataset.swap.split("|");
+    openSwap(date, from, part, "");
+  }));
 }
 
 function renderRotation() {
@@ -3607,9 +3788,14 @@ function printTalks() {
   printReport(html);
 }
 
-const sessionStaffLabel = (ses) => (ses.staffIds || []).length
-  ? ses.staffIds.map(staffName).join(" · ")
-  : staffName(ses.staffId);
+const sessionStaffLabel = (ses) => {
+  const subs = ses.subs || [];
+  const one = (id) => {
+    const sw = subs.find(x => x.to === id);
+    return staffName(id) + (sw ? " (แทน " + staffName(sw.from) + ")" : "");
+  };
+  return (ses.staffIds || []).length ? ses.staffIds.map(one).join(" · ") : one(ses.staffId);
+};
 const sessionTimeLabel = (ses) => ses.start && ses.end ? ses.start + "–" + ses.end : (PART_BY_ID[ses.part]?.time || "");
 
 function sessionChip(ses, withDate) {
@@ -3648,7 +3834,8 @@ function openSession(key) {
       <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(svc ? serviceSubLabel(svc) : "")}</span>
         <span class="tag">${esc(SERVICE_KIND_TH[ses.kind] || "")}</span></dd>
       <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
-      <dt>ผู้รับผิดชอบคาบนี้</dt><dd>${esc(sessionStaffLabel(ses))}</dd>
+      <dt>ผู้รับผิดชอบคาบนี้</dt><dd>${esc(sessionStaffLabel(ses))}${(ses.subs || []).length
+        ? `<br /><span class="tag warn">แลกวันกัน${ses.subs[0].note ? " — " + esc(ses.subs[0].note) : ""}</span>` : ""}</dd>
     </div>
     ${ses.superseded ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.supersededBy)}</b> ซึ่งมีลำดับความสำคัญสูงกว่า
       ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น คาบนี้จึงไม่ถูกนับเป็นงานค้างประเมิน</p>` : ""}
@@ -3696,14 +3883,20 @@ function openSession(key) {
       }}] : [])
   ];
 
+  /* ปุ่มแลกวันอยู่ตรงนี้ด้วย เพราะจุดที่นึกออกว่าจะแลก คือตอนเปิดดูคาบของวันนั้น */
+  const swapButtons = (ses.staffIds || []).filter(canSwapFor).slice(0, 1).map(sid => ({
+    label: (ses.subs || []).length ? "แก้การแลกวันนี้" : "แลกวันนี้ให้คนอื่น",
+    onClick: () => { closeDialog(); openSwap(ses.date, sid, ses.part, ses.serviceId); return false; }
+  }));
+
   if (!canAssess()) {
     showDialog("รายละเอียดเซสชัน",
       body + `<p class="notice warn small">บัญชีนี้ประเมินไม่ได้ — การประเมินท้ายเซสชันทำได้โดยอาจารย์ผู้รับผิดชอบ
-        ${canPick ? " แต่บันทึกได้ว่าวันนี้เข้าคาบไหนและใครเป็นผู้คุม" : ""}</p>`, pickButtons);
+        ${canPick ? " แต่บันทึกได้ว่าวันนี้เข้าคาบไหนและใครเป็นผู้คุม" : ""}</p>`, [...pickButtons, ...swapButtons]);
     return;
   }
   showDialog(ev ? "แก้ไขผลประเมินท้ายเซสชัน" : "ประเมินท้ายเซสชัน", body, [
-    ...pickButtons,
+    ...pickButtons, ...swapButtons,
     { label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
         const scores = {};
         EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
@@ -4476,7 +4669,8 @@ function syncSettingsDialog() {
         สองทางนี้ทำงานแยกกัน: คลาวด์คือชุดข้อมูลที่ใช้งานร่วมกัน ส่วนดิสก์คือสำเนาที่ถือไว้เอง
    ===================================================================== */
 const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks","activities",
-  "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users"];
+  "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users",
+  "duty","swaps"];
 
 function fullPayload() {
   const out = {};
@@ -4499,7 +4693,7 @@ const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navi
    --------------------------------------------------------------------- */
 const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
-  "activities","research","cases","epas","epaAssessments","users"];
+  "activities","research","cases","epas","epaAssessments","users","duty","swaps"];
 const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
 
 const readBaseline = () => { try { return JSON.parse(localStorage.getItem(BASELINE_KEY)); } catch { return null; } };
@@ -5737,6 +5931,8 @@ function showDialog(title, bodyHtml, buttons) {
   $("#dlg").showModal();
 }
 const dlgVal = (name) => { const el = $('#dlgBody [name="' + name + '"]'); return el ? el.value.trim() : ""; };
+/* ปิดกล่องปัจจุบันก่อนเปิดกล่องใหม่ — showModal ซ้อนกันไม่ได้ */
+const closeDialog = () => $("#dlg")?.close();
 
 function openActivity(id) {
   const a = store.data.activities.find(x => x.id === id); if (!a) return;
@@ -6143,6 +6339,7 @@ function renderAll() {
   renderCoverage();
   renderWfme();
   renderDutyTable();
+  renderSwapTable();
   renderSettings();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
@@ -6486,6 +6683,7 @@ function init() {
     const d = new Date(y, m - 1 + by, 1);
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
   };
+  $("#btnAddSwap").addEventListener("click", openSwapPicker);
   $("#dutyPrev").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, -1); renderDutyTable(); });
   $("#dutyNext").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, 1); renderDutyTable(); });
   $("#dutyFill").addEventListener("click", () => {
