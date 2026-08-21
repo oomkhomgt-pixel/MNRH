@@ -398,7 +398,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
           อาจารย์ที่ออกตรวจ OPD วันพฤหัสบดี และวันหยุดราชการ
           · ช่องว่าง = ใช้ตามตารางประจำสัปดาห์ · ติ๊กวันหยุดแล้วคาบทั้งวันจะหายไปจากปฏิทิน
-          · เวร ER ในเวลาราชการ คนที่ชั้นปีน้อยที่สุดของสายจะ standby ที่ ER และรับ consult นอกแผนก ที่เหลือเข้า OR emergency
+          · ER ในเวลาราชการเป็นความรับผิดชอบของทั้งสาย คนที่ชั้นปีน้อยที่สุดเป็นหน้างาน (คนแรกที่เจอเคส + consult นอกแผนก)
+          โดยมีอาจารย์ผู้รับผิดชอบเป็นผู้ตัดสินใจ ทุกคนยังเข้า OR emergency ตามตารางสายได้ตามปกติ
           · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p>
         <div id="dutyTable"></div>
       </div>
@@ -1231,22 +1232,26 @@ function computeSessions(iso, data) {
   const duty = (data.duty || []).find(x => x.date === iso);
   if (duty?.holiday) out.length = 0;
   if (duty?.erServiceId || duty?.erResidentIds?.length) {
-    /* เวร ER ในเวลาราชการ: คนที่อ่อนอาวุโสที่สุดของสายนั้น standby ที่ ER และรับ consult นอกแผนก
-       ที่เหลือในสายเข้า OR emergency ตามตารางประจำสัปดาห์ตามปกติ
-       ระบุตัวเองได้ที่ตารางเวร ถ้าเว้นว่างระบบจะเลือกคนที่ชั้นปีน้อยที่สุดให้ */
+    /* ER ในเวลาราชการเป็นความรับผิดชอบของทั้งสาย ไม่ใช่ของคนใดคนหนึ่ง
+       คนที่อ่อนอาวุโสที่สุดเป็นหน้างาน คือคนแรกที่เจอเคสและรับ consult จากนอกแผนก
+       แต่ไม่ใช่ผู้ตัดสินใจหลัก — ผู้ตัดสินใจคืออาจารย์ผู้รับผิดชอบของวันนั้น
+       คาบนี้จึงเป็นการบอกหน้าที่ ไม่ใช่การบอกที่อยู่ ทุกคนยังเข้า OR emergency ตามตารางสายได้ */
     const inTeam = (data.residents || []).filter(r => (data.rotations || []).some(x =>
       x.residentId === r.id && x.serviceId === duty.erServiceId &&
       (!x.start || iso >= x.start) && (!x.end || iso <= x.end)));
-    const junior = inTeam.slice().sort((a, b) => (a.year || 9) - (b.year || 9))[0];
-    const people = duty.erResidentIds?.length ? duty.erResidentIds : (junior ? [junior.id] : []);
+    const frontline = (duty.erResidentIds?.length
+      ? inTeam.filter(r => duty.erResidentIds.includes(r.id))
+      : inTeam.slice().sort((a, b) => (b.year || 0) - (a.year || 0)).slice(-1))[0];
     const svc = (data.services || []).find(x => x.id === duty.erServiceId);
-    people.forEach(rid => out.push({
-      key: "duty|" + iso + "|" + rid,
-      rotationId: "", residentId: rid, serviceId: duty.erServiceId || "",
-      date: iso, part:"day", name:"standby ER + consult นอกแผนก" + (svc ? " — " + svc.name : ""),
+    inTeam.forEach(r => out.push({
+      key: "duty|" + iso + "|" + r.id,
+      rotationId: "", residentId: r.id, serviceId: duty.erServiceId || "",
+      date: iso, part:"day",
+      name: "รับผิดชอบ ER" + (svc ? " — " + svc.name : "") +
+            (r.id === frontline?.id ? " · หน้างาน (คนแรกที่เจอเคส + consult นอกแผนก)" : ""),
       start:"", end:"", location: duty.location || "ห้องฉุกเฉิน",
       staffIds: (duty.erStaffIds || []).slice(), staffId: (duty.erStaffIds || [])[0] || "",
-      kind:"duty",
+      kind:"duty", advisory: true, frontline: r.id === frontline?.id,
       priority: typeof duty.priority === "number" ? duty.priority : (prio.duty ?? 25)
     }));
   }
@@ -1265,7 +1270,9 @@ function computeSessions(iso, data) {
   const byResident = {};
   out.forEach(x => (byResident[x.residentId] ||= []).push(x));
   Object.values(byResident).forEach(list => list.forEach(a => {
-    const hits = list.filter(b => b !== a && sessionsOverlap(a, b));
+    /* คาบที่บอกหน้าที่ ไม่ได้บอกว่าต้องไปยืนอยู่ตรงไหน จึงไม่นับว่าชนกับใคร */
+    if (a.advisory) return;
+    const hits = list.filter(b => b !== a && !b.advisory && sessionsOverlap(a, b));
     if (!hits.length) return;
     a.overlaps = hits.map(b => b.name);
     const best = Math.max(...hits.map(b => b.priority));
@@ -1816,9 +1823,8 @@ function seedData() {
         { day:4, part:"pm", name:"Inter-hospital conference (ปี 4)", start:"13:00", end:"15:30",
           staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true, academic:true },
         /* จากหมายเหตุท้ายตารางเวร */
-        /* คลินิกของอาจารย์ล้วน ไม่มีแพทย์ประจำบ้านเข้า — ปี 4 ก็ติดประชุม inter-hospital ช่วงเดียวกัน */
-        { day:4, part:"pm", name:"คลินิกพิเศษออร์โธเด็ก", start:"13:00", end:"16:00",
-          staffIds:["st_23"], location:"OPD ออร์โธปิดิกส์", years:[], whenAway:false, staffOnly:true }
+        /* คลินิกพิเศษออร์โธเด็กบ่ายพฤหัสบดีเป็นของอาจารย์ล้วน ไม่มีแพทย์ประจำบ้านเข้า
+           จึงไม่อยู่ในตารางนี้ — ดูได้ที่ทะเบียนอาจารย์ของ พญ. ศุภมาส */
       ] }
   ];
   services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
@@ -3330,7 +3336,8 @@ function sessionChip(ses, withDate) {
   const svc = serviceById(ses.serviceId);
   const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
-  const note = ses.academic ? `<span class="tag b">กิจกรรมวิชาการ — มาก่อนงานบริการ</span>`
+  const note = ses.advisory ? `<span class="tag">${ses.frontline ? "หน้างาน" : "ร่วมรับผิดชอบ"}</span>`
+             : ses.academic ? `<span class="tag b">กิจกรรมวิชาการ — มาก่อนงานบริการ</span>`
              : ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
              : ses.superseded ? `<span class="tag warn">${ses.supersededByPick ? "วันนี้เลือกเข้า" : "ชน — ไปเข้า"} ${esc(ses.supersededBy)}</span>`
              : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — เลือกว่าเข้าคาบไหน</span>`
@@ -3481,7 +3488,7 @@ function renderDutyTable() {
 
   box.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr><th>วันที่</th><th>วัน</th><th>OPD (สาย)</th><th>OPD (อาจารย์ — วันพฤหัสบดี)</th>
-      <th>ER (สาย)</th><th>อาจารย์เวร</th><th>ผู้ standby ER (เว้นว่าง = ชั้นปีน้อยสุดของสาย)</th><th>หยุด</th></tr></thead>
+      <th>ER (สาย)</th><th>อาจารย์ผู้รับผิดชอบ</th><th>หน้างาน (เว้นว่าง = ชั้นปีน้อยสุดของสาย)</th><th>หยุด</th></tr></thead>
     <tbody>${days.map(iso => {
       const d = (store.data.duty || []).find(x => x.date === iso) || {};
       const dow = new Date(iso + "T00:00:00").getDay();
