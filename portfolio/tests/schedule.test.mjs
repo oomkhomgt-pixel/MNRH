@@ -69,41 +69,50 @@ export default async function run() {
     });
     t.eq("คาบที่ระบุเวลาไว้ ไม่ขึ้นว่าชนกับงานเต็มวัน", noFalseClash.length, 0);
 
-    /* ---------- วนหน่วยอนุสาขาแต่ยังสังกัดสาย: หน่วยชนะสายตามลำดับความสำคัญ ---------- */
-    const both = await page.evaluate(() => {
-      const rot = store.data.rotations.find(r => r.alsoServiceId &&
-        serviceById(r.serviceId)?.subUnit && serviceById(r.alsoServiceId)?.team);
+    /* ---------- วนหน่วยอนุสาขา = ตามลิสต์ของอนุสาขาตัวเองในทุกสาย ---------- */
+    const sub = await page.evaluate(() => {
+      const rot = store.data.rotations.find(r => serviceById(r.serviceId)?.subUnit);
       if (!rot) return null;
-      const found = [];
+      const svc = serviceById(rot.serviceId);
+      const seen = new Set(), clashes = [];
       for (let i = 0; i < 7; i++)
         sessionsForDate(addDaysISO(rot.start, i))
-          .filter(s => s.residentId === rot.residentId && (s.superseded || s.clash))
-          .filter(s => s.kind === "team" || s.kind === "subUnit")
-          .forEach(s => found.push({ kind: s.kind, name: s.name, by: s.supersededBy || s.clash, sup: !!s.superseded }));
-      return { found, teamLost: found.every(x => x.kind === "team" && x.sup) };
+          .filter(s => s.residentId === rot.residentId && s.kind === "team")
+          .forEach(s => { seen.add(s.serviceId); if (s.clash || s.superseded) clashes.push(s.name); });
+      return { unit: svc.name, wants: svc.subspecialties, teamsSeen: seen.size,
+               emptyTemplate: (svc.template || []).length === 0, clashes: clashes.length };
     });
-    t.check("คนที่วน sub และยังสังกัดสาย มีคาบชนกันจริง", both && both.found.length > 0,
-            both ? both.found.length + " คาบใน 7 วันแรก" : "ไม่มีข้อมูลสาธิต");
-    t.check("หน่วยอนุสาขาชนะสาย และคาบของสายถูกทำเครื่องหมายว่าแพ้", both?.teamLost === true);
+    t.check("หน่วยอนุสาขาไม่มีตารางของตัวเอง", sub?.emptyTemplate === true, sub?.unit);
+    t.check("คนวน sub ได้ลิสต์ของอนุสาขาตัวเองจากหลายสาย", (sub?.teamsSeen ?? 0) > 1,
+            sub ? sub.teamsSeen + " สาย · " + sub.wants.join("/") : "ไม่มีข้อมูล");
+    t.check("วันที่มีลิสต์อนุสาขาเดียวกันสองสาย ขึ้นว่าต้องเลือกเอง", (sub?.clashes ?? 0) > 0,
+            (sub?.clashes ?? 0) + " คาบ");
 
     /* ---------- คาบที่แพ้ ไม่ถูกนับเป็นงานค้างประเมิน ---------- */
     t.check("คาบที่แพ้ไม่กลายเป็นงานค้างของอาจารย์", await page.evaluate(() =>
       pendingEvaluations(30).every(s => !s.superseded)));
 
-    /* ---------- ลำดับความสำคัญเท่ากัน = ระบบไม่ตัดสินให้ แต่บอกว่าชน ---------- */
-    const tie = await page.evaluate(() => {
-      store.data.programme.sessionPriority.team = store.data.programme.sessionPriority.subUnit;
-      const rot = store.data.rotations.find(r => r.alsoServiceId && serviceById(r.serviceId)?.subUnit);
-      const out = [];
-      for (let i = 0; i < 7; i++)
-        sessionsForDate(addDaysISO(rot.start, i))
-          .filter(s => s.residentId === rot.residentId && (s.superseded || s.clash))
-          .forEach(s => out.push({ sup: !!s.superseded, clash: !!s.clash }));
-      store.data.programme.sessionPriority.team = SESSION_PRIORITY_DEFAULT.team;
-      return out;
+    /* ---------- กิจกรรมวิชาการมาก่อนงานบริการเสมอ ---------- */
+    const academic = await page.evaluate(() => {
+      const cs = store.data.services.find(x => x.central);
+      const row = cs.template.find(t => t.academic);
+      let iso = todayISO();
+      while (new Date(iso + "T00:00:00").getDay() !== row.day) iso = addDaysISO(iso, 1);
+      const r = store.data.residents.find(x => !row.years?.length || row.years.includes(x.year));
+      const ses = sessionsForDate(iso).find(s => s.residentId === r.id && s.name === row.name);
+      /* ตั้งใจให้ชนกับคาบวิชาการ แล้วดูว่าใครแพ้ */
+      cs.template.push({ day: row.day, part: row.part, name:"งานบริการซ้อนเวลาวิชาการ",
+                         start: row.start, end: row.end, staffIds:[], years:[], whenAway:true });
+      const after = sessionsForDate(iso).filter(s => s.residentId === r.id);
+      const acad = after.find(s => s.name === row.name);
+      const other = after.find(s => s.name === "งานบริการซ้อนเวลาวิชาการ");
+      cs.template.pop();
+      return { flagged: ses?.academic === true, prio: ses?.priority,
+               acadKept: acad && !acad.superseded, otherLost: other?.superseded === true };
     });
-    t.check("ลำดับเท่ากัน: ไม่มีคาบไหนถูกตัดสินให้แพ้", tie.length > 0 && tie.every(x => !x.sup && x.clash),
-            tie.length + " คาบถูกทำเครื่องหมายว่าชนกันโดยไม่ตัดสินแทน");
+    t.check("คาบวิชาการถูกทำเครื่องหมายไว้ และได้ลำดับสูงสุด", academic.flagged && academic.prio === 40,
+            "ลำดับ " + academic.prio);
+    t.check("งานบริการที่ซ้อนเวลากิจกรรมวิชาการเป็นฝ่ายแพ้", academic.acadKept && academic.otherLost);
 
     /* ---------- ตารางส่วนกลางไม่ใช่หน่วยที่ใครไปประจำ ---------- */
     t.check("ตารางส่วนกลางไม่อยู่ในตัวเลือกของช่วงหมุนเวียน", await page.evaluate(() =>
@@ -113,35 +122,33 @@ export default async function run() {
       return plan.rotations.every(r => !serviceById(r.serviceId)?.central);
     }));
 
-    /* ---------- การเลือกรายวันชนะลำดับความสำคัญที่ตั้งไว้ล่วงหน้า ---------- */
+    /* ---------- การเลือกรายวันตัดสินคาบที่ลำดับเท่ากัน ---------- */
     const picked = await page.evaluate(() => {
-      const rot = store.data.rotations.find(r => r.alsoServiceId && serviceById(r.serviceId)?.subUnit);
-      let iso = null, loser = null, winner = null;
-      for (let i = 0; i < 7 && !loser; i++) {
+      const rot = store.data.rotations.find(r => serviceById(r.serviceId)?.subUnit);
+      let iso = null, a = null, b = null;
+      for (let i = 0; i < 7 && !a; i++) {
         const day = addDaysISO(rot.start, i);
-        const list = sessionsForDate(day).filter(s => s.residentId === rot.residentId
-          && (s.kind === "team" || s.kind === "subUnit"));
-        loser = list.find(s => s.superseded);
-        if (loser) { iso = day; winner = list.find(s => !s.superseded && s.name === loser.supersededBy); }
+        const list = sessionsForDate(day).filter(s => s.residentId === rot.residentId && s.clash);
+        if (list.length >= 2) { iso = day; a = list[0]; b = list.find(x => x.key !== a.key); }
       }
-      if (!loser) return null;
-      /* บันทึกว่าวันนั้นไปเข้าคาบที่ "แพ้" จริง ๆ พร้อมระบุอาจารย์ */
+      if (!a) return null;
       const staffId = store.data.staff[0].id;
-      store.data.sessionPicks.push({ id: uid("pick"), residentId: loser.residentId, date: iso,
-        part: loser.part, key: loser.key, staffId, at: new Date().toISOString(), by: "test" });
-      const after = sessionsForDate(iso).filter(s => s.residentId === loser.residentId);
-      const nowWinner = after.find(s => s.key === loser.key);
-      const nowLoser  = after.find(s => s.key === winner?.key);
-      const other = sessionsForDate(addDaysISO(iso, 7)).filter(s => s.residentId === loser.residentId);
+      store.data.sessionPicks.push({ id: uid("pick"), residentId: a.residentId, date: iso,
+        part: a.part, key: a.key, staffId, at: new Date().toISOString(), by: "test" });
+      const after = sessionsForDate(iso).filter(s => s.residentId === a.residentId);
+      const mine = after.find(s => s.key === a.key);
+      const theirs = after.find(s => s.key === b.key);
+      const other = sessionsForDate(addDaysISO(iso, 7)).filter(s => s.residentId === a.residentId);
       store.data.sessionPicks = [];
-      return { flippedTo: nowWinner?.picked === true && !nowWinner?.superseded,
-               oldWinnerNowLoses: nowLoser?.superseded === true,
-               byPick: nowLoser?.supersededByPick === true,
-               staffOverridden: nowWinner?.staffIds?.[0] === staffId,
+      return { chosen: mine?.picked === true && !mine?.superseded,
+               otherLost: theirs?.superseded === true,
+               byPick: theirs?.supersededByPick === true,
+               staffOverridden: mine?.staffIds?.[0] === staffId,
                otherDayUntouched: other.every(s => !s.picked) };
     });
-    t.check("บันทึกรายวันแล้ว คาบที่เลือกกลายเป็นตัวหลัก", picked?.flippedTo === true);
-    t.check("คาบที่เคยชนะกลับกลายเป็นไม่ได้เข้าในวันนั้น", picked?.oldWinnerNowLoses === true);
+    t.check("มีวันที่ต้องเลือกเองจริงในข้อมูล", picked !== null);
+    t.check("บันทึกรายวันแล้ว คาบที่เลือกกลายเป็นตัวหลัก", picked?.chosen === true);
+    t.check("อีกคาบที่ชนกันกลายเป็นไม่ได้เข้าในวันนั้น", picked?.otherLost === true);
     t.check("บอกได้ว่าที่แพ้เพราะคนเลือกเอง ไม่ใช่เพราะลำดับความสำคัญ", picked?.byPick === true);
     t.check("ระบุอาจารย์ของวันนั้นทับค่าในตารางได้", picked?.staffOverridden === true);
     t.check("การเลือกมีผลเฉพาะวันนั้น ไม่ลามไปสัปดาห์อื่น", picked?.otherDayUntouched === true);

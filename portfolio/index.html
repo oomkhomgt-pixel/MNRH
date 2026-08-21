@@ -896,14 +896,16 @@ const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
 
 /* เมื่อคาบสองอันของคนเดียวกันชนกัน อันที่ลำดับความสำคัญสูงกว่าเป็นตัวหลัก
    อีกอันยังแสดงอยู่แต่ถูกทำเครื่องหมายว่าถูกแทนที่ ไม่ลบทิ้ง เพราะคนจัดตารางต้องเห็นว่ามันชนกัน */
-const SESSION_PRIORITY_DEFAULT = { central: 30, duty: 25, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
-/* คาบที่มีคนบันทึกไว้ว่าวันนั้นไปเข้าจริง ชนะทุกลำดับความสำคัญที่ตั้งไว้ล่วงหน้า */
-const PICKED_PRIORITY = 1e6;
+const SESSION_PRIORITY_DEFAULT = { academic: 40, central: 30, duty: 25, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
+/* กิจกรรมวิชาการเป็นหน้าที่แรกของแพทย์ประจำบ้าน มาก่อนงานบริการทุกอย่าง
+   การบันทึกรายวันจึงชนะได้แค่คาบงานบริการด้วยกัน ไม่ชนะกิจกรรมวิชาการ */
+const PICKED_PRIORITY = 35;
 const serviceKind = (svc) => !svc ? "other"
   : svc.central ? "central" : svc.subUnit ? "subUnit" : svc.team ? "team"
   : svc.external ? "external" : svc.elective ? "elective" : "other";
-const SERVICE_KIND_TH = { central:"ส่วนกลางของภาควิชา", duty:"ตารางเวรรายเดือน", subUnit:"หน่วยอนุสาขา",
-                          team:"สาย", external:"นอกภาควิชา", elective:"free elective", other:"อื่น ๆ" };
+const SERVICE_KIND_TH = { academic:"กิจกรรมวิชาการ", central:"ส่วนกลางของภาควิชา", duty:"ตารางเวรรายเดือน",
+                          subUnit:"หน่วยอนุสาขา", team:"สาย", external:"นอกภาควิชา",
+                          elective:"free elective", other:"อื่น ๆ" };
 
 /* หนึ่งแถวของตารางเวรรายเดือน = หนึ่งวันราชการ ช่องว่างแปลว่า "ไม่มีอะไรเพิ่มจากตารางประจำสัปดาห์"
      opdServiceId / opdStaffIds  สายที่ออกตรวจ OPD — วันพฤหัสบดีลงเป็นชื่ออาจารย์แทนสาย
@@ -1174,18 +1176,35 @@ function computeSessions(iso, data) {
       start: t.start || "", end: t.end || "",
       location: t.location || svc.site || "",
       staffIds, staffId: staffIds[0] || "",
-      kind: serviceKind(svc),
-      priority: typeof t.priority === "number" ? t.priority : (prio[serviceKind(svc)] ?? 10)
+      kind: serviceKind(svc), academic: !!t.academic,
+      priority: typeof t.priority === "number" ? t.priority
+              : t.academic ? (prio.academic ?? 40)
+              : (prio[serviceKind(svc)] ?? 10)
     });
   };
 
   const fromTemplate = (svc, residentId, rot, keyBase) =>
     (svc?.template || []).forEach((t, i) => { if (t.day === dow) push(keyBase, i, t, svc, residentId, rot); });
 
+  /* หน่วยอนุสาขาไม่มีตารางของตัวเอง งานถูกแบ่งไปอยู่ในสาย
+     คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย และวันไหนมีสองลิสต์ก็ต้องเลือกเอง */
+  const followTeamsBySub = (svc, residentId, rot) => {
+    const want = svc.subspecialties || [];
+    if (!want.length) return;
+    (data.services || []).filter(x => x.team).forEach(team =>
+      (team.template || []).forEach((t, i) => {
+        if (t.day !== dow) return;
+        if (!(t.subspecialties || []).some(x => want.includes(x))) return;
+        push(rot.id + "@" + team.id, i, t, team, residentId, rot);
+      }));
+  };
+
   (data.rotations || []).forEach(rot => {
     if (rot.start && iso < rot.start) return;
     if (rot.end && iso > rot.end) return;
-    fromTemplate(svcById(rot.serviceId), rot.residentId, rot, rot.id);
+    const svc = svcById(rot.serviceId);
+    if (svc?.subUnit && !(svc.template || []).length) followTeamsBySub(svc, rot.residentId, rot);
+    else fromTemplate(svc, rot.residentId, rot, rot.id);
     /* บางคนวนหน่วยอนุสาขาแต่ยังสังกัดสายอยู่ด้วย — คาบของสายจึงยังนับ และอาจชนกับคาบของหน่วย */
     if (rot.alsoServiceId) fromTemplate(svcById(rot.alsoServiceId), rot.residentId, rot, rot.id + "@2");
   });
@@ -1694,12 +1713,12 @@ function seedData() {
         ...[1,2,3,4,5].map(d => ({ day:d, part:"am", name:"Ward round — สายฟ้า",
           start:"08:00", end:"09:00", staffIds:[], location:"หอผู้ป่วย" })),
         { day:1, part:"day", name:"OPD — สายฟ้า", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
-        { day:2, part:"day", name:"OR — hand", staffIds:["st_1"], location:"ห้องผ่าตัด" },
-        { day:2, part:"day", name:"OR — sports", staffIds:["st_2"], location:"ห้องผ่าตัด" },
+        { day:2, part:"day", name:"OR — hand", staffIds:["st_1"], location:"ห้องผ่าตัด", subspecialties:["hand"] },
+        { day:2, part:"day", name:"OR — sports", staffIds:["st_2"], location:"ห้องผ่าตัด", subspecialties:["sports"] },
         { day:3, part:"day", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
-        { day:4, part:"day", name:"OR — trauma", staffIds:["st_3"], location:"ห้องผ่าตัด" },
-        { day:5, part:"day", name:"OR — spine", staffIds:["st_4"], location:"ห้องผ่าตัด" },
-        { day:5, part:"day", name:"OR — foot & ankle", staffIds:["st_5"], location:"ห้องผ่าตัด" }
+        { day:4, part:"day", name:"OR — trauma", staffIds:["st_3"], location:"ห้องผ่าตัด", subspecialties:["trauma"] },
+        { day:5, part:"day", name:"OR — spine", staffIds:["st_4"], location:"ห้องผ่าตัด", subspecialties:["spine"] },
+        { day:5, part:"day", name:"OR — foot & ankle", staffIds:["st_5"], location:"ห้องผ่าตัด", subspecialties:["foot"] }
       ] },
     { id:"svc_red", name:"Red Team (สายแดง)", team:true, subspecialties:["general"], abbr:"แดง", colour:"#b91c1c",
       site:"หอผู้ป่วยออร์โธปิดิกส์ สายแดง",
@@ -1709,11 +1728,11 @@ function seedData() {
           start:"08:00", end:"09:00", staffIds:[], location:"หอผู้ป่วย" })),
         { day:1, part:"day", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
         { day:2, part:"day", name:"OPD — สายแดง", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
-        { day:3, part:"day", name:"OR — hand", staffIds:["st_6"], location:"ห้องผ่าตัด" },
-        { day:3, part:"day", name:"OR — arthroplasty", staffIds:["st_7"], location:"ห้องผ่าตัด" },
-        { day:4, part:"day", name:"OR — arthroplasty / trauma", staffIds:["st_8"], location:"ห้องผ่าตัด" },
-        { day:5, part:"day", name:"OR — spine", staffIds:["st_9"], location:"ห้องผ่าตัด" },
-        { day:5, part:"day", name:"OR — tumour", staffIds:["st_10"], location:"ห้องผ่าตัด" }
+        { day:3, part:"day", name:"OR — hand", staffIds:["st_6"], location:"ห้องผ่าตัด", subspecialties:["hand"] },
+        { day:3, part:"day", name:"OR — arthroplasty", staffIds:["st_7"], location:"ห้องผ่าตัด", subspecialties:["arthroplasty"] },
+        { day:4, part:"day", name:"OR — arthroplasty / trauma", staffIds:["st_8"], location:"ห้องผ่าตัด", subspecialties:["arthroplasty","trauma"] },
+        { day:5, part:"day", name:"OR — spine", staffIds:["st_9"], location:"ห้องผ่าตัด", subspecialties:["spine"] },
+        { day:5, part:"day", name:"OR — tumour", staffIds:["st_10"], location:"ห้องผ่าตัด", subspecialties:["oncology"] }
       ] },
     { id:"svc_yellow", name:"Yellow Team (สายเหลือง)", team:true, subspecialties:["general"], abbr:"เหลือง", colour:"#eab308",
       site:"หอผู้ป่วยออร์โธปิดิกส์ สายเหลือง",
@@ -1721,13 +1740,13 @@ function seedData() {
         /* round ward ทุกเช้าก่อน morning conference */
         ...[1,2,3,4,5].map(d => ({ day:d, part:"am", name:"Ward round — สายเหลือง",
           start:"08:00", end:"09:00", staffIds:[], location:"หอผู้ป่วย" })),
-        { day:1, part:"day", name:"OR — sports", staffIds:["st_11"], location:"ห้องผ่าตัด" },
-        { day:1, part:"day", name:"OR — arthroplasty / trauma", staffIds:["st_12"], location:"ห้องผ่าตัด" },
-        { day:1, part:"day", name:"OR — tumour", staffIds:["st_13"], location:"ห้องผ่าตัด" },
-        { day:2, part:"day", name:"OR — spine", staffIds:["st_14"], location:"ห้องผ่าตัด" },
-        { day:2, part:"day", name:"OR — hand", staffIds:["st_15"], location:"ห้องผ่าตัด" },
+        { day:1, part:"day", name:"OR — sports", staffIds:["st_11"], location:"ห้องผ่าตัด", subspecialties:["sports"] },
+        { day:1, part:"day", name:"OR — arthroplasty / trauma", staffIds:["st_12"], location:"ห้องผ่าตัด", subspecialties:["arthroplasty","trauma"] },
+        { day:1, part:"day", name:"OR — tumour", staffIds:["st_13"], location:"ห้องผ่าตัด", subspecialties:["oncology"] },
+        { day:2, part:"day", name:"OR — spine", staffIds:["st_14"], location:"ห้องผ่าตัด", subspecialties:["spine"] },
+        { day:2, part:"day", name:"OR — hand", staffIds:["st_15"], location:"ห้องผ่าตัด", subspecialties:["hand"] },
         { day:3, part:"day", name:"OPD — สายเหลือง", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
-        { day:4, part:"day", name:"OR — sports / spine / arthroplasty", staffIds:["st_16"], location:"ห้องผ่าตัด" },
+        { day:4, part:"day", name:"OR — sports / spine / arthroplasty", staffIds:["st_16"], location:"ห้องผ่าตัด", subspecialties:["sports","spine","arthroplasty"] },
         { day:5, part:"day", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" }
       ] },
     { id:"svc_white", name:"White Team (สายขาว)", team:true, subspecialties:["general"], abbr:"ขาว", colour:"#e8edf2",
@@ -1736,62 +1755,40 @@ function seedData() {
         /* round ward ทุกเช้าก่อน morning conference */
         ...[1,2,3,4,5].map(d => ({ day:d, part:"am", name:"Ward round — สายขาว",
           start:"08:00", end:"09:00", staffIds:[], location:"หอผู้ป่วย" })),
-        { day:1, part:"day", name:"OR — trauma", staffIds:["st_17"], location:"ห้องผ่าตัด" },
-        { day:1, part:"day", name:"OR — spine", staffIds:["st_18"], location:"ห้องผ่าตัด" },
+        { day:1, part:"day", name:"OR — trauma", staffIds:["st_17"], location:"ห้องผ่าตัด", subspecialties:["trauma"] },
+        { day:1, part:"day", name:"OR — spine", staffIds:["st_18"], location:"ห้องผ่าตัด", subspecialties:["spine"] },
         { day:2, part:"day", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
-        { day:3, part:"day", name:"OR — paediatrics", staffIds:["st_19","st_23"], location:"ห้องผ่าตัด" },
-        { day:3, part:"day", name:"OR — arthroplasty", staffIds:["st_20"], location:"ห้องผ่าตัด" },
-        { day:4, part:"day", name:"OR — spine", staffIds:["st_21"], location:"ห้องผ่าตัด" },
+        { day:3, part:"day", name:"OR — paediatrics", staffIds:["st_19","st_23"], location:"ห้องผ่าตัด", subspecialties:["pediatric"] },
+        { day:3, part:"day", name:"OR — arthroplasty", staffIds:["st_20"], location:"ห้องผ่าตัด", subspecialties:["arthroplasty"] },
+        { day:4, part:"day", name:"OR — spine", staffIds:["st_21"], location:"ห้องผ่าตัด", subspecialties:["spine"] },
         { day:5, part:"day", name:"OPD — สายขาว", staffIds:[], location:"OPD ออร์โธปิดิกส์" }
       ] },
 
     { id:"svc_trauma_ped", name:"Trauma / Paediatric Orthopaedics", subUnit:true, subspecialties:["trauma","pediatric"],
       abbr:"TR/PED", colour:"#a32d2d", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
-      template:[
-        { day:1, part:"am", name:"Trauma ward round", staffId:"st_1" },
-        { day:1, part:"pm", name:"OR — trauma list", staffId:"st_1", location:"ห้องผ่าตัด 5" },
-        { day:2, part:"am", name:"OPD — paediatric clinic", staffId:"st_5", location:"OPD กุมารเวชกรรม" },
-        { day:3, part:"am", name:"OR — paediatric list", staffId:"st_5", location:"ห้องผ่าตัด 4" },
-        { day:4, part:"am", name:"Trauma film & ward round", staffId:"st_1" },
-        { day:5, part:"pm", name:"OPD — fracture follow-up", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" }
-      ] },
+      /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
+         คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
+      template:[] },
     { id:"svc_hand_tumour", name:"Hand / Musculoskeletal Tumour", subUnit:true, subspecialties:["hand","oncology"],
       abbr:"HND/ONC", colour:"#a8630a", site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:1, part:"am", name:"OPD — hand clinic", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
-        { day:2, part:"am", name:"OR — hand list", staffId:"st_4", location:"ห้องผ่าตัด 6" },
-        { day:2, part:"pm", name:"Tumour board", staffId:"st_7" },
-        { day:3, part:"am", name:"OR — tumour list", staffId:"st_7", location:"ห้องผ่าตัด 4" },
-        { day:4, part:"am", name:"OPD — tumour clinic", staffId:"st_7", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Ward round", staffId:"st_4" }
-      ] },
+      /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
+         คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
+      template:[] },
     { id:"svc_foot_sports", name:"Foot & Ankle / Sports", subUnit:true, subspecialties:["foot","sports"],
       abbr:"FT/SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:1, part:"am", name:"OPD — sports clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" },
-        { day:2, part:"am", name:"OR — foot & ankle list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
-        { day:3, part:"am", name:"OR — arthroscopy list", staffId:"st_6", location:"ห้องผ่าตัด 6" },
-        { day:4, part:"pm", name:"Ward round", staffId:"st_6" },
-        { day:5, part:"am", name:"OPD — foot clinic", staffId:"st_6", location:"OPD ออร์โธปิดิกส์" }
-      ] },
+      /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
+         คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
+      template:[] },
     { id:"svc_spine", name:"Spine", subUnit:true, subspecialties:["spine"], abbr:"SPN", colour:"#1f7a4d",
       site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:1, part:"pm", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
-        { day:2, part:"am", name:"Ward round", staffId:"st_3" },
-        { day:3, part:"am", name:"OR — spine list", staffId:"st_3", location:"ห้องผ่าตัด 7" },
-        { day:4, part:"pm", name:"OPD — spine clinic", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Spine case conference", staffId:"st_3" }
-      ] },
+      /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
+         คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
+      template:[] },
     { id:"svc_arthro", name:"Arthroplasty", subUnit:true, subspecialties:["arthroplasty"], abbr:"ARP", colour:"#7a4fa3",
       site:"หอผู้ป่วยออร์โธปิดิกส์",
-      template:[
-        { day:1, part:"am", name:"Ward round", staffId:"st_2" },
-        { day:2, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:2, part:"pm", name:"Pre-operative conference", staffId:"st_2" },
-        { day:4, part:"am", name:"OR — arthroplasty list", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:5, part:"am", name:"OPD — joint clinic", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" }
-      ] },
+      /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
+         คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
+      template:[] },
 
     { id:"svc_anesth",     name:"Anaesthesiology (นอกภาควิชา)",        external:true, subspecialties:["general"], abbr:"ANES", colour:"#475569", site:"กลุ่มงานวิสัญญีวิทยา", template:[] },
     { id:"svc_rheum",      name:"Rheumatology (นอกภาควิชา)",          external:true, subspecialties:["general"], abbr:"RHEU", colour:"#6d28d9", site:"กลุ่มงานอายุรกรรม หน่วยโรคข้อ", template:[] },
@@ -1808,11 +1805,11 @@ function seedData() {
       template:[
         /* จันทร์–ศุกร์ เว้นพฤหัสบดีที่เป็นช่วงวิชาการยาว */
         ...[1,2,3,5].map(d => ({ day:d, part:"am", name:"Morning conference — trauma film + pre/post-op",
-          start:"09:00", end:"10:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true })),
+          start:"09:00", end:"10:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true, academic:true })),
         { day:4, part:"am", name:"Topic conference / Journal club / Staff lecture (แล้วแต่สัปดาห์)",
-          start:"09:00", end:"12:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true },
+          start:"09:00", end:"12:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true, academic:true },
         { day:4, part:"pm", name:"Inter-hospital conference (ปี 4)", start:"13:00", end:"15:30",
-          staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true },
+          staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true, academic:true },
         /* จากหมายเหตุท้ายตารางเวร */
         /* ปี 4 ไปประชุม inter-hospital ช่วงเดียวกัน จึงไม่ได้เข้าคลินิกนี้ */
         { day:4, part:"pm", name:"คลินิกพิเศษออร์โธเด็ก", start:"13:00", end:"16:00",
@@ -1823,13 +1820,6 @@ function seedData() {
 
   const ay = academicYear(todayISO());
   const rotations = buildRotationPlan(ay, residents, services).rotations;
-
-  /* ข้อมูลสาธิต: คนที่วนหน่วยอนุสาขายังสังกัดสายอยู่ด้วย จึงมีคาบของทั้งสองที่และชนกันได้จริง
-     ใช้ให้เห็นว่าลำดับความสำคัญตัดสินอย่างไร — ของจริงผู้จัดหลักสูตรเป็นคนกำหนดเอง */
-  const teamIds = services.filter(x => x.team).map(x => x.id);
-  rotations.forEach((rot, i) => {
-    if (services.find(x => x.id === rot.serviceId)?.subUnit) rot.alsoServiceId = teamIds[i % teamIds.length];
-  });
 
   /* เดือนสิงหาคม 2569 ใช้การลงสายจริงจากตารางเวรของกลุ่มงาน
      เดือนอื่นยังเป็นแผนที่ตัวจัดแผนสร้างให้ จนกว่าจะมีตารางจริงของทั้งปี */
@@ -3335,7 +3325,8 @@ function sessionChip(ses, withDate) {
   const svc = serviceById(ses.serviceId);
   const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
-  const note = ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
+  const note = ses.academic ? `<span class="tag b">กิจกรรมวิชาการ — มาก่อนงานบริการ</span>`
+             : ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
              : ses.superseded ? `<span class="tag warn">${ses.supersededByPick ? "วันนี้เลือกเข้า" : "ชน — ไปเข้า"} ${esc(ses.supersededBy)}</span>`
              : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — เลือกว่าเข้าคาบไหน</span>`
              : "";
@@ -5333,7 +5324,7 @@ function renderSettings() {
 
   const prio = store.data.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
   $("#priorityEditor").innerHTML = `<div class="row">
-    ${["central","subUnit","team","external","elective"].map(k => `<label class="f" style="max-width:12rem">
+    ${["academic","central","duty","subUnit","team","external","elective"].map(k => `<label class="f" style="max-width:12rem">
       <span>${esc(SERVICE_KIND_TH[k])}</span>
       <input type="number" data-prio="${k}" value="${prio[k] ?? SESSION_PRIORITY_DEFAULT[k]}" /></label>`).join("")}
   </div>
