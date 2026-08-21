@@ -146,6 +146,57 @@ export default async function run() {
     t.check("ระบุอาจารย์ของวันนั้นทับค่าในตารางได้", picked?.staffOverridden === true);
     t.check("การเลือกมีผลเฉพาะวันนั้น ไม่ลามไปสัปดาห์อื่น", picked?.otherDayUntouched === true);
 
+    /* ---------- ตารางเวรรายเดือน: ของที่ไม่ซ้ำทุกสัปดาห์ ---------- */
+    const duty = await page.evaluate(() => {
+      store.data.duty = [];
+      dutyMonth = "2026-08"; renderDutyTable();
+      document.querySelector("#dutyFill").click();
+      const rows = store.data.duty.filter(d => d.date.startsWith("2026-08"));
+      const mon = rows.find(d => d.date === "2026-08-03");
+      const thu = rows.find(d => d.date === "2026-08-06");
+      return { filled: rows.length,
+               monOpd: serviceById(mon?.opdServiceId)?.abbr || "",
+               monEr: serviceById(mon?.erServiceId)?.abbr || "",
+               thursdayLeftBlank: !thu };
+    });
+    t.check("เติมเดือนจากรูปแบบประจำสัปดาห์ได้", duty.filled > 0, duty.filled + " วัน");
+    t.check("วันจันทร์ได้ OPD กับ ER ตรงกับตารางของสาย", duty.monOpd === "ฟ้า" && duty.monEr === "แดง",
+            "OPD " + duty.monOpd + " · ER " + duty.monEr);
+    t.check("วันพฤหัสบดีไม่ถูกเดาให้ เพราะไม่มีรูปแบบตายตัว", duty.thursdayLeftBlank);
+
+    const erDay = await page.evaluate(() => {
+      const white = store.data.services.find(x => x.abbr === "ขาว");
+      const r = store.data.residents.find(x => rotationOn(x.id, "2026-08-06")?.serviceId === white.id);
+      const row = dutyRow("2026-08-06");
+      row.erServiceId = white.id;
+      row.erStaffIds = [store.data.staff[0].id];
+      const list = sessionsForDate("2026-08-06").filter(s => s.residentId === r.id);
+      const er = list.find(s => s.kind === "duty");
+      return { got: !!er, staff: er?.staffIds.length ?? 0,
+               teamOrLoses: list.some(s => s.kind === "team" && s.superseded) };
+    });
+    t.check("ระบุสาย ER ของวันนั้นแล้ว คนในสายได้คาบอยู่เวร", erDay.got);
+    t.check("อาจารย์เวรของวันนั้นติดมากับคาบ", erDay.staff === 1);
+    t.check("คนอยู่เวร ER ไม่ต้องไปห้องผ่าตัดตามตารางสายวันนั้น", erDay.teamOrLoses);
+
+    /* วันหยุดลบเฉพาะคาบที่มาจากตารางประจำสัปดาห์ ส่วนที่ตารางเวรระบุไว้เองยังอยู่
+       เพราะวันหยุดก็ยังต้องมีคนอยู่เวร */
+    const holiday = await page.evaluate(() => {
+      const kinds = (iso) => [...new Set(sessionsForDate(iso).map(s => s.kind))].sort();
+      const before = kinds("2026-08-12");
+      const row = dutyRow("2026-08-12");
+      row.holiday = true;
+      const withDuty = kinds("2026-08-12");
+      row.erServiceId = ""; row.erResidentIds = [];
+      const bare = sessionsForDate("2026-08-12").length;
+      return { before, withDuty, bare };
+    });
+    t.check("ก่อนตั้งวันหยุด วันนั้นมีคาบตามตารางประจำสัปดาห์",
+            holiday.before.some(k => k === "team" || k === "central"), holiday.before.join(","));
+    t.check("ตั้งวันหยุดแล้ว เหลือเฉพาะสิ่งที่ตารางเวรระบุไว้เอง",
+            holiday.withDuty.every(k => k === "duty"), holiday.withDuty.join(",") || "(ไม่เหลืออะไร)");
+    t.eq("วันหยุดที่ไม่ได้ระบุเวรไว้ ไม่มีคาบเลย", holiday.bare, 0);
+
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
   } finally {

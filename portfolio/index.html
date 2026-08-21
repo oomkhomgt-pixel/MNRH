@@ -386,6 +386,24 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
       <div class="card">
         <div class="between">
+          <h2>ตารางเวรรายเดือน</h2>
+          <div class="row no-print">
+            <button class="btn-sm" id="dutyPrev">‹ เดือนก่อน</button>
+            <b class="small" id="dutyLabel">—</b>
+            <button class="btn-sm" id="dutyNext">เดือนถัดไป ›</button>
+            <button class="btn-sm" id="dutyFill" data-perm="admin">เติมจากรูปแบบประจำสัปดาห์</button>
+            <button class="btn-sm btn-danger" id="dutyClear" data-perm="admin">ล้างเดือนนี้</button>
+          </div>
+        </div>
+        <p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
+          อาจารย์ที่ออกตรวจ OPD วันพฤหัสบดี และวันหยุดราชการ
+          · ช่องว่าง = ใช้ตามตารางประจำสัปดาห์ · ติ๊กวันหยุดแล้วคาบทั้งวันจะหายไปจากปฏิทิน
+          · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p>
+        <div id="dutyTable"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
           <h2>การประเมินท้ายเซสชันล่าสุด</h2>
           <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
         </div>
@@ -878,14 +896,21 @@ const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
 
 /* เมื่อคาบสองอันของคนเดียวกันชนกัน อันที่ลำดับความสำคัญสูงกว่าเป็นตัวหลัก
    อีกอันยังแสดงอยู่แต่ถูกทำเครื่องหมายว่าถูกแทนที่ ไม่ลบทิ้ง เพราะคนจัดตารางต้องเห็นว่ามันชนกัน */
-const SESSION_PRIORITY_DEFAULT = { central: 30, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
+const SESSION_PRIORITY_DEFAULT = { central: 30, duty: 25, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
 /* คาบที่มีคนบันทึกไว้ว่าวันนั้นไปเข้าจริง ชนะทุกลำดับความสำคัญที่ตั้งไว้ล่วงหน้า */
 const PICKED_PRIORITY = 1e6;
 const serviceKind = (svc) => !svc ? "other"
   : svc.central ? "central" : svc.subUnit ? "subUnit" : svc.team ? "team"
   : svc.external ? "external" : svc.elective ? "elective" : "other";
-const SERVICE_KIND_TH = { central:"ส่วนกลางของภาควิชา", subUnit:"หน่วยอนุสาขา", team:"สาย",
-                          external:"นอกภาควิชา", elective:"free elective", other:"อื่น ๆ" };
+const SERVICE_KIND_TH = { central:"ส่วนกลางของภาควิชา", duty:"ตารางเวรรายเดือน", subUnit:"หน่วยอนุสาขา",
+                          team:"สาย", external:"นอกภาควิชา", elective:"free elective", other:"อื่น ๆ" };
+
+/* หนึ่งแถวของตารางเวรรายเดือน = หนึ่งวันราชการ ช่องว่างแปลว่า "ไม่มีอะไรเพิ่มจากตารางประจำสัปดาห์"
+     opdServiceId / opdStaffIds  สายที่ออกตรวจ OPD — วันพฤหัสบดีลงเป็นชื่ออาจารย์แทนสาย
+     erServiceId / erStaffIds    สายที่อยู่ ER และอาจารย์เวรของวันนั้น
+     erResidentIds               ระบุตัวได้ ถ้าไม่ระบุจะตกกับทุกคนที่อยู่สายนั้น
+     holiday                     วันหยุดราชการ — ลบคาบตามตารางประจำสัปดาห์ทิ้งทั้งวัน */
+const dutyOn = (iso) => (store.data.duty || []).find(d => d.date === iso) || null;
 const DAY_NAMES = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
 const DAY_SHORT = ["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
 
@@ -1005,6 +1030,9 @@ const store = {
     /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
        ลำดับความสำคัญเป็นค่าตั้งต้นของทั้งปี ส่วนอันนี้คือความจริงของวันนั้น */
     d.sessionPicks ||= [];
+    /* ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์ เช่น อาจารย์เวร ER รายวัน
+       สายที่อยู่ ER วันพฤหัส OPD วันพฤหัสที่ลงเป็นชื่ออาจารย์ และวันหยุดราชการ */
+    d.duty ||= [];
     /* เดิมแต่ละคาบมีอาจารย์ได้คนเดียว ตอนนี้มีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน */
     (d.services || []).forEach(svc => (svc.template || []).forEach(t => {
       if (!Array.isArray(t.staffIds)) t.staffIds = t.staffId ? [t.staffId] : [];
@@ -1176,6 +1204,28 @@ function computeSessions(iso, data) {
       });
     });
   });
+
+  /* ชั้นที่สี่: ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์จึงเขียนเป็นแบบสัปดาห์ไม่ได้
+     วันหยุดราชการลบคาบตามตารางประจำสัปดาห์ทิ้งทั้งวัน เหลือเฉพาะสิ่งที่ตารางเวรระบุไว้เอง */
+  const duty = (data.duty || []).find(x => x.date === iso);
+  if (duty?.holiday) out.length = 0;
+  if (duty?.erServiceId || duty?.erResidentIds?.length) {
+    /* ถ้าไม่ได้ระบุตัวบุคคล ให้ตกกับทุกคนที่อยู่สายนั้นในวันนั้น */
+    const people = duty.erResidentIds?.length ? duty.erResidentIds
+      : (data.residents || []).filter(r => (data.rotations || []).some(x =>
+          x.residentId === r.id && x.serviceId === duty.erServiceId &&
+          (!x.start || iso >= x.start) && (!x.end || iso <= x.end))).map(r => r.id);
+    const svc = (data.services || []).find(x => x.id === duty.erServiceId);
+    people.forEach(rid => out.push({
+      key: "duty|" + iso + "|" + rid,
+      rotationId: "", residentId: rid, serviceId: duty.erServiceId || "",
+      date: iso, part:"day", name:"อยู่เวร ER" + (svc ? " — " + svc.name : ""),
+      start:"", end:"", location: duty.location || "ห้องฉุกเฉิน",
+      staffIds: (duty.erStaffIds || []).slice(), staffId: (duty.erStaffIds || [])[0] || "",
+      kind:"duty",
+      priority: typeof duty.priority === "number" ? duty.priority : (prio.duty ?? 25)
+    }));
+  }
 
   /* สิ่งที่คนบันทึกไว้เองว่าวันนั้นไปเข้าคาบไหน มาก่อนลำดับความสำคัญที่ตั้งไว้ล่วงหน้าเสมอ */
   (data.sessionPicks || []).forEach(pk => {
@@ -1626,9 +1676,9 @@ function seedData() {
     { id:"st_19", name:"นพ. วรินธร",    subspecialty:"pediatric",    role:"อาจารย์แพทย์" },
     { id:"st_20", name:"นพ. จิธายุทธ",   subspecialty:"arthroplasty", role:"อาจารย์แพทย์" },
     { id:"st_21", name:"นพ. วีระ",      subspecialty:"spine",        role:"อาจารย์แพทย์" },
-    /* ออกตรวจ/ผ่าตัดตามที่ตกลงกันเป็นครั้ง ๆ ไม่มีวันประจำในตารางสาย */
-    { id:"st_22", name:"นพ. วัชระ",     subspecialty:"general",      role:"อาจารย์แพทย์" },
-    { id:"st_23", name:"พญ. ศุภมาส",    subspecialty:"pediatric",    role:"อาจารย์แพทย์ (คลินิกพิเศษออร์โธเด็ก)" }
+    /* เกษียณแล้วทั้งสองท่าน ไม่มีวันประจำในตารางสายเหมือนอาจารย์ประจำ */
+    { id:"st_22", name:"นพ. วัชระ",     subspecialty:"general",      role:"เกษียณ — ออกตรวจ OPD ไม่มีห้องผ่าตัด" },
+    { id:"st_23", name:"พญ. ศุภมาส",    subspecialty:"pediatric",    role:"เกษียณ — อาจารย์พิเศษ: OR วันพุธ และคลินิกออร์โธเด็กบ่ายพฤหัสบดี" }
   ];
 
   /* หน่วยหมุนเวียน: สาย 4 สาย, หน่วยอนุสาขา (บางอนุสาขาอยู่คู่กัน), การวนนอกภาควิชา และ free elective */
@@ -1689,7 +1739,7 @@ function seedData() {
         { day:1, part:"day", name:"OR — trauma", staffIds:["st_17"], location:"ห้องผ่าตัด" },
         { day:1, part:"day", name:"OR — spine", staffIds:["st_18"], location:"ห้องผ่าตัด" },
         { day:2, part:"day", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
-        { day:3, part:"day", name:"OR — paediatrics", staffIds:["st_19"], location:"ห้องผ่าตัด" },
+        { day:3, part:"day", name:"OR — paediatrics", staffIds:["st_19","st_23"], location:"ห้องผ่าตัด" },
         { day:3, part:"day", name:"OR — arthroplasty", staffIds:["st_20"], location:"ห้องผ่าตัด" },
         { day:4, part:"day", name:"OR — spine", staffIds:["st_21"], location:"ห้องผ่าตัด" },
         { day:5, part:"day", name:"OPD — สายขาว", staffIds:[], location:"OPD ออร์โธปิดิกส์" }
@@ -1764,8 +1814,9 @@ function seedData() {
         { day:4, part:"pm", name:"Inter-hospital conference (ปี 4)", start:"13:00", end:"15:30",
           staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true },
         /* จากหมายเหตุท้ายตารางเวร */
+        /* ปี 4 ไปประชุม inter-hospital ช่วงเดียวกัน จึงไม่ได้เข้าคลินิกนี้ */
         { day:4, part:"pm", name:"คลินิกพิเศษออร์โธเด็ก", start:"13:00", end:"16:00",
-          staffIds:["st_23"], location:"OPD ออร์โธปิดิกส์", years:[], whenAway:false }
+          staffIds:["st_23"], location:"OPD ออร์โธปิดิกส์", years:[1,2,3], whenAway:false }
       ] }
   ];
   services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
@@ -3290,6 +3341,7 @@ function sessionChip(ses, withDate) {
              : "";
   return `<button class="sess ${cls}" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
     <span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>
+    ${ses.kind === "duty" ? `<span class="pill">เวร</span>` : ""}
     ${withDate || (ses.start && ses.end) ? `<span class="pill">${esc(sessionTimeLabel(ses))}</span>` : ""}
     ${ses.kind === "central" ? `<span class="pill">ส่วนกลาง</span>` : ""}
     <b>${esc(ses.name)}</b>
@@ -3388,6 +3440,77 @@ function openSession(key) {
         store.save(); renderAll(); toast("ลบแล้ว");
       }}] : [])
   ]);
+}
+
+/* --- ตารางเวรรายเดือน --- */
+let dutyMonth = todayISO().slice(0, 7);
+/* monthLabel รับ {m,y} ส่วนตารางเวรใช้สตริง "YYYY-MM" จึงมีตัวแปลงของตัวเอง */
+const ymLabel = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return THAI_MONTHS[m - 1] + " " + String(y + 543).slice(2);
+};
+const monthDays = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return Array.from({ length: last }, (_, i) => ym + "-" + String(i + 1).padStart(2, "0"));
+};
+/* วันประจำของแต่ละสายอ่านจากตารางประจำสัปดาห์ ไม่ต้องมาตั้งซ้ำอีกที่ */
+function weeklyDutyPattern(dow) {
+  const teams = (store.data.services || []).filter(x => x.team);
+  const has = (svc, test) => (svc.template || []).some(t => t.day === dow && test(t.name || ""));
+  return {
+    opdServiceId: teams.find(svc => has(svc, nm => nm.startsWith("OPD")))?.id || "",
+    erServiceId:  teams.find(svc => has(svc, nm => nm.toLowerCase().includes("emergency")))?.id || ""
+  };
+}
+const dutyRow = (iso) => (store.data.duty ||= []).find(d => d.date === iso)
+  || ((store.data.duty.push({ id: uid("duty"), date: iso, holiday:false, note:"",
+        opdServiceId:"", opdStaffIds:[], erServiceId:"", erStaffIds:[], erResidentIds:[] })),
+      store.data.duty[store.data.duty.length - 1]);
+
+function renderDutyTable() {
+  const box = $("#dutyTable"); if (!box) return;
+  const [y, m] = dutyMonth.split("-").map(Number);
+  $("#dutyLabel").textContent = ymLabel(dutyMonth);
+  const days = monthDays(dutyMonth).filter(iso => {
+    const dow = new Date(iso + "T00:00:00").getDay();
+    return dow >= 1 && dow <= 5;                       /* ตารางนี้เป็นของวันราชการ */
+  });
+  const teams = (store.data.services || []).filter(x => x.team);
+  const staff = store.data.staff || [];
+  const opts = (list, sel, blank) => `<option value="">${blank}</option>` +
+    list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+  const multi = (list, sel, attr) => `<select multiple size="2" data-d="${attr}">${
+    list.map(x => `<option value="${x.id}" ${(sel || []).includes(x.id) ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
+
+  box.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>วัน</th><th>OPD (สาย)</th><th>OPD (อาจารย์ — วันพฤหัสบดี)</th>
+      <th>ER (สาย)</th><th>อาจารย์เวร</th><th>แพทย์ประจำบ้านที่อยู่เวร</th><th>หยุด</th></tr></thead>
+    <tbody>${days.map(iso => {
+      const d = (store.data.duty || []).find(x => x.date === iso) || {};
+      const dow = new Date(iso + "T00:00:00").getDay();
+      return `<tr class="${d.holiday ? "muted" : ""}">
+        <td class="small">${fmtDate(iso).replace(/ \d{4}$/, "")}</td>
+        <td class="small">${DAY_SHORT[dow]}</td>
+        <td><select data-d="${iso}|opdServiceId">${opts(teams, d.opdServiceId, "—")}</select></td>
+        <td>${multi(staff, d.opdStaffIds, iso + "|opdStaffIds")}</td>
+        <td><select data-d="${iso}|erServiceId">${opts(teams, d.erServiceId, "—")}</select></td>
+        <td>${multi(staff, d.erStaffIds, iso + "|erStaffIds")}</td>
+        <td>${multi(visibleResidents(), d.erResidentIds, iso + "|erResidentIds")}</td>
+        <td style="text-align:center"><input type="checkbox" data-d="${iso}|holiday" ${d.holiday ? "checked" : ""} /></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+
+  $$("#dutyTable [data-d]").forEach(el => el.addEventListener("change", () => {
+    if (!canManage()) { toast("การแก้ตารางเวรเป็นสิทธิ์ของผู้จัดหลักสูตร"); renderDutyTable(); return; }
+    const [iso, field] = el.dataset.d.split("|");
+    const row = dutyRow(iso);
+    if (field === "holiday") row.holiday = el.checked;
+    else if (el.multiple) row[field] = [...el.selectedOptions].map(o => o.value);
+    else row[field] = el.value;
+    audit("แก้ตารางเวรรายเดือน", fmtDate(iso));
+    store.save(); renderAll();
+  }));
 }
 
 /* --- ช่วงหมุนเวียน --- */
@@ -5733,6 +5856,7 @@ function renderAll() {
   renderResearch();
   renderCoverage();
   renderWfme();
+  renderDutyTable();
   renderSettings();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
@@ -6050,6 +6174,37 @@ function init() {
   $("#btnSyncSettings").addEventListener("click", syncSettingsDialog);
   $("#btnPrintTalks").addEventListener("click", printTalks);
   $("#btnTalkCsv").addEventListener("click", () => download("presentation-schedule.csv", toCsv(talkCsvRows()), "text/csv;charset=utf-8"));
+  const shiftMonth = (ym, by) => {
+    const [y, m] = ym.split("-").map(Number);
+    const d = new Date(y, m - 1 + by, 1);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  };
+  $("#dutyPrev").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, -1); renderDutyTable(); });
+  $("#dutyNext").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, 1); renderDutyTable(); });
+  $("#dutyFill").addEventListener("click", () => {
+    if (!canManage()) return;
+    let n = 0;
+    monthDays(dutyMonth).forEach(iso => {
+      const dow = new Date(iso + "T00:00:00").getDay();
+      if (dow < 1 || dow > 5) return;
+      const pat = weeklyDutyPattern(dow);
+      if (!pat.opdServiceId && !pat.erServiceId) return;   /* พฤหัสบดีไม่มีรูปแบบตายตัว */
+      const row = dutyRow(iso);
+      if (!row.opdServiceId) row.opdServiceId = pat.opdServiceId;
+      if (!row.erServiceId) row.erServiceId = pat.erServiceId;
+      n++;
+    });
+    audit("เติมตารางเวรจากรูปแบบประจำสัปดาห์", ymLabel(dutyMonth) + " · " + n + " วัน");
+    store.save(); renderAll();
+    toast("เติมให้ " + n + " วัน — วันพฤหัสบดีและอาจารย์เวรยังต้องกรอกเอง");
+  });
+  $("#dutyClear").addEventListener("click", () => {
+    if (!canManage()) return;
+    if (!confirm("ล้างตารางเวรของ " + ymLabel(dutyMonth) + " ทั้งเดือน?")) return;
+    store.data.duty = (store.data.duty || []).filter(d => !d.date.startsWith(dutyMonth));
+    audit("ล้างตารางเวรรายเดือน", ymLabel(dutyMonth));
+    store.save(); renderAll(); toast("ล้างแล้ว");
+  });
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
   $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
   $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
