@@ -1571,53 +1571,89 @@ function seedData() {
   ];
 
   /* --- อาจารย์ผู้รับผิดชอบและหน่วยที่หมุนเวียน --- */
+  /* อาจารย์ประจำแต่ละสาย ตามตารางจริงของกลุ่มงาน
+     ที่เก็บนี้เป็นสาธารณะ ชื่ออาจารย์จึงยังเป็นป้ายชั่วคราวที่บอกสายกับอนุสาขาไว้ก่อน
+     ส่วนวัน ห้อง และอนุสาขาที่ผูกกับแต่ละคาบเป็นของจริงทั้งหมด
+     ใส่ชื่อจริงได้ที่หน้าทะเบียนอาจารย์ในแอป หรือให้ผู้ดูแลนำเข้าจากไฟล์ที่ไม่ได้เก็บลง repo
+     คนที่ทำหลายอนุสาขามี subspecialties กำกับไว้ ส่วน subspecialty คืออันหลัก */
   const staffRoster = [
-    { id:"st_1", name:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"trauma",       role:"หัวหน้ากลุ่มงาน" },
-    { id:"st_2", name:"พญ. สุภาวดี ข้อดี",        subspecialty:"arthroplasty", role:"อาจารย์แพทย์" },
-    { id:"st_3", name:"นพ. อรรถพล กระดูกงาม",     subspecialty:"spine",        role:"อาจารย์แพทย์" },
-    { id:"st_4", name:"พญ. ณิชา หัตถศิลป์",       subspecialty:"hand",         role:"อาจารย์แพทย์" },
-    { id:"st_5", name:"นพ. กิตติชัย เด็กดี",       subspecialty:"pediatric",    role:"อาจารย์แพทย์" },
-    { id:"st_6", name:"นพ. ธีรเดช กีฬาเวช",       subspecialty:"sports",       role:"อาจารย์แพทย์" },
-    { id:"st_7", name:"พญ. พิมพ์ชนก มณีรัตน์",     subspecialty:"oncology",     role:"อาจารย์แพทย์" }
+    /* สายฟ้า */
+    { id:"st_1",  name:"อ. hand (ฟ้า)",    subspecialty:"hand",         role:"อาจารย์แพทย์" },
+    { id:"st_2",  name:"อ. sports (ฟ้า)",  subspecialty:"sports",       role:"อาจารย์แพทย์" },
+    { id:"st_3",  name:"อ. trauma (ฟ้า)",   subspecialty:"trauma",       role:"อาจารย์แพทย์" },
+    { id:"st_4",  name:"อ. spine (ฟ้า)",     subspecialty:"spine",        role:"อาจารย์แพทย์" },
+    { id:"st_5",  name:"อ. foot (ฟ้า)",     subspecialty:"foot",         role:"อาจารย์แพทย์" },
+    /* สายแดง */
+    { id:"st_6",  name:"อ. hand (แดง)",     subspecialty:"hand",         role:"อาจารย์แพทย์" },
+    { id:"st_7",  name:"อ. arthroplasty (แดง)",     subspecialty:"arthroplasty", role:"อาจารย์แพทย์" },
+    { id:"st_8",  name:"อ. arthro/trauma (แดง)",      subspecialty:"arthroplasty", subspecialties:["arthroplasty","trauma"], role:"อาจารย์แพทย์" },
+    { id:"st_9",  name:"อ. spine (แดง)",     subspecialty:"spine",        role:"อาจารย์แพทย์" },
+    { id:"st_10", name:"อ. tumour (แดง)",    subspecialty:"oncology",     role:"อาจารย์แพทย์" },
+    /* สายเหลือง */
+    { id:"st_11", name:"อ. sports (เหลือง)",     subspecialty:"sports",       role:"อาจารย์แพทย์" },
+    { id:"st_12", name:"อ. arthro/trauma (เหลือง)",      subspecialty:"arthroplasty", subspecialties:["arthroplasty","trauma"], role:"อาจารย์แพทย์" },
+    { id:"st_13", name:"อ. tumour (เหลือง)",      subspecialty:"oncology",     role:"อาจารย์แพทย์" },
+    { id:"st_14", name:"อ. spine (เหลือง)",      subspecialty:"spine",        role:"อาจารย์แพทย์" },
+    { id:"st_15", name:"อ. hand (เหลือง)",     subspecialty:"hand",         role:"อาจารย์แพทย์" },
+    { id:"st_16", name:"อ. sports/spine/arthro (เหลือง)",      subspecialty:"sports",       subspecialties:["sports","spine","arthroplasty"], role:"อาจารย์แพทย์" },
+    /* สายขาว */
+    { id:"st_17", name:"อ. trauma (ขาว)",        subspecialty:"trauma",       role:"อาจารย์แพทย์" },
+    { id:"st_18", name:"อ. spine (ขาว)",  subspecialty:"spine",        role:"อาจารย์แพทย์" },
+    { id:"st_19", name:"อ. paediatrics (ขาว)",    subspecialty:"pediatric",    role:"อาจารย์แพทย์" },
+    { id:"st_20", name:"อ. arthroplasty (ขาว)",   subspecialty:"arthroplasty", role:"อาจารย์แพทย์" },
+    { id:"st_21", name:"อ. spine (ขาว)",      subspecialty:"spine",        role:"อาจารย์แพทย์" }
   ];
 
   /* หน่วยหมุนเวียน: สาย 4 สาย, หน่วยอนุสาขา (บางอนุสาขาอยู่คู่กัน), การวนนอกภาควิชา และ free elective */
   const services = [
+    /* ตารางสี่สาย ตามของจริงที่กลุ่มงานส่งมา
+       วันที่มีห้องผ่าตัดมากกว่าหนึ่งห้องแยกเป็นคนละคาบ เพราะแพทย์ประจำบ้านเข้าได้ห้องเดียว
+       ระบบจะขึ้นว่าชนกันแล้วให้บันทึกรายวันว่าวันนั้นเข้าห้องไหน
+       ยังไม่ได้ระบุ: ช่วงเวลาของแต่ละคาบ (ตั้งเป็นเช้าไว้ก่อน) และเวรของแต่ละสาย */
     { id:"svc_blue", name:"Blue Team (สายฟ้า)", team:true, subspecialties:["general"], abbr:"ฟ้า", colour:"#2b6fb5",
       site:"หอผู้ป่วยออร์โธปิดิกส์ สายฟ้า",
       template:[
-        { day:1, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
-        { day:2, part:"am", name:"OR — สายฟ้า", staffId:"st_1", location:"ห้องผ่าตัด 5" },
-        { day:3, part:"pm", name:"OPD — สายฟ้า", staffId:"st_1", location:"OPD ออร์โธปิดิกส์" },
-        { day:4, part:"am", name:"Ward round — สายฟ้า", staffId:"st_1" },
-        { day:5, part:"call", name:"เวรสายฟ้า", staffId:"st_1", location:"ห้องฉุกเฉิน" }
-      ] },
-    { id:"svc_white", name:"White Team (สายขาว)", team:true, subspecialties:["general"], abbr:"ขาว", colour:"#e8edf2",
-      site:"หอผู้ป่วยออร์โธปิดิกส์ สายขาว",
-      template:[
-        { day:1, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
-        { day:2, part:"pm", name:"OPD — สายขาว", staffId:"st_2", location:"OPD ออร์โธปิดิกส์" },
-        { day:4, part:"am", name:"OR — สายขาว", staffId:"st_2", location:"ห้องผ่าตัด 3" },
-        { day:5, part:"am", name:"Ward round — สายขาว", staffId:"st_2" },
-        { day:2, part:"call", name:"เวรสายขาว", staffId:"st_2", location:"ห้องฉุกเฉิน" }
+        { day:1, part:"am", name:"OPD — สายฟ้า", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
+        { day:2, part:"am", name:"OR — hand", staffIds:["st_1"], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OR — sports", staffIds:["st_2"], location:"ห้องผ่าตัด" },
+        { day:3, part:"am", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
+        { day:4, part:"am", name:"OR — trauma", staffIds:["st_3"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OR — spine", staffIds:["st_4"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OR — foot & ankle", staffIds:["st_5"], location:"ห้องผ่าตัด" }
       ] },
     { id:"svc_red", name:"Red Team (สายแดง)", team:true, subspecialties:["general"], abbr:"แดง", colour:"#b91c1c",
       site:"หอผู้ป่วยออร์โธปิดิกส์ สายแดง",
       template:[
-        { day:1, part:"pm", name:"OR — สายแดง", staffId:"st_3", location:"ห้องผ่าตัด 7" },
-        { day:2, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
-        { day:3, part:"am", name:"OPD — สายแดง", staffId:"st_3", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Ward round — สายแดง", staffId:"st_3" },
-        { day:3, part:"call", name:"เวรสายแดง", staffId:"st_3", location:"ห้องฉุกเฉิน" }
+        { day:1, part:"am", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OPD — สายแดง", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
+        { day:3, part:"am", name:"OR — hand", staffIds:["st_6"], location:"ห้องผ่าตัด" },
+        { day:3, part:"am", name:"OR — arthroplasty", staffIds:["st_7"], location:"ห้องผ่าตัด" },
+        { day:4, part:"am", name:"OR — arthroplasty / trauma", staffIds:["st_8"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OR — spine", staffIds:["st_9"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OR — tumour", staffIds:["st_10"], location:"ห้องผ่าตัด" }
       ] },
     { id:"svc_yellow", name:"Yellow Team (สายเหลือง)", team:true, subspecialties:["general"], abbr:"เหลือง", colour:"#eab308",
       site:"หอผู้ป่วยออร์โธปิดิกส์ สายเหลือง",
       template:[
-        { day:1, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
-        { day:3, part:"am", name:"OR — สายเหลือง", staffId:"st_4", location:"ห้องผ่าตัด 6" },
-        { day:4, part:"pm", name:"OPD — สายเหลือง", staffId:"st_4", location:"OPD ออร์โธปิดิกส์" },
-        { day:5, part:"am", name:"Ward round — สายเหลือง", staffId:"st_4" },
-        { day:4, part:"call", name:"เวรสายเหลือง", staffId:"st_4", location:"ห้องฉุกเฉิน" }
+        { day:1, part:"am", name:"OR — sports", staffIds:["st_11"], location:"ห้องผ่าตัด" },
+        { day:1, part:"am", name:"OR — arthroplasty / trauma", staffIds:["st_12"], location:"ห้องผ่าตัด" },
+        { day:1, part:"am", name:"OR — tumour", staffIds:["st_13"], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OR — spine", staffIds:["st_14"], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OR — hand", staffIds:["st_15"], location:"ห้องผ่าตัด" },
+        { day:3, part:"am", name:"OPD — สายเหลือง", staffIds:[], location:"OPD ออร์โธปิดิกส์" },
+        { day:4, part:"am", name:"OR — sports / spine / arthroplasty", staffIds:["st_16"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" }
+      ] },
+    { id:"svc_white", name:"White Team (สายขาว)", team:true, subspecialties:["general"], abbr:"ขาว", colour:"#e8edf2",
+      site:"หอผู้ป่วยออร์โธปิดิกส์ สายขาว",
+      template:[
+        { day:1, part:"am", name:"OR — trauma", staffIds:["st_17"], location:"ห้องผ่าตัด" },
+        { day:1, part:"am", name:"OR — spine", staffIds:["st_18"], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OR — สายขาว", staffIds:[], location:"ห้องผ่าตัด" },
+        { day:3, part:"am", name:"OR — paediatrics", staffIds:["st_19"], location:"ห้องผ่าตัด" },
+        { day:3, part:"am", name:"OR — arthroplasty", staffIds:["st_20"], location:"ห้องผ่าตัด" },
+        { day:4, part:"am", name:"OR — spine", staffIds:["st_21"], location:"ห้องผ่าตัด" },
+        { day:5, part:"am", name:"OPD — สายขาว", staffIds:[], location:"OPD ออร์โธปิดิกส์" }
       ] },
 
     { id:"svc_trauma_ped", name:"Trauma / Paediatric Orthopaedics", subUnit:true, subspecialties:["trauma","pediatric"],
