@@ -5,8 +5,9 @@ import parse from "./parse.test.mjs";
 import smoke from "./smoke.test.mjs";
 import permissions from "./permissions.test.mjs";
 import schedule from "./schedule.test.mjs";
+import orqueue from "./orqueue.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule };
+const ALL = { parse, smoke, permissions, schedule, orqueue };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 
