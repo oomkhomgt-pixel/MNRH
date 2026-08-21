@@ -275,7 +275,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     </div>
   </div>
   <nav class="tabs" id="tabs">
-    <button data-view="ingest" aria-current="true">รับสไลด์ (บันทึกอัตโนมัติ)</button>
+    <button data-view="today" aria-current="true">วันนี้</button>
+    <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
     <button data-view="rotation">ตาราง: หมุนเวียน · เวร · นำเสนอ</button>
     <button data-view="residents">แพทย์ประจำบ้าน</button>
     <button data-view="activities">กิจกรรมทั้งหมด</button>
@@ -290,7 +291,27 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
 <main>
   <!-- ============ INGEST ============ -->
-  <section class="view on" id="view-ingest">
+  <!-- ============ วันนี้ — หน้าแรกสำหรับมือถือ ============
+       ตั้งใจให้ตอบคำถามเดียว: "ตอนนี้ฉันต้องไปไหน แล้วมีอะไรค้าง"
+       หน้าอื่นเป็นหน้าจอสำหรับนั่งทำงาน หน้านี้เป็นหน้าจอสำหรับยืนถือมือถือ -->
+  <section class="view on" id="view-today">
+    <div class="card">
+      <div class="between">
+        <div style="min-width:0">
+          <h1 id="todayTitle">วันนี้</h1>
+          <p class="muted small" id="todayWhere">—</p>
+        </div>
+        <div class="row no-print">
+          <button class="btn-sm" id="todayPrev" aria-label="วันก่อนหน้า">‹</button>
+          <button class="btn-sm" id="todayNow" hidden>กลับมาวันนี้</button>
+          <button class="btn-sm" id="todayNext" aria-label="วันถัดไป">›</button>
+        </div>
+      </div>
+    </div>
+    <div id="todayBody"></div>
+  </section>
+
+  <section class="view" id="view-ingest">
     <div class="card">
       <div class="between">
         <div>
@@ -2972,6 +2993,233 @@ function pendingEvaluations(days = 14, residentId = null) {
       if (!evalForKey(ses.key)) out.push(ses);
     });
   }
+  return out;
+}
+
+/* ============ หน้า "วันนี้" ============
+   หน้าอื่นทั้งหมดถามว่า "ภาพรวมเป็นอย่างไร" หน้านี้ถามแค่ "ตอนนี้ฉันต้องไปไหน มีอะไรค้าง"
+   จึงตัดตารางใหญ่ออกหมด เหลือเฉพาะสิ่งที่กดได้จากมือถือขณะยืนอยู่หน้าห้องผ่าตัด
+   เนื้อหาต่างกันตามบทบาท เพราะคำว่า "วันนี้" ของสามบทบาทไม่ใช่เรื่องเดียวกัน */
+let todayViewDate = "";                       /* ว่าง = วันนี้จริง ๆ ไม่ค้างวันข้ามคืน */
+const todayViewISO = () => todayViewDate || todayISO();
+
+const PART_ORDER = { am:0, day:1, pm:2, call:3 };
+/* เรียงแบบที่คนอ่านตอนเช้าอยากได้: คาบที่ระบุเวลาไว้มาก่อนตามเวลาจริง
+   แล้วค่อยตามด้วยคาบที่กินทั้งช่วง (OR เต็มวัน) ซึ่งเป็นฉากหลังของวันนั้น
+   ไม่ใช่เรียงตามช่วงอย่างเดียว เพราะ OR เต็มวันจะไปแซง round เช้ากับ conference */
+function sortDaySessions(list) {
+  const timed = (x) => !!(x.start && x.end);
+  return list.slice().sort((a, b) =>
+    (timed(b) ? 1 : 0) - (timed(a) ? 1 : 0) ||
+    (timed(a) ? String(a.start).localeCompare(String(b.start))
+              : (PART_ORDER[a.part] ?? 9) - (PART_ORDER[b.part] ?? 9)) ||
+    (b.academic ? 1 : 0) - (a.academic ? 1 : 0) ||
+    (a.superseded ? 1 : 0) - (b.superseded ? 1 : 0));
+}
+
+function todayHoliday(iso) {
+  const duty = dutyOn(iso);
+  const dow = new Date(iso + "T00:00:00").getDay();
+  if (dow === 0 || dow === 6) return "วันหยุดสุดสัปดาห์";
+  if (duty?.holiday) return "วันหยุดราชการ" + (duty.note ? " — " + duty.note : "");
+  return "";
+}
+
+function renderToday() {
+  const box = $("#todayBody"); if (!box) return;
+  const iso = todayViewISO();
+  const dow = new Date(iso + "T00:00:00").getDay();
+  const isToday = iso === todayISO();
+  $("#todayTitle").textContent = isToday ? "วันนี้" : "วัน" + DAY_NAMES[dow] + "ที่ " + fmtDate(iso);
+  $("#todayNow").hidden = isToday;
+  const holiday = todayHoliday(iso);
+  const all = sessionsForDate(iso);
+
+  const role = myRole();
+  const parts = [];
+  if (holiday) parts.push(`<div class="card"><p class="notice small" style="margin:0">
+    <b>${esc(holiday)}</b> — คาบตามตารางประจำสัปดาห์ถูกตัดออก เหลือเฉพาะที่ตารางเวรระบุไว้เอง</p></div>`);
+
+  if (role === "resident") parts.push(...todayForResident(iso, all));
+  else if (role === "staff") parts.push(...todayForStaff(iso, all));
+  else parts.push(...todayForAdmin(iso, all));
+
+  box.innerHTML = parts.join("");
+  $$("#todayBody .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
+  $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
+  $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
+  $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+}
+
+/* --- แพทย์ประจำบ้าน: ของฉันคนเดียว --- */
+function todayForResident(iso, all) {
+  const me = myResidentId();
+  const out = [];
+  const rot = me ? rotationOn(me, iso) : null;
+  const svc = rot ? serviceById(rot.serviceId) : null;
+  $("#todayWhere").textContent = svc
+    ? svc.name + (isChiefOn(me, iso) ? " · หัวหน้าสาย" : "") +
+      (rot.supervisorId ? " · อาจารย์ผู้กำกับ " + staffName(rot.supervisorId) : "")
+    : "ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้";
+
+  const mine = sortDaySessions(all.filter(x => x.residentId === me));
+  const academic = mine.filter(x => x.academic && !x.superseded);
+  const choose = mine.filter(x => x.clash && !x.superseded && !x.picked && !x.advisory);
+
+  if (academic.length) out.push(`<div class="card"><p class="notice small" style="margin:0">
+    <b>วันนี้มีกิจกรรมวิชาการ</b> — มาก่อนงานบริการเสมอ ถ้าชนกับ OR หรือ OPD ให้เข้ากิจกรรมวิชาการ</p></div>`);
+  if (choose.length) out.push(`<div class="card"><p class="notice warn small" style="margin:0">
+    <b>มี ${choose.length} คาบที่ชนกัน ต้องเลือกเอง</b> — ลำดับความสำคัญเท่ากัน ระบบไม่ตัดสินแทน
+    กดที่คาบแล้วบันทึกว่าเข้าคาบไหน</p></div>`);
+
+  out.push(`<div class="card">
+    <h2>ที่ต้องไป</h2>
+    ${mine.length ? mine.map(ses => sessionChip(ses, false)).join("")
+      : `<p class="empty">ไม่มีคาบตามตารางในวันนี้</p>`}
+  </div>`);
+
+  /* เคสห้องผ่าตัดของวันนั้น — ที่มีชื่อฉัน กับที่อยู่ในอนุสาขาของหน่วยที่ฉันหมุนเวียนอยู่แต่ยังไม่มีชื่อฉัน */
+  const cases = (store.data.cases || []).filter(c => c.date === iso);
+  const withMe = cases.filter(c => (c.participants || []).some(p => p.residentId === me));
+  const nearMe = cases.filter(c => !withMe.includes(c) && svc && serviceCovers(svc, c.subspecialty));
+  if (cases.length) out.push(`<div class="card">
+    <h2>เคสห้องผ่าตัดวันนี้</h2>
+    ${withMe.length ? `<p class="small muted" style="margin:.2rem 0 .5rem">มีชื่อคุณอยู่ ${withMe.length} เคส</p>
+      ${withMe.map(c => todayCaseRow(c, me)).join("")}` : ""}
+    ${nearMe.length ? `<p class="small muted" style="margin:.8rem 0 .4rem">
+        อีก ${nearMe.length} เคสอยู่ในอนุสาขาของ${esc(svc.name)}แต่ยังไม่มีชื่อคุณ —
+        ถ้าได้เข้าเคสไหน แจ้งอาจารย์ให้ระบุชื่อ (แพทย์ประจำบ้านรับรองเคสของตัวเองไม่ได้)</p>
+      ${nearMe.slice(0, 5).map(c => todayCaseRow(c, me)).join("")}` : ""}
+    ${!withMe.length && !nearMe.length ? `<p class="empty">ไม่มีเคสที่เกี่ยวกับหน่วยของคุณในวันนี้</p>` : ""}
+  </div>`);
+
+  /* ค้างอยู่ — นับเฉพาะของฉัน */
+  const acts = me ? store.activitiesOf(me) : [];
+  const waiting = acts.filter(a => !a.verified);
+  const unverifiedCases = (store.data.cases || []).filter(c =>
+    (c.participants || []).some(p => p.residentId === me && !p.verified));
+  out.push(`<div class="card">
+    <h2>ค้างอยู่</h2>
+    <div class="grid g2">
+      <div class="nowcard"><div class="between"><b>กิจกรรมรออาจารย์รับรอง</b>
+        <span class="tag ${waiting.length ? "warn" : "ok"}">${waiting.length}</span></div>
+        ${waiting.slice(0, 4).map(a => `<button class="sess" data-tact="${esc(a.id)}">
+          <span class="pill">${fmtDate(a.date)}</span><b>${esc(a.title)}</b></button>`).join("")
+          || `<p class="small muted" style="margin:.3rem 0 0">รับรองครบแล้ว</p>`}</div>
+      <div class="nowcard"><div class="between"><b>เคสที่มีชื่อคุณแต่ยังไม่รับรอง</b>
+        <span class="tag ${unverifiedCases.length ? "warn" : "ok"}">${unverifiedCases.length}</span></div>
+        <p class="small muted" style="margin:.3rem 0 0">การรับรองเป็นของอาจารย์ ไม่ใช่สิ่งที่คุณกดเองได้</p></div>
+    </div>
+    <div class="row no-print" style="margin-top:.8rem">
+      <button class="btn-sm btn-primary" data-tgo="ingest">+ บันทึกกิจกรรม</button>
+      <button class="btn-sm" data-tgo="rotation">ดูตารางทั้งสัปดาห์</button>
+      <button class="btn-sm" data-tgo="epa">EPA ของฉัน</button>
+    </div>
+  </div>`);
+  return out;
+}
+
+function todayCaseRow(c, me) {
+  const p = (c.participants || []).find(x => x.residentId === me);
+  return `<button class="sess" data-tcase="${esc(c.id)}" style="border-left-color:var(--line)">
+    <span class="pill">${esc(c.subspecialty || "—")}</span>
+    ${c.room ? `<span class="pill">${esc(c.room)}</span>` : ""}
+    <b>${esc(c.operation || c.diagnosis || "—")}</b>
+    <span class="who">${esc(c.primarySurgeon || "—")}${p ? " · บทบาทคุณ: " + esc(ROLE_BY_ID[p.role]?.th || p.role) +
+      (p.verified ? " ✓ รับรองแล้ว" : " · รอรับรอง") : ""}</span></button>`;
+}
+
+/* --- อาจารย์: คาบที่ตัวเองรับผิดชอบ กับงานประเมินที่ค้าง --- */
+function todayForStaff(iso, all) {
+  const sid = currentUser()?.staffId || "";
+  const out = [];
+  const mine = sortDaySessions(all.filter(x =>
+    x.staffId === sid || (x.staffIds || []).includes(sid)));
+  const byName = {};
+  mine.forEach(ses => (byName[ses.name + "|" + ses.part] ||= []).push(ses));
+  $("#todayWhere").textContent = (staffName(sid) || currentUser()?.displayName || "อาจารย์แพทย์") +
+    " · วันนี้รับผิดชอบ " + Object.keys(byName).length + " คาบ · แพทย์ประจำบ้านในคาบของคุณ " + mine.length + " คน";
+
+  out.push(`<div class="card">
+    <h2>คาบที่คุณรับผิดชอบวันนี้</h2>
+    ${Object.keys(byName).length ? Object.entries(byName).map(([, list]) => {
+      const first = list[0];
+      return `<div class="nowcard" style="margin-bottom:.5rem">
+        <div class="between"><b>${esc(first.name)}</b>
+          <span class="tag">${esc(PART_BY_ID[first.part]?.th || first.part)}${first.start ? " " + esc(sessionTimeLabel(first)) : ""}</span></div>
+        <div class="small muted">${esc(first.location || "—")}</div>
+        <div style="margin-top:.4rem">${list.map(ses => {
+          const r = store.resident(ses.residentId);
+          return `<button class="sess ${evalForKey(ses.key) ? "done" : ""}" data-sess="${esc(ses.key)}"
+            style="border-left-color:${serviceColour(ses.serviceId)}">
+            <b>${esc(r?.name || "—")}</b> <span class="pill">ปี ${r?.year || "—"}</span>
+            <span class="who">${evalForKey(ses.key) ? "✓ ประเมินแล้ว" : "กดเพื่อประเมินท้ายเซสชัน"}</span></button>`;
+        }).join("")}</div></div>`;
+    }).join("") : `<p class="empty">วันนี้ไม่มีคาบที่ระบุชื่อคุณไว้ในตาราง</p>`}
+  </div>`);
+
+  const pend = pendingEvaluations(14).filter(ses => ses.staffId === sid || (ses.staffIds || []).includes(sid));
+  const others = pendingEvaluations(14).length - pend.length;
+  out.push(`<div class="card">
+    <h2>ประเมินที่ค้าง <span class="tag ${pend.length ? "warn" : "ok"}">${pend.length} เซสชัน</span></h2>
+    ${pend.length ? pend.slice(0, 10).map(ses => {
+      const r = store.resident(ses.residentId);
+      return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
+        <span class="pill">${fmtDate(ses.date)}</span><b>${esc(ses.name)}</b>
+        <span class="who">${esc(r?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
+    }).join("") : `<p class="empty">ไม่มีเซสชันของคุณค้างประเมินใน 14 วันที่ผ่านมา</p>`}
+    ${pend.length > 10 ? `<p class="small muted">และอีก ${pend.length - 10} เซสชัน</p>` : ""}
+    ${others > 0 ? `<p class="small muted" style="margin-top:.6rem">อีก ${others} เซสชันเป็นของอาจารย์ท่านอื่น —
+      ดูทั้งหมดได้ที่หน้าตาราง</p>` : ""}
+    <div class="row no-print" style="margin-top:.8rem">
+      <button class="btn-sm" data-tgo="rotation">ตารางทั้งสัปดาห์</button>
+      <button class="btn-sm" data-tgo="activities">กิจกรรมที่รอรับรอง</button>
+    </div>
+  </div>`);
+  return out;
+}
+
+/* --- ผู้จัดหลักสูตร: ภาพรวมของวันนั้น และช่องโหว่ที่ต้องรู้วันนี้ --- */
+function todayForAdmin(iso, all) {
+  const out = [];
+  const rs = store.data.residents || [];
+  const withSession = new Set(all.map(x => x.residentId));
+  const idle = rs.filter(r => !withSession.has(r.id));
+  const noRotation = rs.filter(r => !rotationOn(r.id, iso));
+  $("#todayWhere").textContent = rs.length + " คน · " + all.length + " คาบ · ไม่มีคาบเลย " + idle.length + " คน";
+
+  const teams = (store.data.services || []).filter(x => x.team);
+  out.push(`<div class="card">
+    <h2>วันนี้ใครอยู่สายไหน</h2>
+    <div class="grid g2">${teams.map(t => {
+      const people = rs.filter(r => { const rot = rotationOn(r.id, iso); return rot?.serviceId === t.id; })
+        .sort((a, b) => b.year - a.year);
+      return `<div class="nowcard">
+        <div class="between"><b style="color:${serviceInk(t.id)}">${esc(t.name)}</b>
+          <span class="tag ${people.length ? "" : "bad"}">${people.length} คน</span></div>
+        <div class="small">${people.length
+          ? people.map(r => esc(r.name) + " <span class='tag'>ปี " + r.year + "</span>").join(" · ")
+          : `<span class="muted">ไม่มีแพทย์ประจำบ้านลงสายนี้</span>`}</div></div>`;
+    }).join("")}</div>
+  </div>`);
+
+  const pend = pendingEvaluations(14);
+  out.push(`<div class="card">
+    <h2>สิ่งที่ต้องรู้วันนี้</h2>
+    <div class="grid g4">
+      <div class="stat"><b>${pend.length}</b><span>เซสชันค้างประเมิน (14 วัน)</span></div>
+      <div class="stat"><b>${(store.data.activities || []).filter(a => !a.verified).length}</b><span>กิจกรรมรอรับรอง</span></div>
+      <div class="stat"><b>${idle.length}</b><span>วันนี้ไม่มีคาบเลย</span></div>
+      <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
+    </div>
+    ${idle.length ? `<p class="small muted" style="margin-top:.7rem">ไม่มีคาบวันนี้:
+      ${idle.slice(0, 12).map(r => esc(r.name) + " (ปี " + r.year + ")").join(" · ")}
+      ${idle.length > 12 ? " และอีก " + (idle.length - 12) + " คน" : ""}</p>` : ""}
+    <div class="row no-print" style="margin-top:.8rem">
+      <button class="btn-sm" data-tgo="rotation">ตารางหมุนเวียนและเวร</button>
+      <button class="btn-sm" data-tgo="coverage">ความครอบคลุมอนุสาขา</button>
+    </div>
+  </div>`);
   return out;
 }
 
@@ -5876,6 +6124,7 @@ function renderIngestStats() {
 
 function renderAll() {
   renderStoreState();
+  renderToday();
   renderUserTable();
   renderAuditLog();
   renderBackupPanel();
@@ -6059,7 +6308,9 @@ function renderLoginGate() {
   return true;
 }
 
-const defaultViewForRole = () => isResident() ? "residents" : "ingest";
+/* resident กับ staff เริ่มที่หน้า "วันนี้" เพราะทั้งคู่เปิดจากมือถือระหว่างทำงาน
+   ผู้จัดหลักสูตรเริ่มที่หน้ารับสไลด์ตามเดิม เพราะนั่งทำงานกับข้อมูลทั้งชุด */
+const defaultViewForRole = () => myRole() === "admin" ? "ingest" : "today";
 
 /* ซ่อนสิ่งที่บทบาทนี้ไม่มีสิทธิ์ใช้ แล้วให้ชั้น render กรองข้อมูลอีกชั้นหนึ่ง */
 function applyPermissions() {
@@ -6176,6 +6427,12 @@ function init() {
   $("#btnAddService").addEventListener("click", () => editService(null));
   $("#btnAddRotation").addEventListener("click", () => editRotation(null));
   $("#btnPrintRoster").addEventListener("click", printRoster);
+
+  /* หน้า "วันนี้" — เดินวันไปข้างหน้า/ข้างหลังได้ แต่ค่าตั้งต้นกลับมาเป็นวันนี้เสมอเมื่อเปิดใหม่ */
+  const stepToday = (n) => { todayViewDate = addDaysISO(todayViewISO(), n); renderToday(); };
+  $("#todayPrev").addEventListener("click", () => stepToday(-1));
+  $("#todayNext").addEventListener("click", () => stepToday(1));
+  $("#todayNow").addEventListener("click", () => { todayViewDate = ""; renderToday(); });
   $("#btnEvalCsv").addEventListener("click", () => download("session-evaluations.csv", toCsv(evalCsvRows()), "text/csv;charset=utf-8"));
   $("#calSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-seg]"); if (!b) return;

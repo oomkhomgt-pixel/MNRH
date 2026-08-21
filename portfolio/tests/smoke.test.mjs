@@ -28,6 +28,53 @@ export default async function run() {
               state.residents + " คน · " + state.activities + " กิจกรรม");
       t.check(role + ": จัดแผนหมุนเวียนได้", state.plan > 0, state.plan + " ช่วง");
       t.check(role + ": ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      /* หน้า "วันนี้" — เนื้อหาต้องต่างกันตามบทบาท และต้องไม่หลุดข้อมูลคนอื่น */
+      await page.evaluate(() => showView("today"));
+      await page.waitForTimeout(300);
+      const td = await page.evaluate(() => {
+        const chips = [...document.querySelectorAll("#todayBody .sess")];
+        const keys = chips.map(c => c.dataset.sess).filter(Boolean);
+        const owners = keys.map(k => sessionByKey(k)?.residentId).filter(Boolean);
+        return {
+          headings: [...document.querySelectorAll("#todayBody h2")].map(h => h.textContent.trim()),
+          where: document.querySelector("#todayWhere").textContent,
+          cards: document.querySelectorAll("#todayBody .card").length,
+          owners: [...new Set(owners)],
+          me: myResidentId(),
+          allToday: sessionsForDate(todayISO()).length
+        };
+      });
+      t.check(role + ": หน้าวันนี้มีเนื้อหา", td.cards > 0 && td.headings.length > 0,
+              td.headings.join(" · "));
+      if (role === "resident") {
+        t.check("resident: หน้าวันนี้เห็นเฉพาะคาบของตัวเอง",
+                td.owners.every(o => o === td.me), td.owners.length + " เจ้าของ");
+        t.check("resident: หน้าวันนี้ไม่ใช่ตารางทั้งภาควิชา",
+                td.headings.includes("ที่ต้องไป"), td.headings.join(" · "));
+      }
+      if (role === "staff")
+        t.check("staff: หน้าวันนี้เป็นคาบที่ระบุชื่อตัวเอง กับงานประเมินที่ค้าง",
+                td.headings.some(h => h.startsWith("ประเมินที่ค้าง")), td.headings.join(" · "));
+      if (role === "admin")
+        t.check("admin: หน้าวันนี้เป็นภาพรวมทั้งภาควิชา",
+                td.headings.includes("วันนี้ใครอยู่สายไหน") && /\d+ คน/.test(td.where), td.where);
+
+      /* เดินวันไปข้างหน้า/ข้างหลังได้ และกลับมาวันนี้ได้ */
+      const nav = await page.evaluate(async () => {
+        const title = () => document.querySelector("#todayTitle").textContent;
+        const before = title();
+        document.querySelector("#todayPrev").click();
+        await new Promise(r => setTimeout(r, 150));
+        const back = title(), backBtn = !document.querySelector("#todayNow").hidden;
+        document.querySelector("#todayNow").click();
+        await new Promise(r => setTimeout(r, 150));
+        return { before, back, backBtn, home: title() };
+      });
+      t.check(role + ": เดินวันย้อนหลังได้ และปุ่มกลับมาวันนี้โผล่ขึ้นมา",
+              nav.back !== nav.before && nav.backBtn, nav.back);
+      t.eq(role + ": กดกลับมาวันนี้แล้วกลับมาจริง", nav.home, nav.before);
+      await page.evaluate(() => showView("today"));
+
       /* บนจอมือถือ หน้าเว็บต้องไม่ปัดข้างไปเจอที่ว่าง — เคยเป็นเพราะ .sr-only ที่เป็น
          position:absolute หลุดออกไปอ้างวิวพอร์ตแทนกล่องเลื่อนของตาราง */
       await page.setViewportSize({ width: 390, height: 844 });
