@@ -30,6 +30,11 @@ export default async function run() {
 
     const first = await page.evaluate(async (base) => {
       store.data.cases = [];
+      /* ระบบคิวจริงส่งชื่อผู้ป่วยมาด้วย — ตัวจำลองก็ส่ง เพื่อให้พิสูจน์ได้ว่าหน้าแฟ้มไม่เก็บ
+         ไม่ใช่ผ่านเพราะไม่มีข้อมูลให้เก็บ */
+      const raw = await (await fetch(base + "/api/cases?scope=all&includeClosed=true")).json();
+      const rawCases = raw.cases || raw.data || raw;
+      const apiSendsName = rawCases.some(c => typeof c.patientName === "string" && c.patientName.trim());
       Object.assign(store.data.orQueue, { apiBase: base, apiPath: "/api/cases?scope=all&includeClosed=true" });
       const r = await importFromApi();
       const c = store.data.cases[0];
@@ -37,13 +42,17 @@ export default async function run() {
                hasOperation: !!c?.operation, hasDiagnosis: !!c?.diagnosis,
                hasDate: /^\d{4}-\d{2}-\d{2}$/.test(c?.date || ""),
                sub: c?.subspecialty, surgeon: c?.primarySurgeon,
-               noPatientName: !("name" in (c || {})) && !("patientName" in (c || {})),
+               apiSendsName,
+               noPatientName: !store.data.cases.some(x =>
+                 "patientName" in x || "name" in x ||
+                 JSON.stringify(x).includes(String(rawCases[0]?.patientName || "\u0000"))),
                suggested: store.data.cases.filter(x => x.participants?.length).length };
     }, mock.url);
     t.check("ดึงเคสจาก API ได้", first.added > 0, first.added + " เคส");
     t.check("ฟิลด์ที่ต้องใช้มาครบ", first.hasOperation && first.hasDiagnosis && first.hasDate,
             first.sub + " · " + first.surgeon);
-    t.check("ไม่มีชื่อผู้ป่วยติดเข้ามา", first.noPatientName);
+    t.check("ตัวจำลองส่งชื่อผู้ป่วยมาจริง (ไม่งั้นข้อถัดไปผ่านฟรี)", first.apiSendsName);
+    t.check("ชื่อผู้ป่วยไม่ถูกเก็บลงแฟ้มสะสมงาน", first.noPatientName);
     t.check("ระบบเดาผู้ร่วมผ่าตัดจากตารางหมุนเวียนให้", first.suggested > 0,
             first.suggested + " เคสมีผู้ร่วมผ่าตัดที่ระบบเสนอ");
 

@@ -3,12 +3,16 @@
  *
  *   node or-queue-mock/server.js            เปิดที่พอร์ต 8088
  *   PORT=9000 node or-queue-mock/server.js
+ *   PORT=0    ให้ระบบเลือกพอร์ตว่างเอง แล้วอ่านพอร์ตจากบรรทัดที่พิมพ์ออกมา
  *
  * แล้วตั้งที่หน้า "ตั้งค่าการเชื่อมต่อ" ของแอป: ที่อยู่ API = http://127.0.0.1:8088
  *
+ * รูปร่างข้อมูลและชื่อฟิลด์ ทาบมาจากหน้าสาธิตของระบบคิวจริงในที่เก็บนี้ (index.html ที่ราก)
+ * โดยอ่านจาก __ORQ_SNAPSHOT__ ของจริง ไม่ได้เดาเอา — รวมถึงค่าที่เป็น null ได้ และฟิลด์ที่
+ * หน้าแฟ้มสะสมงานตั้งใจไม่อ่าน เช่น patientName ซึ่งมีอยู่จริงในระบบคิว
+ *
  * ไม่มี dependency ตั้งใจให้รันได้ด้วย node เปล่า ๆ เหมือน sync-server
- * ข้อมูลที่คืนเป็นข้อมูลสมมติทั้งหมด ไม่มีผู้ป่วยจริง — ชื่ออาจารย์กับวันผ่าตัดอิงตารางจริงของกลุ่มงาน
- * เพื่อให้เคสที่นำเข้าไปตรงกับตารางหมุนเวียน และการเดาผู้ร่วมผ่าตัดทำงานได้เหมือนของจริง
+ * ผู้ป่วยเป็นข้อมูลสมมติทั้งหมด — ชื่ออาจารย์กับวันผ่าตัดอิงตารางจริงของกลุ่มงาน
  */
 const http = require("http");
 const { URL } = require("url");
@@ -115,10 +119,24 @@ function rng(seed) {
 const iso = (d) => d.toISOString().slice(0, 10);
 const pad = (n, w) => String(n).padStart(w, "0");
 
+/* ชื่อผู้ป่วยสมมติ — ระบบคิวจริงเก็บชื่อไว้ หน้าแฟ้มสะสมงานตั้งใจไม่อ่านฟิลด์นี้
+   ใส่ไว้ในตัวจำลองด้วย เพื่อให้พิสูจน์ได้ว่ามันไม่ถูกนำเข้าจริง ๆ ไม่ใช่เพราะไม่มีข้อมูลให้อ่าน */
+const TITLES = ["นาย", "นาง", "นางสาว"];
+const GIVEN = ["สมบัติ", "บุญมี", "ประหยัด", "วิไล", "สมพงษ์", "จันทร์เพ็ญ", "อุดม", "รัตนา"];
+const FAMILY = ["วงศ์ใหญ่", "ศรีสุข", "ทองดี", "แก้วมณี", "พูนทรัพย์", "ใจงาม"];
+
+/* ระบบคิวใช้คำของตัวเอง: foot_ankle และ tumour ไม่ใช่ foot/oncology
+   หน้าแฟ้มสะสมงานมี QUEUE_SUB_MAP แปลงให้อยู่แล้ว ตัวจำลองจึงส่งคำของระบบคิวไปตรง ๆ */
+const QUEUE_SUB = { hand:"hand", sports:"sports", trauma:"trauma", spine:"spine",
+                    foot:"foot_ankle", arthroplasty:"arthroplasty", oncology:"tumour",
+                    pediatric:"pediatric", emergency:"trauma" };
+const ANAES = ["ga", "spinal", "regional_block", "local_sedation", null];
+
 function buildCases() {
   const out = [];
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  let id = 1000;
   for (let off = -DAYS_BACK; off <= DAYS_AHEAD; off++) {
     const d = new Date(today.getTime() + off * 86400000);
     const dow = d.getUTCDay();
@@ -130,28 +148,57 @@ function buildCases() {
       for (let k = 0; k < n; k++) {
         const pool = OPS[sub] || OPS.trauma;
         const [diagnosis, operation] = pool[(Math.floor(r() * pool.length) + k) % pool.length];
-        const future = off > 0;
+        const past = off < 0;
+        /* บางเคสยังไม่ได้ลงตาราง — ระบบคิวจริงปล่อย scheduledDate กับ orRoomName เป็น null */
+        const unscheduled = !past && r() < 0.12;
         out.push({
-          id: "OR-" + day.replace(/-/g, "") + "-" + pad(listIdx, 2) + pad(k, 2),
-          scheduledDate: day,
-          orRoomName: "OR " + (1 + ((listIdx + k) % 8)),
+          id: ++id,
+          scheduledDate: unscheduled ? null : day,
+          orRoomId: unscheduled ? null : 1 + ((listIdx + k) % 8),
+          orRoomName: unscheduled ? null : "OR " + (1 + ((listIdx + k) % 8)),
+          orderIndex: k,
           caseClass: sub === "emergency" ? "emergency" : "elective",
-          status: future ? "scheduled" : "completed",
-          subspecialty: sub === "emergency" ? "trauma" : sub,
+          status: past ? "done" : "booked",
+          readiness: past ? "green" : ["green", "amber", "red"][Math.floor(r() * 3)],
+          subspecialty: QUEUE_SUB[sub] || "trauma",
           diagnosisText: diagnosis,
+          diagnoses: [],
           operationText: operation,
+          procedures: [],
           operativeSide: /right/i.test(operation) ? "right" : /left/i.test(operation) ? "left" : "",
-          anesthesiaType: r() < 0.7 ? "general" : "regional",
-          asaClass: 1 + Math.floor(r() * 3),
+          lateralityWarning: null,
+          anesthesiaType: ANAES[Math.floor(r() * ANAES.length)],
+          asaClass: String(1 + Math.floor(r() * 3)),
           estimatedDurationMin: 45 + Math.floor(r() * 8) * 15,
+          position: "supine",
+          tourniquetRequired: r() < 0.4,
+          cArmRequired: r() < 0.6,
+          npoStatus: "NPO หลังเที่ยงคืน",
+          consentSigned: past || r() < 0.8,
+          labsDone: past || r() < 0.9,
+          imagingAvailable: true,
+          antibioticOrdered: past || r() < 0.7,
+          /* ข้อมูลผู้ป่วย — สมมติทั้งหมด HN ขึ้นต้นด้วย MOCK- ให้เห็นชัดว่าไม่ใช่ของจริง */
           hn: "MOCK-" + pad(100000 + Math.floor(r() * 899999), 6),
+          patientName: TITLES[Math.floor(r() * 3)] + " " + GIVEN[Math.floor(r() * GIVEN.length)] +
+                       " " + FAMILY[Math.floor(r() * FAMILY.length)],
           age: 8 + Math.floor(r() * 80),
           sex: r() < 0.5 ? "male" : "female",
+          wardId: 1 + Math.floor(r() * 6),
+          wardName: sub === "emergency" ? "ห้องฉุกเฉิน" : "หอผู้ป่วยออร์โธปิดิกส์",
+          primarySurgeonId: 1 + listIdx,
           primarySurgeonName: surgeon || "แพทย์เวรห้องผ่าตัดฉุกเฉิน",
+          assistantSurgeonIds: [],
           assistantSurgeonNames: [],                      /* ระบบคิวจริงยังไม่บันทึกผู้ช่วยผ่าตัด */
+          createdById: 5,
           createdByName: "ห้องผ่าตัด (ข้อมูลจำลอง)",
           complications: [],
+          complicationReviewStatus: "not_reviewed",
+          implants: [], bloodRequests: [], consultations: [],
+          notes: "", statusReason: "", sourceRef: "", sourceSystem: "",
+          isHistorical: past, redacted: false,
           team,
+          createdAt: day + "T07:30:00Z",
           updatedAt: day + "T09:00:00Z"
         });
       }
@@ -193,9 +240,24 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, service: "or-queue-mock", cases: ALL.length,
                             range: [ALL[0]?.scheduledDate, ALL[ALL.length - 1]?.scheduledDate] }, origin);
 
-  const one = p.match(/^\/api\/cases\/(.+)$/);
+  /* ระบบคิวจริงมีเส้นทางเหล่านี้ ใส่ไว้ให้ครบเผื่อทดสอบ */
+  if (p === "/api/auth/me")
+    return send(res, 200, { user: { id: 5, username: "mock", fullName: "ผู้ใช้จำลอง",
+                                    role: "resident", isAdmin: false }, demoMode: true }, origin);
+
+  const hist = p.match(/^\/api\/cases\/(\d+)\/history$/);
+  if (hist) {
+    const c = ALL.find(x => String(x.id) === hist[1]);
+    if (!c) return send(res, 404, { error: "not found" }, origin);
+    return send(res, 200, { caseId: c.id, history: [
+      { at: c.createdAt, action: "created", byName: c.createdByName },
+      { at: c.updatedAt, action: c.status === "done" ? "marked done" : "booked", byName: c.primarySurgeonName }
+    ] }, origin);
+  }
+
+  const one = p.match(/^\/api\/cases\/(\d+)$/);
   if (one) {
-    const hit = ALL.find(c => c.id === decodeURIComponent(one[1]));
+    const hit = ALL.find(c => String(c.id) === one[1]);
     return hit ? send(res, 200, hit, origin) : send(res, 404, { error: "not found" }, origin);
   }
 
@@ -205,7 +267,7 @@ const server = http.createServer(async (req, res) => {
     const from = u.searchParams.get("from"), to = u.searchParams.get("to");
     const today = iso(new Date());
     let list = ALL
-      .filter(c => includeClosed || c.status !== "completed")
+      .filter(c => includeClosed || c.status !== "done")
       .filter(c => scope !== "today" || c.scheduledDate === today)
       .filter(c => !from || c.scheduledDate >= from)
       .filter(c => !to || c.scheduledDate <= to);
