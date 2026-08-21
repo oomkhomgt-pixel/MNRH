@@ -102,7 +102,10 @@ table{width:100%;border-collapse:collapse;font-size:.9rem}
 th,td{text-align:left;padding:.5rem .55rem;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-size:.8rem;color:var(--muted);font-weight:650;white-space:nowrap}
 tbody tr:hover{background:#fafbfc}
-.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* position:relative ไม่ได้ใส่ไว้ตกแต่ง — ข้อความสำหรับโปรแกรมอ่านหน้าจอ (.sr-only) เป็น
+   position:absolute ถ้ากล่องนี้ไม่ใช่จุดอ้างอิง มันจะไปอ้างวิวพอร์ตแทน แล้วโผล่ไปอยู่ที่
+   ~900px ในพิกัดหน้าเว็บ ทำให้หน้าจอมือถือปัดข้างได้ไปเจอที่ว่างเปล่า */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
 
 .stat{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:.8rem}
 .stat b{display:block;font-size:1.55rem;line-height:1.15}

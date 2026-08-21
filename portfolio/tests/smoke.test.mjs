@@ -28,6 +28,28 @@ export default async function run() {
               state.residents + " คน · " + state.activities + " กิจกรรม");
       t.check(role + ": จัดแผนหมุนเวียนได้", state.plan > 0, state.plan + " ช่วง");
       t.check(role + ": ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      /* บนจอมือถือ หน้าเว็บต้องไม่ปัดข้างไปเจอที่ว่าง — เคยเป็นเพราะ .sr-only ที่เป็น
+         position:absolute หลุดออกไปอ้างวิวพอร์ตแทนกล่องเลื่อนของตาราง */
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(300);
+      const views = await page.evaluate(() =>
+        [...new Set([...document.querySelectorAll("[data-view]")].map(x => x.dataset.view))]);
+      const slides = [];
+      for (const v of views) {
+        await page.evaluate(x => showView(x), v);
+        await page.waitForTimeout(150);
+        const x = await page.evaluate(() => {
+          window.scrollTo(400, 0); const at = window.scrollX; window.scrollTo(0, 0); return at;
+        });
+        if (x > 0) slides.push(v + " (" + x + "px)");
+      }
+      t.check(role + ": จอมือถือ 390px ไม่ปัดข้างไปเจอที่ว่าง",
+              slides.length === 0, slides.join(", ") || views.length + " หน้า");
+      const wraps = await page.evaluate(() =>
+        [...document.querySelectorAll(".tbl-wrap")].filter(w => w.scrollWidth > w.clientWidth + 1).length);
+      t.check(role + ": ตารางกว้างเลื่อนได้ในกล่องของตัวเอง", true, wraps + " ตารางที่ต้องเลื่อน");
+      await page.setViewportSize({ width: 1280, height: 900 });
+
       await page.close();
     }
   } finally {
