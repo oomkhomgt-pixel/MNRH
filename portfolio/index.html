@@ -1467,15 +1467,37 @@ function buildRotationPlan(ay, residents, services) {
 }
 
 function seedData() {
+  /* แพทย์ประจำบ้าน 20 คน ชั้นปีละ 5 คน ตามตารางเวรเดือนสิงหาคม 2569 ที่กลุ่มงานส่งมา
+     ที่เก็บนี้เป็นสาธารณะ ชื่อจึงยังเป็นป้ายที่บอกสายกับชั้นปีไว้ก่อน
+     ส่วนชั้นปีและการลงสายเป็นของจริง — ใส่ชื่อจริงได้ที่หน้าทะเบียนแพทย์ประจำบ้านในแอป */
   const residents = [
-    { id:"res_a", name:"พญ. กมลชนก ศรีวัฒนา",  nick:"R4-A", year:4, cohort:"2565", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
-    { id:"res_b", name:"นพ. ธนกฤต อินทรพัฒน์",  nick:"R4-B", year:4, cohort:"2565", advisor:"พญ. สุภาวดี ข้อดี",        email:"" },
-    { id:"res_c", name:"นพ. ณัฐพงษ์ บุญมาก",     nick:"R3-A", year:3, cohort:"2566", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
-    { id:"res_d", name:"พญ. ปิยะฉัตร แสนสุข",    nick:"R3-B", year:3, cohort:"2566", advisor:"นพ. อรรถพล กระดูกงาม",    email:"" },
-    { id:"res_e", name:"นพ. วรินทร ชัยมงคล",     nick:"R2-A", year:2, cohort:"2567", advisor:"พญ. สุภาวดี ข้อดี",        email:"" },
-    { id:"res_f", name:"พญ. อรอนงค์ ทองดี",      nick:"R2-B", year:2, cohort:"2567", advisor:"นพ. อรรถพล กระดูกงาม",    email:"" },
-    { id:"res_g", name:"นพ. ภาณุพงศ์ เรืองศรี",  nick:"R1-A", year:1, cohort:"2568", advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", email:"" },
-    { id:"res_h", name:"พญ. ชนากานต์ พูนผล",     nick:"R1-B", year:1, cohort:"2568", advisor:"พญ. สุภาวดี ข้อดี",        email:"" }
+    /* สายฟ้า */
+    { id:"res_a", name:"แพทย์ประจำบ้าน ฟ้า-1", nick:"ฟ้า-1", year:3, cohort:"2567", advisor:"", email:"" },
+    { id:"res_b", name:"แพทย์ประจำบ้าน ฟ้า-2", nick:"ฟ้า-2", year:3, cohort:"2567", advisor:"", email:"" },
+    { id:"res_c", name:"แพทย์ประจำบ้าน ฟ้า-3", nick:"ฟ้า-3", year:2, cohort:"2568", advisor:"", email:"" },
+    /* สายแดง */
+    { id:"res_d", name:"แพทย์ประจำบ้าน แดง-1", nick:"แดง-1", year:4, cohort:"2566", advisor:"", email:"" },
+    { id:"res_e", name:"แพทย์ประจำบ้าน แดง-2", nick:"แดง-2", year:2, cohort:"2568", advisor:"", email:"" },
+    { id:"res_f", name:"แพทย์ประจำบ้าน แดง-3", nick:"แดง-3", year:2, cohort:"2568", advisor:"", email:"" },
+    { id:"res_g", name:"แพทย์ประจำบ้าน แดง-4", nick:"แดง-4", year:1, cohort:"2569", advisor:"", email:"" },
+    /* สายเหลือง */
+    { id:"res_h", name:"แพทย์ประจำบ้าน เหลือง-1", nick:"เหลือง-1", year:4, cohort:"2566", advisor:"", email:"" },
+    { id:"res_i", name:"แพทย์ประจำบ้าน เหลือง-2", nick:"เหลือง-2", year:2, cohort:"2568", advisor:"", email:"" },
+    { id:"res_j", name:"แพทย์ประจำบ้าน เหลือง-3", nick:"เหลือง-3", year:1, cohort:"2569", advisor:"", email:"" },
+    /* สายขาว */
+    { id:"res_k", name:"แพทย์ประจำบ้าน ขาว-1", nick:"ขาว-1", year:4, cohort:"2566", advisor:"", email:"" },
+    { id:"res_l", name:"แพทย์ประจำบ้าน ขาว-2", nick:"ขาว-2", year:3, cohort:"2567", advisor:"", email:"" },
+    { id:"res_m", name:"แพทย์ประจำบ้าน ขาว-3", nick:"ขาว-3", year:2, cohort:"2568", advisor:"", email:"" },
+    { id:"res_n", name:"แพทย์ประจำบ้าน ขาว-4", nick:"ขาว-4", year:1, cohort:"2569", advisor:"", email:"" },
+    /* elective ภายในสถาบัน */
+    { id:"res_o", name:"แพทย์ประจำบ้าน ELE-1", nick:"ELE-1", year:1, cohort:"2569", advisor:"", email:"" },
+    { id:"res_p", name:"แพทย์ประจำบ้าน ELE-2", nick:"ELE-2", year:1, cohort:"2569", advisor:"", email:"" },
+    /* elective ภายนอกสถาบัน */
+    { id:"res_q", name:"แพทย์ประจำบ้าน EXT-1", nick:"EXT-1", year:3, cohort:"2567", advisor:"", email:"" },
+    { id:"res_r", name:"แพทย์ประจำบ้าน EXT-2", nick:"EXT-2", year:3, cohort:"2567", advisor:"", email:"" },
+    /* วนหน่วยอนุสาขา */
+    { id:"res_s", name:"แพทย์ประจำบ้าน SUB-1", nick:"SUB-1", year:4, cohort:"2566", advisor:"", email:"" },
+    { id:"res_t", name:"แพทย์ประจำบ้าน SUB-2", nick:"SUB-2", year:4, cohort:"2566", advisor:"", email:"" }
   ];
 
   /* [ผู้นำเสนอ, ประเภท, อนุสาขา, ชื่อเรื่อง, กี่วันก่อน, คะแนน(ถ้ามี)] */
@@ -1649,7 +1671,7 @@ function seedData() {
       template:[
         { day:1, part:"am", name:"OR — trauma", staffIds:["st_17"], location:"ห้องผ่าตัด" },
         { day:1, part:"am", name:"OR — spine", staffIds:["st_18"], location:"ห้องผ่าตัด" },
-        { day:2, part:"am", name:"OR — สายขาว", staffIds:[], location:"ห้องผ่าตัด" },
+        { day:2, part:"am", name:"OR — emergency", staffIds:[], location:"ห้องผ่าตัด" },
         { day:3, part:"am", name:"OR — paediatrics", staffIds:["st_19"], location:"ห้องผ่าตัด" },
         { day:3, part:"am", name:"OR — arthroplasty", staffIds:["st_20"], location:"ห้องผ่าตัด" },
         { day:4, part:"am", name:"OR — spine", staffIds:["st_21"], location:"ห้องผ่าตัด" },
@@ -1724,7 +1746,10 @@ function seedData() {
         { day:5, part:"am", name:"Journal club / Topic presentation", start:"07:30", end:"08:30",
           staffIds:["st_4"], location:"ห้องประชุม", years:[], whenAway:true },
         { day:2, part:"am", name:"Basic science สำหรับปี 1", start:"07:30", end:"08:30",
-          staffIds:["st_5"], location:"ห้องเรียน", years:[1], whenAway:false }
+          staffIds:["st_5"], location:"ห้องเรียน", years:[1], whenAway:false },
+        /* จากหมายเหตุท้ายตารางเวร — คลินิกพิเศษออร์โธเด็ก ทุกบ่ายวันพฤหัสบดี */
+        { day:4, part:"pm", name:"คลินิกพิเศษออร์โธเด็ก", start:"13:00", end:"16:00",
+          staffIds:[], location:"OPD ออร์โธปิดิกส์", years:[], whenAway:false }
       ] }
   ];
   services.forEach(x => { x.subspecialty = x.subspecialties[0]; });
@@ -1737,6 +1762,27 @@ function seedData() {
   const teamIds = services.filter(x => x.team).map(x => x.id);
   rotations.forEach((rot, i) => {
     if (services.find(x => x.id === rot.serviceId)?.subUnit) rot.alsoServiceId = teamIds[i % teamIds.length];
+  });
+
+  /* เดือนสิงหาคม 2569 ใช้การลงสายจริงจากตารางเวรของกลุ่มงาน
+     เดือนอื่นยังเป็นแผนที่ตัวจัดแผนสร้างให้ จนกว่าจะมีตารางจริงของทั้งปี */
+  const AUG_POSTING = {
+    res_a:"svc_blue",   res_b:"svc_blue",   res_c:"svc_blue",
+    res_d:"svc_red",    res_e:"svc_red",    res_f:"svc_red",    res_g:"svc_red",
+    res_h:"svc_yellow", res_i:"svc_yellow", res_j:"svc_yellow",
+    res_k:"svc_white",  res_l:"svc_white",  res_m:"svc_white",  res_n:"svc_white",
+    res_o:"svc_trauma_ped",                 /* elective ภายในสถาบัน — trauma */
+    res_p:"svc_anesth",                     /* elective ภายในสถาบัน — วิสัญญี */
+    res_q:"svc_elective", res_r:"svc_elective",   /* elective ภายนอกสถาบัน */
+    res_s:"svc_hand_tumour",                /* วน sub — hand / tumour */
+    res_t:"svc_arthro"                      /* วน sub — joint */
+  };
+  rotations.forEach(rot => {
+    if (rot.start > "2026-08-31" || rot.end < "2026-08-01") return;
+    const svc = AUG_POSTING[rot.residentId];
+    if (!svc) return;
+    rot.serviceId = svc;
+    delete rot.alsoServiceId;   /* ตารางจริงไม่ได้บอกว่าคนวน sub ยังสังกัดสาย */
   });
 
   /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
