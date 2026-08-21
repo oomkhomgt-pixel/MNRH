@@ -1,0 +1,11 @@
+# ข้อมูลที่เซิร์ฟเวอร์อ้างอิงเขียนตอนรันทดสอบ ไม่ใช่ส่วนหนึ่งของโปรเจกต์
+sync-server/data.json
+sync-server/dataset.json
+
+# skill ของบุคคลที่สามติดตั้งเองด้วย `npx skills add …` (ดู .claude/README.md)
+# ไม่เก็บลง repo เพราะเป็นเครื่องมือของผู้พัฒนาแต่ละคน และมีขนาดหลายเมกะไบต์
+.agents/
+.claude/skills/
+
+# playwright ที่ติดตั้งไว้รันชุดทดสอบ ไม่เก็บลง repo
+portfolio/tests/node_modules/

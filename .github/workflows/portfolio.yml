@@ -1,0 +1,64 @@
+# ตรวจหน้าแฟ้มสะสมงานอัตโนมัติทุกครั้งที่มีการ push หรือเปิด pull request
+#
+# หน้านี้เป็นไฟล์ HTML ไฟล์เดียวที่ไม่มีขั้นตอน build จึงไม่มีอะไรมาเตือนตอนพิมพ์ผิด
+# พิมพ์ผิดตรงไหน แอปดับทั้งหน้า และที่สำคัญกว่านั้นคือชุดทดสอบสิทธิ์
+# ซึ่งกันไม่ให้การแก้ครั้งต่อ ๆ ไปเผลอเปิดช่องให้บัญชีหนึ่งเห็นข้อมูลของทุกคน
+name: ตรวจหน้าแฟ้มสะสมงาน
+
+# ★ พักการรันอัตโนมัติไว้ก่อน ระหว่างที่ระบบยังพัฒนาไม่เสร็จ
+#   ตอนนี้รันได้เฉพาะเมื่อสั่งเองที่หน้า Actions (ปุ่ม "Run workflow")
+#   หรือรันบนเครื่องตัวเองด้วย `node portfolio/tests/run.mjs`
+#
+#   เปิดกลับเมื่อระบบนิ่งแล้ว โดยเอาคอมเมนต์ออกจากสองบล็อกข้างล่างนี้
+#   (push เฉพาะ main กับ pull_request — ถ้าเปิดทั้งสองอย่างกับทุก branch
+#    จะรันซ้ำสองรอบต่อการ push หนึ่งครั้งบน branch ที่มี PR เปิดอยู่)
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+# ถ้ามี push ใหม่เข้ามาระหว่างที่รอบเดิมยังรันอยู่ ให้ยกเลิกรอบเดิม
+concurrency:
+  group: portfolio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ไวยากรณ์ · เปิดหน้า · สิทธิ์การเข้าถึง
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: portfolio/tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: portfolio/tests/package-lock.json
+
+      - name: ติดตั้ง playwright
+        run: npm ci
+        timeout-minutes: 5
+
+      # เก็บเบราว์เซอร์ที่โหลดมาไว้ใช้รอบหน้า จะได้ไม่โหลดใหม่ทุกครั้ง
+      - name: แคชเบราว์เซอร์ของ playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('portfolio/tests/package-lock.json') }}
+
+      # ไม่ใช้ --with-deps เพราะมันเรียก apt-get ซึ่งเคยค้างจนงานหมดเวลา
+      # ไลบรารีระบบที่ Chromium ต้องใช้มีอยู่ในอิมเมจ ubuntu ของ GitHub อยู่แล้ว
+      # ถ้าวันหนึ่งขาดจริง จะพังตอนเปิดเบราว์เซอร์ในขั้นถัดไปพร้อมบอกว่าขาดอะไร
+      - name: ติดตั้ง Chromium
+        run: npx playwright install chromium
+        timeout-minutes: 5
+
+      - name: รันชุดทดสอบ
+        run: node run.mjs
+        timeout-minutes: 8

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ตัวจำลองระบบคิวห้องผ่าตัด — คอนโซล</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --ink:#16202a; --muted:#67757f; --line:#dde3e8;
+    --accent:#0b6b53; --warn:#8a5300; --bad:#a3262b; --chip:#eef2f5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#12171b; --card:#1a2127; --ink:#e7edf1; --muted:#93a2ac; --line:#2b353d;
+           --accent:#4fbf9b; --warn:#d9a441; --bad:#e5737a; --chip:#232c33; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 -apple-system,"Segoe UI",Sarabun,"Noto Sans Thai",sans-serif}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:.9rem 1rem;
+         position:sticky;top:0;z-index:5}
+  .wrap{max-width:1080px;margin:0 auto;padding:1rem}
+  h1{font-size:1.05rem;margin:0}
+  h2{font-size:.95rem;margin:0 0 .6rem}
+  .muted{color:var(--muted)}
+  .small{font-size:.85rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;margin-bottom:1rem}
+  .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+  .stat{display:flex;gap:1.2rem;flex-wrap:wrap;margin-top:.35rem}
+  .stat b{display:block;font-size:1.15rem}
+  code{background:var(--chip);padding:.1rem .35rem;border-radius:4px;font-size:.85em}
+  button{font:inherit;background:var(--card);color:var(--ink);border:1px solid var(--line);
+         border-radius:7px;padding:.4rem .7rem;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  select,input{font:inherit;background:var(--card);color:var(--ink);
+               border:1px solid var(--line);border-radius:7px;padding:.35rem .5rem}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;white-space:nowrap}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tabs{display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:1rem}
+  .panel{display:none} .panel.on{display:block}
+  .pill{display:inline-block;padding:.05rem .45rem;border-radius:99px;font-size:.78rem;background:var(--chip)}
+  .ok{color:var(--accent)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .note{border-left:3px solid var(--accent);padding:.5rem .75rem;background:var(--chip);border-radius:0 7px 7px 0}
+  .note.warn{border-left-color:var(--warn)}
+  tr.new td{animation:flash 1.6s ease-out}
+  @keyframes flash{from{background:var(--chip)}to{background:transparent}}
+  .kv{display:grid;grid-template-columns:minmax(9rem,auto) 1fr;gap:.15rem .8rem;font-size:.87rem}
+  .kv dt{color:var(--muted)} .kv dd{margin:0;word-break:break-word}
+  #tCases td:nth-child(1),#tCases td:nth-child(2),#tCases td:nth-child(3){white-space:nowrap}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap" style="padding:0">
+    <h1>ตัวจำลองระบบคิวห้องผ่าตัด <span class="muted small">— คอนโซล</span></h1>
+    <div class="stat small">
+      <div><span class="muted">เคสในตัวจำลอง</span><b id="sCount">…</b></div>
+      <div><span class="muted">ช่วงวันที่</span><b id="sRange">…</b></div>
+      <div><span class="muted">ที่อยู่</span><b id="sBase">…</b></div>
+      <div><span class="muted">อาการเสียที่ตั้งค้าง</span><b id="sArmed">ไม่มี</b></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="note small">
+    นี่คือ <b>ตัวจำลอง</b> ของระบบคิวห้องผ่าตัด ไม่ใช่ระบบจริง ข้อมูลผู้ป่วยสมมติทั้งหมด (HN ขึ้นต้น <code>MOCK-</code>)
+    มีไว้ให้ทดสอบการนำเข้าเคสของหน้าแฟ้มสะสมงานได้โดยไม่ต้องอยู่ใน intranet ของโรงพยาบาล
+  </div>
+
+  <div class="tabs">
+    <button class="on" data-tab="cases">เคสในตัวจำลอง</button>
+    <button data-tab="log">คำขอที่เข้ามา</button>
+    <button data-tab="fail">ตั้งอาการเสีย</button>
+    <button data-tab="fields">ฟิลด์ไหนถูกนำเข้า</button>
+    <button data-tab="how">วิธีต่อกับหน้าแฟ้ม</button>
+  </div>
+
+  <!-- ---------------- เคส ---------------- -->
+  <section class="panel on" id="p-cases">
+    <div class="card">
+      <div class="row">
+        <label class="small muted">สถานะ
+          <select id="fStatus"><option value="">ทั้งหมด</option><option value="booked">booked</option><option value="done">done</option></select></label>
+        <label class="small muted">อนุสาขา <select id="fSub"><option value="">ทั้งหมด</option></select></label>
+        <label class="small muted">ตั้งแต่ <input type="date" id="fFrom" /></label>
+        <label class="small muted">ถึง <input type="date" id="fTo" /></label>
+        <button id="fGo">ดึงรายการ</button>
+        <span class="muted small" id="fInfo"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="scroll"><table id="tCases"><tbody></tbody></table></div>
+    </div>
+    <div class="card" id="cDetail" hidden>
+      <h2>รายละเอียดเคส <span class="muted small">— ทุกฟิลด์ที่ตัวจำลองส่งออกมา</span></h2>
+      <dl class="kv" id="dDetail"></dl>
+      <h2 style="margin-top:1rem">ประวัติ</h2>
+      <div id="dHist" class="small muted"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- log ---------------- -->
+  <section class="panel" id="p-log">
+    <div class="card">
+      <div class="row">
+        <b class="small">คำขอที่ตัวจำลองได้รับ</b>
+        <span class="muted small">อัปเดตเองทุก 1.5 วินาที · เก็บ 200 รายการล่าสุด · ปิดเซิร์ฟเวอร์แล้วหาย</span>
+        <button id="logClear" style="margin-left:auto">ล้าง</button>
+      </div>
+      <p class="muted small" style="margin:.6rem 0 0">
+        เปิดหน้านี้ค้างไว้ แล้วไปกด <b>ดึงจาก API</b> ในหน้าแฟ้มสะสมงาน จะเห็นว่าหน้าแฟ้มถามอะไรมาบ้าง
+        และตัวจำลองตอบอะไรกลับไป — ใช้ดูว่าที่นำเข้าไม่ครบเป็นเพราะถามผิดหรือเพราะข้อมูลไม่มี
+      </p>
+    </div>
+    <div class="card">
+      <div class="scroll"><table id="tLog"><thead><tr>
+        <th>เวลา</th><th>คำขอ</th><th>query</th><th>ผล</th><th>หมายเหตุ</th>
+      </tr></thead><tbody><tr><td colspan="5" class="muted small">ยังไม่มีคำขอเข้ามา</td></tr></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ---------------- อาการเสีย ---------------- -->
+  <section class="panel" id="p-fail">
+    <div class="card">
+      <h2>ตั้งอาการเสียไว้ล่วงหน้า</h2>
+      <p class="muted small" style="margin-top:0">
+        กดปุ่มแล้วไปกด <b>ดึงจาก API</b> ในหน้าแฟ้ม คำขอถัดไปจะเจออาการที่เลือก
+        ใช้ดูว่าหน้าแฟ้มบอกสาเหตุถูกไหม ไม่ต้องแก้ที่อยู่ API เอง
+      </p>
+      <div class="row" style="margin:.6rem 0">
+        <label class="small muted">ให้มีผลกี่ครั้ง
+          <select id="failCount"><option>1</option><option>3</option><option>10</option></select></label>
+      </div>
+      <div class="scroll"><table><tbody id="tFail"></tbody></table></div>
+      <div class="row" style="margin-top:.8rem">
+        <button id="failClear">ยกเลิกอาการเสียที่ตั้งไว้</button>
+        <span class="muted small" id="failInfo"></span>
+      </div>
+    </div>
+    <div class="card small muted">
+      อีกทางหนึ่งคือต่อท้ายที่อยู่ API เอง เช่น <code>/api/cases?_fail=500</code> —
+      ชุดทดสอบอัตโนมัติใช้ทางนี้ ส่วนปุ่มข้างบนมีไว้ตอนสาธิตให้คนดู
+    </div>
+  </section>
+
+  <!-- ---------------- ฟิลด์ ---------------- -->
+  <section class="panel" id="p-fields">
+    <div class="card">
+      <h2>ฟิลด์ไหนถูกนำเข้า ฟิลด์ไหนถูกทิ้ง</h2>
+      <p class="muted small" style="margin-top:0">
+        เทียบจากเคสจริงที่ตัวจำลองส่งออกมา กับรายการฟิลด์ที่ <code>normaliseQueueCase()</code> ในหน้าแฟ้มอ่าน
+      </p>
+      <div id="fieldNote"></div>
+      <div class="scroll" style="margin-top:.8rem"><table id="tFields"><thead><tr>
+        <th>ฟิลด์</th><th>ค่าตัวอย่าง</th><th>หน้าแฟ้ม</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ---------------- วิธีต่อ ---------------- -->
+  <section class="panel" id="p-how">
+    <div class="card">
+      <h2>ต่อหน้าแฟ้มสะสมงานเข้ากับตัวจำลองนี้</h2>
+      <ol class="small">
+        <li>เปิดหน้าแฟ้มสะสมงาน (<code>portfolio/index.html</code>) แล้วเข้าสู่ระบบเป็น <b>ผู้จัดหลักสูตร</b> หรือ <b>อาจารย์แพทย์</b></li>
+        <li>ไปที่ <b>Logbook เคสผ่าตัด → ตั้งค่าการเชื่อมต่อ</b></li>
+        <li>ใส่ที่อยู่ API เป็น <code id="howBase"></code> เส้นทางปล่อยไว้ตามเดิม
+            (<code>/api/cases?scope=all&amp;includeClosed=true</code>)</li>
+        <li>เลือก <b>ระดับข้อมูลผู้ป่วย</b> แล้วกด <b>ดึงจาก API</b></li>
+        <li>กลับมาดูแท็บ <b>คำขอที่เข้ามา</b> ในหน้านี้</li>
+      </ol>
+      <div class="note warn small">
+        ตัวจำลองผูกกับ <code>127.0.0.1</code> เท่านั้น เครื่องอื่นในเครือข่ายเรียกไม่ได้ และไม่มีการยืนยันตัวตน —
+        <b>ใช้บนเครื่องพัฒนาเท่านั้น</b>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ---------- ของใช้ร่วม ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const BASE = location.origin;
+const get = (p) => fetch(BASE + p).then(r => r.json());
+
+/* ฟิลด์ที่ normaliseQueueCase() ในหน้าแฟ้มอ่านจริง — คัดลอกรายชื่อมาจากตรงนั้น
+   ถ้าหน้าแฟ้มเปลี่ยน ต้องมาแก้ตรงนี้ด้วย ไม่งั้นตารางจะบอกไม่ตรง */
+const READ = {
+  id:"ใช้เป็นเลขอ้างอิงกันซ้ำ", scheduledDate:"วันผ่าตัด", orRoomName:"ห้อง", caseClass:"ประเภทเคส",
+  status:"สถานะ", subspecialty:"อนุสาขา", diagnosisText:"diagnosis", diagnoses:"diagnosis (สำรอง)",
+  operationText:"operation", procedures:"operation (สำรอง)", operativeSide:"ข้าง",
+  anesthesiaType:"วิธีระงับความรู้สึก", asaClass:"ASA", estimatedDurationMin:"เวลาโดยประมาณ",
+  primarySurgeonName:"ศัลยแพทย์หลัก", assistantSurgeonNames:"ผู้ช่วย", createdByName:"ผู้บันทึก",
+  complications:"ภาวะแทรกซ้อน", createdAt:"วันผ่าตัด (สำรอง)", updatedAt:"วันผ่าตัด (สำรอง)"
+};
+const LEVEL = { hn:"เก็บเฉพาะระดับ full", age:"ทิ้งเมื่อเลือก minimal", sex:"ทิ้งเมื่อเลือก minimal" };
+
+/* ---------- แท็บ ---------- */
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id === "p-" + b.dataset.tab));
+});
+
+/* ---------- หัวหน้า ---------- */
+async function health() {
+  const h = await get("/health");
+  $("#sCount").textContent = h.cases;
+  $("#sRange").textContent = (h.range || []).filter(Boolean).join(" → ") || "—";
+  $("#sBase").textContent = BASE.replace(/^https?:\/\//, "");
+  $("#howBase").textContent = BASE;
+}
+
+/* ---------- เคส ---------- */
+let CASES = [];
+async function loadCases() {
+  const q = new URLSearchParams({ scope:"all", includeClosed:"true" });
+  if ($("#fFrom").value) q.set("from", $("#fFrom").value);
+  if ($("#fTo").value) q.set("to", $("#fTo").value);
+  const r = await get("/api/cases?" + q);
+  CASES = (r.cases || []).filter(c =>
+    (!$("#fStatus").value || c.status === $("#fStatus").value) &&
+    (!$("#fSub").value || c.subspecialty === $("#fSub").value));
+  if (!$("#fSub").options.length || $("#fSub").options.length === 1) {
+    const subs = [...new Set((r.cases || []).map(c => c.subspecialty))].sort();
+    $("#fSub").innerHTML = '<option value="">ทั้งหมด</option>' +
+      subs.map(s => `<option>${esc(s)}</option>`).join("");
+  }
+  $("#fInfo").textContent = CASES.length + " เคส (จากทั้งหมด " + r.count + ")" +
+    (CASES.length > 300 ? " · แสดง 300 แถวแรก" : "");
+  $("#tCases").innerHTML =
+    `<thead><tr><th>id</th><th>วันที่</th><th>ห้อง</th><th>อนุสาขา</th>
+      <th>diagnosis</th><th>operation</th><th>ศัลยแพทย์</th><th>สถานะ</th></tr></thead><tbody>` +
+    (CASES.length ? CASES.slice(0, 300).map(c => `<tr data-id="${c.id}" style="cursor:pointer">
+      <td>${c.id}</td><td>${esc(c.scheduledDate) || '<span class="warn">ยังไม่ลงวัน</span>'}</td>
+      <td>${esc(c.orRoomName) || "—"}</td><td><span class="pill">${esc(c.subspecialty)}</span></td>
+      <td>${esc(c.diagnosisText)}</td><td>${esc(c.operationText)}</td>
+      <td>${esc(c.primarySurgeonName)}</td>
+      <td class="${c.status === "done" ? "ok" : ""}">${esc(c.status)}</td></tr>`).join("")
+     : `<tr><td colspan="8" class="muted small">ไม่มีเคสตรงเงื่อนไข</td></tr>`) + "</tbody>";
+  $("#tCases").querySelectorAll("tr[data-id]").forEach(tr =>
+    tr.onclick = () => showCase(+tr.dataset.id));
+}
+async function showCase(id) {
+  const c = CASES.find(x => x.id === id) || await get("/api/cases/" + id);
+  $("#cDetail").hidden = false;
+  $("#dDetail").innerHTML = Object.entries(c).map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${v === null ? '<span class="muted">null</span>'
+      : Array.isArray(v) && !v.length ? '<span class="muted">[]</span>' : esc(JSON.stringify(v))}</dd>`).join("");
+  const h = await get("/api/cases/" + id + "/history");
+  $("#dHist").innerHTML = (h.history || []).map(x =>
+    `${esc(x.at)} · ${esc(x.action)} · ${esc(x.byName)}`).join("<br>");
+  $("#cDetail").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+$("#fGo").onclick = loadCases;
+
+/* ---------- log ---------- */
+let seen = 0, firstLoad = true;
+async function pollLog() {
+  const r = await get("/api/_mock/log?after=" + seen).catch(() => null);
+  if (!r) return;
+  $("#sArmed").textContent = r.armed?.mode
+    ? r.armed.mode + " (เหลือ " + r.armed.left + " ครั้ง)" : "ไม่มี";
+  $("#failInfo").textContent = r.armed?.mode
+    ? "ตั้งไว้: " + r.armed.mode + " อีก " + r.armed.left + " ครั้ง" : "";
+  if (!r.entries.length) return;
+  seen = r.seq;
+  const body = $("#tLog").querySelector("tbody");
+  if (firstLoad) { body.innerHTML = ""; firstLoad = false; }
+  r.entries.forEach(e => {
+    const tr = document.createElement("tr");
+    if (!firstLoad) tr.className = "new";
+    const cls = e.code >= 500 ? "bad" : e.code >= 400 ? "warn" : "ok";
+    tr.innerHTML = `<td>${esc(e.at.slice(11, 19))}</td>
+      <td><code>${esc(e.method)} ${esc(e.path)}</code></td>
+      <td class="small muted">${esc(e.query) || "—"}</td>
+      <td class="${cls}">${e.code}</td>
+      <td class="small">${esc(e.note || "")}${e.fail ? ' <span class="pill warn">จำลองอาการเสีย</span>' : ""}</td>`;
+    body.prepend(tr);
+  });
+  while (body.rows.length > 200) body.deleteRow(body.rows.length - 1);
+}
+$("#logClear").onclick = async () => {
+  await get("/api/_mock/clear");
+  $("#tLog").querySelector("tbody").innerHTML =
+    '<tr><td colspan="5" class="muted small">ยังไม่มีคำขอเข้ามา</td></tr>';
+  firstLoad = true;
+};
+
+/* ---------- อาการเสีย ---------- */
+const FAILS = [
+  ["500", "ระบบคิวล่ม", "หน้าแฟ้มควรบอกรหัสสถานะ ไม่ใช่บอกว่าไม่มีเคส"],
+  ["401", "ไม่ได้รับอนุญาต", "ควรบอกให้ไปตรวจสิทธิ์ ไม่ใช่ลองใหม่เงียบ ๆ"],
+  ["empty", "เชื่อมต่อได้ แต่ไม่มีเคส", "ต้องแยกให้ออกจาก 'ต่อไม่ติด'"],
+  ["garbage", "ตอบมาแต่ไม่มีเคสอยู่ข้างใน", "ต้องไม่เงียบ และต้องไม่ลบของเดิมทิ้ง"],
+  ["slow", "ตอบช้า 30 วินาที", "ตัวจับเวลา 15 วินาทีของหน้าแฟ้มต้องตัดก่อน"]
+];
+$("#tFail").innerHTML = FAILS.map(([m, th, why]) =>
+  `<tr><td><button data-fail="${m}">${esc(th)}</button></td>
+       <td class="small muted">${esc(why)}</td>
+       <td class="small"><code>?_fail=${esc(m)}</code></td></tr>`).join("");
+$("#tFail").querySelectorAll("button[data-fail]").forEach(b => b.onclick = async () => {
+  await get("/api/_mock/arm?mode=" + b.dataset.fail + "&count=" + $("#failCount").value);
+  pollLog();
+});
+$("#failClear").onclick = async () => { await get("/api/_mock/arm?mode="); pollLog(); };
+
+/* ---------- ฟิลด์ ---------- */
+async function loadFields() {
+  const { sample } = await get("/api/_mock/sample");
+  if (!sample) return;
+  const rows = Object.entries(sample).map(([k, v]) => {
+    const read = READ[k], level = LEVEL[k];
+    const mark = read ? `<span class="ok">นำเข้า — ${esc(read)}</span>`
+      : level ? `<span class="warn">ขึ้นกับระดับ — ${esc(level)}</span>`
+      : k === "patientName" ? `<span class="bad">ไม่นำเข้า — ตั้งใจทิ้ง</span>`
+      : `<span class="muted">ไม่นำเข้า</span>`;
+    return { k, v, mark, rank: read ? 0 : level ? 1 : k === "patientName" ? 2 : 3 };
+  }).sort((a, b) => a.rank - b.rank || a.k.localeCompare(b.k));
+  const kept = rows.filter(r => r.rank === 0).length, drop = rows.filter(r => r.rank === 3).length;
+  $("#fieldNote").innerHTML = `<div class="note small">
+    เคสหนึ่งมี <b>${rows.length}</b> ฟิลด์ · หน้าแฟ้มอ่าน <b>${kept}</b> ·
+    ขึ้นกับระดับข้อมูลผู้ป่วย <b>${rows.filter(r => r.rank === 1).length}</b> ·
+    ไม่อ่านเลย <b>${drop + 1}</b> — รวม <code>patientName</code> ซึ่งระบบคิวจริงมี แต่หน้าแฟ้มตั้งใจไม่อ่าน
+  </div>`;
+  $("#tFields").querySelector("tbody").innerHTML = rows.map(r =>
+    `<tr><td><code>${esc(r.k)}</code></td>
+         <td class="small muted">${r.v === null ? "null" : esc(JSON.stringify(r.v)).slice(0, 60)}</td>
+         <td class="small">${r.mark}</td></tr>`).join("");
+}
+
+/* ---------- เริ่ม ---------- */
+health(); loadCases(); loadFields(); pollLog();
+setInterval(pollLog, 1500);
+</script>
+</body>
+</html>
