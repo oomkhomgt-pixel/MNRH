@@ -232,7 +232,19 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <label class="f"><span>รหัสผ่าน</span><input type="password" id="loginPin" autocomplete="current-password" /></label>
     <div id="loginError"></div>
     <button class="btn-primary" id="loginGo" style="width:100%">เข้าสู่ระบบ</button>
-    <p class="notice warn small" style="margin-top:.9rem">หน้าสาธิต: รหัสผ่านทุกบัญชีคือ <b>1234</b> ·
+    <details class="small" style="margin-top:.9rem">
+      <summary style="cursor:pointer">รหัสสาธิตของแต่ละบทบาท</summary>
+      <table class="mini" style="margin-top:.5rem">
+        <tr><th>บทบาท</th><th>บัญชี</th><th>รหัส</th></tr>
+        <tr><td>ผู้จัดหลักสูตร</td><td><code>admin</code></td><td><code>9001</code></td></tr>
+        <tr><td>อาจารย์แพทย์</td><td><code>staff1</code>–<code>staff23</code></td><td><code>2001</code>–<code>2023</code></td></tr>
+        <tr><td>แพทย์ประจำบ้าน</td><td><code>resident1</code>–<code>resident20</code></td><td><code>3001</code>–<code>3020</code></td></tr>
+      </table>
+      <p class="muted" style="margin:.5rem 0 0">รหัสคือเลขนำหน้าตามบทบาท ต่อด้วยเลขบัญชีสองหลัก
+        เช่น <code>staff7</code> ใช้ <code>2007</code> · <code>resident12</code> ใช้ <code>3012</code></p>
+      <button type="button" class="btn small" id="loginDemo" style="margin-top:.5rem">เติมรหัสสาธิตของบัญชีที่เลือก</button>
+    </details>
+    <p class="notice warn small" style="margin-top:.9rem">รหัสข้างต้นเป็น <b>รหัสสาธิต</b> สำหรับลองใช้งานเท่านั้น
       การตรวจสิทธิ์ทั้งหมดทำในเบราว์เซอร์ จึงเป็นการแบ่งมุมมองบนเครื่องที่ใช้ร่วมกัน <b>ยังไม่ใช่ระบบยืนยันตัวตนจริง</b>
       ของจริงต้องผูกกับบัญชีของโรงพยาบาลและตรวจสิทธิ์ที่เซิร์ฟเวอร์</p>
   </div>
@@ -944,6 +956,19 @@ const ROLES = [
 const ROLE_BY_KEY = Object.fromEntries(ROLES.map(r => [r.id, r]));
 const SESSION_KEY = "mnrh_ortho_portfolio_session_v1";
 
+/* รหัสสาธิตของบัญชีตัวอย่าง — เลขนำหน้าบอกบทบาท ต่อด้วยเลขบัญชีสองหลัก
+   admin → 9001 · staff7 → 2007 · resident12 → 3012
+   ตั้งใจให้แต่ละบทบาทใช้รหัสคนละชุด จะได้ลองสลับบทบาทแล้วเห็นว่าสิทธิ์ต่างกันจริง
+   ไม่ใช่ระบบยืนยันตัวตน — ของจริงต้องตรวจที่เซิร์ฟเวอร์ของโรงพยาบาล */
+const DEMO_PIN_PREFIX = { admin:"9", staff:"2", resident:"3" };
+function demoPin(username) {
+  const m = String(username || "").match(/^(admin|staff|resident)(\d*)$/);
+  if (!m) return "";
+  const n = Number(m[2] || 1);
+  if (!Number.isFinite(n) || n < 1 || n > 99) return "";
+  return DEMO_PIN_PREFIX[m[1]] + String(n).padStart(3, "0");
+}
+
 /* ---------------------------------------------------------------------
    5) เครื่องมือพื้นฐาน
    ===================================================================== */
@@ -1037,6 +1062,11 @@ const store = {
     /* ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์ เช่น อาจารย์เวร ER รายวัน
        สายที่อยู่ ER วันพฤหัส OPD วันพฤหัสที่ลงเป็นชื่ออาจารย์ และวันหยุดราชการ */
     d.duty ||= [];
+    /* เดิมบัญชีสาธิตใช้รหัส 1234 เหมือนกันหมด ตอนนี้แยกตามบทบาท
+       ย้ายให้เฉพาะบัญชีที่ยังเป็นรหัสเดิม — ใครตั้งรหัสเองไว้แล้วไม่ยุ่ง */
+    (d.users || []).forEach(u => {
+      if (u.pin === "1234" && demoPin(u.username)) u.pin = demoPin(u.username);
+    });
     /* เดิมแต่ละคาบมีอาจารย์ได้คนเดียว ตอนนี้มีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน */
     (d.services || []).forEach(svc => (svc.template || []).forEach(t => {
       if (!Array.isArray(t.staffIds)) t.staffIds = t.staffId ? [t.staffId] : [];
@@ -1908,17 +1938,18 @@ function seedData() {
     });
   }));
 
-  /* --- บัญชีผู้ใช้สาธิต — รหัสผ่านทุกบัญชีคือ 1234 --- */
+  /* --- บัญชีผู้ใช้สาธิต — รหัสต่างกันตามบทบาท ดู demoPin() --- */
   const users = [
-    { id: uid("usr"), username:"admin", displayName:"ผู้จัดหลักสูตร (สาธิต)", role:"admin", pin:"1234", residentId:"", staffId:"", active:true }
+    { id: uid("usr"), username:"admin", displayName:"ผู้จัดหลักสูตร (สาธิต)", role:"admin",
+      pin: demoPin("admin"), residentId:"", staffId:"", active:true }
   ];
   staffRoster.forEach((st, i) => users.push({
-    id: uid("usr"), username: "staff" + (i + 1), displayName: st.name, role:"staff", pin:"1234",
-    residentId:"", staffId: st.id, active:true
+    id: uid("usr"), username: "staff" + (i + 1), displayName: st.name, role:"staff",
+    pin: demoPin("staff" + (i + 1)), residentId:"", staffId: st.id, active:true
   }));
   residents.forEach((r, i) => users.push({
-    id: uid("usr"), username: "resident" + (i + 1), displayName: r.name, role:"resident", pin:"1234",
-    residentId: r.id, staffId:"", active:true
+    id: uid("usr"), username: "resident" + (i + 1), displayName: r.name, role:"resident",
+    pin: demoPin("resident" + (i + 1)), residentId: r.id, staffId:"", active:true
   }));
 
   /* --- เคสผ่าตัดตัวอย่างสำหรับ logbook (ปกติจะนำเข้าจากระบบคิว) --- */
@@ -6009,6 +6040,19 @@ function renderLoginGate() {
   };
   $("#loginGo").onclick = go;
   $("#loginPin").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  /* ปุ่มช่วยตอนสาธิต — เติมรหัสตามสูตรที่ประกาศไว้ ไม่ได้อ่านรหัสที่เก็บอยู่จริง
+     บัญชีที่ตั้งรหัสเองแล้ว ปุ่มนี้จึงเติมให้ไม่ได้ */
+  $("#loginDemo").onclick = () => {
+    const u = users.find(x => x.id === $("#loginUser").value);
+    const pin = demoPin(u?.username);
+    if (!pin) {
+      $("#loginError").innerHTML = `<p class="notice warn small">บัญชีนี้ไม่ใช่บัญชีสาธิต ต้องใส่รหัสเอง</p>`;
+      return;
+    }
+    $("#loginPin").value = pin;
+    $("#loginError").innerHTML = "";
+    $("#loginPin").focus();
+  };
   return true;
 }
 

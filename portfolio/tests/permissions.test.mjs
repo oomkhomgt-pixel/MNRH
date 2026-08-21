@@ -186,6 +186,46 @@ export default async function run() {
               leaks.length === 0, leaks.length ? "ยังหลุด: " + leaks.join(", ") + " → " + out : out);
       await page.close();
     }
+
+    /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, null);
+      const r = await page.evaluate(async () => {
+        const pick = (role) => store.data.users.find(u => u.role === role);
+        const users = { admin: pick("admin"), staff: pick("staff"), resident: pick("resident") };
+        const attempt = async (u, pin) => {
+          localStorage.removeItem("mnrh_ortho_portfolio_session_v1");
+          document.querySelector("#loginUser").value = u.id;
+          document.querySelector("#loginPin").value = pin;
+          document.querySelector("#loginGo").click();
+          return !!currentUser();
+        };
+        const wrong = await attempt(users.admin, "1234");
+        const crossRole = await attempt(users.admin, users.resident.pin);
+        const right = await attempt(users.admin, users.admin.pin);
+        /* ปุ่มเติมรหัสต้องเติมได้ตรงกับรหัสที่บัญชีนั้นใช้จริง */
+        document.querySelector("#loginUser").value = users.staff.id;
+        document.querySelector("#loginPin").value = "";
+        document.querySelector("#loginDemo").click();
+        const filled = document.querySelector("#loginPin").value;
+        return {
+          wrong, crossRole, right, filled, staffPin: users.staff.pin,
+          pins: [users.admin.pin, users.staff.pin, users.resident.pin],
+          distinct: new Set(store.data.users.map(u => u.pin)).size,
+          total: store.data.users.length
+        };
+      });
+      t.check("รหัสเดิม 1234 ใช้ไม่ได้แล้ว", r.wrong === false);
+      t.check("รหัสของบทบาทอื่นใช้ข้ามบัญชีไม่ได้", r.crossRole === false);
+      t.check("รหัสที่ถูกต้องเข้าได้", r.right === true, r.pins.join(" · "));
+      t.check("แต่ละบทบาทได้รหัสคนละชุด",
+              new Set(r.pins.map(x => x[0])).size === 3, r.pins.join(" · "));
+      t.check("ทุกบัญชีสาธิตมีรหัสไม่ซ้ำกัน", r.distinct === r.total,
+              r.distinct + " รหัส จาก " + r.total + " บัญชี");
+      t.eq("ปุ่มเติมรหัสสาธิตเติมตรงกับรหัสของบัญชีนั้น", r.filled, r.staffPin);
+      t.check("หน้าเข้าสู่ระบบ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();
