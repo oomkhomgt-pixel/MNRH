@@ -17,13 +17,27 @@ export default async function run() {
       let iso = todayISO();
       while (new Date(iso + "T00:00:00").getDay() !== day) iso = addDaysISO(iso, 1);
       const all = sessionsForDate(iso).filter(s => s.kind === "central" && s.name === cs.template[0].name);
+      /* คาบส่วนกลางส่วนใหญ่ไม่ได้ระบุอาจารย์ประจำ — ตรวจว่าคาบที่ระบุไว้ ส่งชื่อมาถึงจริง */
+      const named = cs.template.find(t => t.staffIds?.length);
+      let namedOk = "ไม่มีคาบที่ระบุอาจารย์ไว้";
+      if (named) {
+        let d = todayISO();
+        while (new Date(d + "T00:00:00").getDay() !== named.day) d = addDaysISO(d, 1);
+        const got = sessionsForDate(d).find(s => s.name === named.name);
+        namedOk = got?.staffIds.join(",") === named.staffIds.join(",");
+      }
+      /* หนึ่งคาบมีอาจารย์ได้หลายคน — ทดสอบที่ตัวกลไก ไม่ผูกกับว่าข้อมูลจริงมีหรือไม่ */
+      const two = store.data.staff.slice(0, 2).map(x => x.id);
+      cs.template.push({ day: cs.template[0].day, part:"am", name:"ทดสอบอาจารย์หลายคน",
+                         start:"06:00", end:"06:30", staffIds: two, years:[], whenAway:true });
+      const multi = sessionsForDate(iso).find(s => s.name === "ทดสอบอาจารย์หลายคน")?.staffIds.length ?? 0;
+      cs.template.pop();
       return { name: cs.name, gotIt: all.length, residents: store.data.residents.length,
-               everyoneHasStaff: all.every(s => s.staffIds.length > 0),
-               multiStaff: all[0]?.staffIds.length ?? 0 };
+               namedOk, multiStaff: multi };
     });
     t.check("มีตารางส่วนกลางของภาควิชาในข้อมูล", !!central.name, central.name);
     t.eq("คาบส่วนกลางเกิดกับแพทย์ประจำบ้านทุกคน", central.gotIt, central.residents);
-    t.check("คาบส่วนกลางมีอาจารย์ผู้รับผิดชอบครบ", central.everyoneHasStaff);
+    t.check("คาบส่วนกลางที่ระบุอาจารย์ไว้ ส่งชื่อมาถึงคาบจริง", central.namedOk === true, String(central.namedOk));
     t.check("หนึ่งคาบมีอาจารย์ได้หลายคน", central.multiStaff > 1, central.multiStaff + " คน");
 
     /* ---------- คาบส่วนกลางเฉพาะบางชั้นปี ---------- */
@@ -43,13 +57,17 @@ export default async function run() {
     /* ---------- คาบที่ระบุเวลาไม่ถือว่าชนกับคาบที่ใช้ทั้งช่วง ---------- */
     const noFalseClash = await page.evaluate(() => {
       const bad = [];
-      for (let i = 0; i < 14; i++)
-        sessionsForDate(addDaysISO(todayISO(), i))
-          .filter(s => s.kind === "central" && (s.superseded || s.clash))
-          .forEach(s => bad.push(s.name));
+      for (let i = 0; i < 14; i++) {
+        const list = sessionsForDate(addDaysISO(todayISO(), i));
+        list.filter(s => s.start && s.end && (s.superseded || s.clash)).forEach(s => {
+          /* ชนกับคาบที่ระบุเวลาด้วยกันถือว่าจริง — ที่ต้องไม่เกิดคือชนกับงานเต็มวันที่ไม่ระบุเวลา */
+          const against = (s.overlaps || []).map(nm => list.find(x => x.name === nm && x.residentId === s.residentId));
+          if (against.some(x => x && !(x.start && x.end))) bad.push(s.name + " ↔ " + s.overlaps.join("/"));
+        });
+      }
       return bad;
     });
-    t.eq("ประชุมเช้าที่ระบุเวลาไว้ ไม่ขึ้นว่าชนกับ ward round", noFalseClash.length, 0);
+    t.eq("คาบที่ระบุเวลาไว้ ไม่ขึ้นว่าชนกับงานเต็มวัน", noFalseClash.length, 0);
 
     /* ---------- วนหน่วยอนุสาขาแต่ยังสังกัดสาย: หน่วยชนะสายตามลำดับความสำคัญ ---------- */
     const both = await page.evaluate(() => {
@@ -60,6 +78,7 @@ export default async function run() {
       for (let i = 0; i < 7; i++)
         sessionsForDate(addDaysISO(rot.start, i))
           .filter(s => s.residentId === rot.residentId && (s.superseded || s.clash))
+          .filter(s => s.kind === "team" || s.kind === "subUnit")
           .forEach(s => found.push({ kind: s.kind, name: s.name, by: s.supersededBy || s.clash, sup: !!s.superseded }));
       return { found, teamLost: found.every(x => x.kind === "team" && x.sup) };
     });
@@ -100,19 +119,20 @@ export default async function run() {
       let iso = null, loser = null, winner = null;
       for (let i = 0; i < 7 && !loser; i++) {
         const day = addDaysISO(rot.start, i);
-        const list = sessionsForDate(day).filter(s => s.residentId === rot.residentId);
+        const list = sessionsForDate(day).filter(s => s.residentId === rot.residentId
+          && (s.kind === "team" || s.kind === "subUnit"));
         loser = list.find(s => s.superseded);
-        if (loser) { iso = day; winner = list.find(s => !s.superseded && s.part === loser.part && s.name === loser.supersededBy); }
+        if (loser) { iso = day; winner = list.find(s => !s.superseded && s.name === loser.supersededBy); }
       }
       if (!loser) return null;
       /* บันทึกว่าวันนั้นไปเข้าคาบที่ "แพ้" จริง ๆ พร้อมระบุอาจารย์ */
       const staffId = store.data.staff[0].id;
       store.data.sessionPicks.push({ id: uid("pick"), residentId: loser.residentId, date: iso,
         part: loser.part, key: loser.key, staffId, at: new Date().toISOString(), by: "test" });
-      const after = sessionsForDate(iso).filter(s => s.residentId === loser.residentId && s.part === loser.part);
+      const after = sessionsForDate(iso).filter(s => s.residentId === loser.residentId);
       const nowWinner = after.find(s => s.key === loser.key);
       const nowLoser  = after.find(s => s.key === winner?.key);
-      const other = sessionsForDate(addDaysISO(iso, 7)).filter(s => s.residentId === loser.residentId && s.part === loser.part);
+      const other = sessionsForDate(addDaysISO(iso, 7)).filter(s => s.residentId === loser.residentId);
       store.data.sessionPicks = [];
       return { flippedTo: nowWinner?.picked === true && !nowWinner?.superseded,
                oldWinnerNowLoses: nowLoser?.superseded === true,
