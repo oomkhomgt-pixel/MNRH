@@ -230,8 +230,12 @@ export default async function run() {
         x.part === target.part && x.serviceId === target.serviceId);
       const before = { label: sessionStaffLabel(target), nextWeek: sameSlotNextWeek ? sessionStaffLabel(sameSlotNextWeek) : "" };
 
+      /* คำขอที่ยังไม่ตอบรับต้องไม่เปลี่ยนตาราง */
       store.data.swaps.push({ id: "sw_test", date: target.date, part: "", serviceId: "", pairId: "p_test",
-        fromStaffId: target.staffIds[0], toStaffId: other.id, note: "ทดสอบ", returnDate: "" });
+        fromStaffId: target.staffIds[0], toStaffId: other.id, note: "ทดสอบ", returnDate: "", status: "pending" });
+      const whilePending = at(target.date, target.key);
+      const pendingLabel = whilePending ? sessionStaffLabel(whilePending) : "";
+      store.data.swaps[0].status = "accepted";
 
       const now = at(target.date, target.key);
       const nw = sessionsForDate(nextWeek).find(x => x.name === target.name &&
@@ -242,10 +246,12 @@ export default async function run() {
         beforeLabel: before.label, afterLabel: now ? sessionStaffLabel(now) : "",
         keySurvived: !!now,
         subs: now?.subs?.length || 0,
-        nextWeekBefore: before.nextWeek, nextWeekAfter: nw ? sessionStaffLabel(nw) : ""
+        nextWeekBefore: before.nextWeek, nextWeekAfter: nw ? sessionStaffLabel(nw) : "",
+        pendingLabel
       };
     });
-    t.check("แลกวันแล้ว ชื่อผู้รับผิดชอบของวันนั้นเปลี่ยน",
+    t.eq("คำขอที่ยังไม่ตอบรับ ตารางยังเป็นชื่อเดิม", swap.pendingLabel, swap.beforeLabel);
+    t.check("ตอบรับแล้ว ชื่อผู้รับผิดชอบของวันนั้นเปลี่ยน",
             swap.afterLabel !== swap.beforeLabel, swap.beforeLabel + " → " + swap.afterLabel);
     t.check("บอกด้วยว่ามาแทนใคร ไม่ใช่เปลี่ยนชื่อเงียบ ๆ",
             swap.afterLabel.includes("แทน") && swap.subs > 0, swap.afterLabel);
@@ -253,24 +259,52 @@ export default async function run() {
     t.eq("สัปดาห์ถัดไปยังเป็นอาจารย์คนเดิม — การแลกไม่ลามไปทั้งปี",
          swap.nextWeekAfter, swap.nextWeekBefore);
 
-    /* ใส่วันแลกกลับ ระบบต้องสร้างอีกฝั่งให้เอง ไม่งั้นมันคือการฝาก ไม่ใช่การแลก */
+    /* เส้นทางจริง: ขอ → รอตอบ → ตอบรับ แล้วอีกฝั่งของการแลกจึงเกิด
+       ก่อนตอบรับต้องยังไม่มีอะไรไปแตะวันแลกกลับ เพราะยังไม่มีการแลกเกิดขึ้นจริง */
     const pair = await page.evaluate(async () => {
       store.data.swaps = [];
       const iso = todayISO(), back = addDaysISO(iso, 7);
       const a = store.data.staff[0].id, b = store.data.staff[1].id;
+      const realConfirm = window.confirm; window.confirm = () => true;
       openSwap(iso, a, "", "");
       document.querySelector('#dlgBody [name="toStaffId"]').value = b;
       document.querySelector('#dlgBody [name="returnDate"]').value = back;
-      const save = [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("บันทึก"));
-      const realConfirm = window.confirm; window.confirm = () => true;
-      save.click();
-      window.confirm = realConfirm;
+      [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("ส่งคำขอ")).click();
       document.querySelector("#dlg").close();
-      const out = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId].join(">"));
+      const afterRequest = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
+      decideSwap(store.data.swaps[0].id, true);
+      window.confirm = realConfirm;
+      const afterAccept = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
       store.data.swaps = [];
-      return { out, want: [[iso, a, b].join(">"), [back, b, a].join(">")] };
+      return { afterRequest, afterAccept,
+               wantRequest: [[iso, a, b, "pending"].join(">")],
+               wantAccept: [[iso, a, b, "accepted"].join(">"), [back, b, a, "accepted"].join(">")] };
     });
-    t.eq("ใส่วันแลกกลับแล้วอีกฝั่งถูกสร้างให้เอง", pair.out, pair.want);
+    t.eq("ส่งคำขอแล้วได้รายการเดียวที่ยังรอตอบรับ ยังไม่แตะวันแลกกลับ",
+         pair.afterRequest, pair.wantRequest);
+    t.eq("ตอบรับแล้วอีกฝั่งของการแลกถูกสร้างให้เอง", pair.afterAccept, pair.wantAccept);
+
+    /* แพทย์ประจำบ้านไม่ย้ายตามอาจารย์ที่แลกวัน — อยู่กับสายของตัวเองเสมอ */
+    const stay = await page.evaluate(() => {
+      store.data.swaps = [];
+      let target = null;
+      for (let i = 0; i < 14 && !target; i++) {
+        const iso = addDaysISO(todayISO(), -i);
+        const ses = sessionsForDate(iso).find(x => (x.staffIds || []).length && x.kind === "team" && x.residentId);
+        if (ses) target = ses;
+      }
+      if (!target) return { none: true };
+      const other = store.data.staff.find(x => x.id !== target.staffIds[0]);
+      const who = (iso) => sessionsForDate(iso).filter(x => x.serviceId === target.serviceId)
+        .map(x => x.residentId).sort();
+      const before = who(target.date);
+      store.data.swaps.push({ id:"sw_stay", pairId:"p_stay", date: target.date, part:"", serviceId:"",
+        fromStaffId: target.staffIds[0], toStaffId: other.id, status:"accepted", note:"", returnDate:"" });
+      const after = who(target.date);
+      store.data.swaps = [];
+      return { before, after, svc: target.serviceId };
+    });
+    t.eq("อาจารย์แลกวัน แพทย์ประจำบ้านยังอยู่สายเดิม ไม่ถูกย้ายตาม", stay.after, stay.before);
 
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();

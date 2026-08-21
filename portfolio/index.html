@@ -443,14 +443,17 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div class="card">
         <div class="between">
           <h2>การแลกวัน OR ของอาจารย์</h2>
-          <button class="btn-sm no-print" id="btnAddSwap" data-perm="staff">+ บันทึกการแลกวัน</button>
+          <button class="btn-sm no-print" id="btnAddSwap" data-perm="staff">+ ขอแลกวัน</button>
         </div>
-        <p class="muted small">อาจารย์นัดแลกวันกันเองเป็นครั้งคราว บันทึกไว้ตรงนี้เป็น <b>ข้อยกเว้นของวันนั้น</b>
-          ไม่ใช่การแก้ตารางประจำสัปดาห์ — ถ้าไปแก้ตารางประจำสัปดาห์ สัปดาห์อื่นทั้งปีจะเปลี่ยนตามและประวัติที่ผ่านมาจะผิดย้อนหลัง
-          · ตารางและหน้า “วันนี้” จะขึ้นชื่อคนที่มาแทนพร้อมวงเล็บว่าแทนใคร
-          · ใส่วันที่แลกกลับแล้วระบบสร้างอีกฝั่งให้เอง จึงเป็นการแลก ไม่ใช่การฝาก
+        <p class="muted small">การแลกวันเป็น <b>คำขอที่ต้องได้รับการตอบรับ</b> — อาจารย์ฝ่ายหนึ่งขอ อีกฝ่ายตอบรับ
+          ระหว่างรอตอบ ตารางยังเป็นชื่อเดิม เพราะยังไม่มีใครตกลงว่าจะมาแทน
+          · เก็บเป็น <b>ข้อยกเว้นของวันนั้น</b> ไม่ใช่การแก้ตารางประจำสัปดาห์ — ถ้าไปแก้ตารางประจำสัปดาห์
+          สัปดาห์อื่นทั้งปีจะเปลี่ยนตามและประวัติที่ผ่านมาจะผิดย้อนหลัง
+          · ตอบรับแล้ว ตารางและหน้า “วันนี้” จะขึ้นชื่อคนที่มาแทนพร้อมวงเล็บว่าแทนใคร
+          · ใส่วันที่แลกกลับไว้ อีกฝั่งจะถูกสร้างตอนที่อีกฝ่ายตอบรับ จึงเป็นการแลก ไม่ใช่การฝาก
           · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบ ไม่ได้เปลี่ยนตัวคาบ
-          · อาจารย์บันทึกได้เฉพาะคาบของตัวเอง ผู้จัดหลักสูตรบันทึกได้ทุกคาบ</p>
+          · <b>แพทย์ประจำบ้านไม่ย้ายตาม</b> — อยู่กับสายของตัวเองเสมอ
+          · ขอได้เฉพาะคาบของตัวเอง ตอบรับได้เฉพาะฝ่ายที่ถูกขอ ผู้จัดหลักสูตรทำแทนได้ทั้งสองอย่าง</p>
         <div id="swapTable"></div>
       </div>
 
@@ -1103,6 +1106,8 @@ const store = {
     /* การแลกวัน OR ของอาจารย์ — เป็นข้อยกเว้นรายวัน ไม่ใช่การแก้ตารางประจำสัปดาห์
        ถ้าไปแก้ตารางประจำสัปดาห์ สัปดาห์อื่นทั้งปีจะเปลี่ยนตามไปด้วย และประวัติที่ผ่านมาจะผิด */
     d.swaps ||= [];
+    /* การแลกวันเดิมไม่มีขั้นตอบรับ ของที่บันทึกไว้ก่อนหน้านี้ถือว่าตกลงกันแล้ว */
+    (d.swaps || []).forEach(sw => { sw.status ||= "accepted"; });
     /* เดิมบัญชีสาธิตใช้รหัส 1234 เหมือนกันหมด ตอนนี้แยกตามบทบาท
        ย้ายให้เฉพาะบัญชีที่ยังเป็นรหัสเดิม — ใครตั้งรหัสเองไว้แล้วไม่ยุ่ง */
     (d.users || []).forEach(u => {
@@ -1232,6 +1237,7 @@ function sessionsOverlap(a, b) {
    ร่องรอยสำคัญพอ ๆ กับชื่อใหม่ — แพทย์ประจำบ้านต้องรู้ว่าวันนี้ไม่ใช่อาจารย์ที่ตารางบอกไว้ */
 function applySwaps(staffIds, iso, part, serviceId, data) {
   const list = (data.swaps || []).filter(sw => sw.date === iso &&
+    sw.status === "accepted" &&           /* คำขอที่ยังไม่ตอบรับ ไม่เปลี่ยนตาราง */
     (!sw.part || partsOverlap(sw.part, part)) &&
     (!sw.serviceId || sw.serviceId === serviceId));
   if (!list.length) return { ids: staffIds, subs: [] };
@@ -3086,6 +3092,8 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  $$("#todayBody [data-swapok]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapok, true)));
+  $$("#todayBody [data-swapno]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapno, false)));
   $$("#todayBody [data-tswap]").forEach(b => b.addEventListener("click", () => {
     const [date, staffId, part, serviceId] = b.dataset.tswap.split("|");
     openSwap(date, staffId, part, serviceId);
@@ -3181,6 +3189,25 @@ function todayForStaff(iso, all) {
   $("#todayWhere").textContent = (staffName(sid) || currentUser()?.displayName || "อาจารย์แพทย์") +
     " · วันนี้รับผิดชอบ " + Object.keys(byName).length + " คาบ · แพทย์ประจำบ้านในคาบของคุณ " + mine.length + " คน";
 
+  const inbox = pendingSwapsFor(sid);
+  if (inbox.length) out.push(`<div class="card">
+    <h2>คำขอแลกวันที่รอคุณตอบ <span class="tag warn">${inbox.length}</span></h2>
+    <p class="small muted" style="margin:.2rem 0 .6rem">ตารางยังเป็นชื่อเดิมจนกว่าคุณจะตอบรับ</p>
+    ${inbox.map(sw => `<div class="nowcard" style="margin-bottom:.5rem">
+      <div class="between"><b>${esc(staffName(sw.fromStaffId))} ขอให้คุณมาแทน</b>
+        <span class="tag">${fmtDate(sw.date)}</span></div>
+      <div class="small muted">${esc(sw.part ? PART_BY_ID[sw.part]?.th || sw.part : "ทั้งวัน")}
+        ${sw.returnDate ? " · แลกกลับ " + fmtDate(sw.returnDate) : " · <b>ไม่ได้ระบุวันแลกกลับ</b>"}
+        ${sw.note ? " · " + esc(sw.note) : ""}</div>
+      ${staffBusyOn(sid, sw.date, sw.part, sw.serviceId).length
+        ? `<p class="notice warn small" style="margin:.4rem 0 0">วันนั้นคุณมีคาบอื่นอยู่แล้ว:
+           ${staffBusyOn(sid, sw.date, sw.part, sw.serviceId).map(b => esc(b.name)).join(" · ")}</p>` : ""}
+      <div class="row no-print" style="margin-top:.5rem">
+        <button class="btn-sm btn-primary" data-swapok="${esc(sw.id)}">ตอบรับ</button>
+        <button class="btn-sm" data-swapno="${esc(sw.id)}">ปฏิเสธ</button>
+      </div></div>`).join("")}
+  </div>`);
+
   out.push(`<div class="card">
     <h2>คาบที่คุณรับผิดชอบวันนี้</h2>
     ${Object.keys(byName).length ? Object.entries(byName).map(([, list]) => {
@@ -3191,9 +3218,13 @@ function todayForStaff(iso, all) {
         <div class="small muted">${esc(first.location || "—")}</div>
         ${(first.subs || []).some(x => x.to === sid)
           ? `<p class="notice warn small" style="margin:.4rem 0 0">วันนี้คุณมาแทน ${esc(staffName(first.subs.find(x => x.to === sid).from))}</p>` : ""}
+        ${swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid)
+          ? `<p class="notice small" style="margin:.4rem 0 0">ส่งคำขอแลกวันไปแล้ว รออีกฝ่ายตอบรับ — ตารางยังเป็นชื่อคุณ</p>` : ""}
         <div class="row no-print" style="margin-top:.4rem">
           <button class="btn-sm" data-tswap="${esc(first.date)}|${esc(sid)}|${esc(first.part)}|${esc(first.serviceId)}">
-            ${(first.subs || []).length ? "แก้การแลกวัน" : "แลกวันนี้ให้คนอื่น"}</button>
+            ${(first.subs || []).length ? "แก้การแลกวัน"
+              : swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid) ? "แก้คำขอแลกวัน"
+              : "ขอแลกวันนี้"}</button>
         </div>
         <div style="margin-top:.4rem">${list.map(ses => {
           const r = store.resident(ses.residentId);
@@ -3271,6 +3302,9 @@ function todayForAdmin(iso, all) {
 }
 
 /* ============ การแลกวัน OR ของอาจารย์ ============
+   การแลกเป็น "คำขอ" ไม่ใช่ "คำสั่ง" — อาจารย์ฝั่งหนึ่งขอ อีกฝั่งต้องตอบรับก่อนจึงมีผล
+   ระหว่างรอตอบ ตารางยังเป็นชื่อเดิม เพราะยังไม่มีใครตกลงว่าจะมาแทน
+   แพทย์ประจำบ้านไม่ย้ายตามอาจารย์ที่แลกวัน — อยู่กับสายของตัวเองเสมอ ดูหมายเหตุที่ residentsStayWithTeam()
    อาจารย์นัดแลกวันกันเองอยู่แล้ว ตารางประจำสัปดาห์จึงไม่ตรงกับความจริงเป็นครั้งคราว
    ทางที่ผิดคือไปแก้ตารางประจำสัปดาห์ เพราะสัปดาห์อื่นทั้งปีจะเปลี่ยนตาม และประวัติที่ผ่านมาจะผิดย้อนหลัง
    ทางที่ถูกคือบันทึกเป็น "ข้อยกเว้นของวันนั้น" ทับตารางเดิม — เหมือนที่ตารางเวรรายเดือนทำกับ ER
@@ -3278,7 +3312,51 @@ function todayForAdmin(iso, all) {
 const canSwapFor = (staffId) =>
   canManage() || (myRole() === "staff" && !!staffId && currentUser()?.staffId === staffId);
 
+/* คนที่ตอบรับได้คือฝ่ายที่ถูกขอให้มาแทน หรือผู้จัดหลักสูตร (กรณีตกลงกันปากเปล่าไปแล้ว) */
+const canDecideSwap = (sw) => !!sw && sw.status === "pending" &&
+  (canManage() || (myRole() === "staff" && currentUser()?.staffId === sw.toStaffId));
+/* ผู้ขอถอนคำขอของตัวเองได้ตราบใดที่ยังไม่มีใครตอบ */
+const canWithdrawSwap = (sw) => !!sw && sw.status === "pending" && canSwapFor(sw.fromStaffId);
+
+const SWAP_STATUS = { pending:["warn","รอตอบรับ"], accepted:["ok","ตอบรับแล้ว"], declined:["bad","ปฏิเสธ"] };
 function swapsOn(iso) { return (store.data.swaps || []).filter(x => x.date === iso); }
+const pendingSwapsFor = (staffId) => (store.data.swaps || [])
+  .filter(x => x.status === "pending" && x.toStaffId === staffId)
+  .sort((a, b) => a.date.localeCompare(b.date));
+
+/* ตอบรับ = การแลกมีผลกับวันนั้นทันที และถ้าระบุวันแลกกลับไว้ อีกฝั่งถูกสร้างตอนนี้
+   ไม่ใช่ตอนขอ — เพราะก่อนตอบรับยังไม่มีการแลกเกิดขึ้นจริง จึงยังไม่ควรมีอะไรไปแตะวันอื่น */
+function decideSwap(id, accept) {
+  const sw = (store.data.swaps || []).find(x => x.id === id);
+  if (!sw) return;
+  if (!canDecideSwap(sw)) { toast("ตอบรับได้เฉพาะอาจารย์ที่ถูกขอให้มาแทน หรือผู้จัดหลักสูตร"); return; }
+  if (accept) {
+    const busy = staffBusyOn(sw.toStaffId, sw.date, sw.part, sw.serviceId);
+    if (busy.length && !confirm("วันนั้นคุณมีคาบอื่นอยู่แล้ว (" + busy.map(b => b.name).join(", ") +
+        ") ตอบรับต่อหรือไม่?")) return;
+  }
+  sw.status = accept ? "accepted" : "declined";
+  sw.decidedBy = currentUser()?.displayName || "";
+  sw.decidedAt = new Date().toISOString();
+  if (accept && sw.returnDate && !(store.data.swaps || []).some(x => x.pairId === sw.pairId && x.date === sw.returnDate)) {
+    store.data.swaps.push({ id: uid("swap"), pairId: sw.pairId, date: sw.returnDate, part: sw.part,
+      serviceId: sw.serviceId, fromStaffId: sw.toStaffId, toStaffId: sw.fromStaffId,
+      note: sw.note, returnDate: sw.date, status: "accepted",
+      requestedBy: sw.requestedBy, requestedAt: sw.requestedAt,
+      decidedBy: sw.decidedBy, decidedAt: sw.decidedAt });
+  }
+  audit(accept ? "ตอบรับการแลกวัน OR" : "ปฏิเสธการแลกวัน OR",
+        staffName(sw.fromStaffId) + " → " + staffName(sw.toStaffId) + " วันที่ " + sw.date);
+  store.save(); renderAll();
+  toast(accept ? "ตอบรับแล้ว — ตารางของวันนั้นเปลี่ยนตาม" : "ปฏิเสธแล้ว — ตารางยังเป็นชื่อเดิม");
+}
+
+/* กติกาที่เขียนไว้ให้ชัด ไม่ใช่โค้ดที่ทำงาน:
+   อาจารย์แลกวันกัน แพทย์ประจำบ้าน "ไม่" ย้ายตาม — อยู่กับสายของตัวเองในเดือนนั้นเสมอ
+   คนที่แลกคือคนลงมือผ่าตัด ไม่ใช่ทั้งทีม การแลกจึงเปลี่ยนแค่ชื่อผู้รับผิดชอบลิสต์นั้น
+   ข้อยกเว้นคือวันที่คนในสายไม่พอ ซึ่งบันทึกด้วย "การเข้าคาบรายวัน" (sessionPicks) เป็นราย ๆ ไป
+   ไม่ใช่ด้วยการแลกวัน เพราะเป็นคนละเรื่องกัน */
+function residentsStayWithTeam() { return true; }
 
 /* คนที่มารับแทน ติดคาบอื่นในวันเดียวกันอยู่หรือไม่ — ต้องบอกก่อนบันทึก ไม่ใช่ปล่อยให้ไปชนหน้างาน */
 function staffBusyOn(staffId, iso, part, ignoreServiceId) {
@@ -3298,8 +3376,11 @@ function openSwap(iso, fromStaffId, part, serviceId) {
   if (!canSwapFor(fromStaffId)) {
     toast("บันทึกการแลกวันได้เฉพาะอาจารย์เจ้าของคาบนั้นเอง หรือผู้จัดหลักสูตร"); return;
   }
-  const existing = swapsOn(iso).find(x => x.fromStaffId === fromStaffId &&
+  const existing = swapsOn(iso).find(x => x.fromStaffId === fromStaffId && x.status !== "declined" &&
     (!part || !x.part || partsOverlap(x.part, part)));
+  if (existing && existing.status === "accepted" && !canManage()) {
+    toast("การแลกวันนี้ตอบรับไปแล้ว ถ้าจะเปลี่ยนต้องผ่านผู้จัดหลักสูตร"); return;
+  }
   const staffList = (store.data.staff || []).filter(x => x.id !== fromStaffId);
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
@@ -3315,32 +3396,38 @@ function openSwap(iso, fromStaffId, part, serviceId) {
         <input type="date" name="returnDate" value="${esc(existing?.returnDate || "")}" /></label>
       <label class="f"><span>หมายเหตุ</span><input name="note" value="${esc(existing?.note || "")}" placeholder="เช่น ติดประชุมวิชาการ" /></label>
     </div>
-    <p class="small muted" style="margin-top:.6rem">ใส่วันที่แลกกลับแล้วระบบจะสร้างอีกฝั่งให้เอง —
-      วันนั้น ${esc(staffName(fromStaffId))} จะไปยืนแทนคนที่มารับวันนี้ · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย
-      เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบของวันนั้น ไม่ได้เปลี่ยนตัวคาบ</p>
+    <p class="small muted" style="margin-top:.6rem">นี่เป็น <b>คำขอ</b> — ตารางจะยังไม่เปลี่ยนจนกว่าอีกฝ่ายจะตอบรับ
+      · ใส่วันที่แลกกลับแล้วอีกฝั่งจะถูกสร้างตอนที่เขาตอบรับ วันนั้น ${esc(staffName(fromStaffId))} จะไปยืนแทนเขา
+      · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบ ไม่ได้เปลี่ยนตัวคาบ
+      · แพทย์ประจำบ้านไม่ย้ายตาม — ยังอยู่กับสายของตัวเองตามเดิม</p>
     <div id="swapWarn"></div>`;
-  showDialog("แลกวัน OR — " + fmtDate(iso), body, [
-    { label: existing ? "บันทึกการแก้ไข" : "บันทึกการแลก", cls:"btn-primary", onClick: () => {
+  showDialog("ขอแลกวัน OR — " + fmtDate(iso), body, [
+    { label: existing ? "ส่งคำขอที่แก้แล้ว" : "ส่งคำขอ", cls:"btn-primary", onClick: () => {
         const toStaffId = dlgVal("toStaffId");
-        if (!toStaffId) { toast("เลือกอาจารย์ที่มาแทนก่อน"); return false; }
+        if (!toStaffId) { toast("เลือกอาจารย์ที่จะขอให้มาแทนก่อน"); return false; }
         const pt = dlgVal("part"), returnDate = dlgVal("returnDate"), note = dlgVal("note");
         const busy = staffBusyOn(toStaffId, iso, pt, serviceId);
         if (busy.length && !confirm(staffName(toStaffId) + " มีคาบอื่นในวันนั้นอยู่แล้ว (" +
-            busy.map(b => b.name).join(", ") + ") บันทึกต่อหรือไม่?")) return false;
+            busy.map(b => b.name).join(", ") + ") ส่งคำขอต่อหรือไม่?")) return false;
         const pairId = existing?.pairId || uid("pair");
-        const base = { date: iso, part: pt, serviceId: serviceId || "", fromStaffId, toStaffId,
-                       note, returnDate, pairId, by: currentUser()?.displayName || "", at: new Date().toISOString() };
         store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== pairId);
-        store.data.swaps.push({ id: uid("swap"), ...base });
-        /* อีกฝั่งของการแลก — วันที่แลกกลับ คนเดิมไปยืนแทนคนที่มารับวันนี้ */
-        if (returnDate) store.data.swaps.push({ id: uid("swap"), ...base, date: returnDate,
-          fromStaffId: toStaffId, toStaffId: fromStaffId, returnDate: iso });
-        audit("บันทึกการแลกวัน OR", staffName(fromStaffId) + " → " + staffName(toStaffId) + " วันที่ " + iso);
-        store.save(); renderAll(); toast("บันทึกการแลกวันแล้ว");
+        store.data.swaps.push({ id: uid("swap"), pairId, date: iso, part: pt, serviceId: serviceId || "",
+          fromStaffId, toStaffId, note, returnDate, status: "pending",
+          requestedBy: currentUser()?.displayName || "", requestedAt: new Date().toISOString(),
+          decidedBy: "", decidedAt: "" });
+        audit("ขอแลกวัน OR", staffName(fromStaffId) + " → " + staffName(toStaffId) + " วันที่ " + iso);
+        store.save(); renderAll();
+        toast("ส่งคำขอแล้ว — ตารางจะเปลี่ยนเมื่อ " + staffName(toStaffId) + " ตอบรับ");
       }},
-    ...(existing ? [{ label:"ยกเลิกการแลก", cls:"btn-danger", onClick: () => {
+    ...(existing && canWithdrawSwap(existing) ? [{ label:"ถอนคำขอ", cls:"btn-danger", onClick: () => {
         store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== existing.pairId);
-        audit("ยกเลิกการแลกวัน OR", staffName(fromStaffId) + " วันที่ " + iso);
+        audit("ถอนคำขอแลกวัน OR", staffName(fromStaffId) + " วันที่ " + iso);
+        store.save(); renderAll(); toast("ถอนคำขอแล้ว");
+      }}] : []),
+    ...(existing && existing.status === "accepted" && canManage() ? [{ label:"ยกเลิกการแลกที่ตอบรับแล้ว", cls:"btn-danger", onClick: () => {
+        if (!confirm("ยกเลิกการแลกที่ตอบรับไปแล้ว? ตารางของวันนั้นจะกลับเป็นชื่อเดิม")) return false;
+        store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== existing.pairId);
+        audit("ยกเลิกการแลกวัน OR ที่ตอบรับแล้ว", staffName(fromStaffId) + " วันที่ " + iso);
         store.save(); renderAll(); toast("ยกเลิกแล้ว");
       }}] : [])
   ]);
@@ -3370,7 +3457,7 @@ function openSwapPicker() {
         `<option value="${x.id}" ${x.id === mine ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
     ${canManage() ? "" : `<p class="small muted" style="margin-top:.6rem">บัญชีอาจารย์บันทึกได้เฉพาะคาบของตัวเอง</p>`}`;
-  showDialog("แลกวัน OR", body, [
+  showDialog("ขอแลกวัน OR", body, [
     { label:"ถัดไป", cls:"btn-primary", onClick: () => {
         const date = dlgVal("date"), from = dlgVal("fromStaffId");
         if (!date || !from) { toast("เลือกวันที่และอาจารย์ก่อน"); return false; }
@@ -3387,21 +3474,31 @@ function renderSwapTable() {
     .filter(x => x.date >= addDaysISO(today, -30))
     .sort((a, b) => a.date.localeCompare(b.date));
   box.innerHTML = list.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>ช่วง</th><th>คาบเดิมของ</th><th>มาแทนโดย</th><th>แลกกลับ</th><th>หมายเหตุ</th><th></th></tr></thead>
-    <tbody>${list.map(sw => `<tr class="${sw.date < today ? "muted" : ""}">
+    <thead><tr><th>วันที่</th><th>ช่วง</th><th>คาบเดิมของ</th><th>ขอให้มาแทน</th><th>สถานะ</th>
+      <th>แลกกลับ</th><th>หมายเหตุ</th><th></th></tr></thead>
+    <tbody>${list.map(sw => {
+      const [cls, th] = SWAP_STATUS[sw.status] || SWAP_STATUS.pending;
+      return `<tr class="${sw.date < today ? "muted" : ""}">
       <td>${fmtDate(sw.date)}</td>
       <td>${esc(sw.part ? PART_BY_ID[sw.part]?.th || sw.part : "ทั้งวัน")}</td>
       <td>${esc(staffName(sw.fromStaffId))}</td>
       <td><b>${esc(staffName(sw.toStaffId))}</b></td>
-      <td>${sw.returnDate ? fmtDate(sw.returnDate) : `<span class="tag warn">ไม่ได้แลกกลับ</span>`}</td>
+      <td><span class="tag ${cls}">${esc(th)}</span></td>
+      <td>${sw.returnDate ? fmtDate(sw.returnDate) : `<span class="muted small">ไม่ได้แลกกลับ</span>`}</td>
       <td class="small">${esc(sw.note || "")}</td>
-      <td><button class="btn-sm" data-swap="${esc(sw.date)}|${esc(sw.fromStaffId)}|${esc(sw.part || "")}"
-        ${canSwapFor(sw.fromStaffId) ? "" : "disabled"}>แก้</button></td></tr>`).join("")}</tbody></table></div>`
-    : `<p class="empty">ยังไม่มีการแลกวันที่บันทึกไว้ (ย้อนหลัง 30 วันขึ้นไป)</p>`;
+      <td class="row no-print">
+        ${canDecideSwap(sw) ? `<button class="btn-sm btn-primary" data-swapok="${esc(sw.id)}">ตอบรับ</button>
+          <button class="btn-sm" data-swapno="${esc(sw.id)}">ปฏิเสธ</button>` : ""}
+        ${canSwapFor(sw.fromStaffId) || canManage()
+          ? `<button class="btn-sm" data-swap="${esc(sw.date)}|${esc(sw.fromStaffId)}|${esc(sw.part || "")}">แก้</button>` : ""}
+      </td></tr>`; }).join("")}</tbody></table></div>`
+    : `<p class="empty">ยังไม่มีคำขอแลกวัน (ย้อนหลัง 30 วันขึ้นไป)</p>`;
   $$("#swapTable [data-swap]").forEach(b => b.addEventListener("click", () => {
     const [date, from, part] = b.dataset.swap.split("|");
     openSwap(date, from, part, "");
   }));
+  $$("#swapTable [data-swapok]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapok, true)));
+  $$("#swapTable [data-swapno]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapno, false)));
 }
 
 function renderRotation() {
@@ -3835,7 +3932,9 @@ function openSession(key) {
         <span class="tag">${esc(SERVICE_KIND_TH[ses.kind] || "")}</span></dd>
       <dt>สถานที่</dt><dd>${esc(ses.location || "—")}</dd>
       <dt>ผู้รับผิดชอบคาบนี้</dt><dd>${esc(sessionStaffLabel(ses))}${(ses.subs || []).length
-        ? `<br /><span class="tag warn">แลกวันกัน${ses.subs[0].note ? " — " + esc(ses.subs[0].note) : ""}</span>` : ""}</dd>
+        ? `<br /><span class="tag warn">แลกวันกัน${ses.subs[0].note ? " — " + esc(ses.subs[0].note) : ""}</span>`
+        : swapsOn(ses.date).some(x => x.status === "pending" && (ses.staffIds || []).includes(x.fromStaffId))
+        ? `<br /><span class="tag">มีคำขอแลกวันรอตอบรับ — ตารางยังเป็นชื่อนี้</span>` : ""}</dd>
     </div>
     ${ses.superseded ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.supersededBy)}</b> ซึ่งมีลำดับความสำคัญสูงกว่า
       ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น คาบนี้จึงไม่ถูกนับเป็นงานค้างประเมิน</p>` : ""}
@@ -3885,7 +3984,7 @@ function openSession(key) {
 
   /* ปุ่มแลกวันอยู่ตรงนี้ด้วย เพราะจุดที่นึกออกว่าจะแลก คือตอนเปิดดูคาบของวันนั้น */
   const swapButtons = (ses.staffIds || []).filter(canSwapFor).slice(0, 1).map(sid => ({
-    label: (ses.subs || []).length ? "แก้การแลกวันนี้" : "แลกวันนี้ให้คนอื่น",
+    label: (ses.subs || []).length ? "แก้การแลกวันนี้" : "ขอแลกวันนี้",
     onClick: () => { closeDialog(); openSwap(ses.date, sid, ses.part, ses.serviceId); return false; }
   }));
 

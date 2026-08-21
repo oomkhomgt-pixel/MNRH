@@ -212,6 +212,30 @@ export default async function run() {
       t.check("อาจารย์แลกวันของอาจารย์คนอื่นไม่ได้ แม้เรียกฟังก์ชันตรง ๆ",
               !stf.other && !stf.openedOther && !stf.grew, JSON.stringify(stf));
       t.check("ผู้จัดหลักสูตรแลกวันแทนใครก็ได้", adm.other && adm.openedOther);
+
+      /* ตอบรับได้เฉพาะฝ่ายที่ถูกขอ — ผู้ขอกดตอบรับให้ตัวเองไม่ได้ */
+      const { page } = await openAs(browser, srv.url, "staff");
+      const decide = await page.evaluate(() => {
+        const me = currentUser().staffId;
+        const other = store.data.staff.find(x => x.id !== me).id;
+        const third = store.data.staff.find(x => x.id !== me && x.id !== other).id;
+        const mk = (from, to) => ({ id: "sw_" + from + to, pairId: "p_" + from + to, date: todayISO(),
+          part: "", serviceId: "", fromStaffId: from, toStaffId: to, status: "pending", note: "", returnDate: "" });
+        store.data.swaps = [mk(me, other), mk(other, me), mk(other, third)];
+        const [iAsked, askedMe, notMine] = store.data.swaps;
+        const before = store.data.swaps.map(x => x.status).join(",");
+        decideSwap(iAsked.id, true);        /* ของที่ฉันขอเอง — ต้องไม่ผ่าน */
+        decideSwap(notMine.id, true);       /* ของคนอื่นสองคน — ต้องไม่ผ่าน */
+        const mid = store.data.swaps.map(x => x.status).join(",");
+        decideSwap(askedMe.id, true);       /* ที่ขอให้ฉันมาแทน — ต้องผ่าน */
+        const after = store.data.swaps.map(x => x.status).join(",");
+        store.data.swaps = [];
+        return { before, mid, after };
+      });
+      t.eq("ผู้ขอกดตอบรับคำขอของตัวเองไม่ได้ และตอบรับแทนคู่อื่นก็ไม่ได้",
+           decide.mid, decide.before);
+      t.check("ฝ่ายที่ถูกขอตอบรับได้", decide.after.startsWith("pending,accepted"), decide.after);
+      await page.close();
     }
 
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
