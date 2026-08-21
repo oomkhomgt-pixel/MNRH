@@ -297,6 +297,42 @@ export default async function run() {
       await sp.close();
     }
 
+    /* ---------- ทางลัดที่ต้องปิด: บันทึกการเข้าคาบรายวันแล้วระบุอาจารย์นอกสาย ----------
+       ถ้าทำได้ มันจะเป็นการบันทึกการปฏิบัติงานนอกสายโดยไม่ผ่านการอนุมัติ ซึ่งกติกาบอกว่าต้องผ่านเสมอ */
+    {
+      const { page } = await openAs(browser, srv.url, "resident");
+      const r = await page.evaluate(() => {
+        const me = myResidentId(), iso = todayISO();
+        store.data.sessionPicks = [];
+        const ses = sessionsForDate(iso).find(x => x.residentId === me && !x.advisory);
+        if (!ses) return { none: true };
+        const mine = new Set();
+        sessionsForDate(iso).filter(x => x.residentId === me)
+          .forEach(x => (x.staffIds || []).forEach(id => id && mine.add(id)));
+        const outsider = (store.data.staff || []).find(x => !mine.has(x.id))?.id;
+        const insider = [...mine][0];
+        const trySave = (staffId) => {
+          openSession(ses.key);
+          const sel = document.querySelector('#dlgBody [name="staffId"]');
+          if (sel) sel.value = staffId;
+          const btn = [...document.querySelectorAll("#dlgFoot button")]
+            .find(x => x.textContent.includes("บันทึกว่าเข้าคาบนี้") || x.textContent.includes("แก้อาจารย์"));
+          if (btn) btn.click();
+          document.querySelector("#dlg")?.close();
+          return (store.data.sessionPicks || [])[0]?.staffId || "";
+        };
+        const afterOutsider = trySave(outsider);
+        const afterInsider = insider ? trySave(insider) : "";
+        store.data.sessionPicks = [];
+        return { outsider, insider, afterOutsider, afterInsider };
+      });
+      if (!r.none) {
+        t.eq("ระบุอาจารย์นอกสายในการเข้าคาบรายวันไม่ได้ — ต้องผ่านการอนุมัติ", r.afterOutsider, "");
+        if (r.insider) t.eq("ระบุอาจารย์ที่อยู่ในตารางของตัวเองวันนั้นได้", r.afterInsider, r.insider);
+      }
+      await page.close();
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);

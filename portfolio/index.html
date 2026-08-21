@@ -462,9 +462,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <h2>ขอไปเข้าคาบของสายอื่น</h2>
           <button class="btn-sm no-print" id="btnAddVisit">+ ขอไปเข้าคาบของสายอื่น</button>
         </div>
-        <p class="muted small">ปกติแพทย์ประจำบ้านอยู่กับสายของตัวเองในเดือนนั้น แต่บางครั้งมีเหตุผลเฉพาะ —
-          เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก หรือตามเก็บหัตถการที่ยังขาดตามเกณฑ์ — จึงขอไปเข้าคาบของสายอื่นได้
-          · <b>ต้องให้อาจารย์ผู้กำกับของช่วงหมุนเวียนนั้นอนุมัติก่อน</b> ไม่ใช่ไปเองแล้วค่อยบอก
+        <p class="muted small"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติจากอาจารย์ผู้กำกับเสมอ</b>
+          ไม่ว่าจะด้วยเหตุผลใด — เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก ตามเก็บหัตถการที่ยังขาดตามเกณฑ์
+          หรือวันที่คนในสายไม่พอแล้ว<b>หัวหน้าสายมอบหมายหน้างาน</b>
+          · หัวหน้าสายเป็นคนตัดสินหน้างานว่าวันไหนคนไม่พอ ไม่ได้กำหนดล่วงหน้า แต่คำสั่งของหัวหน้าสาย
+          <b>ไม่ใช่การอนุมัติ</b> จึงต้องมีคำขอเข้ามาให้อาจารย์อนุมัติอยู่ดี ขอย้อนหลังได้และระบบจะกำกับไว้
           · ก่อนอนุมัติ คาบนั้นไม่ขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต
           · อนุมัติแล้วคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น แต่กิจกรรมวิชาการยังมาก่อนอยู่ดี</p>
         <div id="visitTable"></div>
@@ -3210,8 +3212,9 @@ function todayForResident(iso, all) {
       <h2>ขอไปเข้าคาบของสายอื่น</h2>
       <button class="btn-sm no-print" data-tvisit="${esc(iso)}">+ ส่งคำขอ</button>
     </div>
-    <p class="small muted" style="margin:.2rem 0 .5rem">เคสงานวิจัย เคสที่หาดูยาก หรือตามเก็บหัตถการที่ยังขาด —
-      ต้องให้อาจารย์ผู้กำกับอนุมัติก่อน ก่อนอนุมัติคาบนั้นจะยังไม่ขึ้นในตาราง</p>
+    <p class="small muted" style="margin:.2rem 0 .5rem">ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเองเมื่อไร
+      <b>ต้องได้รับอนุมัติเสมอ</b> — รวมถึงวันที่หัวหน้าสายมอบหมายหน้างานเพราะคนไม่พอ
+      ก่อนอนุมัติคาบนั้นจะยังไม่ขึ้นในตาราง ขอย้อนหลังได้</p>
     ${visits.length ? visits.map(v => {
       const [cls, th] = VISIT_STATUS[v.status] || VISIT_STATUS.pending;
       return `<div class="sess" style="border-left-color:var(--line)">
@@ -3273,6 +3276,8 @@ function todayForStaff(iso, all) {
         <span class="tag">${fmtDate(v.date)}</span></div>
       <div class="small">ขอไปเข้า <b>${esc(visitLabel(v))}</b></div>
       <div class="small muted">${esc(v.reason || "")}</div>
+      ${v.retrospective ? `<p class="notice warn small" style="margin:.4rem 0 0">
+        เป็นการขอย้อนหลัง — วันนั้นผ่านไปแล้ว กำลังอนุมัติสิ่งที่เกิดขึ้นไปแล้ว</p>` : ""}
       <div class="row no-print" style="margin-top:.5rem">
         <button class="btn-sm btn-primary" data-visitok="${esc(v.id)}">อนุมัติ</button>
         <button class="btn-sm" data-visitno="${esc(v.id)}">ไม่อนุมัติ</button>
@@ -3543,9 +3548,13 @@ function openSwapPicker() {
 /* ============ ขอไปเข้าคาบของสายอื่น ============
    ปกติแพทย์ประจำบ้านอยู่กับสายของตัวเองในเดือนนั้น แต่บางครั้งมีเหตุผลเฉพาะ —
    เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก — จึงขอไปเข้าคาบของอาจารย์สายอื่นได้
-   เงื่อนไขคือต้องให้ "อาจารย์ผู้กำกับของช่วงหมุนเวียนนั้น" อนุมัติก่อน ไม่ใช่ไปเองแล้วค่อยบอก
+   กติกาของกลุ่มงานคือ ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติจากอาจารย์ผู้กำกับเสมอ
+   ไม่มีข้อยกเว้น — รวมถึงวันที่คนในสายไม่พอแล้วหัวหน้าสายมอบหมายหน้างาน
+   หัวหน้าสายเป็นคนตัดสินว่าวันไหนคนไม่พอ (ตัดสินหน้างาน ไม่ได้กำหนดล่วงหน้า) แต่คำสั่งนั้นไม่ใช่การอนุมัติ
+   จึงต้องมีคำขอเข้ามาให้อาจารย์อนุมัติอยู่ดี ขอย้อนหลังได้ แต่ระบบจะกำกับไว้ว่าเป็นการขอย้อนหลัง
    ถ้าไม่มีการอนุมัติ คาบนั้นไม่เกิดขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต */
 const VISIT_REASONS = [
+  ["chief_assign", "หัวหน้าสายมอบหมายหน้างาน — คนในสายไม่พอ"],
   ["research", "เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่"],
   ["interesting", "เคสที่หาดูยาก / น่าสนใจทางวิชาการ"],
   ["make_up", "ตามเก็บหัตถการที่ยังขาดตามเกณฑ์"],
@@ -3619,7 +3628,10 @@ function openVisit(residentId, iso) {
         `<option value="${id}">${esc(th)}</option>`).join("")}</select></label>
       <label class="f"><span>รายละเอียด</span><input name="reason" placeholder="เช่น เคส TKA ที่อยู่ในงานวิจัยของตัวเอง" /></label>
     </div>
-    <p class="small muted" style="margin-top:.6rem">คำขอนี้ยังไม่มีผลกับตารางจนกว่าอาจารย์ผู้กำกับจะอนุมัติ
+    <p class="small muted" style="margin-top:.6rem"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติเสมอ</b>
+      — รวมถึงวันที่หัวหน้าสายมอบหมายหน้างานเพราะคนในสายไม่พอ คำสั่งของหัวหน้าสายไม่ใช่การอนุมัติ
+      · ถ้าเป็นเรื่องที่เกิดไปแล้ว ขอย้อนหลังได้ ระบบจะกำกับไว้ว่าเป็นการขอย้อนหลัง
+      · คำขอนี้ยังไม่มีผลกับตารางจนกว่าอาจารย์ผู้กำกับจะอนุมัติ
       · อนุมัติแล้วคาบนั้นจะขึ้นในตารางของคุณ และคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น
       · กิจกรรมวิชาการยังมาก่อนอยู่ดี ถ้าชนกันคุณต้องเข้ากิจกรรมวิชาการ</p>`;
   showDialog("ขอไปเข้าคาบของสายอื่น", body, [
@@ -3633,6 +3645,9 @@ function openVisit(residentId, iso) {
         const label = (VISIT_REASONS.find(x => x[0] === reasonType) || [])[1] || "";
         (store.data.visits ||= []).push({ id: uid("visit"), residentId, date: d, serviceId,
           index: +index, reasonType, reason: detail || label, status: "pending",
+          /* ขอย้อนหลังไม่ได้ผิดกติกา — หัวหน้าสายตัดสินหน้างาน คำขอจึงตามมาทีหลังได้
+             แต่ต้องกำกับไว้ให้ผู้อนุมัติเห็นว่ากำลังอนุมัติสิ่งที่เกิดไปแล้ว */
+          retrospective: d < todayISO(),
           requestedAt: new Date().toISOString(), decidedBy: "", decidedAt: "" });
         audit("ขอไปเข้าคาบของสายอื่น", (store.resident(residentId)?.name || "") + " · " + fmtDate(d));
         store.save(); renderAll();
@@ -3677,7 +3692,8 @@ function renderVisitTable() {
         <td>${fmtDate(v.date)}</td>
         <td>${esc(store.resident(v.residentId)?.name || "—")}</td>
         <td>${esc(visitLabel(v))}</td>
-        <td class="small">${esc(v.reason || "")}</td>
+        <td class="small">${esc(v.reason || "")}
+          ${v.retrospective ? `<br /><span class="tag warn">ขอย้อนหลัง</span>` : ""}</td>
         <td class="small">${who ? esc(who) : `<span class="muted">ผู้จัดหลักสูตร</span>`}
           ${v.decidedBy ? `<br /><span class="muted">โดย ${esc(v.decidedBy)}</span>` : ""}</td>
         <td><span class="tag ${cls}">${esc(th)}</span></td>
@@ -4193,6 +4209,18 @@ function openSession(key) {
   const pickButtons = !canPick ? [] : [
     { label: ses.picked ? "แก้อาจารย์ของวันนี้" : "บันทึกว่าเข้าคาบนี้", onClick: () => {
         const staffId = dlgVal("staffId");
+        /* การเข้าคาบรายวันใช้บันทึกว่าวันนั้นเข้าคาบไหน "ในบรรดาคาบของตัวเอง" เท่านั้น
+           ระบุอาจารย์นอกสายตรงนี้ไม่ได้ ไม่งั้นมันจะกลายเป็นทางลัดบันทึกการปฏิบัติงานนอกสาย
+           โดยไม่ผ่านการอนุมัติ ซึ่งกติกาของกลุ่มงานกำหนดว่าต้องผ่านเสมอ */
+        if (staffId && !canManage()) {
+          const mine = new Set();
+          sessionsForDate(ses.date).filter(x => x.residentId === ses.residentId)
+            .forEach(x => (x.staffIds || []).forEach(id => id && mine.add(id)));
+          if (!mine.has(staffId)) {
+            toast("อาจารย์ท่านนี้ไม่ได้อยู่ในตารางของคุณวันนั้น — การปฏิบัติงานนอกสายต้องส่งคำขอให้อนุมัติก่อน");
+            return false;
+          }
+        }
         const rec = { residentId: ses.residentId, date: ses.date, part: ses.part, key: ses.key,
                       staffId, at: new Date().toISOString(), by: currentUser()?.displayName || "" };
         if (pick) Object.assign(pick, rec);
