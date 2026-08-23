@@ -102,8 +102,16 @@ export default async function run() {
 
       /* บันทึกได้ว่าตัวเองเข้าคาบไหนในวันนั้น แต่บันทึกแทนคนอื่นไม่ได้ */
       const pickPerm = await page.evaluate(() => {
+        /* ตารางมีเฉพาะจันทร์–ศุกร์ — เดินย้อนไปหาวันทำการที่มีคาบจริง */
+        const sessionFor = (rid) => {
+          for (let i = 0; i < 14; i++) {
+            const hit = sessionsForDate(addDaysISO(todayISO(), -i)).find(s => s.residentId === rid);
+            if (hit) return hit;
+          }
+          return null;
+        };
         const btns = (rid) => {
-          const ses = sessionsForDate(todayISO()).find(s => s.residentId === rid);
+          const ses = sessionFor(rid);
           if (!ses) return null;
           openSession(ses.key);
           const labels = [...document.querySelectorAll("#dlgFoot button")].map(b => b.textContent);
@@ -302,9 +310,13 @@ export default async function run() {
     {
       const { page } = await openAs(browser, srv.url, "resident");
       const r = await page.evaluate(() => {
-        const me = myResidentId(), iso = todayISO();
+        const me = myResidentId();
         store.data.sessionPicks = [];
-        const ses = sessionsForDate(iso).find(x => x.residentId === me && !x.advisory);
+        let iso = todayISO(), ses = null;
+        for (let i = 0; i < 14 && !ses; i++) {
+          iso = addDaysISO(todayISO(), -i);
+          ses = sessionsForDate(iso).find(x => x.residentId === me && !x.advisory);
+        }
         if (!ses) return { none: true };
         const mine = new Set();
         sessionsForDate(iso).filter(x => x.residentId === me)

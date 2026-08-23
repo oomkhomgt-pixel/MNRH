@@ -310,9 +310,14 @@ export default async function run() {
        ต้องได้รับอนุมัติก่อนจึงมีผล ระหว่างรออนุมัติตารางต้องไม่ขยับเลย */
     const visit = await page.evaluate(() => {
       store.data.visits = [];
-      const iso = todayISO();
-      const r = store.data.residents.find(x => visitOptions(x.id, iso).length &&
-        sessionsForDate(iso).some(s => s.residentId === x.id));
+      /* ตารางมีเฉพาะจันทร์–ศุกร์ ถ้ารันวันเสาร์อาทิตย์ "วันนี้" จะไม่มีคาบเลย
+         จึงเดินย้อนไปหาวันทำการที่มีคาบจริง แทนที่จะสมมติว่าวันนี้เป็นวันทำการ */
+      let iso = todayISO(), r = null;
+      for (let i = 0; i < 14 && !r; i++) {
+        iso = addDaysISO(todayISO(), -i);
+        r = store.data.residents.find(x => visitOptions(x.id, iso).length &&
+          sessionsForDate(iso).some(s => s.residentId === x.id));
+      }
       if (!r) return { none: true };
       const o = visitOptions(r.id, iso)[0];
       const names = () => sessionsForDate(iso).filter(x => x.residentId === r.id)
@@ -343,6 +348,56 @@ export default async function run() {
             visit.academicPriority > visit.visitPriority,
             "วิชาการ " + visit.academicPriority + " · ไปสายอื่น " + visit.visitPriority);
     t.check("มีอาจารย์ผู้อนุมัติที่ระบุตัวได้", visit.approvers > 0, visit.approvers + " คน");
+
+    /* ---------- ประเมินท้ายเซสชันครั้งเดียว ต้องได้ระดับ EPA ไปด้วย ----------
+       สองที่นี้ใช้สเกล entrustment เดียวกัน ถ้าไม่เชื่อมกัน อาจารย์ต้องให้ระดับซ้ำสองรอบ */
+    const epaFromSession = await page.evaluate(async () => {
+      store.data.sessionEvals = [];
+      store.data.epaAssessments = [];
+      let ses = null;
+      for (let i = 1; i < 15 && !ses; i++)
+        ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
+      if (!ses) return { none: true };
+      const epa = store.data.epas[0];
+      openSession(ses.key);
+      const box = document.querySelector('#dlgBody [name="epa_' + epa.id + '"]');
+      const hasPicker = !!box;
+      if (box) box.checked = true;
+      document.querySelector('#dlgBody [name="entrust"]').value = "4";
+      document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
+      [...document.querySelectorAll("#dlgFoot button")]
+        .find(x => x.textContent.includes("บันทึกผลประเมิน")).click();
+      document.querySelector("#dlg")?.close();
+      const written = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
+      const level = epaLevel(ses.residentId, epa.id);
+
+      /* แก้ผลประเมินซ้ำ ต้องไม่เกิดรายการ EPA ซ้อน */
+      openSession(ses.key);
+      document.querySelector('#dlgBody [name="epa_' + epa.id + '"]').checked = true;
+      document.querySelector('#dlgBody [name="entrust"]').value = "5";
+      [...document.querySelectorAll("#dlgFoot button")]
+        .find(x => x.textContent.includes("บันทึกการแก้ไข") || x.textContent.includes("บันทึกผลประเมิน")).click();
+      document.querySelector("#dlg")?.close();
+      const afterEdit = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
+
+      /* ลบผลประเมิน ระดับ EPA ที่มาจากคาบนี้ต้องหายไปด้วย */
+      openSession(ses.key);
+      const realConfirm = window.confirm; window.confirm = () => true;
+      [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("ลบผลประเมิน")).click();
+      window.confirm = realConfirm;
+      document.querySelector("#dlg")?.close();
+      const afterDelete = (store.data.epaAssessments || []).filter(a => a.sessionKey === ses.key).length;
+
+      store.data.sessionEvals = []; store.data.epaAssessments = [];
+      return { hasPicker, written: written.length, level, source: written[0]?.sessionKey === ses.key,
+               afterEditCount: afterEdit.length, afterEditLevel: afterEdit[0]?.level, afterDelete };
+    });
+    t.check("แบบประเมินท้ายเซสชันมีช่องเลือกหัวข้อ EPA", epaFromSession.hasPicker);
+    t.eq("ประเมินครั้งเดียว ได้ระดับ EPA มาด้วย", [epaFromSession.written, epaFromSession.level], [1, 4]);
+    t.check("ผล EPA บอกที่มาว่ามาจากคาบไหน", epaFromSession.source);
+    t.eq("แก้ผลประเมินแล้วไม่เกิดรายการ EPA ซ้อน",
+         [epaFromSession.afterEditCount, epaFromSession.afterEditLevel], [1, 5]);
+    t.eq("ลบผลประเมินแล้วระดับ EPA ที่มาจากคาบนั้นหายไปด้วย", epaFromSession.afterDelete, 0);
 
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();

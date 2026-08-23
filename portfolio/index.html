@@ -4198,6 +4198,28 @@ function openSession(key) {
       <select name="entrust"><option value="">—</option>
         ${ENTRUST_LEVELS.map(l => `<option value="${l.v}" ${String(ev?.entrust ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}
       </select></label>
+    ${(() => {
+      /* ระดับ entrustment ที่ให้ตรงนี้ กับระดับที่ให้ในหน้า EPA เป็นสเกลเดียวกัน (ENTRUST_LEVELS)
+         เดิมต้องให้สองรอบ — ประเมินท้ายเซสชันครั้งหนึ่ง แล้วไปให้ระดับ EPA อีกครั้ง
+         ติ๊กหัวข้อตรงนี้แล้วระบบบันทึกให้ทั้งสองที่จากการกดครั้งเดียว
+         หัวข้อที่ตรงกับอนุสาขาของคาบนี้ถูกยกขึ้นมาก่อน จะได้ไม่ต้องไล่หา */
+      const epas = store.data.epas || [];
+      if (!epas.length) return "";
+      const svcSub = serviceById(ses.serviceId)?.subspecialty || "";
+      const rank = (e) => (e.subspecialty === svcSub ? 0 : 1);
+      const sorted = epas.slice().sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code));
+      const already = new Set((store.data.epaAssessments || [])
+        .filter(a => a.sessionKey === ses.key).map(a => a.epaId));
+      return `<fieldset class="f" style="border:1px solid var(--line);border-radius:var(--r);padding:.6rem .8rem">
+        <legend class="small muted">หัวข้อ EPA ที่คาบนี้ครอบคลุม <span class="muted">(ไม่เลือกก็ได้)</span></legend>
+        <p class="small muted" style="margin:.1rem 0 .5rem">ติ๊กแล้วระดับ entrustment ข้างบนจะถูกบันทึกเป็นผลประเมิน EPA ของหัวข้อนั้นด้วย
+          — ประเมินครั้งเดียว ไม่ต้องมาให้ระดับซ้ำที่หน้า EPA</p>
+        <div class="row">${sorted.slice(0, 12).map(e => `<label class="tag" style="cursor:pointer">
+          <input type="checkbox" name="epa_${e.id}" ${already.has(e.id) ? "checked" : ""} />
+          ${esc(e.code)} ${e.subspecialty === svcSub ? "★" : ""}
+          <span class="muted">${esc((e.title || "").slice(0, 34))}</span></label>`).join("")}</div>
+      </fieldset>`;
+    })()}
     <label class="f"><span>ข้อเสนอแนะให้แพทย์ประจำบ้าน (feedback ทันทีหลังเซสชัน)</span>
       <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
     ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"}</p>` : ""}`;
@@ -4260,12 +4282,34 @@ function openSession(key) {
           scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
         };
         if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
-        audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name);
-        store.save(); renderAll(); toast("บันทึกผลประเมินแล้ว");
+
+        /* หัวข้อ EPA ที่ติ๊กไว้ — บันทึกระดับเดียวกันเป็นผลประเมิน EPA ให้เลย
+           ลบของเดิมที่มาจากคาบนี้ก่อน เพื่อให้แก้ผลประเมินแล้วไม่เกิดรายการซ้อน
+           เขียนเฉพาะเมื่อมีระดับ entrustment เพราะ EPA ใช้ระดับนั้นเป็นค่า */
+        const pickedEpa = (store.data.epas || []).filter(e =>
+          $('#dlgBody [name="epa_' + e.id + '"]')?.checked);
+        store.data.epaAssessments = (store.data.epaAssessments || [])
+          .filter(a => a.sessionKey !== ses.key);
+        if (entrust) pickedEpa.forEach(e => store.data.epaAssessments.push({
+          id: uid("epaa"), residentId: ses.residentId, epaId: e.id, level: +entrust,
+          by: rec.staffId ? staffName(rec.staffId) : (currentUser()?.displayName || ""),
+          byUserId: currentUser()?.id || "", at: ses.date, caseId: "",
+          sessionKey: ses.key,                 /* บอกที่มา และใช้กันรายการซ้อนตอนแก้ */
+          note: "จากการประเมินท้ายเซสชัน — " + ses.name
+        }));
+
+        audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name +
+          (entrust && pickedEpa.length ? " · บันทึก EPA " + pickedEpa.map(e => e.code).join(", ") : ""));
+        store.save(); renderAll();
+        toast(entrust && pickedEpa.length
+          ? "บันทึกผลประเมินแล้ว · บันทึกระดับ EPA " + pickedEpa.length + " หัวข้อให้พร้อมกัน"
+          : "บันทึกผลประเมินแล้ว");
       }},
     ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
         if (!confirm("ลบผลประเมินของเซสชันนี้?")) return false;
         store.data.sessionEvals = store.data.sessionEvals.filter(x => x.id !== ev.id);
+        /* ผล EPA ที่เกิดจากคาบนี้ต้องหายไปด้วย ไม่งั้นจะเหลือระดับที่ไม่มีที่มาแล้ว */
+        store.data.epaAssessments = (store.data.epaAssessments || []).filter(a => a.sessionKey !== ses.key);
         store.save(); renderAll(); toast("ลบแล้ว");
       }}] : [])
   ]);
@@ -5837,7 +5881,7 @@ function epaAssessDialog(residentId, epaId) {
         store.data.epaAssessments.push({
           id: uid("epaa"), residentId, epaId, level: +dlgVal("level"),
           by: dlgVal("by") || currentUser()?.displayName || "", byUserId: currentUser()?.id || "",
-          at: todayISO(), caseId: dlgVal("caseId"),
+          at: todayISO(), caseId: dlgVal("caseId"), sessionKey: "",
           note: ($('#dlgBody [name="note"]')?.value || "").trim()
         });
         audit("ประเมิน EPA", r.name + " · " + e.code + " ระดับ " + dlgVal("level"));
