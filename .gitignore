@@ -8,4 +8,5 @@ sync-server/dataset.json
 .claude/skills/
 
 # playwright ที่ติดตั้งไว้รันชุดทดสอบ ไม่เก็บลง repo
-portfolio/tests/node_modules/
+# ไม่มี / ปิดท้าย เพราะบางครั้งเป็น symlink ไปยังที่ติดตั้งจริง ไม่ใช่โฟลเดอร์
+portfolio/tests/node_modules
