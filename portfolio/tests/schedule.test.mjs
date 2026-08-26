@@ -515,14 +515,16 @@ export default async function run() {
       const after = await page.evaluate((ids) => ({
         types: ACTIVITY_TYPES.map(x => x.id),
         label: TYPE_BY_ID.preop?.th,
+        desc: TYPE_BY_ID.preop?.desc,
         act: store.data.activities.find(x => x.id === ids.actId)?.type,
         talk: ids.talkId ? store.data.schedule.find(x => x.id === ids.talkId)?.type : "preop",
         req: store.data.requirements[1]?.preop,
         reqOld: store.data.requirements[1]?.postop ?? null
       }), merged);
       t.check("ไม่มีประเภท post-op แยกอีกแล้ว", !after.types.includes("postop"), after.types.join(", "));
-      t.eq("ชื่อที่แสดงบอกว่าเป็นทั้งการวางแผนและการวิจารณ์ผล",
-           after.label, "การวางแผนและวิจารณ์ผลหลังผ่าตัด");
+      t.eq("ชื่อที่แสดงคือ Pre/post-op conference", after.label, "Pre/post-op conference");
+      t.check("มีคำอธิบายกำกับว่าคาบเดียวทำทั้งวางแผนและวิจารณ์ผล",
+              /วางแผน/.test(after.desc || "") && /วิจารณ์ผล/.test(after.desc || ""), after.desc);
       t.eq("กิจกรรมเก่าที่เป็น post-op ย้ายมาอยู่ประเภทเดียวกัน", after.act, "preop");
       t.eq("รายการในตารางนำเสนอย้ายตามด้วย", after.talk, "preop");
       t.eq("เกณฑ์ของสองประเภทเดิมถูกรวมเข้าด้วยกัน ไม่ใช่ทิ้งไปข้างหนึ่ง", after.req, 22);

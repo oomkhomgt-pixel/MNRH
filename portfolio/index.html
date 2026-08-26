@@ -827,7 +827,8 @@ const ACTIVITY_TYPES = [
     wfme:["2.1","2.3","3.1","6.5"] },
   /* กลุ่มงานจัด pre-op กับ post-op conference เป็นกิจกรรมเดียวกัน คือวางแผนก่อนผ่าตัด
      แล้ววิจารณ์ผลของเคสที่ผ่าตัดไปแล้วในคราวเดียว จึงนับรวมเป็นประเภทเดียว */
-  { id:"preop",      th:"การวางแผนและวิจารณ์ผลหลังผ่าตัด", en:"Pre/Post-operative conference", icon:"P",
+  { id:"preop",      th:"Pre/post-op conference", en:"Pre/Post-operative conference", icon:"P",
+    desc:"วางแผนเคสที่จะผ่าตัด และวิจารณ์ผลของเคสที่ผ่าตัดไปแล้ว ในคาบเดียวกัน",
     kw:["pre-op","preop","pre operative","preoperative","operative plan","planning conference","แผนผ่าตัด","ก่อนผ่าตัด",
         "post-op","postop","post operative","postoperative","morbidity","mortality","m&m","complication","outcome review","หลังผ่าตัด","ภาวะแทรกซ้อน"],
     wfme:["2.5","2.6","3.1","7.1"] },
@@ -837,7 +838,8 @@ const ACTIVITY_TYPES = [
   { id:"journal",    th:"Journal club", en:"Journal club", icon:"J",
     kw:["journal club","critical appraisal","randomized controlled trial","meta-analysis","systematic review","level of evidence","วารสารสโมสร","วิจารณ์บทความ"],
     wfme:["2.2","6.5","3.1"] },
-  { id:"research",   th:"ความก้าวหน้างานวิจัย", en:"Research progression", icon:"R",
+  { id:"research",   th:"Research progression", en:"Research progression", icon:"R",
+    desc:"รายงานความก้าวหน้างานวิจัยของแพทย์ประจำบ้านตามขั้นของโครงการ",
     kw:["research progress","proposal","thesis","dissertation","irb","ethics committee","data collection","preliminary result","งานวิจัย","โครงร่างวิจัย","ความก้าวหน้า","จริยธรรมการวิจัย"],
     wfme:["2.2","6.5","9.0"] }
 ];
@@ -2279,10 +2281,10 @@ function seedData() {
     journal:[["Tranexamic acid ใน hip fracture surgery: การวิจารณ์ RCT ฉบับล่าสุด","trauma"],
              ["Robotic-assisted TKA เทียบกับวิธีมาตรฐาน: systematic review","arthroplasty"],
              ["Vitamin D supplementation กับการหายของกระดูกหัก","trauma"]],
-    preop:  [["Pre/Post-op conference: bimalleolar ankle fracture เตรียม ORIF","foot"],
-             ["Pre/Post-op conference: femoral neck fracture ในผู้ป่วยอายุ 62 ปี","trauma"],
-             ["Pre/Post-op conference: lumbar spinal stenosis เตรียม decompression","spine"],
-             ["Pre/Post-op conference: วิจารณ์ผลเคสที่ผ่าตัดไปแล้วในสัปดาห์ที่ผ่านมา","trauma"]],
+    preop:  [["Pre/post-op conference: bimalleolar ankle fracture เตรียม ORIF","foot"],
+             ["Pre/post-op conference: femoral neck fracture ในผู้ป่วยอายุ 62 ปี","trauma"],
+             ["Pre/post-op conference: lumbar spinal stenosis เตรียม decompression","spine"],
+             ["Pre/post-op conference: วิจารณ์ผลเคสที่ผ่าตัดไปแล้วในสัปดาห์ที่ผ่านมา","trauma"]],
     traumafilm:[["Trauma film: อ่านฟิล์มผู้ป่วยอุบัติเหตุประจำสัปดาห์","trauma"]],
     research:[["ความก้าวหน้างานวิจัย: รายงานผลการวิเคราะห์ข้อมูลเบื้องต้น","general"]]
   };
@@ -6481,6 +6483,7 @@ function covTypePageHtml(typeId) {
   const acts = covActs(typeId);
   return `<div class="card">
       <h2>${esc(t.th)}</h2>
+      ${t.desc ? `<p class="muted small" style="margin-top:-.2rem">${esc(t.desc)}</p>` : ""}
       <p class="muted small">${covFilter.ay
         ? "ปีการศึกษา " + esc(covFilter.ay) + " · คอลัมน์สุดท้ายเทียบกับเกณฑ์ของชั้นปีนั้น"
         : "เกณฑ์เป็นรายชั้นปี เทียบกับยอดสะสมตลอดหลักสูตรไม่ได้ — เลือกปีการศึกษาด้านบนเพื่อให้คอลัมน์เกณฑ์ขึ้นมา"}</p>
@@ -6817,7 +6820,8 @@ function talkEvalFormHtml(a) {
   return `<h4>แบบประเมินการนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
     <p class="small muted" style="margin:.1rem 0 .5rem">ให้คะแนน 1–5 ต่อข้อ · 3 = ผ่านตามระดับชั้นปี ·
       ข้อที่ประเมินไม่ได้ให้เว้นว่างไว้ ระบบจะไม่นำมาคิดค่าเฉลี่ย
-      · ${esc(TYPE_BY_ID[a.type]?.th || "")} มีข้อเฉพาะประเภทเพิ่มให้ท้ายตาราง</p>
+      · ${esc(TYPE_BY_ID[a.type]?.th || "")}${TYPE_BY_ID[a.type]?.desc ? " (" + esc(TYPE_BY_ID[a.type].desc) + ")" : ""}
+      มีข้อเฉพาะประเภทเพิ่มให้ท้ายตาราง</p>
     <div class="tbl-wrap"><table>
       ${groups.map(g => `<tr><th colspan="2" style="padding-top:.5rem">${esc(g)}</th></tr>
         ${items.filter(x => x.group === g).map(row).join("")}`).join("")}
