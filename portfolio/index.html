@@ -626,21 +626,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       </div>
       <p class="muted small">แดชบอร์ดเป็นไฟล์เดียวจบ เปิดในเบราว์เซอร์ได้โดยไม่ต้องมีเน็ต สั่งพิมพ์เป็น PDF ลง A4 ได้
         · เป็นตัวเลขรวม ไม่มีข้อมูลผู้ป่วยรายบุคคล · ได้ข้อมูลเท่าที่บัญชีของคุณมีสิทธิ์เห็น</p>
-      <p class="muted small">แถว = แพทย์ประจำบ้าน, คอลัมน์ = อนุสาขา, ตัวเลข = จำนวนกิจกรรมที่บันทึกไว้ · ช่องแดงคืออนุสาขาที่ยังไม่มีผลงานเลย</p>
+      <p class="muted small">เริ่มที่ภาพรวมเพื่อดูว่าอะไรขาด แล้วกดเข้าไปดูทีละประเภทงานนำเสนอเพื่อดูว่าใครขาด</p>
       <div class="row no-print" id="coverageFilters"></div>
-      <div id="coverageMatrix"></div>
+      <div class="row seg no-print" id="coverageNav"></div>
     </div>
-    <div class="card">
-      <h2>งานนำเสนอ แยกตามประเภท × อนุสาขา</h2>
-      <p class="muted small">แถว = ประเภทงานนำเสนอ (pre-op conference, topic conference ฯลฯ), คอลัมน์ = อนุสาขา
-        · ช่องยิ่งเข้มยิ่งมีมาก ช่องแดง ✕ คือประเภทนั้นยังไม่เคยทำในอนุสาขานั้นเลย
-        · ตารางนี้นับทุกประเภทเสมอ ไม่ขึ้นกับตัวกรองประเภทด้านบน แต่ยึดตามปีการศึกษาที่เลือก</p>
-      <div class="tbl-wrap" id="covTypeSub"></div>
-    </div>
-    <div class="card">
-      <h2>หัวข้อที่เคยนำเสนอ แยกตามอนุสาขา</h2>
-      <div id="topicBank"></div>
-    </div>
+    <div id="coverageBody"></div>
   </section>
 
   <!-- ============ WFME ============ -->
@@ -6063,46 +6053,81 @@ function renderResearch() {
 /* =====================================================================
    15) หน้าความครอบคลุมอนุสาขา
    ===================================================================== */
-const covFilter = { type:"", ay:"" };
+const covFilter = { page:"overview", ay:"" };
+
+/* กรองกิจกรรมตามปีการศึกษาที่เลือก และตามประเภทถ้ากำลังดูหน้าของประเภทนั้น */
+function covActs(typeId) {
+  return visibleActivities()
+    .filter(a => !covFilter.ay || a.academicYear === covFilter.ay)
+    .filter(a => !typeId || a.type === typeId);
+}
 
 function renderCoverage() {
   const ays = Array.from(new Set(store.data.activities.map(a => a.academicYear))).sort().reverse();
   $("#coverageFilters").innerHTML = `
-    <select data-cov="type"><option value="">ทุกประเภทกิจกรรม</option>${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${covFilter.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
     <select data-cov="ay"><option value="">ตลอดหลักสูตร</option>${ays.map(y => `<option value="${y}" ${covFilter.ay === y ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>`;
   $$("#coverageFilters [data-cov]").forEach(el => el.addEventListener("change", () => { covFilter[el.dataset.cov] = el.value; renderCoverage(); }));
 
-  const subs = SUBSPECIALTIES.filter(s => s.id !== "general");
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
-  const cell = (rid, sid) => store.data.activities.filter(a =>
-    a.residentId === rid && a.subspecialty === sid &&
-    (!covFilter.type || a.type === covFilter.type) && (!covFilter.ay || a.academicYear === covFilter.ay)).length;
+  /* หน้าภาพรวมหนึ่งหน้า แล้วหน้าของแต่ละประเภทงานนำเสนออีกประเภทละหน้า
+     จำนวนในวงเล็บอยู่บนปุ่มเลย จะได้เห็นตั้งแต่ยังไม่กดว่าประเภทไหนแทบไม่มีของ */
+  const pages = [{ id:"overview", th:"ภาพรวมทุกประเภท" },
+                 ...ACTIVITY_TYPES.map(t => ({ id:t.id, th:t.th, n:covActs(t.id).length }))];
+  $("#coverageNav").innerHTML = pages.map(pg =>
+    `<button data-covpage="${pg.id}" aria-current="${covFilter.page === pg.id}">${esc(pg.th)}${
+      pg.n === undefined ? "" : ` <span class="muted small">(${pg.n})</span>`}</button>`).join("");
+  $$("#coverageNav [data-covpage]").forEach(b => b.addEventListener("click", () => {
+    covFilter.page = b.dataset.covpage; renderCoverage();
+    $("#coverageBody").scrollIntoView({ block:"start" });
+  }));
 
-  $("#coverageMatrix").innerHTML = `<div class="tbl-wrap"><table class="matrix">
-    <thead><tr><th style="text-align:left">แพทย์ประจำบ้าน</th>${subs.map(s => `<th class="v">${esc(s.en)}</th>`).join("")}<th>รวม</th></tr></thead>
-    <tbody>${rs.map(r => {
-      const cells = subs.map(s => cell(r.id, s.id));
-      const total = cells.reduce((a, b) => a + b, 0);
-      return `<tr><th style="text-align:left;white-space:nowrap">${esc(r.name)}<br /><span class="muted small">ปี ${r.year}</span></th>
-        ${cells.map((n, i) => `<td class="cell ${n ? "has" : "gap"}"
-          title="${esc(r.name)} · ${esc(subs[i].en)} · ${n ? n + " กิจกรรม" : "ยังไม่มีผลงาน"}">${n || "✕"}</td>`).join("")}
-        <td class="cell has">${total}</td></tr>`;
-    }).join("")}
-    <tr><th style="text-align:left">รวมทั้งกลุ่ม</th>${subs.map(s => {
-      const n = rs.reduce((acc, r) => acc + cell(r.id, s.id), 0);
-      return `<td class="cell ${n ? "has" : "gap"}">${n}</td>`;
-    }).join("")}<td class="cell"></td></tr></tbody></table></div>`;
+  $("#coverageBody").innerHTML = covFilter.page === "overview"
+    ? covOverviewHtml() : covTypePageHtml(covFilter.page);
+}
 
-  /* ตารางไขว้ ประเภท × อนุสาขา — ใช้ฟังก์ชันเดียวกับแดชบอร์ดที่ส่งออก
-     เพื่อไม่ให้ตัวเลขบนจอกับตัวเลขในไฟล์ที่ส่งออกเพี้ยนจากกัน */
-  $("#covTypeSub").innerHTML = typeSubTableHtml(
-    visibleActivities().filter(a => !covFilter.ay || a.academicYear === covFilter.ay));
+/* ---------- หน้าภาพรวม: ขาดตรงไหนของทั้งกลุ่มงาน ---------- */
+function covOverviewHtml() {
+  const acts = covActs("");
+  return `<div class="card">
+      <h2>แพทย์ประจำบ้าน × อนุสาขา (ทุกประเภทรวมกัน)</h2>
+      <p class="muted small">ตัวเลข = จำนวนงานนำเสนอที่บันทึกไว้ · ช่องแดง ✕ คืออนุสาขาที่คนนั้นยังไม่มีผลงานเลย</p>
+      ${covMatrixHtml(acts, "", false)}
+    </div>
+    <div class="card">
+      <h2>งานนำเสนอ แยกตามประเภท × อนุสาขา</h2>
+      <p class="muted small">แถว = ประเภทงานนำเสนอ (pre-op conference, topic conference ฯลฯ), คอลัมน์ = อนุสาขา
+        · ช่องยิ่งเข้มยิ่งมีมาก ช่องแดง ✕ คือประเภทนั้นยังไม่เคยทำในอนุสาขานั้นเลย
+        · กดปุ่มประเภทด้านบนเพื่อดูว่าใครขาดประเภทนั้น</p>
+      <div class="tbl-wrap" id="covTypeSub">${typeSubTableHtml(acts)}</div>
+    </div>
+    <div class="card">
+      <h2>หัวข้อที่เคยนำเสนอ แยกตามอนุสาขา</h2>
+      <div id="topicBank">${topicBankHtml(acts)}</div>
+    </div>`;
+}
 
+/* ---------- หน้าของประเภทเดียว: ใครขาดประเภทนี้ และอนุสาขาไหนยังไม่เคยถูกหยิบมาทำ ---------- */
+function covTypePageHtml(typeId) {
+  const t = TYPE_BY_ID[typeId];
+  if (!t) return `<div class="card"><p class="empty">ไม่รู้จักประเภทนี้</p></div>`;
+  const acts = covActs(typeId);
+  return `<div class="card">
+      <h2>${esc(t.th)}</h2>
+      <p class="muted small">${covFilter.ay
+        ? "ปีการศึกษา " + esc(covFilter.ay) + " · คอลัมน์สุดท้ายเทียบกับเกณฑ์ของชั้นปีนั้น"
+        : "เกณฑ์เป็นรายชั้นปี เทียบกับยอดสะสมตลอดหลักสูตรไม่ได้ — เลือกปีการศึกษาด้านบนเพื่อให้คอลัมน์เกณฑ์ขึ้นมา"}</p>
+      ${typeStatsHtml(acts, typeId, !!covFilter.ay)}
+      ${covMatrixHtml(acts, typeId, !!covFilter.ay)}
+    </div>
+    <div class="card">
+      <h2>หัวข้อ ${esc(t.th)} ที่เคยนำเสนอ</h2>
+      <div id="topicBank">${topicBankHtml(acts)}</div>
+    </div>`;
+}
+
+function topicBankHtml(acts) {
   const bank = {};
-  store.data.activities.filter(a => !covFilter.type || a.type === covFilter.type)
-    .filter(a => !covFilter.ay || a.academicYear === covFilter.ay)
-    .forEach(a => { (bank[a.subspecialty] ||= []).push(a); });
-  $("#topicBank").innerHTML = SUBSPECIALTIES.map(s => {
+  acts.forEach(a => { (bank[a.subspecialty] ||= []).push(a); });
+  return SUBSPECIALTIES.map(s => {
     const items = (bank[s.id] || []).sort((a, b) => b.date.localeCompare(a.date));
     if (!items.length) return "";
     return `<details style="margin-bottom:.5rem"><summary><b>${esc(s.en)}</b> (${items.length} หัวข้อ)</summary>
@@ -6730,42 +6755,125 @@ function stackedMonths(rows, months) {
   return `<svg width="${W}" height="${H}" role="img" aria-label="กิจกรรมรายเดือนแยกตามประเภท">${g}</svg>`;
 }
 
+/* =====================================================================
+   ตารางความครอบคลุม — ใช้ร่วมกันระหว่างหน้าจอกับแดชบอร์ดที่ส่งออก
+   สไตล์อยู่ในค่าคงที่เดียว แล้วยัดเข้าทั้งสองที่ ตัวเลขและหน้าตาจึงเพี้ยนจากกันไม่ได้
+   (เคยเขียนสไตล์ติดไปกับทุกช่อง ไฟล์ส่งออกบวมจาก 45 KB เป็น 400 KB)
+   ===================================================================== */
+const SEQ = ["#edf4f7", "#cfe3ea", "#9cc6d5", "#5b9cb4", "#1f6f8b", "#12475b"];
+const COV_CSS = `
+.cvt{border-collapse:separate;border-spacing:2px;font-size:12px;width:auto;max-width:100%}
+.cvt th{padding:4px 6px;color:#6b7a89;font-weight:600;font-size:11px;border:0;vertical-align:bottom;background:none;text-align:center}
+.cvt th.v{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;height:152px;text-align:left}
+.cvt th.who{text-align:left;white-space:nowrap;font-size:12px;color:#3d4a57}
+.cvt th.who span{color:#6b7a89;font-weight:400}
+.cvt td{width:34px;height:26px;text-align:center;border:0;border-radius:6px;padding:0;font-variant-numeric:tabular-nums}
+.cvt td.has{background:#e6f4ec;color:#1f7a4d;font-weight:650}
+.cvt td.gap{background:#fbebeb;color:#a32d2d}
+.cvt td.tot{background:#eef1f4;color:#3d4a57;font-weight:650}
+.cvt td.need{width:52px;background:#eef1f4;color:#6b7a89}
+.cvt td.need.ok{background:#e6f4ec;color:#1f7a4d}
+.cvt td.need.short{background:#fbebeb;color:#a32d2d;font-weight:650}
+.cvtiles{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.cvtile{flex:1 1 170px;min-width:150px;border:1px solid #e2e7ec;background:#fbfcfd;border-radius:10px;padding:8px 11px}
+.cvtile.bad{border-color:#eecccc;background:#fbebeb}
+.cvtile i{display:block;font-size:11px;color:#6b7a89;font-style:normal;line-height:1.35}
+.cvtile b{display:block;font-size:20px;font-weight:700;color:#12181f;font-variant-numeric:tabular-nums}
+.cvtile.bad b{color:#a32d2d}
+.xt{border-collapse:collapse;font-size:12px;width:100%}
+.xt th{padding:4px 6px;color:#6b7a89;font-weight:600;font-size:11px;border:0;text-align:center;vertical-align:bottom}
+.xt th.lb{text-align:left;white-space:nowrap;padding:4px 8px;font-size:12px}
+.xt td{padding:5px 6px;text-align:center;font-variant-numeric:tabular-nums;border:2px solid #fff;border-radius:3px}
+.xt td.lb{text-align:left;white-space:nowrap;color:#3d4a57;border:0;padding:4px 8px}
+.xt td.rt{text-align:right;font-weight:600;border:0;padding:4px 8px;font-variant-numeric:tabular-nums}
+.xt tr.sum td{border:0;font-weight:600;background:none}
+.xt tr.sum td.z{color:#a32d2d;background:none}
+.xt td.z{background:#fbeeee;color:#a32d2d}
+${SEQ.map((c, i) => `.xt td.s${i}{background:${c};color:${i >= 4 ? "#ffffff" : "#12181f"}}`).join("\n")}
+`;
+document.head.insertAdjacentHTML("beforeend", "<style>" + COV_CSS + "</style>");
+
 /* ตารางไขว้ ประเภทงานนำเสนอ × อนุสาขา
    ตอบคำถามที่ตัวกรองรายประเภทตอบไม่ได้ในภาพเดียว: pre-op conference ของทั้งกลุ่มงาน
    กระจุกอยู่ที่ trauma หรือกระจายครบทุกอนุสาขา
    ไล่เฉดสีเดียวจากอ่อนไปเข้มเพราะเป็นการวัด "ขนาด" ไม่ใช่การแยก "ตัวตน"
    ช่องที่เป็นศูนย์ทำสีต่างหาก เพราะศูนย์คือสิ่งที่ต้องเห็น ไม่ใช่สิ่งที่ควรจางหาย */
-const SEQ = ["#edf4f7", "#cfe3ea", "#9cc6d5", "#5b9cb4", "#1f6f8b", "#12475b"];
 function typeSubTableHtml(acts) {
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
   const types = ACTIVITY_TYPES;
   const n = (t, sx) => acts.filter(a => a.type === t.id && a.subspecialty === sx.id).length;
   const grid = types.map(t => subs.map(sx => n(t, sx)));
   const max = Math.max(1, ...grid.flat());
-  const step = (v) => v === 0 ? -1 : Math.min(SEQ.length - 1, Math.ceil(v / max * (SEQ.length - 1)));
-  const cellStyle = (v) => {
-    const i = step(v);
-    if (i < 0) return "background:#fbeeee;color:#a32d2d";
-    return `background:${SEQ[i]};color:${i >= 4 ? "#ffffff" : "#12181f"}`;
-  };
+  const cls = (v) => v === 0 ? "z" : "s" + Math.min(SEQ.length - 1, Math.ceil(v / max * (SEQ.length - 1)));
   const colTot = subs.map((_, c) => grid.reduce((a, row) => a + row[c], 0));
-  return `<table style="border-collapse:collapse;font-size:12px;width:100%">
-    <thead><tr>
-      <th style="text-align:left;padding:4px 8px;color:#6b7a89;font-weight:600;white-space:nowrap">ประเภทงานนำเสนอ</th>
-      ${subs.map(sx => `<th style="padding:4px 6px;color:#6b7a89;font-weight:600;font-size:11px;text-align:center">${esc(sx.en)}</th>`).join("")}
-      <th style="padding:4px 8px;color:#6b7a89;font-weight:600;text-align:right">รวม</th></tr></thead>
+  return `<table class="xt">
+    <thead><tr><th class="lb">ประเภทงานนำเสนอ</th>
+      ${subs.map(sx => `<th>${esc(sx.en)}</th>`).join("")}
+      <th style="text-align:right">รวม</th></tr></thead>
     <tbody>${types.map((t, r) => {
       const row = grid[r], tot = row.reduce((a, b) => a + b, 0);
-      return `<tr>
-        <td style="padding:4px 8px;white-space:nowrap;color:#3d4a57">${esc(TYPE_BY_ID[t.id]?.th || t.id)}</td>
-        ${row.map((v, c) => `<td title="${esc(TYPE_BY_ID[t.id]?.th || "")} · ${esc(subs[c].en)}: ${v}"
-            style="padding:5px 6px;text-align:center;font-variant-numeric:tabular-nums;border:2px solid #fff;border-radius:3px;${cellStyle(v)}">${v || "✕"}</td>`).join("")}
-        <td style="padding:4px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${tot}</td></tr>`;
+      return `<tr><td class="lb">${esc(TYPE_BY_ID[t.id]?.th || t.id)}</td>
+        ${row.map((v, c) => `<td class="${cls(v)}" title="${esc(TYPE_BY_ID[t.id]?.th || "")} · ${esc(subs[c].en)}: ${v}">${v || "✕"}</td>`).join("")}
+        <td class="rt">${tot}</td></tr>`;
     }).join("")}
-    <tr><td style="padding:4px 8px;color:#6b7a89">รวมทุกประเภท</td>
-      ${colTot.map(v => `<td style="padding:4px 6px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:${v ? "#12181f" : "#a32d2d"}">${v || "✕"}</td>`).join("")}
-      <td style="padding:4px 8px;text-align:right;font-weight:600">${colTot.reduce((a, b) => a + b, 0)}</td></tr>
+    <tr class="sum"><td class="lb">รวมทุกประเภท</td>
+      ${colTot.map(v => `<td class="${v ? "" : "z"}">${v || "✕"}</td>`).join("")}
+      <td class="rt">${colTot.reduce((a, b) => a + b, 0)}</td></tr>
     </tbody></table>`;
+}
+
+/* ตารางแพทย์ประจำบ้าน × อนุสาขา
+   typeId ว่าง = นับรวมทุกประเภท (หน้าภาพรวม)
+   showNeed = เทียบกับเกณฑ์ของชั้นปีได้ ซึ่งทำได้ต่อเมื่อกำลังดูปีการศึกษาเดียว
+   เกณฑ์เป็นรายชั้นปี เอายอดสะสมตลอดหลักสูตรมาเทียบไม่ได้ */
+function covMatrixHtml(acts, typeId, showNeed) {
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+  const rs = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  if (!rs.length) return `<p class="empty" style="color:#6b7a89">ยังไม่มีแพทย์ประจำบ้านในระบบ</p>`;
+  const n = (rid, sid) => acts.filter(a => a.residentId === rid && a.subspecialty === sid).length;
+  return `<div class="tbl-wrap"><table class="cvt">
+    <thead><tr><th class="who">แพทย์ประจำบ้าน</th>
+      ${subs.map(sx => `<th class="v">${esc(sx.en)}</th>`).join("")}
+      <th>รวม</th>${showNeed ? `<th>เกณฑ์</th>` : ""}</tr></thead>
+    <tbody>${rs.map(r => {
+      const cells = subs.map(sx => n(r.id, sx.id));
+      const tot = cells.reduce((a, b) => a + b, 0);
+      const need = showNeed ? (store.data.requirements[r.year] || {})[typeId] : undefined;
+      return `<tr><th class="who">${esc(r.name)}<span> · ปี ${r.year}</span></th>
+        ${cells.map((v, i) => `<td class="${v ? "has" : "gap"}" title="${esc(r.name)} · ${esc(subs[i].en)}: ${v ? v + " เรื่อง" : "ยังไม่มีผลงาน"}">${v || "✕"}</td>`).join("")}
+        <td class="tot">${tot}</td>
+        ${showNeed ? `<td class="need ${need ? (tot < need ? "short" : "ok") : ""}">${need ? tot + " / " + need : "—"}</td>` : ""}</tr>`;
+    }).join("")}
+    <tr><th class="who">รวมทั้งกลุ่ม</th>
+      ${subs.map(sx => {
+        const v = rs.reduce((acc, r) => acc + n(r.id, sx.id), 0);
+        return `<td class="${v ? "has" : "gap"}">${v || "✕"}</td>`;
+      }).join("")}
+      <td class="tot">${acts.filter(a => a.subspecialty !== "general").length}</td>
+      ${showNeed ? `<td></td>` : ""}</tr></tbody></table></div>`;
+}
+
+/* ตัวเลขนำสายตาของหน้าประเภทเดียว — เขียนสิ่งที่ขาดไว้เป็นตัวหนังสือ ไม่ให้ต้องไปนับเอาจากตาราง */
+function typeStatsHtml(acts, typeId, showNeed) {
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+  const rs = visibleResidents();
+  const zeroPeople = rs.filter(r => !acts.some(a => a.residentId === r.id));
+  const zeroSubs = subs.filter(sx => !acts.some(a => a.subspecialty === sx.id));
+  const shortPeople = rs.filter(r => {
+    const need = (store.data.requirements[r.year] || {})[typeId];
+    return need > 0 && acts.filter(a => a.residentId === r.id).length < need;
+  });
+  const names = (arr) => arr.length === rs.length ? "ทั้งกลุ่ม"
+    : arr.length <= 4 ? arr.join(", ")
+    : arr.slice(0, 3).join(", ") + " และอีก " + (arr.length - 3) + " คน";
+  const tile = (label, value, detail, bad) =>
+    `<div class="cvtile${bad ? " bad" : ""}"><i>${esc(label)}</i><b>${value}</b><i>${detail}</i></div>`;
+  return `<div class="cvtiles">
+    ${tile("นำเสนอไปแล้ว", acts.length, "เรื่อง", false)}
+    ${tile("ยังไม่เคยทำเลย", zeroPeople.length, zeroPeople.length ? esc(names(zeroPeople.map(r => r.name))) : "ทุกคนทำแล้ว", zeroPeople.length > 0)}
+    ${tile("อนุสาขาที่ยังไม่ถูกหยิบมาทำ", zeroSubs.length, zeroSubs.length ? esc(zeroSubs.map(x => x.en).join(" · ")) : "ครบทุกอนุสาขา", zeroSubs.length > 0)}
+    ${showNeed ? tile("ยังไม่ถึงเกณฑ์ของชั้นปี", shortPeople.length, shortPeople.length ? esc(names(shortPeople.map(r => r.name))) : "ถึงเกณฑ์ทุกคน", shortPeople.length > 0) : ""}
+  </div>`;
 }
 
 function dashboardHtml() {
@@ -6845,6 +6953,9 @@ function dashboardHtml() {
   .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   .two{display:flex;gap:14px;flex-wrap:wrap} .two>*{flex:1;min-width:320px}
   .foot{color:${VIZ.muted};font-size:12px;margin-top:18px;border-top:1px solid ${VIZ.line};padding-top:10px}
+  .tbl-wrap{overflow-x:auto}
+  .typepage{break-before:page;page-break-before:always}
+  ${COV_CSS}
   @media print{
     @page{size:A4 landscape;margin:10mm}
     body{background:#fff} .page{max-width:none;padding:0}
@@ -6930,6 +7041,18 @@ ${epaRows.length ? `<div class="card">
     — ใช้ดูว่างานนำเสนอกระจุกอยู่ที่อนุสาขาใด และอนุสาขาใดยังไม่เคยถูกหยิบมาทำ conference</div>
   ${typeSubTableHtml(acts)}
 </div>
+
+${/* ภาคผนวก: ประเภทละหนึ่งหน้า ฉีกแจกคนที่ดูแล conference ชนิดนั้นได้เลย
+      ใช้ฟังก์ชันเดียวกับหน้าจอ ตัวเลขจึงตรงกันเสมอ */
+  ACTIVITY_TYPES.map(t => {
+    const ta = acts.filter(a => a.type === t.id);
+    return `<div class="card typepage">
+      <h2>${esc(t.th)} — ใครขาดอะไร</h2>
+      <div class="sub">ปีการศึกษา ${esc(ay)} · ${ta.length} เรื่อง · คอลัมน์สุดท้ายเทียบกับเกณฑ์ของชั้นปีนั้น</div>
+      ${typeStatsHtml(ta, t.id, true)}
+      ${covMatrixHtml(ta, t.id, true)}
+    </div>`;
+  }).join("")}
 
 <div class="card">
   <h2>ตารางตัวเลขเดียวกับกราฟข้างบน</h2>
