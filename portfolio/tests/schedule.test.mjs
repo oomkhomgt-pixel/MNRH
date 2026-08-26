@@ -404,6 +404,86 @@ export default async function run() {
 
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
+    /* ---------- หน้าประเมิน: งานนำเสนอ · ลงกองสิ้นเดือน · ท้ายเซสชัน ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "staff");
+      await page.evaluate(() => showView("assess"));
+      await page.waitForTimeout(300);
+
+      const r = await page.evaluate(async () => {
+        const month = lastClosedMonth();
+        const rots = rotationsToAssess(month);
+        /* รอบที่ไปวนนอกกลุ่มงานต้องไม่อยู่ในคิว — อาจารย์ของกลุ่มงานไม่ได้คุมเดือนนั้น */
+        const outsideInQueue = rots.filter(rotationOutside).length;
+        /* รอบที่อยู่ในกลุ่มงานต้องมีชื่ออาจารย์ผู้กำกับทุกรอบ — เคยเป็นค่าว่างทั้งหมด
+           เพราะอ่าน t.staffId ทั้งที่ตารางเก็บเป็น t.staffIds มานานแล้ว
+           (รอบที่ไปวนนอกกลุ่มงานไม่มีอาจารย์ผู้กำกับในระบบนี้ ถูกต้องแล้ว) */
+        const inHouse = (store.data.rotations || []).filter(x => !rotationOutside(x));
+        const noSupervisor = inHouse.filter(x => !x.supervisorId).length;
+        const target = rots.find(x => !rotationEvalFor(x.id)) || rots[0];
+        openRotationEval(target.id);
+        await new Promise(res => setTimeout(res, 120));
+        const opened = !!document.querySelector("#dlgBody [name=\"sc_knowledge\"]");
+        document.querySelector("#dlgBody [name=\"sc_knowledge\"]").value = "4";
+        document.querySelector("#dlgBody [name=\"sc_skill\"]").value = "3";
+        document.querySelector("#dlgBody [name=\"entrust\"]").value = "3";
+        document.querySelector("#dlgBody [name=\"comment\"]").value = "ทดสอบข้อเสนอแนะ";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
+        await new Promise(res => setTimeout(res, 200));
+        const ev = rotationEvalFor(target.id);
+        return { month, rots: rots.length, outsideInQueue, noSupervisor, opened,
+                 saved: !!ev, mean: ev ? evalMean(ev) : null, entrust: ev?.entrust ?? null,
+                 rid: target.residentId, evRid: ev?.residentId,
+                 stillPending: rotationsToAssess(month).filter(x => !rotationEvalFor(x.id)).length,
+                 csv: rotationEvalCsvRows().length };
+      });
+      t.check("มีรอบหมุนเวียนให้ประเมินลงกอง", r.rots > 0, r.month + " · " + r.rots + " รอบ");
+      t.eq("ทุกรอบหมุนเวียนในกลุ่มงานมีชื่ออาจารย์ผู้กำกับ", r.noSupervisor, 0);
+      t.eq("รอบที่ไปวนนอกกลุ่มงานไม่อยู่ในคิวประเมินลงกอง", r.outsideInQueue, 0);
+      t.check("เปิดแบบประเมินลงกองได้", r.opened);
+      t.check("บันทึกผลประเมินลงกองแล้วเก็บจริง", r.saved, "เฉลี่ย " + r.mean + " · entrust " + r.entrust);
+      t.eq("ผลประเมินผูกกับแพทย์ประจำบ้านคนที่ถูกประเมิน", r.evRid, r.rid);
+      t.check("CSV ผลประเมินลงกองมีข้อมูลจริง", r.csv > 1, r.csv - 1 + " แถว");
+
+      /* งานนำเสนอกับคาบท้ายเซสชันต้องมาอยู่ในหน้าเดียวกันนี้ด้วย */
+      const pages = await page.evaluate(async () => {
+        const out = {};
+        document.querySelector('#assessNav [data-assess="talks"]').click();
+        await new Promise(res => setTimeout(res, 200));
+        out.talkRows = document.querySelectorAll("#activityTable tbody tr").length;
+        out.hasCsv = !!document.querySelector("#btnCsvFiltered");
+        out.badge = talksToAssess().length;
+        document.querySelector('#assessNav [data-assess="session"]').click();
+        await new Promise(res => setTimeout(res, 200));
+        out.sessChips = document.querySelectorAll("#assessBody .sess").length;
+        out.noActivitiesTab = !document.querySelector('#tabs [data-view="activities"]');
+        return out;
+      });
+      t.check("หน้าประเมินมีคิวงานนำเสนอ พร้อมปุ่มดาวน์โหลด CSV เหมือนหน้ากิจกรรมเดิม",
+              pages.talkRows > 0 && pages.hasCsv, pages.talkRows + " แถว");
+      t.eq("ตัวเลขค้างบนป้ายตรงกับจำนวนแถวที่เห็นตอนเปิดหน้ามา", pages.talkRows, pages.badge);
+      t.check("หน้าประเมินมีคาบท้ายเซสชันที่ยังค้าง", pages.sessChips > 0, pages.sessChips + " คาบ");
+      t.check("แท็บกิจกรรมทั้งหมดถูกยุบเข้ามาแล้ว ไม่มีแท็บซ้ำ", pages.noActivitiesTab);
+      t.check("หน้าประเมิน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+
+      /* แพทย์ประจำบ้านต้องไม่เห็นหน้าประเมิน และประเมินลงกองแทนอาจารย์ไม่ได้ */
+      const { page: rp } = await openAs(browser, srv.url, "resident");
+      const res = await rp.evaluate(async () => {
+        const tab = document.querySelector('#tabs [data-view="assess"]');
+        const rot = (store.data.rotations || []).find(x => x.residentId === myResidentId());
+        const before = (store.data.rotationEvals || []).length;
+        openRotationEval(rot.id);
+        await new Promise(r => setTimeout(r, 120));
+        const canSave = !![...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent));
+        closeDialog();
+        return { tabHidden: !tab || tab.hidden, canSave, grew: (store.data.rotationEvals || []).length > before };
+      });
+      t.check("แพทย์ประจำบ้านไม่เห็นแท็บประเมิน", res.tabHidden);
+      t.check("แพทย์ประจำบ้านบันทึกผลประเมินลงกองไม่ได้", !res.canSave && !res.grew);
+      await rp.close();
+    }
+
   } finally {
     await browser.close();
     await srv.close();

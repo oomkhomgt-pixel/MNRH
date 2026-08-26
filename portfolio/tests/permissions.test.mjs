@@ -223,6 +223,9 @@ export default async function run() {
 
       /* ตอบรับได้เฉพาะฝ่ายที่ถูกขอ — ผู้ขอกดตอบรับให้ตัวเองไม่ได้ */
       const { page } = await openAs(browser, srv.url, "staff");
+      /* ถ้าวันนั้นอาจารย์มีคาบอื่นอยู่แล้ว แอปจะถามยืนยันก่อน — playwright ปิดกล่องให้เองโดยตอบ "ไม่"
+         ซึ่งทำให้การตอบรับไม่เกิดขึ้นและข้อทดสอบแดงโดยไม่เกี่ยวกับสิทธิ์ ตรงนี้จึงตอบ "ใช่" ให้ชัด */
+      page.on("dialog", d => d.accept());
       const decide = await page.evaluate(() => {
         const me = currentUser().staffId;
         const other = store.data.staff.find(x => x.id !== me).id;
