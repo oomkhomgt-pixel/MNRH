@@ -100,6 +100,40 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- อนุสาขาที่ถูกยุบ ต้องพาข้อมูลเก่าย้ายตามไปด้วย ----------
+       infection ถูกยุบเข้า trauma ถ้าไม่ย้าย ข้อมูลที่บันทึกไว้แล้วจะกลายเป็นอนุสาขาที่ไม่มีอยู่จริง
+       แล้วหายไปจากทุกตาราง โดยไม่มีอะไรบอก */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const d = store.data;
+        /* ปลอมข้อมูลเวอร์ชันเก่าลงไปตรง ๆ ทั้งช่องเดี่ยวและช่องที่เป็นอาเรย์ */
+        d.activities[0].subspecialty = "infection";
+        d.cases[0].subspecialty = "infection";
+        d.staff[0].subspecialties = ["infection", "trauma"];
+        d.services[0].template[0].subspecialties = ["infection"];
+        localStorage.setItem("mnrh_ortho_portfolio_v1", JSON.stringify(d));
+        const ids = { act: d.activities[0].id, cas: d.cases[0].id, st: d.staff[0].id, svc: d.services[0].id };
+        return ids;
+      });
+      await page.reload();
+      await page.waitForFunction(() => typeof store !== "undefined" && store.data?.activities?.length);
+      const after = await page.evaluate((ids) => ({
+        known: SUBSPECIALTIES.map(x => x.id),
+        act: store.data.activities.find(a => a.id === ids.act)?.subspecialty,
+        cas: store.data.cases.find(c => c.id === ids.cas)?.subspecialty,
+        st: store.data.staff.find(x => x.id === ids.st)?.subspecialties,
+        tmpl: store.data.services.find(x => x.id === ids.svc)?.template[0]?.subspecialties
+      }), r);
+      t.check("infection ไม่อยู่ในรายชื่ออนุสาขาแล้ว", !after.known.includes("infection"), after.known.join(", "));
+      t.eq("กิจกรรมเก่าที่เป็น infection ย้ายไปอยู่ trauma", after.act, "trauma");
+      t.eq("เคสผ่าตัดเก่าที่เป็น infection ย้ายไปอยู่ trauma", after.cas, "trauma");
+      t.eq("อนุสาขาของอาจารย์ย้ายตามและไม่เกิดตัวซ้ำ", after.st, ["trauma"]);
+      t.eq("คาบในตารางประจำสัปดาห์ย้ายตามด้วย", after.tmpl, ["trauma"]);
+      t.check("ย้ายข้อมูลเก่า: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- หน้าความครอบคลุม: ภาพรวม + หน้าของแต่ละประเภทงานนำเสนอ ----------
        สิ่งที่ต้องกัน: ตัวเลขในตารางไม่ตรงกับข้อมูลจริง, ช่องศูนย์จางหายไปทั้งที่ศูนย์คือสิ่งที่ต้องเห็น,
        เอายอดสะสมตลอดหลักสูตรไปเทียบกับเกณฑ์รายชั้นปี และตัวเลขบนจอเพี้ยนจากไฟล์ที่ส่งออก */

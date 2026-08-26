@@ -17,9 +17,8 @@
 2. **เดาให้ก่อน** — จากคำที่พบในสไลด์ ระบบเดา
    * **ประเภทกิจกรรม**: นำเสนอหัวข้อวิชาการ / pre-op conference / post-op conference & M&M /
      trauma film conference / journal club / ความก้าวหน้างานวิจัย
-   * **อนุสาขาออร์โธปิดิกส์** (9 อนุสาขา ใช้ชื่อภาษาอังกฤษ): Orthopaedic Trauma, Spine, Arthroplasty, Sports,
-     Hand & Microsurgery, Foot & Ankle, Paediatric Orthopaedics, Musculoskeletal Oncology,
-     Musculoskeletal Infection
+   * **อนุสาขาออร์โธปิดิกส์** (8 อนุสาขา ใช้ชื่อภาษาอังกฤษ): Trauma, Spine, Arthroplasty, Sports,
+     Hand, Foot & Ankle, Paediatric, Tumour
    * **ผู้นำเสนอ** จากชื่อผู้จัดทำที่ฝังอยู่ในไฟล์ เทียบกับรายชื่อแพทย์ประจำบ้าน
    พร้อมบอกว่ามั่นใจแค่ไหนและจับคำใดได้ ผู้บันทึกตรวจแล้วแก้ได้ทุกช่องก่อนกดยืนยัน
 3. **เก็บเป็นหลักฐาน** — บันทึกชื่อไฟล์ จำนวนสไลด์ ข้อความที่อ่านได้ และลายนิ้วมือไฟล์ (SHA-256)
@@ -586,25 +585,30 @@ mixed content ของเบราว์เซอร์** ซึ่งเป็
 
 ## ชื่ออนุสาขาเป็นภาษาอังกฤษทั้งหมด
 
-อนุสาขาที่ระบบเก็บและแสดงมี 9 อนุสาขา ใช้ชื่อภาษาอังกฤษอย่างเดียว ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน
-และไฟล์ CSV
+อนุสาขาที่ระบบเก็บและแสดงมี 8 อนุสาขา ใช้ชื่อภาษาอังกฤษอย่างเดียว ทั้งในตัวเลือก ตารางความครอบคลุม รายงาน
+และไฟล์ CSV ชื่อสั้นที่สุดเท่าที่ยังไม่กำกวม — ไม่มีคำว่า Orthopaedic หรือ Musculoskeletal ห้อยท้าย
+เพราะทั้งหน้าเป็นออร์โธปิดิกส์อยู่แล้ว และหัวคอลัมน์ในตารางความครอบคลุมต้องอ่านออกตอนตะแคง
 
 | id | ชื่อที่แสดง |
 |---|---|
-| `trauma` | Orthopaedic Trauma |
+| `trauma` | Trauma (รวมการติดเชื้อกระดูกและข้อ) |
 | `spine` | Spine |
 | `arthroplasty` | Arthroplasty |
 | `sports` | Sports |
-| `hand` | Hand & Microsurgery |
+| `hand` | Hand |
 | `foot` | Foot & Ankle |
-| `pediatric` | Paediatric Orthopaedics |
-| `oncology` | Musculoskeletal Oncology |
-| `infection` | Musculoskeletal Infection |
+| `pediatric` | Paediatric |
+| `oncology` | Tumour |
 | `general` | General / Unclassified (ไม่ถูกนับในตารางความครอบคลุม) |
 
-หัวข้อที่เคยอยู่ในหมวด Shoulder & Elbow, Metabolic Bone Disease และ Basic Science ถูกยุบเข้าหมวดที่รับช่วงต่อ
-(ไหล่ → Sports, กระดูกพรุน/fragility fracture และ fracture healing → Orthopaedic Trauma, ที่เหลือ → General)
-พร้อมคำสำคัญของหมวดเดิม ข้อมูลเก่าที่บันทึกไว้ในเบราว์เซอร์จะถูกย้ายให้อัตโนมัติเมื่อเปิดหน้าเว็บครั้งถัดไป
+`id` ไม่เปลี่ยนตามชื่อที่แสดง ข้อมูลที่บันทึกไว้แล้วจึงไม่กระทบ (`oncology` ยังเป็น `oncology` แม้จะแสดงว่า Tumour)
+
+หมวดที่เคยมีแล้วถูกยุบเข้าหมวดที่รับช่วงต่อ พร้อมคำสำคัญของหมวดเดิม:
+**Musculoskeletal Infection → Trauma** (osteomyelitis, septic arthritis, PJI, necrotizing fasciitis,
+วัณโรคกระดูก) · Shoulder & Elbow → Sports · Metabolic Bone Disease → Trauma · Basic Science → General
+ข้อมูลเก่าที่บันทึกไว้ในเบราว์เซอร์ถูกย้ายให้อัตโนมัติเมื่อเปิดหน้าเว็บครั้งถัดไป ทั้งช่องอนุสาขาเดี่ยว
+(กิจกรรม เคสผ่าตัด งานวิจัย ตารางนำเสนอ) และช่องที่เป็นอาเรย์ (อนุสาขาของอาจารย์ ของหน่วย และของคาบในตารางประจำสัปดาห์)
+รหัสที่ระบบคิวส่งมาว่า `infection` ก็ถูกรับเข้าเป็น `trauma` ด้วย — มีข้อทดสอบยืนยันทุกข้อ
 
 ส่วนคำสำคัญที่ใช้เดาอนุสาขายังมีทั้งคำไทยและคำอังกฤษ เพื่อให้จับสไลด์ที่เขียนด้วยภาษาไทยได้
 
