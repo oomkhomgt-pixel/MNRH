@@ -1257,14 +1257,13 @@ const store = {
   },
   reset() { this.data = seedData(); this.save(); },
   wipe() {
+    /* เดิมไล่พิมพ์คีย์ตั้งต้นไว้ตรงนี้ ทุกครั้งที่เพิ่มคอลเลกชันใหม่ก็ลืมมาเติม
+       ผลคือหลังล้างข้อมูล คอลเลกชันนั้นเป็น undefined จนกว่าจะรีโหลด แล้วปุ่มที่ไปแตะมันก็พัง
+       ปล่อยให้ migrate() สร้างโครงให้แทน — มันสร้างทุกคีย์ด้วย ||= อยู่แล้ว จึงรันบนก้อนว่างได้
+       และคอลเลกชันที่เพิ่มในอนาคตจะไม่หลุดซ้ำอีก */
     localStorage.removeItem(APP.key);
-    this.data = { residents:[], activities:[], research:[], staff:[], services:[], rotations:[], sessionEvals:[], schedule:[],
-                  cases:[], orQueue:{ ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
-                  sync:{ url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false },
-                  users:[], audit:[], epas:[], epaAssessments:[], epaTargets:{ 1:{}, 2:{}, 3:{}, 4:{} },
-                  backup:{ lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" }, backupLog:[],
-                  requirements: structuredClone(DEFAULT_REQUIREMENTS),
-                  programme:{ mission:"", outcomes:[], reviewed:"", documents:[] }, keywords:{}, meta:{ created:new Date().toISOString() } };
+    this.data = { meta:{ created:new Date().toISOString() } };
+    this.migrate();
     this.save();
   },
   resident(id) { return this.data.residents.find(r => r.id === id); },
@@ -5461,8 +5460,12 @@ const deviceName = () => (currentUser()?.username || "unknown") + " · " + (navi
       รายการที่เราไม่ได้แตะ จะไม่ทับของคนอื่น — ทับเฉพาะรายการที่เราแก้จริง
    --------------------------------------------------------------------- */
 const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
+/* ทุกคอลเลกชันใน SYNCED_KEYS ที่เก็บเป็นอาเรย์ของรายการที่มี id ต้องอยู่ในลิสต์นี้
+   คีย์ที่ตกหล่นจะไม่ถูกรวมรายรายการใน mergeDatasets() แต่จะถูกทับด้วยของฝั่งคลาวด์ทั้งก้อน
+   โดยไม่บันทึกเป็นรายการที่ชนกันด้วยซ้ำ — เท่ากับข้อมูลที่เครื่องนี้เพิ่งบันทึกหายเงียบ ๆ
+   (rotationEvals เคยตกหล่นมาแล้ว มีข้อทดสอบใน sync.test.mjs กันไว้) */
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
-  "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits"];
+  "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals"];
 const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
 
 const readBaseline = () => { try { return JSON.parse(localStorage.getItem(BASELINE_KEY)); } catch { return null; } };
@@ -5733,6 +5736,8 @@ function renderConflictList() {
     schedule:"ตารางนำเสนอ", sessionEvals:"ผลประเมินท้ายเซสชัน", sessionPicks:"การเข้าคาบรายวัน",
     activities:"กิจกรรม", research:"งานวิจัย",
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
+    duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไปเข้าคาบสายอื่น",
+    rotationEvals:"ผลประเมินลงกอง",
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>เวลา</th><th>ส่วนข้อมูล</th><th>รายการ</th><th>ผลที่ระบบเลือก</th></tr></thead>
