@@ -920,6 +920,30 @@ const WFME_SOURCES = [
 /* ---------------------------------------------------------------------
    4) เกณฑ์ตั้งต้นต่อชั้นปี — ค่าสาธิต แก้ไขได้ในหน้าตั้งค่า
    --------------------------------------------------------------------- */
+/* ผลประเมินงานนำเสนอของข้อมูลสาธิต — กระจายคะแนนรายด้านรอบค่ากลาง ไม่ให้เท่ากันทุกข้อ
+   ฟอร์มจริงจะได้เห็นว่าหน้าตาเวลามีข้อมูลครบเป็นอย่างไร */
+function demoTalkEval(type, mean, by, at, seed) {
+  const items = talkEvalItemsFor(type);
+  const scores = {};
+  items.forEach((it, i) => {
+    const v = Math.round(mean + [-0.6, 0.4, 0, 0.6, -0.4, 0.2][(seed + i) % 6]);
+    scores[it.id] = Math.max(1, Math.min(5, v));
+  });
+  const vals = Object.values(scores);
+  const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
+  return {
+    scores, items: items.map(x => x.id), by, at,
+    outcome: avg >= 3.5 ? "pass" : avg >= 2.5 ? "advice" : "redo",
+    score: avg,
+    strengths: ["เตรียมข้อมูลผู้ป่วยมาครบและลำดับการนำเสนอชัดเจน",
+                "อ้างอิงหลักฐานเชิงประจักษ์ได้ตรงประเด็น",
+                "ตอบคำถามได้ดีและยอมรับข้อจำกัดของข้อมูลตัวเอง"][seed % 3],
+    comment: ["ควรฝึกสรุปประเด็นให้กระชับขึ้น และคุมเวลาให้อยู่ในกรอบ",
+              "ครั้งหน้าลองเพิ่มทางเลือกการรักษาที่ไม่ได้เลือก พร้อมเหตุผลที่ไม่เลือก",
+              "สไลด์ตัวเล็กเกินไปสำหรับห้องประชุม ลดข้อความต่อสไลด์ลง"][(seed + 1) % 3]
+  };
+}
+
 const DEFAULT_REQUIREMENTS = {
   1: { topic:4, preop:10, postop:10, traumafilm:6,  journal:2, research:0, subspecialties:3, sessionEval:20, caseSurgeon:20,  caseAssist:60 },
   2: { topic:6, preop:12, postop:12, traumafilm:8,  journal:3, research:2, subspecialties:5, sessionEval:24, caseSurgeon:50,  caseAssist:80 },
@@ -1005,6 +1029,46 @@ const ENTRUST_LEVELS = [
   { v:4, th:"ทำได้เองโดยกำกับห่าง ๆ" },
   { v:5, th:"ทำได้เองและสอนผู้อื่นได้" }
 ];
+/* เกณฑ์ประเมินงานนำเสนอ — ยังไม่มีฟอร์มเดิมของกลุ่มงาน ชุดนี้เป็นร่างให้อาจารย์ตรวจก่อน
+   แบ่งเป็นสามด้าน เพราะข้อเสนอแนะที่ใช้ได้จริงต้องบอกได้ว่าอ่อนด้านไหน
+   ไม่ใช่ได้คะแนนรวมมาก้อนเดียวแล้วเดาเอง */
+const TALK_EVAL_ITEMS = [
+  { id:"accuracy", group:"เนื้อหา",   th:"ความถูกต้องและทันสมัยของเนื้อหาวิชาการ" },
+  { id:"complete", group:"เนื้อหา",   th:"ความครบถ้วนและตรงประเด็นกับหัวข้อ" },
+  { id:"evidence", group:"เนื้อหา",   th:"การอ้างอิงหลักฐานเชิงประจักษ์และคุณภาพของแหล่งอ้างอิง" },
+  { id:"apply",    group:"เนื้อหา",   th:"การประยุกต์กับผู้ป่วยและบริบทของกลุ่มงาน" },
+  { id:"organise", group:"การนำเสนอ", th:"ลำดับการนำเสนอและการคุมเวลา" },
+  { id:"slides",   group:"การนำเสนอ", th:"สไลด์และสื่อประกอบ อ่านง่าย ชัดเจน" },
+  { id:"delivery", group:"การนำเสนอ", th:"การใช้ภาษา น้ำเสียง และการสื่อสารกับผู้ฟัง" },
+  { id:"qa",       group:"การอภิปรายและวิชาชีพ", th:"การตอบคำถามและการร่วมอภิปราย" },
+  { id:"prof",     group:"การอภิปรายและวิชาชีพ", th:"ความเป็นวิชาชีพ — การเตรียมตัว ตรงเวลา รับฟังความเห็น" }
+];
+/* ข้อเพิ่มเฉพาะประเภท — conference แต่ละชนิดมีสิ่งที่ต้องดูไม่เหมือนกัน
+   ให้หนึ่งข้อต่อประเภท ฟอร์มจะได้ไม่ยาวจนไม่มีใครกรอก */
+const TALK_EVAL_EXTRA = {
+  topic:      { id:"depth",     th:"ความลึกของการทบทวนวรรณกรรมและการสังเคราะห์ข้อสรุป" },
+  preop:      { id:"plan",      th:"ความสมเหตุสมผลของแผนการผ่าตัดและการเตรียมผู้ป่วย" },
+  postop:     { id:"analysis",  th:"การวิเคราะห์ภาวะแทรกซ้อนและบทเรียนที่นำไปใช้ต่อได้" },
+  traumafilm: { id:"imaging",   th:"การอ่านและแปลผลภาพรังสี พร้อมการจำแนกชนิดกระดูกหัก" },
+  journal:    { id:"appraisal", th:"การวิจารณ์ระเบียบวิธีวิจัยและความน่าเชื่อถือของงานวิจัย" },
+  research:   { id:"progress",  th:"ความก้าวหน้าเทียบแผน และความเป็นไปได้ของงานในเวลาที่เหลือ" }
+};
+const TALK_SCALE = [
+  { v:5, th:"ดีมาก — เกินระดับที่คาดหวังของชั้นปี" },
+  { v:4, th:"ดี — ทำได้ตามที่คาดหวังอย่างมั่นใจ" },
+  { v:3, th:"พอใช้ — ผ่านตามระดับชั้นปี ยังมีจุดต้องพัฒนา" },
+  { v:2, th:"ต้องปรับปรุง — ยังไม่ถึงระดับที่คาดหวัง" },
+  { v:1, th:"ต้องปรับปรุงมาก — ต้องมีการกำกับใกล้ชิด" }
+];
+const TALK_OUTCOMES = [
+  { id:"pass",   th:"ผ่าน" },
+  { id:"advice", th:"ผ่าน โดยมีข้อแนะนำให้ปรับปรุง" },
+  { id:"redo",   th:"ต้องนำเสนอซ้ำ" }
+];
+const TALK_OUTCOME_BY_ID = Object.fromEntries(TALK_OUTCOMES.map(x => [x.id, x]));
+const talkEvalItemsFor = (type) =>
+  TALK_EVAL_ITEMS.concat(TALK_EVAL_EXTRA[type] ? [{ ...TALK_EVAL_EXTRA[type], group:"เฉพาะประเภทนี้" }] : []);
+
 const EVAL_ITEMS = [
   { id:"knowledge",    th:"ความรู้และการตัดสินใจทางคลินิก" },
   { id:"skill",        th:"ทักษะการตรวจและหัตถการ" },
@@ -1822,8 +1886,7 @@ function seedData() {
       },
       wfme: TYPE_BY_ID[type]?.wfme.slice() || [],
       assessment: score == null ? null : {
-        by: staff[i % staff.length], score,
-        comment: "เนื้อหาครบถ้วน อ้างอิงหลักฐานเชิงประจักษ์ได้ดี ควรฝึกการสรุปประเด็นให้กระชับขึ้น",
+        ...demoTalkEval(type, score, staff[i % staff.length], date, i),
         at: date
       },
       verified: score != null || ago > 20,
@@ -2239,9 +2302,8 @@ function seedData() {
                         hash:"", excerpt:"(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)",
                         detectedBy:"keyword", confidence: 0.72 },
             wfme: (TYPE_BY_ID[sl.type]?.wfme || []).slice(),
-            assessment: (w + si) % 2 === 0 ? {
-              by: staff[(w + si + 8) % staff.length], score: 4 + ((w + si) % 3) * 0.2,
-              comment: "นำเสนอตามกำหนดในตารางวิชาการ เนื้อหาครบถ้วน", at: date } : null,
+            assessment: (w + si) % 2 === 0
+              ? demoTalkEval(sl.type, 4, staff[(w + si + 8) % staff.length], date, w + si) : null,
             verified: true, verifiedBy: staff[(w + si + 4) % staff.length], note:"",
             createdAt: date + "T09:00:00"
           };
@@ -4936,7 +4998,10 @@ function renderActivityTable() {
         <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.en || a.subspecialty)}</td>
         <td>${esc(a.title)}</td>
         <td class="small">${a.source === "slides" ? "สไลด์ " + esc(a.evidence?.fileType || "") : "ด้วยมือ"}</td>
-        <td class="small">${a.assessment ? a.assessment.score + "/5" : "—"}</td>
+        <td class="small">${a.assessment
+          ? (a.assessment.score != null ? a.assessment.score + "/5" : "—") +
+            (a.assessment.outcome ? "<br /><span class='muted'>" + esc(TALK_OUTCOME_BY_ID[a.assessment.outcome]?.th || "") + "</span>" : "")
+          : "—"}</td>
         <td>${a.verified ? `<span class="tag ok">รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}</td>
         <td class="no-print"><button class="btn-sm" data-act-open="${a.id}">เปิด</button></td>
       </tr>`;
@@ -4947,14 +5012,18 @@ function renderActivityTable() {
 }
 
 function activityCsvRows(list) {
-  const head = ["วันที่","ปีการศึกษา","แพทย์ประจำบ้าน","ชั้นปี","ประเภทกิจกรรม","Subspecialty","ชื่อเรื่อง","ที่มา","ไฟล์","จำนวนสไลด์","SHA-256","ระบบเดาประเภท","ระบบเดาอนุสาขา","ผู้ใช้แก้ผลเดา","คะแนนประเมิน","ผู้ประเมิน","ข้อเสนอแนะ","รับรองโดย","หัวข้อ WFME"];
+  const cols = TALK_EVAL_ITEMS.concat(Object.values(TALK_EVAL_EXTRA).map(x => ({ ...x, group:"" })));
+  const head = ["วันที่","ปีการศึกษา","แพทย์ประจำบ้าน","ชั้นปี","ประเภทกิจกรรม","Subspecialty","ชื่อเรื่อง","ที่มา","ไฟล์","จำนวนสไลด์","SHA-256","ระบบเดาประเภท","ระบบเดาอนุสาขา","ผู้ใช้แก้ผลเดา",
+    ...cols.map(c => "ประเมิน: " + c.th), "คะแนนเฉลี่ย","ผลการประเมิน","ผู้ประเมิน","สิ่งที่ทำได้ดี","สิ่งที่ควรปรับปรุง","รับรองโดย","หัวข้อ WFME"];
   return [head].concat(list.map(a => {
     const r = store.resident(a.residentId), e = a.evidence || {};
     return [a.date, a.academicYear, r?.name || "", r?.year || "", TYPE_BY_ID[a.type]?.en || a.type,
       SUB_BY_ID[a.subspecialty]?.en || "", a.title,
       a.source === "slides" ? "slides" : "manual", e.fileName || "", e.slideCount || "", e.hash || "",
       e.autoType || "", e.autoSub || "", e.correctedByUser ? "yes" : "no",
-      a.assessment?.score ?? "", a.assessment?.by || "", a.assessment?.comment || "",
+      ...cols.map(c => a.assessment?.scores?.[c.id] ?? ""),
+      a.assessment?.score ?? "", TALK_OUTCOME_BY_ID[a.assessment?.outcome]?.th || "",
+      a.assessment?.by || "", a.assessment?.strengths || "", a.assessment?.comment || "",
       a.verified ? (a.verifiedBy || "yes") : "", (a.wfme || []).join(" ")];
   }));
 }
@@ -5005,24 +5074,14 @@ function rotationsToAssess(month) {
 /* งานนำเสนอที่ยังไม่ได้ประเมินหรือยังไม่ได้รับรอง */
 const talksToAssess = () => visibleActivities().filter(a => !a.assessment || !a.verified);
 
-/* คาบที่ผ่านไปแล้วและยังไม่มีผลประเมิน — ถ้าเป็นอาจารย์ก็เอาเฉพาะคาบที่ระบุชื่อตัวเอง */
-function sessionsToAssess() {
-  const me = myStaffId();
-  return pendingEvaluations(14)
-    .filter(ses => !me || !assessView.mineOnly || (ses.staffIds || []).includes(me))
-    .sort((a, b) => b.date.localeCompare(a.date));
-}
-
 function renderAssess() {
   if (!$("#assessNav")) return;
   if (!assessView.month) assessView.month = lastClosedMonth();
   const counts = { talks: talksToAssess().length,
-                   month: rotationsToAssess(assessView.month).filter(r => !rotationEvalFor(r.id)).length,
-                   session: sessionsToAssess().length };
+                   month: rotationsToAssess(assessView.month).filter(r => !rotationEvalFor(r.id)).length };
   const pages = [
-    { id:"talks",   th:"งานนำเสนอ",              n:counts.talks },
-    { id:"month",   th:"ลงกองสิ้นเดือน",          n:counts.month },
-    { id:"session", th:"ท้ายเซสชัน",              n:counts.session }
+    { id:"talks", th:"งานนำเสนอ",       n:counts.talks },
+    { id:"month", th:"ลงกองสิ้นเดือน",   n:counts.month }
   ];
   $("#assessCounts").innerHTML = pages.map(pg =>
     `<span class="tag ${pg.n ? "warn" : "ok"}">${esc(pg.th)} ${pg.n ? "ค้าง " + pg.n : "ครบแล้ว"}</span>`).join("");
@@ -5050,7 +5109,7 @@ function renderAssess() {
     return;
   }
 
-  if (assessView.page === "month") {
+  {
     const rots = rotationsToAssess(assessView.month);
     const months = assessMonths();
     body.innerHTML = `<div class="card">
@@ -5098,31 +5157,7 @@ function renderAssess() {
       download("rotation-evaluations.csv", toCsv(rotationEvalCsvRows()), "text/csv;charset=utf-8"));
     $$("#assessBody [data-rotev]").forEach(b => b.addEventListener("click", () => openRotationEval(b.dataset.rotev)));
     applyPermissions();
-    return;
   }
-
-  const list = sessionsToAssess();
-  body.innerHTML = `<div class="card">
-    <h2>ประเมินท้ายเซสชันที่ยังค้าง</h2>
-    <p class="muted small">คาบใน 14 วันที่ผ่านมาที่ยังไม่มีผลประเมิน · กดที่คาบเพื่อให้คะแนนและระดับ EPA ในครั้งเดียว</p>
-    <div class="row no-print" style="margin-bottom:.6rem">
-      <label class="row small" style="gap:.3rem;align-items:center">
-        <input type="checkbox" id="assessMine2" ${assessView.mineOnly ? "checked" : ""} />
-        เฉพาะคาบที่ระบุชื่อฉันเป็นผู้รับผิดชอบ</label>
-    </div>
-    ${(() => {
-      if (!list.length) return `<p class="empty">ไม่มีคาบค้างประเมินใน 14 วันที่ผ่านมา</p>`;
-      /* จัดกลุ่มตามวัน — 40 กว่าคาบเรียงติดกันเป็นกำแพง อ่านไม่ออกว่าอันไหนของวันไหน */
-      const days = [...new Set(list.map(x => x.date))].sort().reverse();
-      return days.map(d => `<h3 style="margin:.8rem 0 .3rem;font-size:.92rem">${fmtDate(d)}
-        <span class="muted small">${list.filter(x => x.date === d).length} คาบ</span></h3>
-        <div class="sessgrid">${
-          list.filter(x => x.date === d).map(ses => sessionChip(ses, true)).join("")}</div>`).join("");
-    })()}
-  </div>`;
-  $("#assessMine2").addEventListener("change", (e) => { assessView.mineOnly = e.target.checked; renderAssess(); });
-  $$("#assessBody .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
-  applyPermissions();
 }
 
 /* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ — ใช้เกณฑ์ชุดเดียวกับประเมินท้ายเซสชัน
@@ -6719,12 +6754,7 @@ function openActivity(id) {
         : `<input value="${esc(r?.name || "—")}" disabled />`}</label>
     </div>
     <hr />
-    <h4>การประเมินหลังนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
-    <div class="grid g2">
-      <label class="f"><span>ผู้ประเมิน</span><input name="assessBy" value="${esc(a.assessment?.by || (isStaff() ? currentUser()?.displayName : "") || "")}" placeholder="ชื่ออาจารย์" ${canAssess() ? "" : "disabled"} /></label>
-      <label class="f"><span>คะแนนรวม (0–5)</span><input type="number" name="assessScore" min="0" max="5" step="0.1" value="${a.assessment?.score ?? ""}" ${canAssess() ? "" : "disabled"} /></label>
-    </div>
-    <label class="f"><span>ข้อเสนอแนะ</span><textarea name="assessComment" placeholder="จุดเด่น จุดที่ควรพัฒนา และสิ่งที่ควรทำต่อ" ${canAssess() ? "" : "disabled"}>${esc(a.assessment?.comment || "")}</textarea></label>
+    ${talkEvalFormHtml(a)}
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note">${esc(a.note || "")}</textarea></label>
     ${e.fileName ? `<hr /><h4>หลักฐานจากไฟล์</h4>
       <div class="kv">
@@ -6757,6 +6787,67 @@ function openActivity(id) {
     buttons.filter(b => (!b.staffOnly || canAssess()) && (!b.ownerOnly || canEdit)));
 }
 
+/* ---- ฟอร์มประเมินงานนำเสนอ ----
+   คะแนนรายด้านอย่างเดียวไม่พอสำหรับคนที่ถูกประเมิน จึงบังคับให้มีผลสรุปหนึ่งบรรทัด
+   และแยกช่อง "ทำได้ดี" กับ "ควรปรับปรุง" ออกจากกัน — เขียนรวมช่องเดียวคนมักเขียนแต่คำชม
+   a.assessment.score ยังเป็นค่าเฉลี่ยเหมือนเดิม รายงานและกราฟที่อ่านค่านั้นอยู่จึงไม่กระทบ */
+function talkEvalFormHtml(a) {
+  const ev = a.assessment || {};
+  const items = talkEvalItemsFor(a.type);
+  const ro = canAssess() ? "" : "disabled";
+  const groups = [...new Set(items.map(x => x.group))];
+  const row = (it) => `<tr>
+    <td style="padding:.25rem .4rem">${esc(it.th)}</td>
+    <td style="padding:.25rem .4rem;width:190px">
+      <select name="tv_${it.id}" ${ro} style="width:100%">
+        <option value="">—</option>
+        ${TALK_SCALE.map(sc => `<option value="${sc.v}" ${String(ev.scores?.[it.id] ?? "") === String(sc.v) ? "selected" : ""}>${sc.v} · ${esc(sc.th.split(" — ")[0])}</option>`).join("")}
+      </select></td></tr>`;
+  return `<h4>แบบประเมินการนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
+    <p class="small muted" style="margin:.1rem 0 .5rem">ให้คะแนน 1–5 ต่อข้อ · 3 = ผ่านตามระดับชั้นปี ·
+      ข้อที่ประเมินไม่ได้ให้เว้นว่างไว้ ระบบจะไม่นำมาคิดค่าเฉลี่ย
+      · ${esc(TYPE_BY_ID[a.type]?.th || "")} มีข้อเฉพาะประเภทเพิ่มให้ท้ายตาราง</p>
+    <div class="tbl-wrap"><table>
+      ${groups.map(g => `<tr><th colspan="2" style="padding-top:.5rem">${esc(g)}</th></tr>
+        ${items.filter(x => x.group === g).map(row).join("")}`).join("")}
+    </table></div>
+    <div class="grid g2" style="margin-top:.6rem">
+      <label class="f"><span>ผลการประเมินโดยรวม</span>
+        <select name="tvOutcome" ${ro}>
+          <option value="">—</option>
+          ${TALK_OUTCOMES.map(o => `<option value="${o.id}" ${ev.outcome === o.id ? "selected" : ""}>${esc(o.th)}</option>`).join("")}
+        </select></label>
+      <label class="f"><span>ผู้ประเมิน</span>
+        <input name="assessBy" value="${esc(ev.by || (isStaff() ? currentUser()?.displayName : "") || "")}" placeholder="ชื่ออาจารย์" ${ro} /></label>
+    </div>
+    <div class="grid g2">
+      <label class="f"><span>สิ่งที่ทำได้ดี</span>
+        <textarea name="tvGood" placeholder="ระบุให้ชัดว่าดีตรงไหน จะได้ทำซ้ำได้" ${ro}>${esc(ev.strengths || "")}</textarea></label>
+      <label class="f"><span>สิ่งที่ควรปรับปรุง และควรทำอย่างไรในครั้งหน้า</span>
+        <textarea name="assessComment" placeholder="เขียนเป็นสิ่งที่ทำได้จริงในครั้งหน้า ไม่ใช่คำตัดสิน" ${ro}>${esc(ev.comment || "")}</textarea></label>
+    </div>
+    ${ev.at ? `<p class="small muted">ประเมินเมื่อ ${fmtDate(ev.at)}${ev.by ? " โดย " + esc(ev.by) : ""}</p>` : ""}`;
+}
+
+function readTalkEval(a) {
+  const items = talkEvalItemsFor(a.type);
+  const scores = {};
+  items.forEach(it => { const v = dlgVal("tv_" + it.id); if (v) scores[it.id] = +v; });
+  const by = dlgVal("assessBy");
+  const outcome = dlgVal("tvOutcome");
+  const strengths = ($('#dlgBody [name="tvGood"]')?.value || "").trim();
+  const comment = ($('#dlgBody [name="assessComment"]')?.value || "").trim();
+  const vals = Object.values(scores);
+  if (!vals.length && !by && !outcome && !strengths && !comment) return null;
+  return {
+    scores, outcome, by, strengths, comment,
+    /* ค่าเฉลี่ยของข้อที่ให้คะแนนไว้ — คิดจากเฉพาะข้อที่กรอก ไม่นับข้อที่เว้นว่างเป็นศูนย์ */
+    score: vals.length ? Math.round(vals.reduce((x, y) => x + y, 0) / vals.length * 10) / 10 : null,
+    items: items.map(x => x.id),
+    at: a.assessment?.at || todayISO(), updatedAt: todayISO()
+  };
+}
+
 function applyActivityEdits(a) {
   if (!canEditResidentData(a.residentId)) return;   /* กันการแก้ผ่านทางอื่นที่ไม่ผ่านหน้าจอ */
   a.title = dlgVal("title") || a.title;
@@ -6769,10 +6860,7 @@ function applyActivityEdits(a) {
   a.wfme = (TYPE_BY_ID[a.type]?.wfme || []).slice();
   a.note = ($('#dlgBody [name="note"]')?.value || "").trim();
   /* ผลประเมินเป็นของอาจารย์ — เจ้าของกิจกรรมแก้คะแนนตัวเองไม่ได้ */
-  if (canAssess()) {
-    const score = dlgVal("assessScore"), by = dlgVal("assessBy"), comment = ($('#dlgBody [name="assessComment"]')?.value || "").trim();
-    a.assessment = (score || by || comment) ? { score: score === "" ? null : +score, by, comment, at: todayISO() } : null;
-  }
+  if (canAssess()) a.assessment = readTalkEval(a);
 }
 
 function manualAdd() {
@@ -6967,8 +7055,11 @@ function printPortfolio(residentId) {
     </tbody></table>`).join("")}</div>` : ""}
   <div class="card">
     <h2>${projects.length ? "6" : "5"}. ข้อเสนอแนะจากอาจารย์ที่บันทึกไว้</h2>
-    ${acts.filter(a => a.assessment?.comment).map(a => `<p><b>${fmtDate(a.date)} — ${esc(a.title)}</b><br />
-      ${esc(a.assessment.comment)} <span class="small muted">(${esc(a.assessment.by || "—")}, ${a.assessment.score ?? "—"}/5)</span></p>`).join("") || "<p>ยังไม่มีข้อเสนอแนะที่บันทึกไว้</p>"}
+    ${acts.filter(a => a.assessment?.comment || a.assessment?.strengths).map(a => `<p><b>${fmtDate(a.date)} — ${esc(a.title)}</b><br />
+      ${a.assessment.strengths ? "<b>ทำได้ดี:</b> " + esc(a.assessment.strengths) + "<br />" : ""}
+      ${a.assessment.comment ? "<b>ควรปรับปรุง:</b> " + esc(a.assessment.comment) + "<br />" : ""}
+      <span class="small muted">${esc(a.assessment.by || "—")} · ${a.assessment.score ?? "—"}/5${
+        a.assessment.outcome ? " · " + esc(TALK_OUTCOME_BY_ID[a.assessment.outcome]?.th || "") : ""}</span></p>`).join("") || "<p>ยังไม่มีข้อเสนอแนะที่บันทึกไว้</p>"}
     <div class="row" style="margin-top:2.4rem;gap:3rem">
       <div>ลงชื่อ ............................................<br /><span class="small muted">แพทย์ประจำบ้าน</span></div>
       <div>ลงชื่อ ............................................<br /><span class="small muted">อาจารย์ที่ปรึกษา</span></div>

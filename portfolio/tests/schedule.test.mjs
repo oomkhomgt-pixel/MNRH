@@ -453,17 +453,53 @@ export default async function run() {
         out.talkRows = document.querySelectorAll("#activityTable tbody tr").length;
         out.hasCsv = !!document.querySelector("#btnCsvFiltered");
         out.badge = talksToAssess().length;
-        document.querySelector('#assessNav [data-assess="session"]').click();
-        await new Promise(res => setTimeout(res, 200));
-        out.sessChips = document.querySelectorAll("#assessBody .sess").length;
+        out.pages = [...document.querySelectorAll("#assessNav [data-assess]")].map(b => b.dataset.assess);
         out.noActivitiesTab = !document.querySelector('#tabs [data-view="activities"]');
         return out;
       });
       t.check("หน้าประเมินมีคิวงานนำเสนอ พร้อมปุ่มดาวน์โหลด CSV เหมือนหน้ากิจกรรมเดิม",
               pages.talkRows > 0 && pages.hasCsv, pages.talkRows + " แถว");
       t.eq("ตัวเลขค้างบนป้ายตรงกับจำนวนแถวที่เห็นตอนเปิดหน้ามา", pages.talkRows, pages.badge);
-      t.check("หน้าประเมินมีคาบท้ายเซสชันที่ยังค้าง", pages.sessChips > 0, pages.sessChips + " คาบ");
+      t.eq("หน้าประเมินมีสองหน้าย่อย — งานนำเสนอ กับ ลงกองสิ้นเดือน", pages.pages, ["talks", "month"]);
       t.check("แท็บกิจกรรมทั้งหมดถูกยุบเข้ามาแล้ว ไม่มีแท็บซ้ำ", pages.noActivitiesTab);
+
+      /* แบบประเมินการนำเสนอ — คะแนนรายด้าน ผลสรุป และค่าเฉลี่ยที่รายงานอื่นอ่านต่อ */
+      const talk = await page.evaluate(async () => {
+        const a = visibleActivities().find(x => x.type === "journal" && !x.assessment)
+               || visibleActivities().find(x => !x.assessment);
+        openActivity(a.id);
+        await new Promise(r => setTimeout(r, 150));
+        const sels = [...document.querySelectorAll('#dlgBody select[name^="tv_"]')];
+        const expected = talkEvalItemsFor(a.type).length;
+        /* ให้คะแนนแค่สองข้อ เพื่อพิสูจน์ว่าค่าเฉลี่ยคิดจากข้อที่กรอกเท่านั้น ไม่นับข้อว่างเป็นศูนย์ */
+        sels[0].value = "5"; sels[1].value = "3";
+        document.querySelector('#dlgBody [name="tvOutcome"]').value = "advice";
+        document.querySelector('#dlgBody [name="assessBy"]').value = "อ.ทดสอบ";
+        document.querySelector('#dlgBody [name="tvGood"]').value = "เตรียมตัวมาดี";
+        document.querySelector('#dlgBody [name="assessComment"]').value = "คุมเวลาให้ดีขึ้น";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        const saved = store.data.activities.find(x => x.id === a.id).assessment;
+        /* ข้อเฉพาะประเภทต้องเปลี่ยนตามชนิดของงานนำเสนอ ไม่ใช่ชุดเดียวใช้ทุกแบบ */
+        const perType = Object.fromEntries(ACTIVITY_TYPES.map(t =>
+          [t.id, talkEvalItemsFor(t.id).length]));
+        const base = TALK_EVAL_ITEMS.length;
+        const extraIds = ACTIVITY_TYPES.map(t => talkEvalItemsFor(t.id).slice(-1)[0].id);
+        const csv = activityCsvRows([store.data.activities.find(x => x.id === a.id)]);
+        return { type: a.type, sels: sels.length, expected, saved, perType,
+                 base, uniqueExtras: new Set(extraIds).size, nTypes: ACTIVITY_TYPES.length,
+                 csvHasItem: csv[0].some(h => /^ประเมิน: /.test(h)),
+                 csvOutcome: csv[1][csv[0].indexOf("ผลการประเมิน")] };
+      });
+      t.eq("ฟอร์มประเมินการนำเสนอมีข้อครบตามประเภทกิจกรรม", talk.sels, talk.expected);
+      t.check("ทุกประเภทได้ข้อเฉพาะเพิ่มมาหนึ่งข้อ",
+              Object.values(talk.perType).every(n => n === talk.base + 1), JSON.stringify(talk.perType));
+      t.eq("ข้อเฉพาะประเภทไม่ซ้ำกัน — คนละประเภทดูคนละเรื่อง", talk.uniqueExtras, talk.nTypes);
+      t.eq("ค่าเฉลี่ยคิดจากเฉพาะข้อที่ให้คะแนน ไม่นับข้อที่เว้นว่าง", talk.saved?.score, 4);
+      t.eq("เก็บผลการประเมินโดยรวมไว้ด้วย", talk.saved?.outcome, "advice");
+      t.eq("แยกช่องสิ่งที่ทำได้ดีกับสิ่งที่ควรปรับปรุง",
+           [talk.saved?.strengths, talk.saved?.comment], ["เตรียมตัวมาดี", "คุมเวลาให้ดีขึ้น"]);
+      t.check("CSV กิจกรรมมีคะแนนรายด้านและผลการประเมิน", talk.csvHasItem && !!talk.csvOutcome, talk.csvOutcome);
       t.check("หน้าประเมิน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
 
