@@ -312,11 +312,14 @@ export default async function run() {
       store.data.visits = [];
       /* ตารางมีเฉพาะจันทร์–ศุกร์ ถ้ารันวันเสาร์อาทิตย์ "วันนี้" จะไม่มีคาบเลย
          จึงเดินย้อนไปหาวันทำการที่มีคาบจริง แทนที่จะสมมติว่าวันนี้เป็นวันทำการ */
+      /* ต้องเป็นวันที่คนนั้นมีคาบซึ่ง "ระบุชื่ออาจารย์ไว้" ด้วย ไม่ใช่แค่มีคาบ —
+         วันที่คาบทั้งหมดไม่มีชื่ออาจารย์ (เช่น round ward ล้วน) จะไม่มีผู้อนุมัติให้ระบุตัวได้
+         ซึ่งเป็นพฤติกรรมที่ถูกต้อง: กรณีนั้นตกไปที่ผู้จัดหลักสูตรอนุมัติ */
       let iso = todayISO(), r = null;
-      for (let i = 0; i < 14 && !r; i++) {
+      for (let i = 0; i < 21 && !r; i++) {
         iso = addDaysISO(todayISO(), -i);
         r = store.data.residents.find(x => visitOptions(x.id, iso).length &&
-          sessionsForDate(iso).some(s => s.residentId === x.id));
+          sessionsForDate(iso).some(s => s.residentId === x.id && (s.staffIds || []).length));
       }
       if (!r) return { none: true };
       const o = visitOptions(r.id, iso)[0];

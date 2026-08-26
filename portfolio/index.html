@@ -270,6 +270,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <span class="tag bad" id="netState" hidden>ออฟไลน์</span>
       <button class="btn-sm btn-primary" id="btnInstall" hidden>ติดตั้งแอป</button>
       <span class="tag" id="storeState">—</span>
+      <button class="btn-sm" id="btnDashboard">แดชบอร์ด</button>
       <button class="btn-sm" id="btnExport" data-perm="admin">สำรองข้อมูล</button>
       <button class="btn-sm" id="btnImport" data-perm="admin">นำเข้า</button>
     </div>
@@ -619,7 +620,12 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   <!-- ============ COVERAGE ============ -->
   <section class="view" id="view-coverage">
     <div class="card">
-      <h1>ความครอบคลุมอนุสาขาออร์โธปิดิกส์</h1>
+      <div class="between">
+        <h1>ความครอบคลุมอนุสาขาออร์โธปิดิกส์</h1>
+        <button class="btn-sm no-print" id="btnDashboard2">ดาวน์โหลดแดชบอร์ด (HTML)</button>
+      </div>
+      <p class="muted small">แดชบอร์ดเป็นไฟล์เดียวจบ เปิดในเบราว์เซอร์ได้โดยไม่ต้องมีเน็ต สั่งพิมพ์เป็น PDF ลง A4 ได้
+        · เป็นตัวเลขรวม ไม่มีข้อมูลผู้ป่วยรายบุคคล · ได้ข้อมูลเท่าที่บัญชีของคุณมีสิทธิ์เห็น</p>
       <p class="muted small">แถว = แพทย์ประจำบ้าน, คอลัมน์ = อนุสาขา, ตัวเลข = จำนวนกิจกรรมที่บันทึกไว้ · ช่องแดงคืออนุสาขาที่ยังไม่มีผลงานเลย</p>
       <div class="row no-print" id="coverageFilters"></div>
       <div id="coverageMatrix"></div>
@@ -6651,6 +6657,243 @@ function printWfmeReport() {
 /* =====================================================================
    20) สำรอง / นำเข้า ข้อมูล
    ===================================================================== */
+/* =====================================================================
+   แดชบอร์ดส่งออก — ไฟล์ HTML ไฟล์เดียวจบ เปิดที่ไหนก็ได้ พิมพ์ลง A4 ได้
+   ไม่มีสคริปต์ ไม่มีไลบรารี กราฟเป็น SVG เขียนตรง ๆ จึงเปิดได้แม้ไม่มีเน็ต
+   สีชุดหมวดหมู่ผ่านการตรวจ CVD แล้ว (ΔE ต่ำสุดของคู่ที่อยู่ติดกัน 9.1)
+   ทุกกราฟมีตัวเลขกำกับและมีตารางเดียวกันอยู่ท้ายไฟล์ — สีจึงไม่ใช่ทางเดียวที่อ่านค่าได้
+   ===================================================================== */
+const VIZ = {
+  cat: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"],  /* ตามลำดับ ACTIVITY_TYPES */
+  one: "#1f6f8b",                                    /* สีเดียวสำหรับกราฟที่วัดขนาด ไม่ได้แยกตัวตน */
+  ok: "#1f7a4d", warn: "#a8630a", bad: "#a32d2d",
+  ink: "#12181f", ink2: "#3d4a57", muted: "#6b7a89", line: "#e2e7ec", surface: "#ffffff"
+};
+const vizStatus = (p) => p >= 100 ? VIZ.ok : p >= 50 ? VIZ.warn : VIZ.bad;
+
+/* แถบแนวนอนพร้อมขีดเป้าหมาย — ใช้กับ "ทำแล้วเทียบเกณฑ์" ทุกที่ */
+function barRow(label, done, need, w = 260) {
+  const p = need ? Math.min(100, Math.round(done / need * 100)) : (done ? 100 : 0);
+  const fill = Math.round(w * (p / 100));
+  const col = need ? vizStatus(need ? done / need * 100 : 0) : VIZ.one;
+  return `<tr>
+    <td class="lb">${esc(label)}</td>
+    <td class="bar"><svg width="${w}" height="14" role="img" aria-label="${esc(label)} ${done} จาก ${need || "—"}">
+      <title>${esc(label)}: ${done}${need ? " / " + need : ""}</title>
+      <rect x="0" y="3" width="${w}" height="8" rx="4" fill="#eef2f5"/>
+      ${fill > 0 ? `<rect x="0" y="3" width="${Math.max(fill, 4)}" height="8" rx="4" fill="${col}"/>` : ""}
+      ${need ? `<rect x="${w - 1}" y="0" width="2" height="14" fill="${VIZ.ink2}"/>` : ""}
+    </svg></td>
+    <td class="num">${done}${need ? `<span class="of"> / ${need}</span>` : ""}</td>
+  </tr>`;
+}
+
+/* คอลัมน์ซ้อน — กิจกรรมรายเดือน แยกตามประเภท */
+function stackedMonths(rows, months) {
+  const W = 640, H = 190, padL = 34, padB = 34, padT = 10;
+  const max = Math.max(1, ...months.map(m => rows.reduce((n, r) => n + (r.by[m] || 0), 0)));
+  const bw = Math.min(38, (W - padL - 8) / months.length - 8);
+  const step = (W - padL - 8) / months.length;
+  const y = (v) => padT + (H - padT - padB) * (1 - v / max);
+  let g = "";
+  [0, Math.ceil(max / 2), max].forEach(v => {
+    g += `<line x1="${padL}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" stroke="${VIZ.line}" stroke-width="1"/>
+          <text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${v}</text>`;
+  });
+  months.forEach((m, i) => {
+    const x = padL + i * step + (step - bw) / 2;
+    let acc = 0, total = rows.reduce((n, r) => n + (r.by[m] || 0), 0);
+    rows.forEach((r, si) => {
+      const v = r.by[m] || 0; if (!v) return;
+      const h = (H - padT - padB) * (v / max);
+      const yy = y(acc + v);
+      acc += v;
+      /* เว้น 2px ระหว่างชิ้นที่ซ้อนกัน ให้เห็นรอยต่อแม้พิมพ์ขาวดำ */
+      g += `<rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(1, h - 2)}" rx="2" fill="${VIZ.cat[si]}">
+              <title>${esc(r.name)} · ${esc(m)}: ${v}</title></rect>`;
+    });
+    g += `<text x="${x + bw / 2}" y="${H - padB + 14}" text-anchor="middle" class="ax">${esc(m.slice(5))}</text>`;
+    if (total) g += `<text x="${x + bw / 2}" y="${y(total) - 4}" text-anchor="middle" class="tot">${total}</text>`;
+  });
+  return `<svg width="${W}" height="${H}" role="img" aria-label="กิจกรรมรายเดือนแยกตามประเภท">${g}</svg>`;
+}
+
+function dashboardHtml() {
+  const ay = currentAY();
+  const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const mine = myResidentId();
+  const scope = mine ? "เฉพาะข้อมูลของ " + (store.resident(mine)?.name || "") : "ทั้งกลุ่มงาน";
+
+  /* --- ตัวเลขหัวเรื่อง --- */
+  const acts = visibleActivities().filter(a => a.academicYear === ay);
+  const seenCases = (store.data.cases || []).filter(c =>
+    (c.participants || []).some(p => canSeeResident(p.residentId)));
+  const evals = (store.data.sessionEvals || []).filter(e => canSeeResident(e.residentId));
+  const overdue = pendingEvaluations(14).filter(x => canSeeResident(x.residentId)).length;
+  const waiting = acts.filter(a => !a.verified).length;
+
+  /* --- กิจกรรมรายเดือนแยกประเภท — ใช้เดือนที่มีข้อมูลจริง ไม่ใช่ 12 ช่องเปล่า --- */
+  const monthKeys = [...new Set(acts.map(a => (a.date || "").slice(0, 7)).filter(Boolean))].sort();
+  const typeRows = ACTIVITY_TYPES.map(t => {
+    const by = {};
+    monthKeys.forEach(m => by[m] = acts.filter(a => a.type === t.id && (a.date || "").startsWith(m)).length);
+    return { name: TYPE_BY_ID[t.id]?.th || t.id, by, total: acts.filter(a => a.type === t.id).length };
+  });
+
+  /* --- เคสแยกตามอนุสาขา --- */
+  const bySub = SUBSPECIALTIES.filter(x => x.id !== "general").map(sx => ({
+    name: sx.en, n: seenCases.filter(c => c.subspecialty === sx.id).length
+  })).filter(x => x.n).sort((a, b) => b.n - a.n);
+  const subMax = Math.max(1, ...bySub.map(x => x.n));
+
+  /* --- EPA เทียบเป้าหมาย (เฉลี่ยของคนที่มองเห็น) --- */
+  const epaRows = (store.data.epas || []).map(e => {
+    const lv = list.map(r => epaLevel(r.id, e.id)).filter(v => v != null);
+    const tg = list.length ? Math.max(...list.map(r => epaTargetFor(r.year, e.id))) : 0;
+    return { code: e.code, title: e.title,
+             mean: lv.length ? Math.round(lv.reduce((a, b) => a + b, 0) / lv.length * 10) / 10 : null,
+             target: tg, n: lv.length };
+  }).filter(x => x.target > 0);
+
+  /* จัดกลุ่มตามชั้นปี แล้วเรียงคนที่ตามหลังมากที่สุดขึ้นก่อน — แดชบอร์ดควรตอบว่า "ใครต้องตาม"
+     ไม่ใช่กางตัวเลขทุกช่องให้อ่านเอง รายละเอียดรายกิจกรรมมีอยู่แล้วในไฟล์ CSV */
+  const rows = list.map(r => ({ r, p: progressFor(r, ay), gaps: gapsFor(r) }));
+  const byYear = [...new Set(rows.map(x => x.r.year))].sort((a, b) => b - a)
+    .map(yr => [yr, rows.filter(x => x.r.year === yr).sort((a, b) => a.p.overall - b.p.overall)]);
+  const withGaps = rows.filter(x => x.gaps.length)
+    .sort((a, b) => b.gaps.length - a.gaps.length || a.p.overall - b.p.overall).slice(0, 10);
+
+  const tile = (n, label, col) =>
+    `<div class="tile"><b style="color:${col || VIZ.ink}">${n}</b><span>${esc(label)}</span></div>`;
+
+  return `<!doctype html><html lang="th"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>แดชบอร์ดแฟ้มสะสมงาน ${esc(ay)} — กลุ่มงานออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6f8;color:${VIZ.ink};
+       font:14px/1.5 -apple-system,"Segoe UI","Noto Sans Thai",Sarabun,Tahoma,sans-serif}
+  .page{max-width:1100px;margin:0 auto;padding:24px}
+  header{margin-bottom:18px}
+  h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:0 0 10px}
+  .sub{color:${VIZ.muted};font-size:13px}
+  .card{background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:16px;margin-bottom:14px}
+  .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .tile{flex:1;min-width:140px;background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:12px 14px}
+  .tile b{display:block;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+  .tile span{color:${VIZ.muted};font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{padding:4px 8px;vertical-align:middle}
+  th{text-align:left;color:${VIZ.muted};font-weight:600;font-size:12px;border-bottom:1px solid ${VIZ.line}}
+  td.lb{white-space:nowrap;color:${VIZ.ink2}} td.bar{width:270px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.num .of{color:${VIZ.muted}}
+  .grp{font-weight:600;padding-top:12px}
+  .ax{fill:${VIZ.muted};font-size:10px} .tot{fill:${VIZ.ink2};font-size:10px;font-weight:600}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 2px;font-size:12px;color:${VIZ.ink2}}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .two{display:flex;gap:14px;flex-wrap:wrap} .two>*{flex:1;min-width:320px}
+  .foot{color:${VIZ.muted};font-size:12px;margin-top:18px;border-top:1px solid ${VIZ.line};padding-top:10px}
+  @media print{
+    @page{size:A4 landscape;margin:10mm}
+    body{background:#fff} .page{max-width:none;padding:0}
+    .card,.tile{break-inside:avoid;page-break-inside:avoid}
+  }
+</style></head><body><div class="page">
+<header>
+  <h1>แดชบอร์ดแฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์</h1>
+  <div class="sub">รพ.มหาราชนครราชสีมา · ปีการศึกษา ${esc(ay)} · ${esc(scope)}
+    · ออกรายงานเมื่อ ${esc(fmtDate(todayISO()))} โดย ${esc(currentUser()?.displayName || "—")}</div>
+</header>
+
+<div class="tiles">
+  ${tile(list.length, "แพทย์ประจำบ้านในรายงาน")}
+  ${tile(acts.length, "กิจกรรมในปีการศึกษานี้")}
+  ${tile(seenCases.length, "เคสใน logbook")}
+  ${tile(evals.length, "ผลประเมินท้ายเซสชัน")}
+  ${tile(overdue, "เซสชันค้างประเมิน 14 วัน", overdue ? VIZ.bad : VIZ.ok)}
+  ${tile(waiting, "กิจกรรมรออาจารย์รับรอง", waiting ? VIZ.warn : VIZ.ok)}
+</div>
+
+<div class="card">
+  <h2>ความก้าวหน้าเทียบเกณฑ์ — เรียงจากคนที่ตามหลังมากที่สุด</h2>
+  <div class="sub" style="margin-bottom:8px">แถบคือสัดส่วนที่ทำได้เทียบเกณฑ์ทั้งหมดของชั้นปีนั้น ·
+    <span style="color:${VIZ.ok}">เขียว = ครบ</span> ·
+    <span style="color:${VIZ.warn}">ส้ม = เกินครึ่ง</span> ·
+    <span style="color:${VIZ.bad}">แดง = ต่ำกว่าครึ่ง</span> · รายละเอียดรายกิจกรรมอยู่ในไฟล์ CSV</div>
+  <table><thead><tr><th>แพทย์ประจำบ้าน</th><th>ความก้าวหน้า</th><th>%</th><th>ยังขาด</th></tr></thead><tbody>
+  ${byYear.map(([yr, grp]) => `
+    <tr><td class="grp" colspan="4">ชั้นปีที่ ${yr} · ${grp.length} คน</td></tr>
+    ${grp.map(({ r, p, gaps }) => `<tr>
+      <td class="lb">${esc(r.name)}</td>
+      <td class="bar"><svg width="260" height="14" role="img" aria-label="${esc(r.name)} ${p.overall}%">
+        <title>${esc(r.name)}: ${p.overall}% ของเกณฑ์ชั้นปีที่ ${yr}</title>
+        <rect x="0" y="3" width="260" height="8" rx="4" fill="#eef2f5"/>
+        ${p.overall > 0 ? `<rect x="0" y="3" width="${Math.max(4, Math.round(260 * Math.min(100, p.overall) / 100))}" height="8" rx="4" fill="${vizStatus(p.overall)}"/>` : ""}
+        <rect x="259" y="0" width="2" height="14" fill="${VIZ.ink2}"/>
+      </svg></td>
+      <td class="num" style="color:${vizStatus(p.overall)}"><b>${p.overall}%</b></td>
+      <td class="num">${gaps.length ? gaps.length + " อย่าง" : "—"}</td></tr>`).join("")}
+  `).join("")}
+  </tbody></table>
+</div>
+
+${withGaps.length ? `<div class="card">
+  <h2>สิ่งที่ยังขาด — ${withGaps.length} คนที่ต้องตามก่อน</h2>
+  <table><thead><tr><th>แพทย์ประจำบ้าน</th><th>ยังขาด</th></tr></thead><tbody>
+  ${withGaps.map(({ r, gaps }) => `<tr>
+    <td class="lb" style="vertical-align:top">${esc(r.name)} <span class="sub">ปี ${r.year}</span></td>
+    <td>${gaps.slice(0, 3).map(g =>
+        `<div style="color:${g.level === "bad" ? VIZ.bad : VIZ.warn}">• ${esc(g.text)}</div>`).join("")}
+      ${gaps.length > 3 ? `<div class="sub">และอีก ${gaps.length - 3} รายการ</div>` : ""}</td></tr>`).join("")}
+  </tbody></table>
+</div>` : ""}
+
+<div class="two">
+  <div class="card">
+    <h2>กิจกรรมรายเดือน แยกตามประเภท</h2>
+    <div class="legend">${typeRows.map((r, i) =>
+      `<span><i style="background:${VIZ.cat[i]}"></i>${esc(r.name)} (${r.total})</span>`).join("")}</div>
+    ${monthKeys.length ? stackedMonths(typeRows, monthKeys)
+      : `<p class="sub">ยังไม่มีกิจกรรมในปีการศึกษานี้</p>`}
+  </div>
+  <div class="card">
+    <h2>เคสใน logbook แยกตามอนุสาขา</h2>
+    ${bySub.length ? `<table><tbody>${bySub.map(x => barRow(x.name, x.n, 0)).join("")}</tbody></table>`
+      : `<p class="sub">ยังไม่มีเคสใน logbook</p>`}
+  </div>
+</div>
+
+${epaRows.length ? `<div class="card">
+  <h2>EPA — ระดับเฉลี่ยเทียบเป้าหมายของชั้นปี</h2>
+  <table><thead><tr><th>หัวข้อ</th><th>ระดับเฉลี่ย</th><th>เป้าหมาย</th><th>ประเมินแล้ว</th></tr></thead>
+  <tbody>${epaRows.map(e => `<tr>
+    <td class="lb">${esc(e.code)} ${esc(e.title)}</td>
+    <td class="num" style="color:${e.mean == null ? VIZ.muted : (e.mean >= e.target ? VIZ.ok : VIZ.bad)}">${e.mean ?? "ยังไม่ประเมิน"}</td>
+    <td class="num">${e.target}</td><td class="num">${e.n} คน</td></tr>`).join("")}</tbody></table>
+</div>` : ""}
+
+<div class="card">
+  <h2>ตารางตัวเลขเดียวกับกราฟข้างบน</h2>
+  <table><thead><tr><th>ประเภทกิจกรรม</th>${monthKeys.map(m => `<th>${esc(m)}</th>`).join("")}<th>รวม</th></tr></thead>
+  <tbody>${typeRows.map(r => `<tr><td class="lb">${esc(r.name)}</td>
+    ${monthKeys.map(m => `<td class="num">${r.by[m] || ""}</td>`).join("")}
+    <td class="num"><b>${r.total}</b></td></tr>`).join("")}</tbody></table>
+</div>
+
+<p class="foot">ไฟล์นี้เป็นภาพนิ่ง ณ วันที่ออกรายงาน ไม่อัปเดตตามข้อมูลที่แก้ภายหลัง ·
+  ไม่มีข้อมูลผู้ป่วยรายบุคคลอยู่ในไฟล์นี้ — เป็นตัวเลขรวมทั้งหมด ·
+  แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</p>
+</div></body></html>`;
+}
+
+function exportDashboard() {
+  download("dashboard-" + todayISO() + ".html", dashboardHtml(), "text/html;charset=utf-8");
+  audit("ส่งออกแดชบอร์ด", "dashboard-" + todayISO() + ".html");
+  toast("ดาวน์โหลดแดชบอร์ดแล้ว — เปิดในเบราว์เซอร์หรือสั่งพิมพ์เป็น PDF ได้");
+}
+
 function exportJson() {
   /* ไฟล์นี้คือฐานข้อมูลทั้งก้อน รวมข้อมูลผู้ป่วยและรหัสผ่านของบัญชี
      จึงต้องเก็บในที่ที่ปลอดภัยเท่ากับเวชระเบียน ไม่ใช่ไฟล์ที่ส่งต่อกันได้ */
@@ -7119,6 +7362,7 @@ function init() {
   $("#btnWfmeCsv").addEventListener("click", () => download("wfme-evidence-map.csv", toCsv(wfmeCsvRows()), "text/csv;charset=utf-8"));
   $("#btnCsvAll").addEventListener("click", () => download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8"));
   [$("#btnExport"), $("#btnExport2")].forEach(b => b.addEventListener("click", exportJson));
+  [$("#btnDashboard"), $("#btnDashboard2")].forEach(b => b?.addEventListener("click", exportDashboard));
   [$("#btnImport"), $("#btnImport2")].forEach(b => b.addEventListener("click", () => $("#importPick").click()));
   $("#importPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; });
   $("#btnSeed").addEventListener("click", () => {

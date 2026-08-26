@@ -345,6 +345,36 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- แดชบอร์ดที่ส่งออก ต้องเคารพสิทธิ์เหมือนหน้าจอ ---------- */
+    {
+      const { page } = await openAs(browser, srv.url, "resident");
+      const r = await page.evaluate(() => {
+        const html = dashboardHtml();
+        const me = store.resident(myResidentId());
+        const others = store.data.residents.filter(x => x.id !== myResidentId());
+        return { len: html.length, mine: html.includes(me.name),
+                 leaked: others.filter(o => html.includes(o.name)).map(o => o.name),
+                 external: /(src|href)\s*=\s*["']https?:/i.test(html),
+                 script: /<script/i.test(html) };
+      });
+      t.check("แดชบอร์ดของแพทย์ประจำบ้านมีชื่อตัวเอง", r.mine, r.len + " ตัวอักษร");
+      t.check("แดชบอร์ดไม่หลุดชื่อแพทย์ประจำบ้านคนอื่น",
+              r.leaked.length === 0, r.leaked.join(", ") || "ไม่หลุด");
+      t.check("แดชบอร์ดไม่อ้าง asset จากภายนอก เปิดออฟไลน์ได้", !r.external);
+      t.check("แดชบอร์ดไม่มีสคริปต์ — เป็นภาพนิ่งล้วน", !r.script);
+      await page.close();
+
+      const { page: ap } = await openAs(browser, srv.url, "admin");
+      const a = await ap.evaluate(() => {
+        const html = dashboardHtml();
+        return { all: store.data.residents.every(x => html.includes(x.name)),
+                 hasHn: /MOCK-\d/.test(html) };
+      });
+      t.check("แดชบอร์ดของผู้จัดหลักสูตรมีครบทุกคน", a.all);
+      t.check("แดชบอร์ดไม่มี HN หรือข้อมูลผู้ป่วยรายบุคคล", !a.hasHn);
+      await ap.close();
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);
