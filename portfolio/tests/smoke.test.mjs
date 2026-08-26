@@ -99,6 +99,80 @@ export default async function run() {
 
       await page.close();
     }
+
+    /* ---------- ตารางไขว้ ประเภทงานนำเสนอ × อนุสาขา ----------
+       สิ่งที่ต้องกัน: ตัวเลขในตารางไม่ตรงกับข้อมูลจริง, ตารางเปลี่ยนตามตัวกรองประเภท
+       (ซึ่งจะทำให้อ่านไขว้ไม่ได้), ช่องศูนย์จางหายไปทั้งที่ศูนย์คือสิ่งที่ต้องเห็น
+       และตัวเลขบนจอเพี้ยนจากตัวเลขในแดชบอร์ดที่ส่งออก */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      await page.evaluate(() => showView("coverage"));
+      await page.waitForTimeout(300);
+
+      const r = await page.evaluate(() => {
+        const read = () => [...document.querySelectorAll("#covTypeSub tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim()));
+        const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+        const grid = read();
+        /* นับใหม่จากข้อมูลดิบ ไม่แตะฟังก์ชันที่วาดตาราง */
+        const want = ACTIVITY_TYPES.map(t => subs.map(sx =>
+          store.data.activities.filter(a => a.type === t.id && a.subspecialty === sx.id).length));
+        /* ช่องแรกของแถวคือชื่อประเภท ช่องสุดท้ายคือผลรวม — ตัดทั้งสองข้างออกก่อนเทียบ */
+        const got = grid.slice(0, ACTIVITY_TYPES.length)
+          .map(row => row.slice(1, subs.length + 1).map(v => v === "✕" ? 0 : Number(v)));
+        const bg = (pick) => {
+          const td = [...document.querySelectorAll("#covTypeSub tbody td")].find(pick);
+          return td ? getComputedStyle(td).backgroundColor : "";
+        };
+        /* อ่านสีให้เสร็จก่อน เพราะการเปลี่ยนตัวกรองจะวาดตารางใหม่ทั้งก้อน */
+        const zeroBg = bg(td => td.textContent.trim() === "✕");
+        const fillBg = bg(td => /^[1-9]/.test(td.textContent.trim()));
+        /* เปลี่ยนตัวกรองประเภทแล้วตารางไขว้ต้องไม่ขยับ */
+        const sel = document.querySelector('#coverageFilters [data-cov="type"]');
+        sel.value = ACTIVITY_TYPES[0].id;
+        sel.dispatchEvent(new Event("change"));
+        return {
+          rows: grid.length, types: ACTIVITY_TYPES.length, cols: subs.length,
+          before: JSON.stringify(grid),
+          same: JSON.stringify(got) === JSON.stringify(want),
+          got: JSON.stringify(got), want: JSON.stringify(want),
+          sum: got.flat().reduce((a, b) => a + b, 0), zeroBg, fillBg
+        };
+      });
+      await page.waitForTimeout(250);
+      const after = await page.evaluate(() =>
+        [...document.querySelectorAll("#covTypeSub tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim())));
+
+      t.eq("ตารางไขว้มีครบทุกประเภทงานนำเสนอ บวกแถวรวม",
+           r.rows, r.types + 1);
+      t.check("ตัวเลขในตารางไขว้ตรงกับที่นับจากข้อมูลจริง", r.same,
+              r.same ? r.sum + " กิจกรรม · " + r.cols + " อนุสาขา" : "ได้ " + r.got + " ควรเป็น " + r.want);
+      t.check("ช่องศูนย์ใช้สีต่างหาก ไม่ใช่แค่จางลง",
+              !!r.zeroBg && r.zeroBg !== r.fillBg, r.zeroBg + " เทียบกับ " + r.fillBg);
+      t.eq("เปลี่ยนตัวกรองประเภทแล้วตารางไขว้ยังนับทุกประเภทเหมือนเดิม",
+           JSON.stringify(after), r.before);
+
+      /* ตัวเลขบนจอกับตัวเลขในไฟล์ที่ส่งออกต้องมาจากฟังก์ชันเดียวกัน */
+      const drift = await page.evaluate(() => {
+        const ay = currentAY();
+        const acts = visibleActivities().filter(a => a.academicYear === ay);
+        const html = dashboardHtml();
+        const box = document.createElement("div"); box.innerHTML = html;
+        const card = [...box.querySelectorAll(".card")]
+          .find(c => c.querySelector("h2")?.textContent.includes("× อนุสาขา"));
+        const inFile = card ? [...card.querySelectorAll("tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim())).join("|") : "";
+        const tmp = document.createElement("div"); tmp.innerHTML = typeSubTableHtml(acts);
+        const direct = [...tmp.querySelectorAll("tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim())).join("|");
+        return { hasCard: !!card, match: inFile === direct && !!inFile };
+      });
+      t.check("แดชบอร์ดที่ส่งออกมีตารางไขว้อยู่ด้วย", drift.hasCard);
+      t.check("ตัวเลขในไฟล์ที่ส่งออกมาจากฟังก์ชันเดียวกับบนจอ ไม่มีทางเพี้ยนกัน", drift.match);
+      t.check("หน้าความครอบคลุม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();

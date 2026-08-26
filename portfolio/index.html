@@ -631,6 +631,13 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="coverageMatrix"></div>
     </div>
     <div class="card">
+      <h2>งานนำเสนอ แยกตามประเภท × อนุสาขา</h2>
+      <p class="muted small">แถว = ประเภทงานนำเสนอ (pre-op conference, topic conference ฯลฯ), คอลัมน์ = อนุสาขา
+        · ช่องยิ่งเข้มยิ่งมีมาก ช่องแดง ✕ คือประเภทนั้นยังไม่เคยทำในอนุสาขานั้นเลย
+        · ตารางนี้นับทุกประเภทเสมอ ไม่ขึ้นกับตัวกรองประเภทด้านบน แต่ยึดตามปีการศึกษาที่เลือก</p>
+      <div class="tbl-wrap" id="covTypeSub"></div>
+    </div>
+    <div class="card">
       <h2>หัวข้อที่เคยนำเสนอ แยกตามอนุสาขา</h2>
       <div id="topicBank"></div>
     </div>
@@ -6086,6 +6093,11 @@ function renderCoverage() {
       return `<td class="cell ${n ? "has" : "gap"}">${n}</td>`;
     }).join("")}<td class="cell"></td></tr></tbody></table></div>`;
 
+  /* ตารางไขว้ ประเภท × อนุสาขา — ใช้ฟังก์ชันเดียวกับแดชบอร์ดที่ส่งออก
+     เพื่อไม่ให้ตัวเลขบนจอกับตัวเลขในไฟล์ที่ส่งออกเพี้ยนจากกัน */
+  $("#covTypeSub").innerHTML = typeSubTableHtml(
+    visibleActivities().filter(a => !covFilter.ay || a.academicYear === covFilter.ay));
+
   const bank = {};
   store.data.activities.filter(a => !covFilter.type || a.type === covFilter.type)
     .filter(a => !covFilter.ay || a.academicYear === covFilter.ay)
@@ -6718,6 +6730,44 @@ function stackedMonths(rows, months) {
   return `<svg width="${W}" height="${H}" role="img" aria-label="กิจกรรมรายเดือนแยกตามประเภท">${g}</svg>`;
 }
 
+/* ตารางไขว้ ประเภทงานนำเสนอ × อนุสาขา
+   ตอบคำถามที่ตัวกรองรายประเภทตอบไม่ได้ในภาพเดียว: pre-op conference ของทั้งกลุ่มงาน
+   กระจุกอยู่ที่ trauma หรือกระจายครบทุกอนุสาขา
+   ไล่เฉดสีเดียวจากอ่อนไปเข้มเพราะเป็นการวัด "ขนาด" ไม่ใช่การแยก "ตัวตน"
+   ช่องที่เป็นศูนย์ทำสีต่างหาก เพราะศูนย์คือสิ่งที่ต้องเห็น ไม่ใช่สิ่งที่ควรจางหาย */
+const SEQ = ["#edf4f7", "#cfe3ea", "#9cc6d5", "#5b9cb4", "#1f6f8b", "#12475b"];
+function typeSubTableHtml(acts) {
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+  const types = ACTIVITY_TYPES;
+  const n = (t, sx) => acts.filter(a => a.type === t.id && a.subspecialty === sx.id).length;
+  const grid = types.map(t => subs.map(sx => n(t, sx)));
+  const max = Math.max(1, ...grid.flat());
+  const step = (v) => v === 0 ? -1 : Math.min(SEQ.length - 1, Math.ceil(v / max * (SEQ.length - 1)));
+  const cellStyle = (v) => {
+    const i = step(v);
+    if (i < 0) return "background:#fbeeee;color:#a32d2d";
+    return `background:${SEQ[i]};color:${i >= 4 ? "#ffffff" : "#12181f"}`;
+  };
+  const colTot = subs.map((_, c) => grid.reduce((a, row) => a + row[c], 0));
+  return `<table style="border-collapse:collapse;font-size:12px;width:100%">
+    <thead><tr>
+      <th style="text-align:left;padding:4px 8px;color:#6b7a89;font-weight:600;white-space:nowrap">ประเภทงานนำเสนอ</th>
+      ${subs.map(sx => `<th style="padding:4px 6px;color:#6b7a89;font-weight:600;font-size:11px;text-align:center">${esc(sx.en)}</th>`).join("")}
+      <th style="padding:4px 8px;color:#6b7a89;font-weight:600;text-align:right">รวม</th></tr></thead>
+    <tbody>${types.map((t, r) => {
+      const row = grid[r], tot = row.reduce((a, b) => a + b, 0);
+      return `<tr>
+        <td style="padding:4px 8px;white-space:nowrap;color:#3d4a57">${esc(TYPE_BY_ID[t.id]?.th || t.id)}</td>
+        ${row.map((v, c) => `<td title="${esc(TYPE_BY_ID[t.id]?.th || "")} · ${esc(subs[c].en)}: ${v}"
+            style="padding:5px 6px;text-align:center;font-variant-numeric:tabular-nums;border:2px solid #fff;border-radius:3px;${cellStyle(v)}">${v || "✕"}</td>`).join("")}
+        <td style="padding:4px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${tot}</td></tr>`;
+    }).join("")}
+    <tr><td style="padding:4px 8px;color:#6b7a89">รวมทุกประเภท</td>
+      ${colTot.map(v => `<td style="padding:4px 6px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:${v ? "#12181f" : "#a32d2d"}">${v || "✕"}</td>`).join("")}
+      <td style="padding:4px 8px;text-align:right;font-weight:600">${colTot.reduce((a, b) => a + b, 0)}</td></tr>
+    </tbody></table>`;
+}
+
 function dashboardHtml() {
   const ay = currentAY();
   const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
@@ -6873,6 +6923,13 @@ ${epaRows.length ? `<div class="card">
     <td class="num" style="color:${e.mean == null ? VIZ.muted : (e.mean >= e.target ? VIZ.ok : VIZ.bad)}">${e.mean ?? "ยังไม่ประเมิน"}</td>
     <td class="num">${e.target}</td><td class="num">${e.n} คน</td></tr>`).join("")}</tbody></table>
 </div>` : ""}
+
+<div class="card">
+  <h2>งานนำเสนอ แยกตามประเภท × อนุสาขา</h2>
+  <div class="sub" style="margin-bottom:8px">ช่องยิ่งเข้มยิ่งมีมาก · <span style="color:${VIZ.bad}">ช่องแดง ✕ คือยังไม่มีเลย</span>
+    — ใช้ดูว่างานนำเสนอกระจุกอยู่ที่อนุสาขาใด และอนุสาขาใดยังไม่เคยถูกหยิบมาทำ conference</div>
+  ${typeSubTableHtml(acts)}
+</div>
 
 <div class="card">
   <h2>ตารางตัวเลขเดียวกับกราฟข้างบน</h2>
