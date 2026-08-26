@@ -222,6 +222,18 @@ export default async function run() {
       t.check("ผู้จัดหลักสูตรแลกวันแทนใครก็ได้", adm.other && adm.openedOther);
 
       /* ตอบรับได้เฉพาะฝ่ายที่ถูกขอ — ผู้ขอกดตอบรับให้ตัวเองไม่ได้ */
+      {
+        /* อาจารย์กรอกแบบประเมินลงกองได้ แต่แก้ตัวแบบประเมินไม่ได้ */
+        const { page: sp } = await openAs(browser, srv.url, "staff");
+        const seen = await sp.evaluate(() => {
+          const card = document.querySelector("#rotationFormEditor")?.closest(".card");
+          return { hidden: card?.hidden, canManage: canManage(), canAssess: canAssess() };
+        });
+        t.check("อาจารย์แก้แบบประเมินลงกองไม่ได้ แต่ยังประเมินได้",
+                seen.hidden === true && !seen.canManage && seen.canAssess, JSON.stringify(seen));
+        await sp.close();
+      }
+
       const { page } = await openAs(browser, srv.url, "staff");
       /* ถ้าวันนั้นอาจารย์มีคาบอื่นอยู่แล้ว แอปจะถามยืนยันก่อน — playwright ปิดกล่องให้เองโดยตอบ "ไม่"
          ซึ่งทำให้การตอบรับไม่เกิดขึ้นและข้อทดสอบแดงโดยไม่เกี่ยวกับสิทธิ์ ตรงนี้จึงตอบ "ใช่" ให้ชัด */
@@ -373,6 +385,14 @@ export default async function run() {
         return { all: store.data.residents.every(x => html.includes(x.name)),
                  hasHn: /MOCK-\d/.test(html) };
       });
+      /* ตัวแก้แบบประเมินลงกองเป็นของผู้จัดหลักสูตร อาจารย์กรอกได้แต่แก้ฟอร์มไม่ได้ */
+      const rf = await ap.evaluate(() => {
+        const card = document.querySelector("#rotationFormEditor")?.closest(".card");
+        return { perm: card?.dataset.perm, hidden: card?.hidden };
+      });
+      t.eq("การ์ดแก้แบบประเมินลงกองจำกัดไว้ที่ผู้จัดหลักสูตร", rf.perm, "admin");
+      t.check("ผู้จัดหลักสูตรเห็นการ์ดนี้", rf.hidden === false);
+
       t.check("แดชบอร์ดของผู้จัดหลักสูตรมีครบทุกคน", a.all);
       t.check("แดชบอร์ดไม่มี HN หรือข้อมูลผู้ป่วยรายบุคคล", !a.hasHn);
       await ap.close();

@@ -445,6 +445,93 @@ export default async function run() {
       t.eq("ผลประเมินผูกกับแพทย์ประจำบ้านคนที่ถูกประเมิน", r.evRid, r.rid);
       t.check("CSV ผลประเมินลงกองมีข้อมูลจริง", r.csv > 1, r.csv - 1 + " แถว");
 
+      /* ---------- แบบประเมินลงกองเป็นข้อมูลที่ผู้จัดหลักสูตรแก้ได้ ---------- */
+      const form = await page.evaluate(async () => {
+        const rot = rotationsToAssess(lastClosedMonth())[0];
+        const out = {};
+        /* ค่าตั้งต้นต้องใช้ id เดิมสามตัว ผลประเมินที่บันทึกไว้แล้วจึงอ่านได้ */
+        openRotationEval(rot.id);
+        await new Promise(r => setTimeout(r, 120));
+        out.legacyField = !!document.querySelector('#dlgBody [name="sc_knowledge"]');
+        closeDialog();
+
+        /* เพิ่มข้อความยาวเข้าไปในฟอร์ม แล้วต้องมีช่องกรอกโผล่ */
+        store.data.rotationForm.items.push({ id:"plan", kind:"paragraph", th:"แผนการพัฒนารอบหน้า" });
+        store.save();
+        openRotationEval(rot.id);
+        await new Promise(r => setTimeout(r, 120));
+        out.newField = !!document.querySelector('#dlgBody [name="an_plan"]');
+        document.querySelector('#dlgBody [name="an_plan"]').value = "ฝึกอ่านฟิล์มเพิ่ม";
+        document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        let ev = rotationEvalFor(rot.id);
+        out.answer = ev.answers?.plan;
+        out.notScored = ev.scores?.plan === undefined;
+        out.scaleMax = ev.scaleMax;
+
+        /* ลบข้อนั้นออกจากฟอร์ม — คำตอบเดิมต้องไม่หาย */
+        store.data.rotationForm.items = store.data.rotationForm.items.filter(x => x.id !== "plan");
+        store.save();
+        openRotationEval(rot.id);
+        await new Promise(r => setTimeout(r, 120));
+        out.orphanShown = /แผนการพัฒนา|plan/.test(document.querySelector("#dlgBody .notice.warn")?.textContent || "");
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        ev = rotationEvalFor(rot.id);
+        out.keptAfterResave = ev.answers?.plan;
+        out.inCsv = rotationEvalCsvRows().some(row => row.some(c => String(c).includes("plan=")));
+        return out;
+      });
+      t.check("ค่าตั้งต้นของฟอร์มยังใช้รหัสข้อเดิม ผลประเมินที่บันทึกไว้แล้วจึงอ่านได้", form.legacyField);
+      t.check("เพิ่มข้อในฟอร์มแล้วมีช่องกรอกโผล่ในใบประเมิน", form.newField);
+      t.eq("คำตอบที่เป็นข้อความเก็บแยกจากคะแนน", [form.answer, form.notScored], ["ฝึกอ่านฟิล์มเพิ่ม", true]);
+      t.eq("ประทับสเกลไว้ในผลประเมิน เปลี่ยนสเกลปีหน้าแล้วผลเก่าไม่ถูกอ่านผิด", form.scaleMax, 5);
+      t.check("ลบข้อออกจากฟอร์มแล้ว คำตอบเดิมยังโชว์เป็นบล็อกเตือน", form.orphanShown);
+      t.eq("บันทึกซ้ำแล้วคำตอบของข้อที่ถูกลบยังอยู่ ไม่ถูกกลืนหาย", form.keptAfterResave, "ฝึกอ่านฟิล์มเพิ่ม");
+      t.check("และยังส่งออกไปกับ CSV", form.inCsv);
+
+      /* ---------- ฟอร์มที่ไม่มีข้อให้คะแนนเลย ---------- */
+      const noScore = await page.evaluate(async () => {
+        store.data.rotationForm.items = [{ id:"c", kind:"paragraph", role:"comment", th:"ข้อเสนอแนะ" }];
+        store.data.rotationEvals = store.data.rotationEvals.map(ev => ({ ...ev, scores:{}, entrust:null, comment:"ดีขึ้นมาก" }));
+        /* บล็อกก่อนหน้าพาไปหน้างานนำเสนอไว้ ต้องกลับมาหน้าลงกองก่อนถึงจะอ่านตารางถูกใบ */
+        assessView.page = "month"; assessView.mineOnly = false;
+        store.save(); renderAssess();
+        await new Promise(r => setTimeout(r, 200));
+        const cells = [...document.querySelectorAll("#assessBody tbody td")].map(td => td.textContent.trim());
+        return { label: cells.find(c => /ประเมินแล้ว|เฉลี่ย/.test(c)) || "", any5: cells.some(c => c.includes("—/5")) };
+      });
+      t.check("ฟอร์มที่ไม่มีข้อให้คะแนน ตารางขึ้นว่าประเมินแล้ว ไม่ใช่ —/5",
+              /ประเมินแล้ว/.test(noScore.label) && !noScore.any5, noScore.label);
+
+      /* ---------- นำเข้าฟอร์มจากไฟล์ CSV ---------- */
+      page.on("dialog", d => d.accept());
+      const imp = await page.evaluate(async () => {
+        const before = store.data.rotationEvals.length;
+        const csv = ["order,id,kind,question,options,minLabel,maxLabel,required,scored",
+          "1,,section,ด้านการดูแลผู้ป่วย,,,,,",
+          "2,,Linear scale,ซักประวัติได้ครบถ้วน,,ต้องปรับปรุงมาก,ดีเยี่ยม,1,",
+          "3,,Multiple choice,ระดับการดูแลที่มอบหมายได้,1=ต้องกำกับ|2=ทำเองบางส่วน|3=ทำเองได้,,,,1",
+          "4,,paragraph,ข้อเสนอแนะ,,,,,"].join("\n");
+        importRotationFormFile(new File([csv], "form.csv", { type:"text/csv" }));
+        await new Promise(r => setTimeout(r, 400));
+        const f = rotationForm();
+        const back = rotationFormCsvRows();
+        return { kinds: f.items.map(x => x.kind), maxLabel: f.scale.maxLabel,
+                 opts: f.items.find(x => x.kind === "choice")?.options?.length,
+                 commentRole: f.items.filter(x => x.role === "comment").length,
+                 evalsUnchanged: store.data.rotationEvals.length === before,
+                 headerRoundTrip: back[0].join(",") };
+      });
+      t.eq("นำเข้า CSV ได้ครบทุกชนิดข้อ", imp.kinds, ["section", "scale", "choice", "paragraph"]);
+      t.eq("ป้ายปลายสเกลจากไฟล์ถูกนำมาใช้", imp.maxLabel, "ดีเยี่ยม");
+      t.eq("ตัวเลือกของข้อแบบเลือกหนึ่งข้อถูกแยกออกมาครบ", imp.opts, 3);
+      t.eq("ข้อความยาวข้อสุดท้ายถูกใช้เป็นช่องข้อเสนอแนะให้เอง", imp.commentRole, 1);
+      t.check("นำเข้าฟอร์มใหม่ไม่ลบผลประเมินที่บันทึกไว้", imp.evalsUnchanged);
+      t.eq("ส่งออก CSV ใช้คอลัมน์ชุดเดียวกับตอนนำเข้า",
+           imp.headerRoundTrip, "order,id,kind,question,options,minLabel,maxLabel,required,scored");
+
       /* งานนำเสนอกับคาบท้ายเซสชันต้องมาอยู่ในหน้าเดียวกันนี้ด้วย */
       const pages = await page.evaluate(async () => {
         const out = {};

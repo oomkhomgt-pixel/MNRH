@@ -676,6 +676,23 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <input type="file" id="epaPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="epaEditor"></div>
     </div>
+    <div class="card" data-perm="admin">
+      <div class="between"><h2>แบบประเมินลงกองสิ้นเดือน</h2>
+        <div class="row no-print">
+          <button class="btn-sm" id="btnRformAdd">+ เพิ่มข้อ</button>
+          <button class="btn-sm" id="btnRformImport">นำเข้าไฟล์</button>
+          <button class="btn-sm" id="btnRformExport">ส่งออก CSV</button>
+          <button class="btn-sm" id="btnRformReset">คืนค่าตั้งต้น</button>
+        </div></div>
+      <p class="muted small">ข้อที่ใส่มาให้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ไม่ใช่แบบประเมินทางการของกลุ่มงาน
+        — พิมพ์ฟอร์มจริงลงที่นี่ได้เลย หรือนำเข้าเป็นไฟล์ CSV
+        (คอลัมน์ <span class="mono">order, id, kind, question, options, minLabel, maxLabel, required, scored</span>)
+        หรือ JSON</p>
+      <p class="muted small">แก้ฟอร์มแล้วมีผลกับใบประเมินที่กรอกครั้งต่อไป
+        <b>ผลประเมินที่บันทึกไว้แล้วไม่ถูกลบ</b> คำตอบของข้อที่ถูกลบจะยังอยู่ในผลเดิมและยังส่งออกใน CSV</p>
+      <input type="file" id="rformPick" accept=".csv,.json,text/csv,application/json" hidden />
+      <div id="rotationFormEditor"></div>
+    </div>
     <div class="card">
       <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
         <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
@@ -1077,6 +1094,38 @@ const EVAL_ITEMS = [
   { id:"skill",        th:"ทักษะการตรวจและหัตถการ" },
   { id:"professional", th:"ความเป็นมืออาชีพ การสื่อสาร และการทำงานเป็นทีม" }
 ];
+
+/* แบบประเมินลงกองสิ้นเดือน — เดิมเป็นเกณฑ์ตายตัวสามข้อในโค้ด (EVAL_ITEMS ข้างบน ซึ่งใช้ร่วมกับ
+   แบบประเมินท้ายเซสชัน แก้ฝั่งหนึ่งแล้วอีกฝั่งเปลี่ยนตามโดยไม่ตั้งใจ)
+   ตอนนี้เป็น "ข้อมูล" ที่ผู้จัดหลักสูตรแก้เองได้ที่หน้าตั้งค่า เพราะฟอร์มจริงเป็นของกลุ่มงาน
+   ไม่ใช่ของโปรแกรม และถูกทบทวนทุกปี ชุดนี้เป็นค่าตั้งต้นเท่านั้น
+   ใช้ id เดิมสามตัว ผลประเมินที่บันทึกไว้แล้วจึงอ่านได้เหมือนเดิมโดยไม่ต้องย้ายข้อมูล */
+const ROTATION_ITEM_KINDS = [
+  { id:"section",   th:"หัวข้อคั่น (ไม่ต้องตอบ)" },
+  { id:"scale",     th:"มาตราส่วน — ให้คะแนน" },
+  { id:"choice",    th:"เลือกหนึ่งข้อจากตัวเลือก" },
+  { id:"text",      th:"ข้อความสั้น" },
+  { id:"paragraph", th:"ข้อความยาว" },
+  { id:"entrust",   th:"ระดับ entrustment (สเกลกลางของระบบ)" }
+];
+const ROTATION_FORM_DEFAULT = {
+  title: "ประเมินลงกองเมื่อจบรอบหมุนเวียน",
+  /* สเกลเดียวทั้งฟอร์ม — ค่าเฉลี่ยข้ามข้อที่คนละเต็มไม่มีความหมาย */
+  scale: { min:1, max:5, minLabel:"ต้องปรับปรุงมาก", maxLabel:"ดีมาก" },
+  items: [
+    { id:"perf",         kind:"section",   th:"ผลการปฏิบัติงานตลอดรอบ", help:"หลักฐาน WFME 3.1 / 3.2 / 7.2" },
+    { id:"knowledge",    kind:"scale",     th:"ความรู้และการตัดสินใจทางคลินิก" },
+    { id:"skill",        kind:"scale",     th:"ทักษะการตรวจและหัตถการ" },
+    { id:"professional", kind:"scale",     th:"ความเป็นมืออาชีพ การสื่อสาร และการทำงานเป็นทีม" },
+    { id:"entrust",      kind:"entrust",   th:"ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ เมื่อจบรอบนี้" },
+    { id:"comment",      kind:"paragraph", role:"comment", th:"ข้อเสนอแนะเมื่อจบรอบ",
+      placeholder:"สิ่งที่ทำได้ดีตลอดเดือน และสิ่งที่ควรทำต่างออกไปในรอบหน้า" }
+  ]
+};
+/* id ของข้อถูกเอาไปประกอบเป็น selector ของช่องกรอก (dlgVal ต่อสตริงเอง ไม่ได้ escape)
+   id ที่มีอัญประกาศหรือวงเล็บเหลี่ยมจะพังทั้ง selector และ attribute จึงต้องล้างก่อนเสมอ */
+const safeItemId = (raw, i) =>
+  String(raw ?? "").trim().replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || ("q" + (i + 1));
 const SERVICE_COLOURS = ["#1f6f8b","#7a4fa3","#1f7a4d","#a8630a","#a32d2d","#2b5fa8","#8a7015","#0f766e"];
 
 /* ---------------------------------------------------------------------
@@ -1196,6 +1245,28 @@ const store = {
     /* ผลประเมินลงกองเมื่อจบรอบหมุนเวียนแต่ละเดือน — คนละชั้นกับประเมินท้ายเซสชัน
        ท้ายเซสชันคือรายคาบ ส่วนอันนี้คือสรุปทั้งเดือนของสาย/อนุสาขาที่วนอยู่ */
     d.rotationEvals ||= [];
+    /* นิยามของแบบประเมินลงกอง — คัดลอกค่าตั้งต้นเข้าฐานข้อมูลครั้งเดียว
+       หลังจากนั้นเป็นของผู้จัดหลักสูตร โปรแกรมไม่เขียนทับอีก (แบบเดียวกับ sessionPriority) */
+    d.rotationForm ||= structuredClone(ROTATION_FORM_DEFAULT);
+    d.rotationForm.scale = { ...ROTATION_FORM_DEFAULT.scale, ...(d.rotationForm.scale || {}) };
+    d.rotationForm.items = (Array.isArray(d.rotationForm.items) ? d.rotationForm.items : [])
+      .filter(it => it && (it.id || it.th))
+      .map((it, i) => ({ ...it, id: safeItemId(it.id, i), kind: it.kind || "text" }));
+    /* id ซ้ำกันแปลว่าคำตอบของข้อหลังจะไปทับข้อแรก — เติมท้ายให้ต่างกัน */
+    {
+      const seen = new Set();
+      d.rotationForm.items.forEach((it, i) => {
+        let id = it.id, n = 2;
+        while (seen.has(id)) id = safeItemId(it.id + "_" + n++, i);
+        seen.add(id); it.id = id;
+      });
+      /* entrust กับช่องข้อเสนอแนะเก็บลงฟิลด์ของตัวเองในเรกคอร์ด จึงมีได้อย่างละหนึ่ง */
+      let e = false, c = false;
+      d.rotationForm.items.forEach(it => {
+        if (it.kind === "entrust") { if (e) it.kind = "choice"; e = true; }
+        if (it.role === "comment") { if (c) delete it.role; c = true; }
+      });
+    }
     /* ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์ เช่น อาจารย์เวร ER รายวัน
        สายที่อยู่ ER วันพฤหัส OPD วันพฤหัสที่ลงเป็นชื่ออาจารย์ และวันหยุดราชการ */
     d.duty ||= [];
@@ -2148,6 +2219,7 @@ function seedData() {
       id: uid("rev"), rotationId: rot.id, residentId: rot.residentId, serviceId: rot.serviceId,
       month: (rot.end || "").slice(0, 7), start: rot.start, end: rot.end, staffId: rot.supervisorId,
       scores: { knowledge: r1(base), skill: r1(base - 0.3), professional: r1(Math.min(5, base + 0.2)) },
+      answers: {}, scaleMax: 5,
       entrust: Math.max(1, Math.min(5, Math.round(base - 0.4))),
       comment: remarks[i % remarks.length],
       createdAt: (rot.end || todayISO()) + "T17:30:00", by: "ระบบสาธิต"
@@ -5051,6 +5123,45 @@ const assessView = { page:"talks", month:"", mineOnly:true };
 const rotationEvalFor = (rotationId) =>
   (store.data.rotationEvals || []).find(x => x.rotationId === rotationId);
 
+/* ---- นิยามของแบบประเมินลงกอง: อ่านจากข้อมูล ไม่ใช่จากค่าคงที่ในโค้ด ---- */
+const rotationForm        = () => (store.data.rotationForm ||= structuredClone(ROTATION_FORM_DEFAULT));
+const rotationFormItems   = () => rotationForm().items || [];
+const rotationAskItems    = () => rotationFormItems().filter(it => it.kind !== "section");
+const rotationScored      = (it) => it.kind === "scale" || (it.kind === "choice" && it.scored);
+const rotationScaleMin    = () => +(rotationForm().scale?.min ?? 1);
+const rotationScaleMax    = () => +(rotationForm().scale?.max ?? 5);
+const rotationCommentItem = () => rotationFormItems().find(it => it.role === "comment") || null;
+const rotationEntrustItem = () => rotationFormItems().find(it => it.kind === "entrust") || null;
+/* ตัวเลือกของข้อแบบ choice เก็บเป็น "ค่า=ป้าย" บรรทัดละหนึ่ง */
+const rotationOptions = (it) => (it.options || []).map((o, i) =>
+  typeof o === "string" ? { v: String(i + 1), th: o } : { v: String(o.v ?? i + 1), th: String(o.th ?? o.v ?? "") });
+
+/* คำตอบที่บันทึกไว้แล้ว แต่ข้อถามถูกลบไปจากฟอร์ม — ต้องไม่หายเงียบ ๆ
+   ผลประเมินเป็นหลักฐานของคนที่ถูกประเมิน การแก้ฟอร์มปีนี้ต้องไม่ลบของปีที่แล้ว */
+function rotationOrphanAnswers(ev) {
+  const known = new Set(rotationFormItems().map(it => it.id));
+  const out = [];
+  Object.entries(ev?.scores || {}).forEach(([k, v]) => { if (!known.has(k)) out.push({ id:k, value:v }); });
+  Object.entries(ev?.answers || {}).forEach(([k, v]) => {
+    if (!known.has(k) && String(v ?? "").trim()) out.push({ id:k, value:v });
+  });
+  return out;
+}
+
+/* ป้ายผลประเมินที่ใช้ทั้งในตารางหน้าประเมินและในรายงานที่สั่งพิมพ์
+   ฟอร์มที่ไม่มีข้อให้คะแนนเลยก็ต้องบอกได้ว่าประเมินแล้ว ไม่ใช่ขึ้น "—/5" */
+function rotationEvalLabel(ev) {
+  if (!ev) return "";
+  const m = evalMean(ev);
+  /* สเกลอ่านจากตัวเรกคอร์ด ไม่ใช่จากฟอร์มปัจจุบัน — เปลี่ยนสเกลปีหน้าแล้วผลเก่าต้องไม่ถูกอ่านผิดย้อนหลัง */
+  const parts = [];
+  if (m != null) parts.push("เฉลี่ย " + m + "/" + (+ev.scaleMax || 5));
+  if (ev.entrust) parts.push("entrust " + ev.entrust);
+  if (parts.length) return parts.join(" · ");
+  const first = rotationAskItems().map(it => ev.answers?.[it.id]).find(v => String(v ?? "").trim());
+  return "ประเมินแล้ว" + (first ? " · " + String(first).slice(0, 30) : "");
+}
+
 /* เดือนที่จบไปแล้ว เรียงใหม่สุดก่อน — ประเมินลงกองทำหลังจบเดือน ไม่ใช่ระหว่างเดือน */
 function assessMonths() {
   const ms = new Set();
@@ -5156,7 +5267,7 @@ function renderAssess() {
             <td class="small">${fmtDate(rot.start)} – ${fmtDate(rot.end)}</td>
             <td class="small">${esc(staffName(rot.supervisorId))}</td>
             <td class="small">${ev
-              ? `<span class="tag ok">เฉลี่ย ${evalMean(ev) ?? "—"}/5${ev.entrust ? " · entrust " + ev.entrust : ""}</span>`
+              ? `<span class="tag ok">${esc(rotationEvalLabel(ev))}</span>`
               : `<span class="tag warn">ยังไม่ประเมิน</span>`}</td>
             <td class="no-print"><button class="btn-sm ${ev ? "" : "btn-primary"}" data-rotev="${rot.id}">${ev ? "แก้ไข" : "ประเมิน"}</button></td>
           </tr>`;
@@ -5170,6 +5281,101 @@ function renderAssess() {
     $$("#assessBody [data-rotev]").forEach(b => b.addEventListener("click", () => openRotationEval(b.dataset.rotev)));
     applyPermissions();
   }
+}
+
+/* ---- วาดแบบประเมินลงกองจากนิยามที่ผู้จัดหลักสูตรตั้งไว้ ----
+   ใช้ <select> ทุกกรณี ไม่ใช้ radio เพราะ dlgVal คืนค่าของอิลิเมนต์แรกที่แมตช์ ไม่สนว่าติ๊กอันไหน */
+function rotationFormBodyHtml(ev) {
+  const items = rotationFormItems();
+  if (!rotationAskItems().length) {
+    return `<p class="notice warn small">ยังไม่ได้ตั้งแบบประเมินลงกอง —
+      ผู้จัดหลักสูตรตั้งได้ที่หน้า “ตั้งค่า &amp; ข้อมูล” หัวข้อ <b>แบบประเมินลงกองสิ้นเดือน</b></p>`;
+  }
+  const min = rotationScaleMin(), max = rotationScaleMax(), sc = rotationForm().scale || {};
+  const req = (it) => it.required ? ` <span style="color:var(--bad)">*</span>` : "";
+  const cell = (it) => {
+    const cur = it.kind === "entrust" ? (ev?.entrust ?? "")
+              : rotationScored(it) ? (ev?.scores?.[it.id] ?? "")
+              : (ev?.answers?.[it.id] ?? "");
+    if (it.kind === "scale") {
+      const opts = [];
+      for (let v = min; v <= max; v++) {
+        const tail = v === min && sc.minLabel ? " — " + sc.minLabel : v === max && sc.maxLabel ? " — " + sc.maxLabel : "";
+        opts.push(`<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${v}${esc(tail)}</option>`);
+      }
+      return `<select name="sc_${esc(it.id)}"><option value="">—</option>${opts.join("")}</select>`;
+    }
+    if (it.kind === "entrust") {
+      return `<select name="entrust"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
+        `<option value="${l.v}" ${String(cur) === String(l.v) ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}</select>`;
+    }
+    if (it.kind === "choice") {
+      const nm = rotationScored(it) ? "sc_" : "an_";
+      return `<select name="${nm}${esc(it.id)}"><option value="">—</option>${rotationOptions(it).map(o =>
+        `<option value="${esc(o.v)}" ${String(cur) === String(o.v) ? "selected" : ""}>${esc(o.th)}</option>`).join("")}</select>`;
+    }
+    if (it.kind === "paragraph") {
+      const nm = it.role === "comment" ? "comment" : "an_" + it.id;
+      const val = it.role === "comment" ? (ev?.comment || "") : cur;
+      return `<textarea name="${esc(nm)}" placeholder="${esc(it.placeholder || "")}">${esc(String(val || ""))}</textarea>`;
+    }
+    return `<input name="an_${esc(it.id)}" value="${esc(String(cur || ""))}" placeholder="${esc(it.placeholder || "")}" />`;
+  };
+
+  /* ข้อแบบมาตราส่วนที่อยู่ติดกันจับกลุ่มเป็นสามคอลัมน์ ให้ฟอร์มยาว ๆ ยังพออ่านไหว */
+  let out = "", run = [];
+  const flush = () => { if (run.length) { out += `<div class="grid g3">${run.join("")}</div>`; run = []; } };
+  items.forEach(it => {
+    if (it.kind === "section") {
+      flush();
+      out += `<h4>${esc(it.th || "")}${it.help ? ` <span class="small muted">${esc(it.help)}</span>` : ""}</h4>`;
+      return;
+    }
+    const field = `<label class="f"><span>${esc(it.th || it.id)}${req(it)}</span>${cell(it)}</label>`;
+    if (it.kind === "scale") { run.push(field); if (run.length === 3) flush(); return; }
+    flush();
+    out += field;
+  });
+  flush();
+
+  /* คำตอบที่ข้อถามถูกลบไปจากฟอร์มแล้ว — แสดงไว้ ไม่ลบ และไม่ทำเป็นช่องกรอก */
+  const orphan = rotationOrphanAnswers(ev);
+  if (orphan.length) {
+    out += `<div class="notice warn small"><b>คำตอบที่เก็บไว้ แต่ไม่มีข้อถามนี้ในแบบประเมินปัจจุบันแล้ว</b>
+      — ระบบไม่ลบให้ และยังส่งออกใน CSV
+      <ul class="clean" style="margin:.3rem 0 0">${orphan.map(o =>
+        `<li><span class="mono">${esc(o.id)}</span>: ${esc(String(o.value))}</li>`).join("")}</ul></div>`;
+  }
+  return out;
+}
+
+/* อ่านค่าที่กรอกกลับออกมา — เริ่มจากคำตอบเดิม แล้วลบเฉพาะข้อที่ยังอยู่ในฟอร์ม
+   คำตอบของข้อที่ถูกลบไปแล้วจึงถูกพาไปด้วยทุกครั้งที่บันทึกซ้ำ ไม่ถูกกลืนหาย */
+function readRotationForm(ev) {
+  const scores = { ...(ev?.scores || {}) };
+  const answers = { ...(ev?.answers || {}) };
+  const missing = [];
+  let entrust = "", comment = "";
+  rotationAskItems().forEach(it => {
+    if (it.kind === "entrust") { entrust = dlgVal("entrust"); if (it.required && !entrust) missing.push(it.th); return; }
+    if (it.role === "comment") {
+      comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
+      if (it.required && !comment) missing.push(it.th);
+      return;
+    }
+    if (rotationScored(it)) {
+      const v = dlgVal("sc_" + it.id);
+      if (v) scores[it.id] = +v; else delete scores[it.id];
+      if (it.required && !v) missing.push(it.th);
+      return;
+    }
+    const raw = it.kind === "paragraph"
+      ? ($('#dlgBody [name="an_' + it.id + '"]')?.value || "").trim()
+      : dlgVal("an_" + it.id);
+    if (raw) answers[it.id] = raw; else delete answers[it.id];
+    if (it.required && !raw) missing.push(it.th);
+  });
+  return { scores, answers, entrust: entrust ? +entrust : null, comment, missing };
 }
 
 /* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ — ใช้เกณฑ์ชุดเดียวกับประเมินท้ายเซสชัน
@@ -5190,19 +5396,7 @@ function openRotationEval(rotationId) {
     <label class="f"><span>อาจารย์ผู้ประเมิน</span>
       <select name="staffId">${(store.data.staff || []).map(x =>
         `<option value="${x.id}" ${(ev?.staffId || myStaffId() || rot.supervisorId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
-    <h4>ผลการปฏิบัติงานตลอดรอบ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
-    <div class="grid g3">
-      ${EVAL_ITEMS.map(it => `<label class="f"><span>${esc(it.th)}</span>
-        <select name="sc_${it.id}"><option value="">—</option>
-          ${[1,2,3,4,5].map(v => `<option value="${v}" ${String(ev?.scores?.[it.id] ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}
-        </select></label>`).join("")}
-    </div>
-    <label class="f"><span>ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ (entrustment) เมื่อจบรอบนี้</span>
-      <select name="entrust"><option value="">—</option>
-        ${ENTRUST_LEVELS.map(l => `<option value="${l.v}" ${String(ev?.entrust ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}
-      </select></label>
-    <label class="f"><span>ข้อเสนอแนะเมื่อจบรอบ</span>
-      <textarea name="comment" placeholder="สิ่งที่ทำได้ดีตลอดเดือน และสิ่งที่ควรทำต่างออกไปในรอบหน้า">${esc(ev?.comment || "")}</textarea></label>
+    ${rotationFormBodyHtml(ev)}
     ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"} โดย ${esc(ev.by || "—")}</p>` : ""}`;
 
   if (!canAssess()) {
@@ -5211,14 +5405,15 @@ function openRotationEval(rotationId) {
   }
   const buttons = [{
     label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
-      const scores = {};
-      EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
-      const comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
-      const entrust = dlgVal("entrust");
-      if (!Object.keys(scores).length && !comment && !entrust) { toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false; }
+      const got = readRotationForm(ev);
+      if (got.missing.length) { toast("ยังไม่ได้ตอบข้อที่บังคับ: " + got.missing.slice(0, 3).join(" · ")); return false; }
+      if (!Object.keys(got.scores).length && !Object.keys(got.answers).length && !got.comment && !got.entrust) {
+        toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false;
+      }
       const rec = { rotationId: rot.id, residentId: rot.residentId, serviceId: rot.serviceId, month,
                     start: rot.start, end: rot.end, staffId: dlgVal("staffId") || rot.supervisorId,
-                    scores, entrust: entrust ? +entrust : null, comment,
+                    scores: got.scores, answers: got.answers, entrust: got.entrust, comment: got.comment,
+                    scaleMax: rotationScaleMax(),
                     createdAt: new Date().toISOString(), by: currentUser()?.displayName || "" };
       if (ev) Object.assign(ev, rec); else (store.data.rotationEvals ||= []).push({ id: uid("rev"), ...rec });
       audit("ประเมินลงกองสิ้นเดือน", (r?.name || "") + " · " + (svc?.name || "") + " · " + month);
@@ -5234,16 +5429,21 @@ function openRotationEval(rotationId) {
 }
 
 function rotationEvalCsvRows() {
+  /* คอลัมน์เดินตามนิยามของฟอร์ม ณ ตอนส่งออก ส่วนคำตอบของข้อที่ถูกลบไปแล้ว
+     ถูกอัดไว้ท้ายตารางเป็น id=ค่า จะได้ไม่หายไปจากไฟล์ที่ส่งให้ราชวิทยาลัยฯ */
+  const cols = rotationAskItems().filter(it => it.kind !== "entrust" && it.role !== "comment");
   const head = ["เดือน","เริ่ม","สิ้นสุด","แพทย์ประจำบ้าน","ชั้นปี","สาย / หน่วย","Subspecialty","อาจารย์ผู้ประเมิน",
-    ...EVAL_ITEMS.map(i => i.th), "คะแนนเฉลี่ย","ระดับ entrustment","ข้อเสนอแนะ","บันทึกเมื่อ"];
+    ...cols.map(it => it.th || it.id), "คะแนนเฉลี่ย","สเกลเต็ม","ระดับ entrustment","ข้อเสนอแนะ",
+    "คำตอบข้ออื่นที่ไม่อยู่ในฟอร์มแล้ว","บันทึกเมื่อ"];
   const rows = (store.data.rotationEvals || []).filter(ev => canSeeResident(ev.residentId))
     .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
   return [head].concat(rows.map(ev => {
     const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
     return [ev.month, ev.start || "", ev.end || "", r?.name || "", r?.year || "",
       svc?.name || "", svc ? serviceSubLabel(svc) : "", staffName(ev.staffId),
-      ...EVAL_ITEMS.map(i => ev.scores?.[i.id] ?? ""), evalMean(ev) ?? "", ev.entrust ?? "",
-      ev.comment || "", ev.createdAt || ""];
+      ...cols.map(it => ev.scores?.[it.id] ?? ev.answers?.[it.id] ?? ""),
+      evalMean(ev) ?? "", ev.scaleMax || 5, ev.entrust ?? "", ev.comment || "",
+      rotationOrphanAnswers(ev).map(o => o.id + "=" + o.value).join("; "), ev.createdAt || ""];
   }));
 }
 
@@ -5438,7 +5638,7 @@ function syncSettingsDialog() {
    ===================================================================== */
 const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks","activities",
   "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users",
-  "duty","swaps","visits","rotationEvals"];
+  "duty","swaps","visits","rotationEvals","rotationForm"];
 
 function fullPayload() {
   const out = {};
@@ -5466,7 +5666,10 @@ const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
    (rotationEvals เคยตกหล่นมาแล้ว มีข้อทดสอบใน sync.test.mjs กันไว้) */
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
   "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals"];
-const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords"];
+/* ก้อนคอนฟิกที่รวมกันทั้งชุด ไม่ใช่รายการที่ merge ทีละตัว — แบบประเมินลงกองอยู่ตรงนี้
+   เพราะ merge รายข้อจะทำลายลำดับ และปล่อยให้สองเครื่องเอาข้อของตัวเองมาสลับกัน
+   จนได้ฟอร์มที่ไม่มีใครออกแบบ */
+const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords","rotationForm"];
 
 const readBaseline = () => { try { return JSON.parse(localStorage.getItem(BASELINE_KEY)); } catch { return null; } };
 const writeBaseline = (rev, data) => {
@@ -5737,7 +5940,7 @@ function renderConflictList() {
     activities:"กิจกรรม", research:"งานวิจัย",
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
     duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไปเข้าคาบสายอื่น",
-    rotationEvals:"ผลประเมินลงกอง",
+    rotationEvals:"ผลประเมินลงกอง", rotationForm:"แบบประเมินลงกอง",
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>เวลา</th><th>ส่วนข้อมูล</th><th>รายการ</th><th>ผลที่ระบบเลือก</th></tr></thead>
@@ -6299,6 +6502,227 @@ function renderEpaEditor() {
     store.save(); renderEpa(); toast("ปรับเป้าหมายแล้ว");
   }));
   $$("#epaEditor [data-epa-edit]").forEach(b => b.addEventListener("click", () => editEpa(b.dataset.epaEdit)));
+}
+
+/* ---- ตัวแก้แบบประเมินลงกองในหน้าตั้งค่า ----
+   ฟอร์มจริงเป็นของกลุ่มงานและถูกทบทวนทุกปี จึงต้องแก้ได้เองโดยไม่ต้องแก้โค้ด */
+function renderRotationFormEditor() {
+  const box = $("#rotationFormEditor"); if (!box) return;
+  const f = rotationForm(), items = f.items || [];
+  const kindTh = Object.fromEntries(ROTATION_ITEM_KINDS.map(k => [k.id, k.th]));
+  const detail = (it) => {
+    if (it.kind === "scale")  return f.scale.min + "–" + f.scale.max;
+    if (it.kind === "choice") return rotationOptions(it).map(o => o.th).join(" · ") || "—";
+    if (it.kind === "entrust") return "1–5 (สเกลกลาง)";
+    return it.help || "—";
+  };
+  box.innerHTML = `<div class="row" style="margin-bottom:.6rem;align-items:end">
+      <label class="f" style="max-width:110px"><span>สเกลต่ำสุด</span>
+        <input type="number" data-rfscale="min" value="${f.scale.min}" /></label>
+      <label class="f" style="max-width:110px"><span>สเกลสูงสุด</span>
+        <input type="number" data-rfscale="max" value="${f.scale.max}" /></label>
+      <label class="f"><span>ป้ายปลายต่ำ</span>
+        <input data-rfscale="minLabel" value="${esc(f.scale.minLabel || "")}" /></label>
+      <label class="f"><span>ป้ายปลายสูง</span>
+        <input data-rfscale="maxLabel" value="${esc(f.scale.maxLabel || "")}" /></label>
+    </div>
+    ${items.length ? `<div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>ชนิด</th><th>คำถาม</th><th>ตัวเลือก / ช่วง</th><th>ให้คะแนน</th><th>บังคับ</th><th></th></tr></thead>
+      <tbody>${items.map((it, i) => `<tr>
+        <td class="small muted">${i + 1}</td>
+        <td class="small">${esc(kindTh[it.kind] || it.kind)}</td>
+        <td>${esc(it.th || "")}${it.role === "comment" ? ` <span class="tag">ข้อเสนอแนะ</span>` : ""}
+          <br /><span class="small mono muted">${esc(it.id)}</span></td>
+        <td class="small">${esc(detail(it))}</td>
+        <td class="small">${rotationScored(it) ? "✓" : "—"}</td>
+        <td class="small">${it.required ? "✓" : "—"}</td>
+        <td class="no-print" style="white-space:nowrap">
+          <button class="btn-sm" data-rfmove="${i}|-1" ${i === 0 ? "disabled" : ""}>↑</button>
+          <button class="btn-sm" data-rfmove="${i}|1" ${i === items.length - 1 ? "disabled" : ""}>↓</button>
+          <button class="btn-sm" data-rfedit="${esc(it.id)}">แก้ไข</button></td>
+      </tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">ยังไม่มีข้อในแบบประเมิน — กด “+ เพิ่มข้อ”</p>`}`;
+
+  $$("#rotationFormEditor [data-rfscale]").forEach(inp => inp.addEventListener("change", () => {
+    const k = inp.dataset.rfscale;
+    if (k === "min" || k === "max") {
+      const v = Math.max(0, Math.min(10, +inp.value || 0));
+      f.scale[k] = v;
+      if (f.scale.max <= f.scale.min) f.scale.max = f.scale.min + 1;   /* สเกลกลับหัวใช้ไม่ได้ */
+    } else f.scale[k] = inp.value.trim();
+    store.save(); renderAll(); toast("ปรับสเกลแล้ว");
+  }));
+  $$("#rotationFormEditor [data-rfmove]").forEach(b => b.addEventListener("click", () => {
+    const [i, d] = b.dataset.rfmove.split("|").map(Number);
+    const j = i + d;
+    if (j < 0 || j >= f.items.length) return;
+    [f.items[i], f.items[j]] = [f.items[j], f.items[i]];
+    store.save(); renderAll();
+  }));
+  $$("#rotationFormEditor [data-rfedit]").forEach(b =>
+    b.addEventListener("click", () => editRotationItem(b.dataset.rfedit)));
+}
+
+function editRotationItem(id) {
+  const f = rotationForm();
+  const it = id ? f.items.find(x => x.id === id) : null;
+  const used = it ? (store.data.rotationEvals || [])
+    .filter(ev => ev.scores?.[it.id] != null || String(ev.answers?.[it.id] ?? "").trim()).length : 0;
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>ชนิดของข้อ</span><select name="kind">${ROTATION_ITEM_KINDS.map(k =>
+        `<option value="${k.id}" ${(it?.kind || "scale") === k.id ? "selected" : ""}>${esc(k.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>รหัสข้อ (ใช้อ้างคำตอบที่บันทึกไว้)</span>
+        <input name="id" class="mono" value="${esc(it?.id || "")}" placeholder="เว้นว่างให้ระบบตั้งให้" ${it ? "readonly" : ""} /></label>
+    </div>
+    ${it ? `<p class="small muted">รหัสข้อแก้ไม่ได้ เพราะผูกกับคำตอบที่บันทึกไว้แล้ว
+      ถ้าต้องเปลี่ยนจริง ให้เพิ่มข้อใหม่แล้วลบข้อนี้ — คำตอบเดิมจะยังถูกเก็บไว้${used ? " (ตอนนี้มี " + used + " รายการ)" : ""}</p>` : ""}
+    <label class="f"><span>คำถาม</span><input name="th" value="${esc(it?.th || "")}" /></label>
+    <label class="f"><span>คำอธิบายใต้คำถาม (ไม่ใส่ก็ได้)</span><input name="help" value="${esc(it?.help || "")}" /></label>
+    <label class="f"><span>ตัวเลือก — บรรทัดละหนึ่ง เขียนเป็น <span class="mono">ค่า=ป้าย</span> เช่น <span class="mono">1=ดีมาก</span>
+      <span class="muted">(ใช้เฉพาะชนิด “เลือกหนึ่งข้อ”)</span></span>
+      <textarea name="options">${esc(rotationOptions(it || {}).map(o => o.v + "=" + o.th).join("\\n"))}</textarea></label>
+    <div class="grid g2">
+      <label class="f"><span>บังคับตอบ</span><select name="required">
+        <option value="">ไม่บังคับ</option><option value="1" ${it?.required ? "selected" : ""}>บังคับ</option></select></label>
+      <label class="f"><span>นับเป็นคะแนน (เข้าค่าเฉลี่ย)</span><select name="scored">
+        <option value="">ไม่นับ</option><option value="1" ${it?.scored ? "selected" : ""}>นับ</option></select>
+        </label>
+    </div>
+    <p class="small muted">ชนิด “มาตราส่วน” นับเป็นคะแนนเสมอ · ชนิด “เลือกหนึ่งข้อ” นับได้ถ้าค่าของตัวเลือกเป็นตัวเลข</p>`;
+  const buttons = [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
+      const th = dlgVal("th"), kind = dlgVal("kind");
+      if (!th && kind !== "section") { toast("กรุณาใส่คำถาม"); return false; }
+      const opts = ($('#dlgBody [name="options"]')?.value || "").split("\\n").map(x => x.trim()).filter(Boolean)
+        .map((line, i) => { const k = line.indexOf("="); return k < 0 ? { v:String(i + 1), th:line }
+                                                                     : { v:line.slice(0, k).trim(), th:line.slice(k + 1).trim() }; });
+      const rec = { kind, th, help: dlgVal("help"),
+                    required: !!dlgVal("required"), scored: kind === "scale" ? true : !!dlgVal("scored") };
+      if (kind === "choice") rec.options = opts; 
+      if (it) { const keep = it.role ? { role: it.role } : {}; Object.assign(it, rec, keep); }
+      else {
+        const want = safeItemId(dlgVal("id") || th, f.items.length);
+        let nid = want, n = 2;
+        while (f.items.some(x => x.id === nid)) nid = safeItemId(want + "_" + n++, f.items.length);
+        f.items.push({ id: nid, ...rec });
+      }
+      audit(it ? "แก้ข้อในแบบประเมินลงกอง" : "เพิ่มข้อในแบบประเมินลงกอง", th || kind);
+      store.save(); renderAll(); toast("บันทึกแล้ว");
+    }}];
+  if (it) buttons.push({ label:"ลบข้อนี้", cls:"btn-danger", onClick: () => {
+      if (!confirm("ลบข้อ “" + (it.th || it.id) + "” ออกจากแบบประเมิน?\\n" +
+                   (used ? "ผลประเมิน " + used + " รายการมีคำตอบของข้อนี้อยู่ — คำตอบจะยังถูกเก็บไว้และยังส่งออกใน CSV แต่จะไม่มีช่องให้แก้อีก"
+                         : "ยังไม่มีผลประเมินใดตอบข้อนี้"))) return false;
+      f.items = f.items.filter(x => x.id !== it.id);
+      audit("ลบข้อในแบบประเมินลงกอง", it.th || it.id);
+      store.save(); renderAll(); toast("ลบแล้ว");
+    }});
+  showDialog(it ? "แก้ไขข้อในแบบประเมินลงกอง" : "เพิ่มข้อในแบบประเมินลงกอง", body, buttons);
+}
+
+/* คอลัมน์ของ CSV ตรงกันทั้งขาเข้าและขาออก ส่งออกไปแก้ใน Excel แล้วนำเข้ากลับได้ครบ */
+const ROTATION_FORM_COLS = ["order","id","kind","question","options","minLabel","maxLabel","required","scored"];
+function rotationFormCsvRows() {
+  const f = rotationForm();
+  return [ROTATION_FORM_COLS].concat((f.items || []).map((it, i) => [
+    i + 1, it.id, it.kind, it.th || "",
+    rotationOptions(it).map(o => o.v + "=" + o.th).join("|"),
+    it.kind === "scale" ? (f.scale.minLabel || "") : "",
+    it.kind === "scale" ? (f.scale.maxLabel || "") : "",
+    it.required ? 1 : 0, rotationScored(it) ? 1 : 0
+  ]));
+}
+
+const ROTATION_KIND_ALIAS = {
+  "linear scale":"scale", "มาตราส่วน":"scale", "scale":"scale",
+  "multiple choice":"choice", "dropdown":"choice", "ตัวเลือก":"choice", "choice":"choice",
+  "short answer":"text", "ข้อความสั้น":"text", "text":"text",
+  "paragraph":"paragraph", "long answer":"paragraph", "ข้อความยาว":"paragraph",
+  "section":"section", "หัวข้อ":"section", "หัวข้อคั่น":"section",
+  "entrust":"entrust", "entrustment":"entrust"
+};
+
+function importRotationFormFile(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const txt = String(fr.result);
+      let rows = [];
+      if (/^\s*[\[{]/.test(txt)) {
+        const data = JSON.parse(txt);
+        rows = (Array.isArray(data) ? data : data.items || []).map(x => ({
+          order:x.order, id:x.id, kind:x.kind, question:x.question ?? x.th ?? x.label,
+          options:Array.isArray(x.options) ? x.options.map(o => (o.v ?? "") + "=" + (o.th ?? o)).join("|") : x.options,
+          minLabel:x.minLabel, maxLabel:x.maxLabel, required:x.required, scored:x.scored
+        }));
+      } else {
+        const table = parseCsv(txt);
+        const head = (table[0] || []).map(h => String(h).trim().toLowerCase());
+        /* หัวคอลัมน์ถูกทำเป็นตัวพิมพ์เล็กแล้ว ชื่อที่ใช้ค้นต้องพิมพ์เล็กด้วย
+           ไม่งั้น minLabel/maxLabel จะหาไม่เจอและป้ายปลายสเกลจะหายไปเงียบ ๆ */
+        const col = (n) => head.indexOf(String(n).toLowerCase());
+        rows = table.slice(1).map(r => Object.fromEntries(ROTATION_FORM_COLS.map(c =>
+          [c, col(c) >= 0 ? r[col(c)] : ""])));
+      }
+      const yes = (v) => /^(1|true|yes|y|ใช่)$/i.test(String(v ?? "").trim());
+      rows = rows.filter(x => String(x.kind ?? "").trim() || String(x.question ?? "").trim());
+      if (!rows.length) throw new Error("ไม่พบรายการข้อในไฟล์");
+      rows.sort((a, b) => (+a.order || 0) - (+b.order || 0));
+
+      const f = rotationForm();
+      const items = [], seen = new Set();
+      let scaleMinLabel = "", scaleMaxLabel = "";
+      rows.forEach((x, i) => {
+        const kind = ROTATION_KIND_ALIAS[String(x.kind ?? "").trim().toLowerCase()] || "text";
+        let id = safeItemId(x.id || x.question, i), n = 2;
+        while (seen.has(id)) id = safeItemId((x.id || x.question) + "_" + n++, i);
+        seen.add(id);
+        const it = { id, kind, th: String(x.question ?? "").trim(),
+                     required: yes(x.required), scored: kind === "scale" ? true : yes(x.scored) };
+        if (kind === "choice") it.options = String(x.options ?? "").split("|").map(p => p.trim()).filter(Boolean)
+          .map((p, k) => { const j = p.indexOf("="); return j < 0 ? { v:String(k + 1), th:p }
+                                                                 : { v:p.slice(0, j).trim(), th:p.slice(j + 1).trim() }; });
+        if (kind === "scale") {
+          if (x.minLabel) scaleMinLabel = String(x.minLabel).trim();
+          if (x.maxLabel) scaleMaxLabel = String(x.maxLabel).trim();
+        }
+        items.push(it);
+      });
+
+      /* ช่องข้อเสนอแนะเก็บลง ev.comment ซึ่งเป็นช่องที่รายงานรายบุคคลกับ CSV ไปอ่าน
+         ไฟล์ที่นำเข้าไม่มีทางระบุเรื่องนี้ได้ ถ้าไม่มีข้อไหนถูกทำเครื่องหมายไว้
+         ให้ข้อความยาวข้อสุดท้ายทำหน้าที่นั้น ไม่งั้นข้อเสนอแนะจะหายไปจากรายงาน */
+      if (!items.some(x => x.role === "comment")) {
+        const last = [...items].reverse().find(x => x.kind === "paragraph");
+        if (last) last.role = "comment";
+      }
+
+      /* บอกก่อนว่าจะมีคำตอบกี่รายการที่กลายเป็นคำตอบไร้ข้อถาม — ไม่ลบ แต่ต้องรู้ตัว */
+      const keep = new Set(items.map(x => x.id));
+      const orphan = (store.data.rotationEvals || []).reduce((n, ev) =>
+        n + Object.keys({ ...(ev.scores || {}), ...(ev.answers || {}) }).filter(k => !keep.has(k)).length, 0);
+      if (!confirm("แทนที่แบบประเมินลงกองด้วย " + items.length + " ข้อจากไฟล์นี้?\n" +
+                   (orphan ? "คำตอบที่บันทึกไว้ " + orphan + " ช่องจะไม่มีข้อถามรองรับ — ระบบยังเก็บไว้และยังส่งออกใน CSV"
+                           : "ผลประเมินที่บันทึกไว้ไม่ได้รับผลกระทบ"))) return;
+
+      f.items = items;
+      if (scaleMinLabel) f.scale.minLabel = scaleMinLabel;
+      if (scaleMaxLabel) f.scale.maxLabel = scaleMaxLabel;
+      audit("นำเข้าแบบประเมินลงกอง", items.length + " ข้อ จาก " + file.name);
+      store.save(); renderAll();
+      toast("นำเข้าแบบประเมินแล้ว " + items.length + " ข้อ");
+    } catch (e) {
+      toast("นำเข้าไม่สำเร็จ — " + e.message);
+    }
+  };
+  fr.readAsText(file);
+}
+
+function resetRotationForm() {
+  if (!confirm("คืนแบบประเมินลงกองกลับเป็นค่าตั้งต้น? ข้อที่ตั้งไว้เองจะหายไป (ผลประเมินที่บันทึกไว้ไม่ถูกลบ)")) return;
+  store.data.rotationForm = structuredClone(ROTATION_FORM_DEFAULT);
+  audit("คืนค่าตั้งต้นแบบประเมินลงกอง", "");
+  store.save(); renderAll(); toast("คืนค่าตั้งต้นแล้ว");
 }
 
 function editEpa(id) {
@@ -7028,7 +7452,9 @@ function printPortfolio(residentId) {
           <td>${esc(svc ? serviceSubLabel(svc) : "—")}</td>
           <td>${esc(staffName(rot.supervisorId))}</td>
           <td class="small">${rev
-            ? "เฉลี่ย " + (evalMean(rev) ?? "—") + "/5" + (rev.entrust ? " · entrustment " + rev.entrust : "")
+            ? esc(rotationEvalLabel(rev))
+              + rotationAskItems().filter(it => it.kind !== "entrust" && it.role !== "comment")
+                  .map(it => { const v = rev.answers?.[it.id]; return v ? "<br /><b>" + esc(it.th || it.id) + ":</b> " + esc(String(v)) : ""; }).join("")
               + (rev.comment ? "<br /><span class='muted'>" + esc(rev.comment) + "</span>" : "")
             : (rotationOutside(rot) ? "ไปวนนอกกลุ่มงาน" : "—")}</td></tr>`; }).join("")}</tbody></table>` : ""}
       ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
@@ -7760,6 +8186,7 @@ function renderAll() {
   renderLogbook();
   renderEpa();
   renderEpaEditor();
+  renderRotationFormEditor();
   renderResearch();
   renderCoverage();
   renderWfme();
@@ -8040,6 +8467,11 @@ function init() {
   $("#btnEpaImport").addEventListener("click", () => $("#epaPick").click());
   $("#epaPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importEpaFile(f); e.target.value = ""; });
   $("#btnEpaExport").addEventListener("click", () => download("epa-list.csv", toCsv(epaCsvRows()), "text/csv;charset=utf-8"));
+  $("#btnRformAdd").addEventListener("click", () => editRotationItem(null));
+  $("#btnRformImport").addEventListener("click", () => $("#rformPick").click());
+  $("#rformPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importRotationFormFile(f); e.target.value = ""; });
+  $("#btnRformExport").addEventListener("click", () => download("rotation-eval-form.csv", toCsv(rotationFormCsvRows()), "text/csv;charset=utf-8"));
+  $("#btnRformReset").addEventListener("click", resetRotationForm);
   $("#btnEpaAssess").addEventListener("click", () => {
     const e = (store.data.epas || [])[0];
     if (!e) { toast("ยังไม่มีหัวข้อ EPA"); return; }
