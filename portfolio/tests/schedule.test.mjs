@@ -500,6 +500,33 @@ export default async function run() {
       t.eq("แยกช่องสิ่งที่ทำได้ดีกับสิ่งที่ควรปรับปรุง",
            [talk.saved?.strengths, talk.saved?.comment], ["เตรียมตัวมาดี", "คุมเวลาให้ดีขึ้น"]);
       t.check("CSV กิจกรรมมีคะแนนรายด้านและผลการประเมิน", talk.csvHasItem && !!talk.csvOutcome, talk.csvOutcome);
+
+      /* pre-op กับ post-op conference ถูกยุบเป็นคาบเดียวกัน ของเก่าต้องย้ายตามให้ครบ */
+      const merged = await page.evaluate(async () => {
+        const d = store.data;
+        const a = d.activities[0], t0 = d.schedule[0];
+        a.type = "postop"; if (t0) t0.type = "postop";
+        Object.values(d.requirements).forEach(req => { req.preop = 10; req.postop = 12; });
+        localStorage.setItem("mnrh_ortho_portfolio_v1", JSON.stringify(d));
+        return { actId: a.id, talkId: t0?.id };
+      });
+      await page.reload();
+      await page.waitForFunction(() => typeof store !== "undefined" && store.data?.activities?.length);
+      const after = await page.evaluate((ids) => ({
+        types: ACTIVITY_TYPES.map(x => x.id),
+        label: TYPE_BY_ID.preop?.th,
+        act: store.data.activities.find(x => x.id === ids.actId)?.type,
+        talk: ids.talkId ? store.data.schedule.find(x => x.id === ids.talkId)?.type : "preop",
+        req: store.data.requirements[1]?.preop,
+        reqOld: store.data.requirements[1]?.postop ?? null
+      }), merged);
+      t.check("ไม่มีประเภท post-op แยกอีกแล้ว", !after.types.includes("postop"), after.types.join(", "));
+      t.eq("ชื่อที่แสดงบอกว่าเป็นทั้งการวางแผนและการวิจารณ์ผล",
+           after.label, "การวางแผนและวิจารณ์ผลหลังผ่าตัด");
+      t.eq("กิจกรรมเก่าที่เป็น post-op ย้ายมาอยู่ประเภทเดียวกัน", after.act, "preop");
+      t.eq("รายการในตารางนำเสนอย้ายตามด้วย", after.talk, "preop");
+      t.eq("เกณฑ์ของสองประเภทเดิมถูกรวมเข้าด้วยกัน ไม่ใช่ทิ้งไปข้างหนึ่ง", after.req, 22);
+      t.eq("ไม่เหลือเกณฑ์ของประเภทที่ไม่มีแล้ว", after.reqOld, null);
       t.check("หน้าประเมิน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
 
