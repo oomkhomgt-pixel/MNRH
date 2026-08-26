@@ -515,6 +515,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div class="row">
           <button class="btn-sm" id="btnAddResident" data-perm="admin">+ เพิ่มแพทย์ประจำบ้าน</button>
           <button class="btn-sm" id="btnPrintPortfolio">พิมพ์แฟ้มรายบุคคล</button>
+          <button class="btn-sm" id="btnResidentDashboard">แดชบอร์ดรายบุคคล (HTML)</button>
         </div>
       </div>
       <div id="residentList"></div>
@@ -4700,6 +4701,7 @@ function renderResidentDetail() {
       <div class="row no-print">
         <button class="btn-sm" data-perm="admin" data-edit-res="${r.id}">แก้ไขข้อมูล</button>
         <button class="btn-sm btn-primary" data-portfolio="${r.id}">พิมพ์แฟ้มสะสมงาน</button>
+        <button class="btn-sm" data-resdash="${r.id}">ดาวน์โหลดแดชบอร์ด (HTML)</button>
       </div>
     </div>
 
@@ -4811,6 +4813,7 @@ function renderResidentDetail() {
   box.querySelectorAll("[data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
   box.querySelector("[data-edit-res]")?.addEventListener("click", () => editResident(r.id));
   box.querySelector("[data-portfolio]")?.addEventListener("click", () => printPortfolio(r.id));
+  box.querySelector("[data-resdash]")?.addEventListener("click", () => exportResidentDashboard(r.id));
   box.querySelector("[data-printlog]")?.addEventListener("click", () => printLogbook(r.id));
 }
 
@@ -6577,6 +6580,10 @@ function printPortfolio(residentId) {
   const acts = store.activitiesOf(r.id).sort((a, b) => a.date.localeCompare(b.date));
   const projects = store.data.research.filter(x => x.residentId === r.id);
   const html = reportHead("แฟ้มสะสมงานแพทย์ประจำบ้าน — " + r.name, "ชั้นปีที่ " + r.year + " · รุ่น " + (r.cohort || "—") + " · ปีการศึกษา " + p.ay) + `
+  <div class="dash" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin:0 0 .5rem">ภาพรวมแบบเห็นเร็ว</h2>
+    ${residentDashboardHtml(residentId)}
+  </div>
   <div class="card">
     <h2>1. ความก้าวหน้าเทียบเกณฑ์หลักสูตร</h2>
     <table><thead><tr><th>กิจกรรม</th><th>ทำแล้ว</th><th>เกณฑ์</th><th>คิดเป็น</th><th>หัวข้อ WFME ที่ใช้อ้าง</th></tr></thead>
@@ -6799,7 +6806,35 @@ const COV_CSS = `
 .xt td.z{background:#fbeeee;color:#a32d2d}
 ${SEQ.map((c, i) => `.xt td.s${i}{background:${c};color:${i >= 4 ? "#ffffff" : "#12181f"}}`).join("\n")}
 `;
-document.head.insertAdjacentHTML("beforeend", "<style>" + COV_CSS + "</style>");
+/* สไตล์ของแดชบอร์ด — คลุมด้วย .dash ทุกกฎ จะได้เอาไปแปะในหน้าเว็บได้โดยไม่ไปทับ CSS ของแอป
+   ไฟล์ที่ส่งออกกับส่วนแดชบอร์ดในรายงานรายบุคคลที่สั่งพิมพ์ จึงหน้าตาเหมือนกันเป๊ะ */
+const DASH_CSS = `
+.dash h1{font-size:20px;margin:0 0 4px} .dash h2{font-size:15px;margin:0 0 10px}
+.dash .sub{color:${VIZ.muted};font-size:13px}
+.dash .card{background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:none}
+.dash .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.dash .tile{flex:1;min-width:140px;background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:12px 14px}
+.dash .tile b{display:block;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.dash .tile span{color:${VIZ.muted};font-size:12px}
+.dash table{width:100%;border-collapse:collapse;font-size:13px}
+.dash td,.dash th{padding:4px 8px;vertical-align:middle;border-bottom:0}
+.dash th{text-align:left;color:${VIZ.muted};font-weight:600;font-size:12px;border-bottom:1px solid ${VIZ.line}}
+.dash td.lb{white-space:nowrap;color:${VIZ.ink2}} .dash td.bar{width:270px}
+.dash td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dash td.num .of{color:${VIZ.muted}}
+.dash .grp{font-weight:600;padding-top:12px}
+.dash .ax{fill:${VIZ.muted};font-size:10px} .dash .tot{fill:${VIZ.ink2};font-size:10px;font-weight:600}
+.dash .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 2px;font-size:12px;color:${VIZ.ink2}}
+.dash .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.dash .two{display:flex;gap:14px;flex-wrap:wrap} .dash .two>*{flex:1;min-width:320px}
+.dash .foot{color:${VIZ.muted};font-size:12px;margin-top:18px;border-top:1px solid ${VIZ.line};padding-top:10px}
+.dash .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.dash .chip2{border-radius:999px;padding:3px 10px;font-size:12px;border:1px solid}
+.dash .chip2.on{background:#e6f4ec;border-color:#c7e6d5;color:${VIZ.ok}}
+.dash .chip2.off{background:#fbebeb;border-color:#eecccc;color:${VIZ.bad}}
+.dash ul.gaps{margin:0;padding-left:18px} .dash ul.gaps li{margin-bottom:3px}
+`;
+document.head.insertAdjacentHTML("beforeend", "<style>" + COV_CSS + DASH_CSS + "</style>");
 
 /* ตารางไขว้ ประเภทงานนำเสนอ × อนุสาขา
    ตอบคำถามที่ตัวกรองรายประเภทตอบไม่ได้ในภาพเดียว: pre-op conference ของทั้งกลุ่มงาน
@@ -6932,45 +6967,9 @@ function dashboardHtml() {
   const tile = (n, label, col) =>
     `<div class="tile"><b style="color:${col || VIZ.ink}">${n}</b><span>${esc(label)}</span></div>`;
 
-  return `<!doctype html><html lang="th"><head><meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>แดชบอร์ดแฟ้มสะสมงาน ${esc(ay)} — กลุ่มงานออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</title>
-<style>
-  :root{color-scheme:light}
-  *{box-sizing:border-box}
-  body{margin:0;background:#f4f6f8;color:${VIZ.ink};
-       font:14px/1.5 -apple-system,"Segoe UI","Noto Sans Thai",Sarabun,Tahoma,sans-serif}
-  .page{max-width:1100px;margin:0 auto;padding:24px}
-  header{margin-bottom:18px}
-  h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:0 0 10px}
-  .sub{color:${VIZ.muted};font-size:13px}
-  .card{background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:16px;margin-bottom:14px}
-  .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-  .tile{flex:1;min-width:140px;background:${VIZ.surface};border:1px solid ${VIZ.line};border-radius:10px;padding:12px 14px}
-  .tile b{display:block;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
-  .tile span{color:${VIZ.muted};font-size:12px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  td,th{padding:4px 8px;vertical-align:middle}
-  th{text-align:left;color:${VIZ.muted};font-weight:600;font-size:12px;border-bottom:1px solid ${VIZ.line}}
-  td.lb{white-space:nowrap;color:${VIZ.ink2}} td.bar{width:270px}
-  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-  td.num .of{color:${VIZ.muted}}
-  .grp{font-weight:600;padding-top:12px}
-  .ax{fill:${VIZ.muted};font-size:10px} .tot{fill:${VIZ.ink2};font-size:10px;font-weight:600}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 2px;font-size:12px;color:${VIZ.ink2}}
-  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-  .two{display:flex;gap:14px;flex-wrap:wrap} .two>*{flex:1;min-width:320px}
-  .foot{color:${VIZ.muted};font-size:12px;margin-top:18px;border-top:1px solid ${VIZ.line};padding-top:10px}
-  .tbl-wrap{overflow-x:auto}
-  .typepage{break-before:page;page-break-before:always}
-  ${COV_CSS}
-  @media print{
-    @page{size:A4 landscape;margin:10mm}
-    body{background:#fff} .page{max-width:none;padding:0}
-    .card,.tile{break-inside:avoid;page-break-inside:avoid}
-  }
-</style></head><body><div class="page">
-<header>
+  return dashboardShell(
+    "แดชบอร์ดแฟ้มสะสมงาน " + ay + " — กลุ่มงานออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา",
+    `<header>
   <h1>แดชบอร์ดแฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์</h1>
   <div class="sub">รพ.มหาราชนครราชสีมา · ปีการศึกษา ${esc(ay)} · ${esc(scope)}
     · ออกรายงานเมื่อ ${esc(fmtDate(todayISO()))} โดย ${esc(currentUser()?.displayName || "—")}</div>
@@ -7072,8 +7071,179 @@ ${/* ภาคผนวก: ประเภทละหนึ่งหน้า 
 
 <p class="foot">ไฟล์นี้เป็นภาพนิ่ง ณ วันที่ออกรายงาน ไม่อัปเดตตามข้อมูลที่แก้ภายหลัง ·
   ไม่มีข้อมูลผู้ป่วยรายบุคคลอยู่ในไฟล์นี้ — เป็นตัวเลขรวมทั้งหมด ·
-  แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</p>
+  แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</p>`);
+}
+
+/* เปลือกของไฟล์แดชบอร์ด — ส่วนที่ไม่เกี่ยวกับว่าข้างในเป็นของทั้งกลุ่มงานหรือของคนเดียว
+   สไตล์ในนี้มีเฉพาะของที่เป็นของ "ไฟล์" (พื้นหลัง ขอบกระดาษ การแบ่งหน้า)
+   ส่วนหน้าตาของแดชบอร์ดเองอยู่ใน DASH_CSS ที่หน้าเว็บก็ใช้ชุดเดียวกัน */
+function dashboardShell(title, body) {
+  return `<!doctype html><html lang="th"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${esc(title)}</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6f8;color:${VIZ.ink};
+       font:14px/1.5 -apple-system,"Segoe UI","Noto Sans Thai",Sarabun,Tahoma,sans-serif}
+  .page{max-width:1100px;margin:0 auto;padding:24px}
+  header{margin-bottom:18px}
+  .tbl-wrap{overflow-x:auto}
+  .typepage{break-before:page;page-break-before:always}
+  ${COV_CSS}
+  ${DASH_CSS}
+  @media print{
+    @page{size:A4 landscape;margin:10mm}
+    body{background:#fff} .page{max-width:none;padding:0}
+    .dash .card,.dash .tile{break-inside:avoid;page-break-inside:avoid}
+  }
+</style></head><body><div class="page dash">
+${body}
 </div></body></html>`;
+}
+
+/* =====================================================================
+   แดชบอร์ดรายบุคคล — ตอบคำถามเดียวว่า "คนนี้ตอนนี้อยู่ตรงไหน และยังขาดอะไร"
+   คืนเป็นชิ้นส่วนการ์ด ไม่ใช่ทั้งไฟล์ เพราะถูกใช้สองที่:
+   หัวรายงานรายบุคคลที่สั่งพิมพ์จากหน้าเว็บ กับไฟล์แดชบอร์ดที่ดาวน์โหลดแยก
+   ทั้งสองที่ใช้ DASH_CSS ชุดเดียวกัน หน้าตาจึงไม่มีทางเพี้ยนจากกัน
+   ===================================================================== */
+function residentDashboardHtml(residentId) {
+  const r = store.resident(residentId);
+  if (!r) return `<div class="card"><p class="sub">ไม่พบแพทย์ประจำบ้านคนนี้</p></div>`;
+  const p = progressFor(r), gaps = gapsFor(r), ay = p.ay;
+  const acts = store.activitiesOf(r.id);
+  const inYear = acts.filter(a => a.academicYear === ay);
+  const mine = casesOf(r.id);
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+
+  /* กิจกรรมรายเดือน — ใช้เฉพาะเดือนที่มีของจริง ไม่กาง 12 ช่องเปล่า */
+  const monthKeys = [...new Set(inYear.map(a => (a.date || "").slice(0, 7)).filter(Boolean))].sort();
+  const typeRows = ACTIVITY_TYPES.map(t => {
+    const by = {};
+    monthKeys.forEach(m => by[m] = inYear.filter(a => a.type === t.id && (a.date || "").startsWith(m)).length);
+    return { name: TYPE_BY_ID[t.id]?.th || t.id, by, total: inYear.filter(a => a.type === t.id).length };
+  });
+
+  /* เคสของตัวเอง แยกอนุสาขา และแยกบทบาท */
+  const caseBySub = subs.map(sx => ({ name: sx.en, n: mine.filter(c => c.subspecialty === sx.id).length }))
+    .filter(x => x.n).sort((a, b) => b.n - a.n);
+
+  /* EPA ของคนนี้เทียบเป้าหมายของชั้นปีตัวเอง — ไม่ใช่ค่าเฉลี่ยของกลุ่ม */
+  const epaRows = (store.data.epas || []).map(e => ({
+    code: e.code, title: e.title,
+    level: epaLevel(r.id, e.id), target: epaTargetFor(r.year, e.id)
+  })).filter(x => x.target > 0);
+
+  const tile = (n, label, col) =>
+    `<div class="tile"><b style="color:${col || VIZ.ink}">${n}</b><span>${esc(label)}</span></div>`;
+  const gapInk = { bad: VIZ.bad, warn: VIZ.warn };
+  /* การ์ดของแดชบอร์ดรายบุคคลวางเป็นสองคอลัมน์ แถบจึงต้องสั้นกว่าของทั้งกลุ่มงาน
+     ไม่งั้นตัวเลข "2 / 90" ท้ายแถบจะถูกดันตกขอบการ์ดไป */
+  const BW = 150;
+
+  return `<div class="tiles">
+  ${tile(p.overall + "%", "ความก้าวหน้าเทียบเกณฑ์ปี " + ay, vizStatus(p.overall))}
+  ${tile(inYear.length, "กิจกรรมในปีการศึกษานี้ (สะสมทั้งหมด " + acts.length + ")")}
+  ${tile(p.logbook.surgeon.done + " / " + (p.logbook.surgeon.need || "—"), "เคสที่เป็นผู้ผ่าตัดหลักปีนี้",
+         p.logbook.surgeon.need ? vizStatus(p.logbook.surgeon.pct) : VIZ.ink)}
+  ${tile(p.subsDone.size + " / " + (p.subsNeed || subs.length), "อนุสาขาที่มีผลงานแล้ว",
+         p.subsNeed ? vizStatus(p.subsPct) : VIZ.ink)}
+  ${tile(p.sessionEval.done + " / " + (p.sessionEval.need || "—"), "ประเมินท้ายเซสชันปีนี้",
+         p.sessionEval.need ? vizStatus(p.sessionEval.pct) : VIZ.ink)}
+  ${tile(acts.filter(a => !a.verified).length, "รอการรับรองจากอาจารย์",
+         acts.some(a => !a.verified) ? VIZ.warn : VIZ.ok)}
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>ความก้าวหน้าเทียบเกณฑ์ ปีการศึกษา ${esc(ay)}</h2>
+    <div class="sub" style="margin-bottom:8px">ขีดดำท้ายแถบคือเกณฑ์ของชั้นปี ${r.year}
+      · <span style="color:${VIZ.ok}">เขียว = ถึงแล้ว</span>
+      · <span style="color:${VIZ.warn}">เหลือง = เกินครึ่งทาง</span>
+      · <span style="color:${VIZ.bad}">แดง = ยังไม่ถึงครึ่ง</span></div>
+    <table><tbody>
+      ${p.lines.map(l => barRow(TYPE_BY_ID[l.type.id]?.th || l.type.id, l.done, l.need, BW)).join("")}
+      <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน</td></tr>
+      ${barRow("เคสที่เป็นผู้ผ่าตัดหลัก", p.logbook.surgeon.done, p.logbook.surgeon.need, BW)}
+      ${barRow("เคสที่เป็นผู้ช่วยผ่าตัด", p.logbook.assist.done, p.logbook.assist.need, BW)}
+      ${barRow("ประเมินท้ายเซสชัน", p.sessionEval.done, p.sessionEval.need, BW)}
+      ${barRow("ความครอบคลุมอนุสาขา", p.subsDone.size, p.subsNeed, BW)}
+    </tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>สิ่งที่ยังขาด</h2>
+    ${gaps.length
+      ? `<ul class="gaps">${gaps.map(g =>
+          `<li style="color:${gapInk[g.level] || VIZ.ink2}">${esc(g.text)}</li>`).join("")}</ul>`
+      : `<p class="sub" style="color:${VIZ.ok}">ครบตามเกณฑ์ที่กำหนดไว้ในปีการศึกษานี้</p>`}
+    <h2 style="margin-top:14px">อนุสาขาที่มีผลงานแล้ว</h2>
+    <div class="chips">${subs.map(sx =>
+      `<span class="chip2 ${p.subsDone.has(sx.id) ? "on" : "off"}">${esc(sx.en)}${
+        p.subsDone.has(sx.id) ? "" : " ✕"}</span>`).join("")}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>กิจกรรมรายเดือน แยกตามประเภท</h2>
+  <div class="legend">${typeRows.map((x, i) =>
+    `<span><i style="background:${VIZ.cat[i]}"></i>${esc(x.name)} (${x.total})</span>`).join("")}</div>
+  ${monthKeys.length ? stackedMonths(typeRows, monthKeys)
+    : `<p class="sub">ยังไม่มีกิจกรรมในปีการศึกษานี้</p>`}
+  ${monthKeys.length ? `<table style="margin-top:8px"><thead><tr><th>ประเภท</th>${
+      monthKeys.map(m => `<th style="text-align:right">${esc(m)}</th>`).join("")}<th style="text-align:right">รวม</th></tr></thead>
+    <tbody>${typeRows.map(x => `<tr><td class="lb">${esc(x.name)}</td>
+      ${monthKeys.map(m => `<td class="num">${x.by[m] || ""}</td>`).join("")}
+      <td class="num"><b>${x.total}</b></td></tr>`).join("")}</tbody></table>` : ""}
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>เคสใน logbook แยกตามอนุสาขา (${mine.length} เคส)</h2>
+    ${caseBySub.length
+      ? `<table><tbody>${caseBySub.map(x => barRow(x.name, x.n, 0, BW)).join("")}</tbody></table>`
+      : `<p class="sub">ยังไม่มีเคสใน logbook</p>`}
+    <div class="sub" style="margin-top:6px">แยกตามบทบาท: ${CASE_ROLES.map(x =>
+      esc(x.th) + " " + mine.filter(c => roleOf(c, r.id) === x.id).length).join(" · ")}
+      · อาจารย์รับรองแล้ว ${p.logbook.verified} เคส</div>
+  </div>
+  ${epaRows.length ? `<div class="card">
+    <h2>EPA เทียบเป้าหมายของชั้นปี ${r.year}</h2>
+    <table><thead><tr><th>หัวข้อ</th><th style="text-align:right;white-space:nowrap">ระดับล่าสุด</th>
+      <th style="text-align:right;white-space:nowrap">เป้าหมาย</th></tr></thead>
+    <tbody>${epaRows.map(e => `<tr>
+      <td style="color:${VIZ.ink2}">${esc(e.code)} ${esc(e.title)}</td>
+      <td class="num" style="color:${e.level == null ? VIZ.muted : (e.level >= e.target ? VIZ.ok : VIZ.bad)}">${
+        e.level == null ? "ยังไม่ประเมิน" : e.level}</td>
+      <td class="num">${e.target}</td></tr>`).join("")}</tbody></table>
+  </div>` : ""}
+</div>`;
+}
+
+/* ไฟล์แดชบอร์ดของคนเดียว — ห่อด้วยเปลือกเดียวกับแดชบอร์ดทั้งกลุ่มงาน */
+function residentDashboardFile(residentId) {
+  const r = store.resident(residentId);
+  if (!r) return "";
+  return dashboardShell("แดชบอร์ดแฟ้มสะสมงาน — " + r.name,
+    `<header>
+  <h1>แดชบอร์ดแฟ้มสะสมงาน — ${esc(r.name)}</h1>
+  <div class="sub">ชั้นปีที่ ${r.year} · รุ่น ${esc(r.cohort || "—")} · ปีการศึกษา ${esc(currentAY())}
+    · ออกรายงานเมื่อ ${esc(fmtDate(todayISO()))} โดย ${esc(currentUser()?.displayName || "—")}</div>
+</header>
+${residentDashboardHtml(residentId)}
+<p class="foot">ไฟล์นี้เป็นภาพนิ่ง ณ วันที่ออกรายงาน ไม่อัปเดตตามข้อมูลที่แก้ภายหลัง ·
+  ไม่มีข้อมูลผู้ป่วยรายบุคคลอยู่ในไฟล์นี้ — เป็นตัวเลขรวมของแพทย์ประจำบ้านคนเดียว ·
+  แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา</p>`);
+}
+
+function exportResidentDashboard(residentId) {
+  const r = store.resident(residentId);
+  if (!r || !canSeeResident(residentId)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
+  const name = "dashboard-" + (r.name || residentId).replace(/\s+/g, "_") + "-" + todayISO() + ".html";
+  download(name, residentDashboardFile(residentId), "text/html;charset=utf-8");
+  audit("ส่งออกแดชบอร์ดรายบุคคล", r.name);
+  toast("ดาวน์โหลดแดชบอร์ดของ " + r.name + " แล้ว — เปิดในเบราว์เซอร์หรือสั่งพิมพ์เป็น PDF ได้");
 }
 
 function exportDashboard() {
@@ -7546,6 +7716,7 @@ function init() {
   $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
   $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
   $("#btnPrintPortfolio").addEventListener("click", () => selectedResident ? printPortfolio(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
+  $("#btnResidentDashboard").addEventListener("click", () => selectedResident ? exportResidentDashboard(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnWfmeReport").addEventListener("click", printWfmeReport);
   $("#btnWfmeCsv").addEventListener("click", () => download("wfme-evidence-map.csv", toCsv(wfmeCsvRows()), "text/csv;charset=utf-8"));
   $("#btnCsvAll").addEventListener("click", () => download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8"));

@@ -375,6 +375,54 @@ export default async function run() {
       await ap.close();
     }
 
+    /* ---------- แดชบอร์ดรายบุคคล ที่แนบไปกับการส่งออกข้อมูลของคนคนเดียว ---------- */
+    {
+      const { page } = await openAs(browser, srv.url, "admin");
+      const a = await page.evaluate(() => {
+        const r = store.data.residents[0];
+        const html = residentDashboardFile(r.id);
+        const others = store.data.residents.filter(x => x.id !== r.id);
+        /* รายงานที่สั่งพิมพ์ต้องมีส่วนแดชบอร์ดอยู่หัวรายงานด้วย ไม่ใช่มีแต่ตาราง */
+        window.print = () => {};
+        printPortfolio(r.id);
+        const body = document.querySelector("#reportBody");
+        return { len: html.length, name: r.name, mine: html.includes(r.name),
+                 leaked: others.filter(o => html.includes(o.name)).map(o => o.name),
+                 external: /(src|href)\s*=\s*["']https?:/i.test(html),
+                 script: /<script/i.test(html),
+                 hasHn: /MOCK-\d/.test(html),
+                 inReport: body.querySelectorAll(".dash").length,
+                 reportBars: body.querySelectorAll(".dash svg").length };
+      });
+      t.check("แดชบอร์ดรายบุคคลมีชื่อเจ้าของ", a.mine, a.name + " · " + a.len + " ตัวอักษร");
+      t.check("แดชบอร์ดรายบุคคลไม่มีชื่อแพทย์ประจำบ้านคนอื่นปนมา",
+              a.leaked.length === 0, a.leaked.join(", ") || "ไม่มี");
+      t.check("แดชบอร์ดรายบุคคลไม่อ้าง asset ภายนอกและไม่มีสคริปต์", !a.external && !a.script);
+      t.check("แดชบอร์ดรายบุคคลไม่มี HN หรือข้อมูลผู้ป่วย", !a.hasHn);
+      t.eq("รายงานรายบุคคลที่สั่งพิมพ์มีส่วนแดชบอร์ดนำหน้าตาราง", a.inReport, 1);
+      t.check("แดชบอร์ดในรายงานมีกราฟจริง ไม่ใช่ตารางล้วน", a.reportBars > 0, a.reportBars + " รูป");
+      await page.close();
+
+      /* แพทย์ประจำบ้านต้องดึงแดชบอร์ดของคนอื่นไม่ได้ ทั้งทางไฟล์และทางปุ่ม */
+      const { page: rp } = await openAs(browser, srv.url, "resident");
+      const b2 = await rp.evaluate(() => {
+        const me = myResidentId();
+        const other = store.data.residents.find(x => x.id !== me);
+        const grabbed = [];
+        const real = window.download; window.download = (n) => grabbed.push(n);
+        /* กดของตัวเองก่อน เพื่อพิสูจน์ว่าดักการดาวน์โหลดได้จริง ไม่งั้นข้อถัดไปผ่านฟรี */
+        exportResidentDashboard(me);
+        const own = grabbed.length;
+        exportResidentDashboard(other.id);
+        window.download = real;
+        return { otherName: other.name, own, total: grabbed.length, files: grabbed };
+      });
+      t.check("ดักการดาวน์โหลดได้จริง — กดของตัวเองแล้วมีไฟล์ออกมา", b2.own === 1, b2.files.join(", "));
+      t.check("แพทย์ประจำบ้านกดส่งออกแดชบอร์ดของคนอื่นไม่ได้",
+              b2.total === b2.own, b2.files.join(", ") || "ไม่มีไฟล์ถูกสร้าง");
+      await rp.close();
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);
