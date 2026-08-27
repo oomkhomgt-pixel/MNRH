@@ -445,6 +445,52 @@ export default async function run() {
       t.eq("ผลประเมินผูกกับแพทย์ประจำบ้านคนที่ถูกประเมิน", r.evRid, r.rid);
       t.check("CSV ผลประเมินลงกองมีข้อมูลจริง", r.csv > 1, r.csv - 1 + " แถว");
 
+      /* ---------- กติกาชั้นปีของหน่วย และชื่ออาจารย์จริง ---------- */
+      const rule = await page.evaluate(() => {
+        const d = store.data;
+        const bad = rotationYearWarnings(d.rotations, d.services, d.residents);
+        /* ปี 1 ต้องไปวน Trauma Surgery ของศัลยกรรมอุบัติเหตุ ไม่ใช่หน่วย trauma ของออร์โธฯ */
+        const r1 = d.residents.find(r => r.name.includes("อัฐท์"));
+        const aug = d.rotations.find(x => x.residentId === r1?.id && (x.start || "").startsWith("2026-08"));
+        const augSvc = d.services.find(x => x.id === aug?.serviceId);
+        /* ยัดรอบผิดกติกาเข้าไปหนึ่งรายการ ต้องได้คำเตือนที่ระบุตัวคนและหน่วย */
+        const sub = d.services.find(x => x.subUnit);
+        const planted = rotationYearWarnings(
+          [{ residentId:r1.id, serviceId:sub.id, start:"2026-09-01", end:"2026-09-30" }], d.services, d.residents);
+        return { bad, augAbbr: augSvc?.abbr, augExternal: !!augSvc?.external, augYears: augSvc?.years,
+                 ext: externalByYear(d.services),
+                 planted: planted.length === 1 && planted[0].includes(r1.name) && planted[0].includes(sub.name) };
+      });
+      t.eq("ไม่มีรอบหมุนเวียนใดขัดกติกาชั้นปีของหน่วย", rule.bad, []);
+      t.eq("เดือน ส.ค. ของปี 1 คือ Trauma Surgery ซึ่งเป็นการวนนอกกลุ่มงานของชั้นปี 1",
+           [rule.augAbbr, rule.augExternal, rule.augYears], ["TRS", true, [1]]);
+      t.eq("รายชื่อหน่วยนอกกลุ่มงานมาจาก services[].years ตรงตามหลักสูตร",
+           rule.ext, { 1:["svc_anesth","svc_rheum","svc_traumasurg"], 2:["svc_pmr"] });
+      t.check("ยัดรอบที่ผิดชั้นปีเข้าไป ได้คำเตือนที่ระบุตัวคนและหน่วย", rule.planted);
+
+      const names = await page.evaluate(() => {
+        const d = store.data;
+        const roster = new Set((d.staff || []).map(x => x.name));
+        const off = [];
+        (d.activities || []).forEach(a => {
+          if (a.assessment?.by && !roster.has(a.assessment.by)) off.push("ผู้ประเมิน: " + a.assessment.by);
+          if (a.verifiedBy && !roster.has(a.verifiedBy)) off.push("ผู้รับรอง: " + a.verifiedBy);
+        });
+        (d.research || []).forEach(x => { if (x.advisor && !roster.has(x.advisor)) off.push("ที่ปรึกษาวิจัย: " + x.advisor); });
+        (d.residents || []).forEach(r => { if (r.advisor && !roster.has(r.advisor)) off.push("ที่ปรึกษา: " + r.advisor); });
+        const noAdvisor = (d.residents || []).filter(r => !r.advisor).map(r => r.name);
+        /* ที่ปรึกษางานวิจัยควรถืออนุสาขาตรงกับโครงการ */
+        const mismatch = (d.research || []).filter(x => {
+          const st = (d.staff || []).find(y => y.name === x.advisor);
+          const mine = st?.subspecialties?.length ? st.subspecialties : [st?.subspecialty].filter(Boolean);
+          return !mine.includes(x.subspecialty);
+        }).map(x => x.subspecialty);
+        return { off: [...new Set(off)], noAdvisor, mismatch };
+      });
+      t.eq("ทุกชื่ออาจารย์ในข้อมูลสาธิตมาจากทะเบียนจริง ไม่มีชื่อสมมติหลงเหลือ", names.off, []);
+      t.eq("แพทย์ประจำบ้านทุกคนมีอาจารย์ที่ปรึกษา", names.noAdvisor, []);
+      t.eq("อาจารย์ที่ปรึกษางานวิจัยถืออนุสาขาตรงกับโครงการ", names.mismatch, []);
+
       /* ---------- ชุดข้อตั้งต้น: 8 ข้อ อ้างอิง WFME ---------- */
       const def = await page.evaluate(() => {
         const f = rotationForm();

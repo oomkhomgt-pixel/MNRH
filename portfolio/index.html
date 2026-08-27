@@ -394,6 +394,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
             <li>หน่วยอนุสาขาที่อยู่คู่กัน: Trauma/Paediatrics · Hand/Tumour · Foot &amp; Ankle/Sports (Spine และ Arthroplasty แยกหน่วย)</li>
           </ul></details>
         <div id="planNotes"></div>
+        <div id="rotationRuleNotes"></div>
         <div class="row" id="monthLegend" style="margin-bottom:.6rem"></div>
         <div id="monthGrid"></div>
         <div id="teamComposition" style="margin-top:1.2rem"></div>
@@ -1732,7 +1733,14 @@ const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDat
        · ปี 4 วนตาม sub/สาย ถึงเดือน ก.พ. แล้ว free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.
        · การวนนอกภาควิชาไม่ให้ชนกันในชั้นปี และการลงสายแบ่งคนให้เท่ากันที่สุด
    ===================================================================== */
-const EXTERNAL_BY_YEAR = { 1: ["svc_anesth", "svc_rheum", "svc_traumasurg"], 2: ["svc_pmr"] };
+/* หน่วยไหนเป็นของชั้นปีไหน เก็บไว้ที่ตัวหน่วยเอง (services[].years) ที่เดียว
+   เดิมกติกาเดียวกันถูกเขียนไว้สองที่ ซึ่งเป็นเหตุผลหนึ่งที่ตารางจริงกับตัวจัดแผนเพี้ยนจากกันได้ */
+function externalByYear(services) {
+  const out = {};
+  (services || []).filter(x => x.external).forEach(svc =>
+    (svc.years || []).forEach(y => (out[y] ||= []).push(svc.id)));
+  return out;
+}
 const R3_ELECTIVE_MONTHS = 3, R3_ELECTIVE_CONCURRENT_MAX = 2;
 const R4_ELECTIVE_FROM_MONTH = 2;   /* 2 = มีนาคม (0 = มกราคม) */
 const R4_MAX_TEAM_MONTHS = 3;       /* ปี 4 ลงสายเป็นกำลังเสริมได้ไม่เกินกี่เดือน ที่เหลือต้องได้วนหน่วยอนุสาขา */
@@ -1758,6 +1766,25 @@ function defaultSupervisorFor(serviceId, services, staff) {
     return mine.some(x => want.includes(x));
   });
   return hit?.id || "";
+}
+
+/* ตรวจว่ามีใครถูกลงหน่วยที่ไม่ใช่ของชั้นปีตัวเองไหม
+   กติกานี้เคยอยู่แต่ในตัวจัดแผน จึงไม่เคยถูกตรวจกับตารางจริงที่ป้อนด้วยมือ
+   แล้วปี 1 ก็ถูกลงหน่วยอนุสาขาของปี 4 ไปทั้งเดือนโดยไม่มีอะไรทักท้วง */
+function rotationYearWarnings(rotations, services, residents) {
+  const svcById = (id) => (services || []).find(x => x.id === id);
+  const resById = (id) => (residents || []).find(x => x.id === id);
+  const seen = new Set(), out = [];
+  (rotations || []).forEach(rot => {
+    const svc = svcById(rot.serviceId), r = resById(rot.residentId);
+    if (!svc || !r || !(svc.years || []).length || svc.years.includes(r.year)) return;
+    const key = r.id + "|" + svc.id;
+    if (seen.has(key)) return;                 /* คนเดิมหน่วยเดิมหลายเดือน เตือนครั้งเดียวพอ */
+    seen.add(key);
+    out.push(r.name + " (ปี " + r.year + ") ถูกลง " + svc.name +
+             " ซึ่งเป็นหน่วยของปี " + svc.years.join("/") + " · " + fmtDate(rot.start));
+  });
+  return out;
 }
 
 function buildRotationPlan(ay, residents, services, staff) {
@@ -1806,7 +1833,7 @@ function buildRotationPlan(ay, residents, services, staff) {
       });
     });
   };
-  Object.entries(EXTERNAL_BY_YEAR).forEach(([year, ids]) => placeExternal(byYear[year] || [], ids));
+  Object.entries(externalByYear(services)).forEach(([year, ids]) => placeExternal(byYear[year] || [], ids));
 
   /* ลงสายรายเดือน
      · ปี 1–3 ลงสาย คุมทั้งจำนวนรวมและสัดส่วนรุ่นพี่/รุ่นน้อง
@@ -1927,6 +1954,7 @@ function buildRotationPlan(ay, residents, services, staff) {
     });
   });
 
+  warnings.push(...rotationYearWarnings(rotations, services, residents));
   return { rotations, warnings, months };
 }
 
@@ -2007,56 +2035,6 @@ function seedData() {
     ["res_h","preop","trauma","Post-op review: DVT หลังผ่าตัดกระดูกสะโพก",52,null]
   ];
 
-  const staff = ["นพ. ประสิทธิ์ วงศ์กระดูก","พญ. สุภาวดี ข้อดี","นพ. อรรถพล กระดูกงาม"];
-  const activities = rows.map((r, i) => {
-    const [residentId, type, sub, title, ago, score] = r;
-    const date = daysAgoISO(ago);
-    return {
-      id: uid("act"),
-      residentId, type, subspecialty: sub, title,
-      date,
-      academicYear: academicYear(date),
-      source: i % 3 === 0 ? "manual" : "slides",
-      evidence: i % 3 === 0 ? null : {
-        fileName: title.slice(0, 28).replace(/[^฀-๿a-zA-Z0-9]+/g, "_") + ".pptx",
-        fileType: "pptx", slideCount: 12 + (i % 18), hash: "",
-        excerpt: "(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)",
-        detectedBy: "keyword", confidence: 0.7
-      },
-      wfme: TYPE_BY_ID[type]?.wfme.slice() || [],
-      assessment: score == null ? null : {
-        ...demoTalkEval(type, score, staff[i % staff.length], date, i),
-        at: date
-      },
-      verified: score != null || ago > 20,
-      verifiedBy: score != null ? staff[i % staff.length] : (ago > 20 ? staff[(i + 1) % staff.length] : ""),
-      note: "",
-      createdAt: new Date(Date.now() - ago * 86400000).toISOString()
-    };
-  });
-
-  const research = [
-    { id:uid("rs"), residentId:"res_a", title:"ผลการรักษา thoracolumbar burst fracture ด้วย percutaneous pedicle screw fixation",
-      advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"spine", type:"Retrospective cohort",
-      stages:{ topic:{done:daysAgoISO(400)}, proposal:{done:daysAgoISO(330)}, ec:{done:daysAgoISO(300)},
-               collect:{done:daysAgoISO(90)}, analyse:{due:daysAheadISO(20)}, present:{due:daysAheadISO(80)}, publish:{due:daysAheadISO(240)} } },
-    { id:uid("rs"), residentId:"res_b", title:"อัตราการกลับไปเล่นกีฬาหลังผ่าตัดสร้างเอ็นไขว้หน้าในผู้ป่วยไทย",
-      advisor:"พญ. สุภาวดี ข้อดี", subspecialty:"sports", type:"Prospective cohort",
-      stages:{ topic:{done:daysAgoISO(380)}, proposal:{done:daysAgoISO(310)}, ec:{done:daysAgoISO(280)},
-               collect:{due:daysAheadISO(45)}, analyse:{due:daysAheadISO(110)}, present:{due:daysAheadISO(160)}, publish:{} } },
-    { id:uid("rs"), residentId:"res_c", title:"ความสัมพันธ์ระหว่างระยะเวลารอผ่าตัดกับผลลัพธ์ในผู้ป่วยกระดูกสะโพกหัก",
-      advisor:"นพ. อรรถพล กระดูกงาม", subspecialty:"trauma", type:"Retrospective cohort",
-      stages:{ topic:{done:daysAgoISO(240)}, proposal:{done:daysAgoISO(150)}, ec:{due:daysAgoISO(20)},
-               collect:{due:daysAheadISO(60)}, analyse:{}, present:{}, publish:{} } },
-    { id:uid("rs"), residentId:"res_d", title:"ผลการรักษาเท้าปุกด้วยวิธี Ponseti ในโรงพยาบาลมหาราชนครราชสีมา",
-      advisor:"นพ. ประสิทธิ์ วงศ์กระดูก", subspecialty:"pediatric", type:"Retrospective review",
-      stages:{ topic:{done:daysAgoISO(200)}, proposal:{done:daysAgoISO(120)}, ec:{done:daysAgoISO(95)},
-               collect:{due:daysAheadISO(30)}, analyse:{}, present:{}, publish:{} } }
-  ];
-
-  /* --- อาจารย์ผู้รับผิดชอบและหน่วยที่หมุนเวียน --- */
-  /* อาจารย์ประจำแต่ละสาย ตามตารางจริงของกลุ่มงาน
-     คนที่ทำหลายอนุสาขามี subspecialties กำกับไว้ ส่วน subspecialty คืออันหลัก */
   const staffRoster = [
     /* สายฟ้า */
     { id:"st_1",  name:"พญ. มานิตา",    subspecialty:"hand",         role:"อาจารย์แพทย์" },
@@ -2087,6 +2065,75 @@ function seedData() {
     { id:"st_22", name:"นพ. วัชระ",     subspecialty:"general",      role:"เกษียณ — ออกตรวจ OPD ไม่มีห้องผ่าตัด" },
     { id:"st_23", name:"พญ. ศุภมาส",    subspecialty:"pediatric",    role:"เกษียณ — อาจารย์พิเศษ: OR วันพุธ และคลินิกออร์โธเด็กบ่ายพฤหัสบดี" }
   ];
+
+  /* ผู้ประเมินและผู้รับรอง เลือกจากทะเบียนอาจารย์จริง และให้อนุสาขาตรงกับงานที่ประเมินเมื่อมีคนถือ
+     ไม่ใช้ชื่อสมมติ เพราะหน้าจอสาธิตถูกเอาไปให้อาจารย์ดูจริง ชื่อที่ไม่มีอยู่จริงทำให้ดูเหมือนของเล่น */
+  const staffBySub = (sub, k) => {
+    const hit = staffRoster.filter(x => {
+      const mine = x.subspecialties?.length ? x.subspecialties : [x.subspecialty].filter(Boolean);
+      return mine.includes(sub);
+    });
+    const list = hit.length ? hit : staffRoster;
+    /* k มาจากลูปที่เริ่มติดลบได้ (ตารางนำเสนอไล่ย้อนหลัง 8 สัปดาห์) — มอดุโลของค่าติดลบเป็นค่าติดลบ
+       ซึ่งจะได้ index ที่ไม่มีอยู่จริง ต้องดึงกลับเข้าช่วงก่อนเสมอ */
+    return list[((k % list.length) + list.length) % list.length].name;
+  };
+  const activities = rows.map((r, i) => {
+    const [residentId, type, sub, title, ago, score] = r;
+    const date = daysAgoISO(ago);
+    return {
+      id: uid("act"),
+      residentId, type, subspecialty: sub, title,
+      date,
+      academicYear: academicYear(date),
+      source: i % 3 === 0 ? "manual" : "slides",
+      evidence: i % 3 === 0 ? null : {
+        fileName: title.slice(0, 28).replace(/[^฀-๿a-zA-Z0-9]+/g, "_") + ".pptx",
+        fileType: "pptx", slideCount: 12 + (i % 18), hash: "",
+        excerpt: "(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)",
+        detectedBy: "keyword", confidence: 0.7
+      },
+      wfme: TYPE_BY_ID[type]?.wfme.slice() || [],
+      assessment: score == null ? null : {
+        ...demoTalkEval(type, score, staffBySub(sub, i), date, i),
+        at: date
+      },
+      verified: score != null || ago > 20,
+      verifiedBy: score != null ? staffBySub(sub, i) : (ago > 20 ? staffBySub(sub, i + 1) : ""),
+      note: "",
+      createdAt: new Date(Date.now() - ago * 86400000).toISOString()
+    };
+  });
+
+  /* อาจารย์ที่ปรึกษาประจำตัว — เดิมเว้นว่างไว้ทุกคน ทำให้หน้าแพทย์ประจำบ้านและแฟ้มที่พิมพ์ออกมาโล่ง
+     กระจายจากทะเบียนจริง ไม่ให้ใครถือเกินคนละสองคน */
+  {
+    const advisors = staffRoster.filter(x => !/เกษียณ/.test(x.role || ""));
+    residents.forEach((r, i) => { r.advisor = advisors[i % advisors.length].name; });
+  }
+
+  const research = [
+    { id:uid("rs"), residentId:"res_a", title:"ผลการรักษา thoracolumbar burst fracture ด้วย percutaneous pedicle screw fixation",
+      advisor:staffBySub("spine", 0), subspecialty:"spine", type:"Retrospective cohort",
+      stages:{ topic:{done:daysAgoISO(400)}, proposal:{done:daysAgoISO(330)}, ec:{done:daysAgoISO(300)},
+               collect:{done:daysAgoISO(90)}, analyse:{due:daysAheadISO(20)}, present:{due:daysAheadISO(80)}, publish:{due:daysAheadISO(240)} } },
+    { id:uid("rs"), residentId:"res_b", title:"อัตราการกลับไปเล่นกีฬาหลังผ่าตัดสร้างเอ็นไขว้หน้าในผู้ป่วยไทย",
+      advisor:staffBySub("sports", 0), subspecialty:"sports", type:"Prospective cohort",
+      stages:{ topic:{done:daysAgoISO(380)}, proposal:{done:daysAgoISO(310)}, ec:{done:daysAgoISO(280)},
+               collect:{due:daysAheadISO(45)}, analyse:{due:daysAheadISO(110)}, present:{due:daysAheadISO(160)}, publish:{} } },
+    { id:uid("rs"), residentId:"res_c", title:"ความสัมพันธ์ระหว่างระยะเวลารอผ่าตัดกับผลลัพธ์ในผู้ป่วยกระดูกสะโพกหัก",
+      advisor:staffBySub("trauma", 0), subspecialty:"trauma", type:"Retrospective cohort",
+      stages:{ topic:{done:daysAgoISO(240)}, proposal:{done:daysAgoISO(150)}, ec:{due:daysAgoISO(20)},
+               collect:{due:daysAheadISO(60)}, analyse:{}, present:{}, publish:{} } },
+    { id:uid("rs"), residentId:"res_d", title:"ผลการรักษาเท้าปุกด้วยวิธี Ponseti ในโรงพยาบาลมหาราชนครราชสีมา",
+      advisor:staffBySub("pediatric", 0), subspecialty:"pediatric", type:"Retrospective review",
+      stages:{ topic:{done:daysAgoISO(200)}, proposal:{done:daysAgoISO(120)}, ec:{done:daysAgoISO(95)},
+               collect:{due:daysAheadISO(30)}, analyse:{}, present:{}, publish:{} } }
+  ];
+
+  /* --- อาจารย์ผู้รับผิดชอบและหน่วยที่หมุนเวียน --- */
+  /* อาจารย์ประจำแต่ละสาย ตามตารางจริงของกลุ่มงาน
+     คนที่ทำหลายอนุสาขามี subspecialties กำกับไว้ ส่วน subspecialty คืออันหลัก */
 
   /* หน่วยหมุนเวียน: สาย 4 สาย, หน่วยอนุสาขา (บางอนุสาขาอยู่คู่กัน), การวนนอกภาควิชา และ free elective */
   const services = [
@@ -2152,36 +2199,36 @@ function seedData() {
         { day:5, part:"day", name:"OPD — สายขาว", staffIds:[], location:"OPD ออร์โธปิดิกส์" }
       ] },
 
-    { id:"svc_trauma_ped", name:"Trauma / Paediatric", subUnit:true, subspecialties:["trauma","pediatric"],
+    { id:"svc_trauma_ped", name:"Trauma / Paediatric", subUnit:true, years:[4], subspecialties:["trauma","pediatric"],
       abbr:"TR/PED", colour:"#a32d2d", site:"หอผู้ป่วยอุบัติเหตุ ชั้น 4",
       /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
          คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
       template:[] },
-    { id:"svc_hand_tumour", name:"Hand / Tumour", subUnit:true, subspecialties:["hand","oncology"],
+    { id:"svc_hand_tumour", name:"Hand / Tumour", subUnit:true, years:[4], subspecialties:["hand","oncology"],
       abbr:"HND/ONC", colour:"#a8630a", site:"หอผู้ป่วยออร์โธปิดิกส์",
       /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
          คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
       template:[] },
-    { id:"svc_foot_sports", name:"Foot & Ankle / Sports", subUnit:true, subspecialties:["foot","sports"],
+    { id:"svc_foot_sports", name:"Foot & Ankle / Sports", subUnit:true, years:[4], subspecialties:["foot","sports"],
       abbr:"FT/SPT", colour:"#1f6f8b", site:"หอผู้ป่วยออร์โธปิดิกส์",
       /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
          คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
       template:[] },
-    { id:"svc_spine", name:"Spine", subUnit:true, subspecialties:["spine"], abbr:"SPN", colour:"#1f7a4d",
+    { id:"svc_spine", name:"Spine", subUnit:true, years:[4], subspecialties:["spine"], abbr:"SPN", colour:"#1f7a4d",
       site:"หอผู้ป่วยออร์โธปิดิกส์",
       /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
          คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
       template:[] },
-    { id:"svc_arthro", name:"Arthroplasty", subUnit:true, subspecialties:["arthroplasty"], abbr:"ARP", colour:"#7a4fa3",
+    { id:"svc_arthro", name:"Arthroplasty", subUnit:true, years:[4], subspecialties:["arthroplasty"], abbr:"ARP", colour:"#7a4fa3",
       site:"หอผู้ป่วยออร์โธปิดิกส์",
       /* หน่วยอนุสาขาไม่มีตารางของตัวเอง — งานแบ่งไปตามสาย
          คนที่วนหน่วยนี้จึงตามลิสต์ของอนุสาขาตัวเองในทุกสาย */
       template:[] },
 
-    { id:"svc_anesth",     name:"Anaesthesiology (นอกภาควิชา)",        external:true, subspecialties:["general"], abbr:"ANES", colour:"#475569", site:"กลุ่มงานวิสัญญีวิทยา", template:[] },
-    { id:"svc_rheum",      name:"Rheumatology (นอกภาควิชา)",          external:true, subspecialties:["general"], abbr:"RHEU", colour:"#6d28d9", site:"กลุ่มงานอายุรกรรม หน่วยโรคข้อ", template:[] },
-    { id:"svc_traumasurg", name:"Trauma Surgery (นอกภาควิชา)",        external:true, subspecialties:["general"], abbr:"TRS",  colour:"#be123c", site:"กลุ่มงานศัลยกรรมอุบัติเหตุ", template:[] },
-    { id:"svc_pmr",        name:"Rehabilitation Medicine (นอกภาควิชา)", external:true, subspecialties:["general"], abbr:"PM&R", colour:"#0e7490", site:"กลุ่มงานเวชศาสตร์ฟื้นฟู", template:[] },
+    { id:"svc_anesth",     name:"Anaesthesiology (นอกภาควิชา)",        external:true, years:[1], subspecialties:["general"], abbr:"ANES", colour:"#475569", site:"กลุ่มงานวิสัญญีวิทยา", template:[] },
+    { id:"svc_rheum",      name:"Rheumatology (นอกภาควิชา)",          external:true, years:[1], subspecialties:["general"], abbr:"RHEU", colour:"#6d28d9", site:"กลุ่มงานอายุรกรรม หน่วยโรคข้อ", template:[] },
+    { id:"svc_traumasurg", name:"Trauma Surgery (นอกภาควิชา)",        external:true, years:[1], subspecialties:["general"], abbr:"TRS",  colour:"#be123c", site:"กลุ่มงานศัลยกรรมอุบัติเหตุ", template:[] },
+    { id:"svc_pmr",        name:"Rehabilitation Medicine (นอกภาควิชา)", external:true, years:[2], subspecialties:["general"], abbr:"PM&R", colour:"#0e7490", site:"กลุ่มงานเวชศาสตร์ฟื้นฟู", template:[] },
 
     { id:"svc_elective", name:"Free elective", elective:true, subspecialties:["general"], abbr:"ELE", colour:"#0f766e",
       site:"ตามที่แพทย์ประจำบ้านเลือก", template:[] },
@@ -2215,7 +2262,8 @@ function seedData() {
     res_d:"svc_red",    res_e:"svc_red",    res_f:"svc_red",    res_g:"svc_red",
     res_h:"svc_yellow", res_i:"svc_yellow", res_j:"svc_yellow",
     res_k:"svc_white",  res_l:"svc_white",  res_m:"svc_white",  res_n:"svc_white",
-    res_o:"svc_trauma_ped",                 /* elective ภายในสถาบัน — trauma */
+    res_o:"svc_traumasurg",                 /* ปี 1 — trauma ของปี 1 คือ Trauma Surgery ของศัลยกรรมอุบัติเหตุ
+                                               ไม่ใช่หน่วย Trauma / Paediatric ของออร์โธฯ ซึ่งเป็นหน่วยอนุสาขาของปี 4 */
     res_p:"svc_anesth",                     /* elective ภายในสถาบัน — วิสัญญี */
     res_q:"svc_elective", res_r:"svc_elective",   /* elective ภายนอกสถาบัน */
     res_s:"svc_hand_tumour",                /* วน sub — hand / tumour */
@@ -2445,8 +2493,8 @@ function seedData() {
                         detectedBy:"keyword", confidence: 0.72 },
             wfme: (TYPE_BY_ID[sl.type]?.wfme || []).slice(),
             assessment: (w + si) % 2 === 0
-              ? demoTalkEval(sl.type, 4, staff[(w + si + 8) % staff.length], date, w + si) : null,
-            verified: true, verifiedBy: staff[(w + si + 4) % staff.length], note:"",
+              ? demoTalkEval(sl.type, 4, staffBySub(pick[1], w + si), date, w + si) : null,
+            verified: true, verifiedBy: staffBySub(pick[1], w + si + 1), note:"",
             createdAt: date + "T09:00:00"
           };
           activities.push(link);
@@ -4167,6 +4215,13 @@ function renderMonthGrid() {
   const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
   const usedIds = new Set();
+
+  /* ตรวจตารางจริงที่ป้อนไว้ ไม่ใช่แค่แผนที่ระบบสร้าง — จุดที่พลาดคือตอนป้อนตารางด้วยมือ */
+  const ruleWarn = rotationYearWarnings(store.data.rotations, store.data.services, store.data.residents);
+  const notes = $("#rotationRuleNotes");
+  if (notes) notes.innerHTML = ruleWarn.length
+    ? `<div class="notice warn small"><b>ตารางที่บันทึกไว้ขัดกติกาชั้นปีของหน่วย</b><br />• ${ruleWarn.map(esc).join("<br />• ")}</div>`
+    : "";
 
   $("#monthGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="month">
     <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
