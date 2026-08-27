@@ -67,6 +67,9 @@ main{max-width:1180px;margin:0 auto;padding:1rem 1rem 4rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:1rem;margin-bottom:1rem}
 .card>h2,.card>h3{margin-top:0}
 .grid{display:grid;gap:1rem}
+/* ลูกของกริดมี min-width:auto ตามค่าเริ่มต้น ข้อความยาว ๆ ที่ตัดคำไม่ได้จึงดันช่องให้กว้างเกินจอ
+   แล้วทั้งหน้าปัดข้างได้ — เจอบนหน้าตารางที่การ์ด "ตอนนี้ใครอยู่หน่วยไหน" มีชื่อคาบยาว */
+.grid>*{min-width:0}
 @media(min-width:780px){.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}}
 .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
 .between{display:flex;gap:.75rem;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
@@ -207,6 +210,9 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .sess.muted-sess{opacity:.62;border-style:dashed}
 .tplrow{border:1px solid var(--line);border-radius:8px;padding:.6rem .7rem;margin-bottom:.5rem;background:#fbfcfd}
 .sess.due{background:var(--warn-soft)}
+/* ป้ายในชิปคาบอาจยาว เช่น "ชนกับ OR — sports / spine / arthroplasty"
+   .tag ตั้ง nowrap ไว้ ซึ่งบนจอแคบจะดันทั้งหน้าให้ปัดข้าง ในชิปคาบให้ตัดบรรทัดได้ */
+.sess .tag{white-space:normal}
 .sess .pill{font-size:.68rem;border-radius:4px;padding:0 .25rem;background:#eef1f4;color:var(--ink-2)}
 .nowcard{border:1px solid var(--line);border-radius:var(--r);padding:.7rem .8rem;background:#fff}
 .nowcard .svc{font-weight:650}
@@ -943,6 +949,26 @@ const WFME_SOURCES = [
    --------------------------------------------------------------------- */
 /* ผลประเมินงานนำเสนอของข้อมูลสาธิต — กระจายคะแนนรายด้านรอบค่ากลาง ไม่ให้เท่ากันทุกข้อ
    ฟอร์มจริงจะได้เห็นว่าหน้าตาเวลามีข้อมูลครบเป็นอย่างไร */
+/* คำตอบสาธิตของแบบประเมินลงกอง — ไล่ตามนิยามของฟอร์มตั้งต้น
+   ข้อให้คะแนนกระจายรอบค่ากลาง ข้อเลือกและข้อความเติมให้พอเห็นหน้าตาเวลามีข้อมูลครบ */
+function demoRotationAnswers(base, seed) {
+  const scores = {}, answers = {};
+  ROTATION_FORM_DEFAULT.items.forEach((it, k) => {
+    if (it.kind === "scale") {
+      const v = base + [-0.4, 0.3, 0, 0.2, -0.2, 0.4][(seed + k) % 6];
+      scores[it.id] = Math.round(Math.max(1, Math.min(ROTATION_FORM_DEFAULT.scale.max, v)) * 10) / 10;
+    } else if (it.kind === "choice" && it.role !== "comment") {
+      const opts = it.options || [];
+      if (opts.length) answers[it.id] = opts[base >= 3.6 ? 0 : base >= 2.8 ? 1 : 2]?.v ?? opts[0].v;
+    } else if (it.kind === "paragraph" && it.role !== "comment") {
+      answers[it.id] = ["เตรียมเคสมาดีและส่งเวรครบทุกวัน",
+                        "ถามเมื่อไม่แน่ใจ ไม่ตัดสินใจเกินตัว",
+                        "ทำงานกับทีมพยาบาลได้ราบรื่นมาก"][(seed + k) % 3];
+    }
+  });
+  return { scores, answers };
+}
+
 function demoTalkEval(type, mean, by, at, seed) {
   const items = talkEvalItemsFor(type);
   const scores = {};
@@ -1108,20 +1134,40 @@ const ROTATION_ITEM_KINDS = [
   { id:"paragraph", th:"ข้อความยาว" },
   { id:"entrust",   th:"ระดับ entrustment (สเกลกลางของระบบ)" }
 ];
+/* ชุดข้อตั้งต้น — ประเมินการทำงานในสายของแต่ละเดือน ครอบคลุมสมรรถนะ 6 ด้าน ด้านละ 1–2 ข้อ
+   ตั้งใจให้สั้น เพราะของจริงคือ 20 คน × 12 เดือน ฟอร์มที่ยาวเกินไปจะได้ 3 หมดทุกช่องภายในเดือนที่สาม
+   รหัส WFME ในแต่ละข้อคือ "ข้อนี้เป็นหลักฐานให้มาตรฐานหมวดไหน" — WFME เป็นมาตรฐานของหลักสูตร
+   ไม่ใช่กรอบสมรรถนะสำหรับให้คะแนนตัวแพทย์ประจำบ้าน หัวข้อที่ให้คะแนนจึงมาจากผลลัพธ์การเรียนรู้
+   แล้วโยงกลับไปที่หมวดที่มันเป็นหลักฐานให้ แบบเดียวกับที่ ACTIVITY_TYPES ทำอยู่
+   คง id "knowledge" กับ "comment" ไว้จากชุดเดิม ผลประเมินที่บันทึกไว้แล้วจะได้ยังลงช่องจริง */
 const ROTATION_FORM_DEFAULT = {
-  title: "ประเมินลงกองเมื่อจบรอบหมุนเวียน",
+  version: 2,
+  title: "ประเมินการทำงานในสายเมื่อจบรอบหมุนเวียน",
   /* สเกลเดียวทั้งฟอร์ม — ค่าเฉลี่ยข้ามข้อที่คนละเต็มไม่มีความหมาย */
   scale: { min:1, max:5, minLabel:"ต้องปรับปรุงมาก", maxLabel:"ดีมาก" },
   items: [
-    { id:"perf",         kind:"section",   th:"ผลการปฏิบัติงานตลอดรอบ", help:"หลักฐาน WFME 3.1 / 3.2 / 7.2" },
-    { id:"knowledge",    kind:"scale",     th:"ความรู้และการตัดสินใจทางคลินิก" },
-    { id:"skill",        kind:"scale",     th:"ทักษะการตรวจและหัตถการ" },
-    { id:"professional", kind:"scale",     th:"ความเป็นมืออาชีพ การสื่อสาร และการทำงานเป็นทีม" },
-    { id:"entrust",      kind:"entrust",   th:"ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ เมื่อจบรอบนี้" },
-    { id:"comment",      kind:"paragraph", role:"comment", th:"ข้อเสนอแนะเมื่อจบรอบ",
-      placeholder:"สิ่งที่ทำได้ดีตลอดเดือน และสิ่งที่ควรทำต่างออกไปในรอบหน้า" }
+    { id:"care", kind:"section", th:"ด้านการดูแลผู้ป่วยและความรู้",
+      help:"ให้คะแนน 1–5 · 3 = ทำได้ตามระดับชั้นปี · ข้อที่ไม่ได้เห็นให้เว้นว่าง" },
+    { id:"plan",        kind:"scale", th:"วางแผนการตรวจเพิ่มเติมและการรักษาได้เหมาะสมกับผู้ป่วยแต่ละราย", wfme:["2.3","2.6"] },
+    { id:"procedure",   kind:"scale", th:"ทำหัตถการที่ชั้นปีนี้ควรทำได้ อย่างปลอดภัยและถูกขั้นตอน",       wfme:["2.6","6.2"] },
+    { id:"knowledge",   kind:"scale", th:"ความรู้พื้นฐานและความรู้ของอนุสาขาที่วนอยู่ เพียงพอต่อการตัดสินใจ", wfme:["2.3"] },
+    { id:"work", kind:"section", th:"ด้านการเรียนรู้ การสื่อสาร และความเป็นมืออาชีพ" },
+    { id:"feedback",    kind:"scale", th:"รับข้อเสนอแนะแล้วนำไปปรับการทำงานจริงภายในรอบนี้",              wfme:["3.2","7.2"] },
+    { id:"handover",    kind:"scale", th:"ส่งเวรและปรึกษาข้ามทีมครบถ้วน ตรงเวลา ไม่ตกหล่น",              wfme:["2.6","6.4"] },
+    { id:"responsible", kind:"scale", th:"ตรงต่อเวลา และรับผิดชอบงานที่ได้รับมอบหมายจนจบ",               wfme:["1.2","4.5"] },
+    { id:"respect",     kind:"scale", th:"เคารพผู้ป่วย ญาติ และทุกวิชาชีพในทีม",                        wfme:["1.2","6.4"] },
+    { id:"teamwork",    kind:"scale", th:"ทำงานร่วมกับพยาบาล กายภาพ และสหวิชาชีพได้ราบรื่น",             wfme:["6.4"] },
+    { id:"entrust",     kind:"entrust", th:"ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ เมื่อจบรอบนี้",      wfme:["3.1"] },
+    { id:"outcome",     kind:"choice", th:"ผลโดยรวมของรอบนี้", scored:false, wfme:["3.1","7.1"],
+      options:[{ v:"pass", th:"ผ่าน" }, { v:"advice", th:"ผ่านโดยมีข้อแนะนำ" }, { v:"watch", th:"ต้องติดตามเป็นพิเศษ" }] },
+    { id:"strengths",   kind:"paragraph", th:"สิ่งที่ทำได้ดีในรอบนี้", wfme:["7.2"],
+      placeholder:"ระบุให้ชัดว่าดีตรงไหน จะได้ทำซ้ำได้" },
+    { id:"comment",     kind:"paragraph", role:"comment", th:"สิ่งที่ควรพัฒนาในรอบหน้า", wfme:["3.2","7.2"],
+      placeholder:"เขียนเป็นสิ่งที่ทำได้จริงในรอบหน้า ไม่ใช่คำตัดสิน" }
   ]
 };
+/* รหัสข้อของชุดตั้งต้นรุ่นแรก ใช้ดูว่าฟอร์มที่เก็บไว้ยังไม่เคยถูกแก้ จึงอัปเกรดให้ได้ */
+const ROTATION_FORM_V1_IDS = ["perf","knowledge","skill","professional","entrust","comment"].join(",");
 /* id ของข้อถูกเอาไปประกอบเป็น selector ของช่องกรอก (dlgVal ต่อสตริงเอง ไม่ได้ escape)
    id ที่มีอัญประกาศหรือวงเล็บเหลี่ยมจะพังทั้ง selector และ attribute จึงต้องล้างก่อนเสมอ */
 const safeItemId = (raw, i) =>
@@ -1248,10 +1294,20 @@ const store = {
     /* นิยามของแบบประเมินลงกอง — คัดลอกค่าตั้งต้นเข้าฐานข้อมูลครั้งเดียว
        หลังจากนั้นเป็นของผู้จัดหลักสูตร โปรแกรมไม่เขียนทับอีก (แบบเดียวกับ sessionPriority) */
     d.rotationForm ||= structuredClone(ROTATION_FORM_DEFAULT);
+    /* ชุดตั้งต้นรุ่นแรกเป็นเกณฑ์กลางสามข้อ ยกมาจากแบบประเมินท้ายเซสชัน ไม่ได้ออกแบบมาเพื่อรอบรายเดือน
+       เครื่องที่เคยเปิดแอปไว้แล้วจะค้างอยู่กับชุดนั้นตลอดไปเพราะ ||= ไม่เขียนทับ
+       จึงอัปเกรดให้ครั้งเดียว เฉพาะฟอร์มที่ยัง "ไม่เคยถูกแก้" คือรหัสข้อตรงกับชุดเดิมเป๊ะ
+       ฟอร์มที่กลุ่มงานแก้เองแล้วต้องไม่ถูกทับ ไม่ว่าจะเป็นรุ่นไหน */
+    if (!d.rotationForm.version &&
+        (d.rotationForm.items || []).map(x => x.id).join(",") === ROTATION_FORM_V1_IDS)
+      d.rotationForm = structuredClone(ROTATION_FORM_DEFAULT);
     d.rotationForm.scale = { ...ROTATION_FORM_DEFAULT.scale, ...(d.rotationForm.scale || {}) };
     d.rotationForm.items = (Array.isArray(d.rotationForm.items) ? d.rotationForm.items : [])
       .filter(it => it && (it.id || it.th))
-      .map((it, i) => ({ ...it, id: safeItemId(it.id, i), kind: it.kind || "text" }));
+      .map((it, i) => ({ ...it, id: safeItemId(it.id, i), kind: it.kind || "text",
+        /* รับเฉพาะรหัสที่มีอยู่จริงในตาราง WFME — รหัสมั่วจะทำให้หน้ามาตรฐานอ้างหมวดที่ไม่มี */
+        wfme: (Array.isArray(it.wfme) ? it.wfme : String(it.wfme || "").split(/[\s|,]+/))
+          .map(x => String(x).trim()).filter(x => WFME_BY_ID[x]) }));
     /* id ซ้ำกันแปลว่าคำตอบของข้อหลังจะไปทับข้อแรก — เติมท้ายให้ต่างกัน */
     {
       const seen = new Set();
@@ -2218,8 +2274,10 @@ function seedData() {
     rotationEvals.push({
       id: uid("rev"), rotationId: rot.id, residentId: rot.residentId, serviceId: rot.serviceId,
       month: (rot.end || "").slice(0, 7), start: rot.start, end: rot.end, staffId: rot.supervisorId,
-      scores: { knowledge: r1(base), skill: r1(base - 0.3), professional: r1(Math.min(5, base + 0.2)) },
-      answers: {}, scaleMax: 5,
+      /* สร้างคำตอบจากนิยามของฟอร์มตั้งต้น ไม่ใช่ฝังรหัสข้อไว้ตรงนี้
+         เปลี่ยนชุดข้อครั้งหน้า ข้อมูลสาธิตจะตามเอง ไม่กลายเป็นคำตอบไร้ข้อถามเต็มไปหมด */
+      ...demoRotationAnswers(base, i),
+      scaleMax: ROTATION_FORM_DEFAULT.scale.max,
       entrust: Math.max(1, Math.min(5, Math.round(base - 0.4))),
       comment: remarks[i % remarks.length],
       createdAt: (rot.end || todayISO()) + "T17:30:00", by: "ระบบสาธิต"
@@ -6527,13 +6585,14 @@ function renderRotationFormEditor() {
         <input data-rfscale="maxLabel" value="${esc(f.scale.maxLabel || "")}" /></label>
     </div>
     ${items.length ? `<div class="tbl-wrap"><table>
-      <thead><tr><th>#</th><th>ชนิด</th><th>คำถาม</th><th>ตัวเลือก / ช่วง</th><th>ให้คะแนน</th><th>บังคับ</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>ชนิด</th><th>คำถาม</th><th>ตัวเลือก / ช่วง</th><th>WFME</th><th>ให้คะแนน</th><th>บังคับ</th><th></th></tr></thead>
       <tbody>${items.map((it, i) => `<tr>
         <td class="small muted">${i + 1}</td>
         <td class="small">${esc(kindTh[it.kind] || it.kind)}</td>
         <td>${esc(it.th || "")}${it.role === "comment" ? ` <span class="tag">ข้อเสนอแนะ</span>` : ""}
           <br /><span class="small mono muted">${esc(it.id)}</span></td>
         <td class="small">${esc(detail(it))}</td>
+        <td class="small">${(it.wfme || []).map(w => `<span class="tag b">${esc(w)}</span>`).join(" ") || "—"}</td>
         <td class="small">${rotationScored(it) ? "✓" : "—"}</td>
         <td class="small">${it.required ? "✓" : "—"}</td>
         <td class="no-print" style="white-space:nowrap">
@@ -6579,6 +6638,9 @@ function editRotationItem(id) {
       ถ้าต้องเปลี่ยนจริง ให้เพิ่มข้อใหม่แล้วลบข้อนี้ — คำตอบเดิมจะยังถูกเก็บไว้${used ? " (ตอนนี้มี " + used + " รายการ)" : ""}</p>` : ""}
     <label class="f"><span>คำถาม</span><input name="th" value="${esc(it?.th || "")}" /></label>
     <label class="f"><span>คำอธิบายใต้คำถาม (ไม่ใส่ก็ได้)</span><input name="help" value="${esc(it?.help || "")}" /></label>
+    <label class="f"><span>หมวด WFME ที่ข้อนี้เป็นหลักฐานให้ — คั่นด้วยเว้นวรรค เช่น <span class="mono">2.6 6.4</span>
+      <span class="muted">(รหัสที่ไม่มีในตารางมาตรฐานจะถูกตัดทิ้ง)</span></span>
+      <input name="wfme" class="mono" value="${esc((it?.wfme || []).join(" "))}" /></label>
     <label class="f"><span>ตัวเลือก — บรรทัดละหนึ่ง เขียนเป็น <span class="mono">ค่า=ป้าย</span> เช่น <span class="mono">1=ดีมาก</span>
       <span class="muted">(ใช้เฉพาะชนิด “เลือกหนึ่งข้อ”)</span></span>
       <textarea name="options">${esc(rotationOptions(it || {}).map(o => o.v + "=" + o.th).join("\\n"))}</textarea></label>
@@ -6597,6 +6659,7 @@ function editRotationItem(id) {
         .map((line, i) => { const k = line.indexOf("="); return k < 0 ? { v:String(i + 1), th:line }
                                                                      : { v:line.slice(0, k).trim(), th:line.slice(k + 1).trim() }; });
       const rec = { kind, th, help: dlgVal("help"),
+                    wfme: dlgVal("wfme").split(/[\s|,]+/).map(x => x.trim()).filter(x => WFME_BY_ID[x]),
                     required: !!dlgVal("required"), scored: kind === "scale" ? true : !!dlgVal("scored") };
       if (kind === "choice") rec.options = opts; 
       if (it) { const keep = it.role ? { role: it.role } : {}; Object.assign(it, rec, keep); }
@@ -6621,7 +6684,7 @@ function editRotationItem(id) {
 }
 
 /* คอลัมน์ของ CSV ตรงกันทั้งขาเข้าและขาออก ส่งออกไปแก้ใน Excel แล้วนำเข้ากลับได้ครบ */
-const ROTATION_FORM_COLS = ["order","id","kind","question","options","minLabel","maxLabel","required","scored"];
+const ROTATION_FORM_COLS = ["order","id","kind","question","options","minLabel","maxLabel","required","scored","wfme"];
 function rotationFormCsvRows() {
   const f = rotationForm();
   return [ROTATION_FORM_COLS].concat((f.items || []).map((it, i) => [
@@ -6629,7 +6692,7 @@ function rotationFormCsvRows() {
     rotationOptions(it).map(o => o.v + "=" + o.th).join("|"),
     it.kind === "scale" ? (f.scale.minLabel || "") : "",
     it.kind === "scale" ? (f.scale.maxLabel || "") : "",
-    it.required ? 1 : 0, rotationScored(it) ? 1 : 0
+    it.required ? 1 : 0, rotationScored(it) ? 1 : 0, (it.wfme || []).join(" ")
   ]));
 }
 
@@ -6653,7 +6716,8 @@ function importRotationFormFile(file) {
         rows = (Array.isArray(data) ? data : data.items || []).map(x => ({
           order:x.order, id:x.id, kind:x.kind, question:x.question ?? x.th ?? x.label,
           options:Array.isArray(x.options) ? x.options.map(o => (o.v ?? "") + "=" + (o.th ?? o)).join("|") : x.options,
-          minLabel:x.minLabel, maxLabel:x.maxLabel, required:x.required, scored:x.scored
+          minLabel:x.minLabel, maxLabel:x.maxLabel, required:x.required, scored:x.scored,
+          wfme:Array.isArray(x.wfme) ? x.wfme.join(" ") : x.wfme
         }));
       } else {
         const table = parseCsv(txt);
@@ -6678,6 +6742,7 @@ function importRotationFormFile(file) {
         while (seen.has(id)) id = safeItemId((x.id || x.question) + "_" + n++, i);
         seen.add(id);
         const it = { id, kind, th: String(x.question ?? "").trim(),
+                     wfme: String(x.wfme ?? "").split(/[\s|,]+/).map(v => v.trim()).filter(v => WFME_BY_ID[v]),
                      required: yes(x.required), scored: kind === "scale" ? true : yes(x.scored) };
         if (kind === "choice") it.options = String(x.options ?? "").split("|").map(p => p.trim()).filter(Boolean)
           .map((p, k) => { const j = p.indexOf("="); return j < 0 ? { v:String(k + 1), th:p }
@@ -6958,8 +7023,17 @@ function wfmeEvidence() {
   if (evalN) ["3.1","3.2","5.2","7.2"].forEach(id =>
     map[id]?.sources.push({ label:"แบบประเมินท้ายเซสชันโดยอาจารย์ผู้รับผิดชอบ " + evalN + " ครั้ง (workplace-based assessment)" }));
   const revN = (store.data.rotationEvals || []).length;
-  if (revN) ["3.1","3.2","7.1","7.2"].forEach(id =>
-    map[id]?.sources.push({ label:"แบบประเมินลงกองเมื่อจบรอบหมุนเวียน " + revN + " รอบ พร้อมคะแนนรายด้าน ระดับ entrustment และข้อเสนอแนะ" }));
+  if (revN) {
+    /* หมวดที่อ้างได้มาจากตัวแบบประเมินจริง ไม่ใช่รายการตายตัว — กลุ่มงานแก้ฟอร์มแล้ว
+       หน้ามาตรฐานต้องเปลี่ยนตาม ไม่งั้นจะอ้างหลักฐานที่แบบประเมินไม่ได้ถามอีกแล้ว */
+    const byWfme = {};
+    rotationFormItems().forEach(it => (it.wfme || []).forEach(w => (byWfme[w] ||= []).push(it.th || it.id)));
+    ["3.1","3.2"].forEach(w => byWfme[w] ||= []);       /* ตัวการประเมินเองเป็นหลักฐานของสองหมวดนี้เสมอ */
+    Object.entries(byWfme).forEach(([w, qs]) => map[w]?.sources.push({
+      label:"แบบประเมินการทำงานในสายเมื่อจบรอบหมุนเวียน " + revN + " รอบ" +
+            (qs.length ? " — ข้อที่เกี่ยวข้อง: " + qs.join(" · ") : "")
+    }));
+  }
   const rotN = (store.data.rotations || []).length, svcN = (store.data.services || []).length;
   if (rotN) ["2.4","2.5","2.6","6.2"].forEach(id =>
     map[id]?.sources.push({ label:"ตารางหมุนเวียน " + rotN + " ช่วง ใน " + svcN + " หน่วย พร้อมตารางเซสชันประจำสัปดาห์" }));

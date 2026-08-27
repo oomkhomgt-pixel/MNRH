@@ -425,7 +425,7 @@ export default async function run() {
         await new Promise(res => setTimeout(res, 120));
         const opened = !!document.querySelector("#dlgBody [name=\"sc_knowledge\"]");
         document.querySelector("#dlgBody [name=\"sc_knowledge\"]").value = "4";
-        document.querySelector("#dlgBody [name=\"sc_skill\"]").value = "3";
+        document.querySelector("#dlgBody [name=\"sc_plan\"]").value = "3";
         document.querySelector("#dlgBody [name=\"entrust\"]").value = "3";
         document.querySelector("#dlgBody [name=\"comment\"]").value = "ทดสอบข้อเสนอแนะ";
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
@@ -445,6 +445,57 @@ export default async function run() {
       t.eq("ผลประเมินผูกกับแพทย์ประจำบ้านคนที่ถูกประเมิน", r.evRid, r.rid);
       t.check("CSV ผลประเมินลงกองมีข้อมูลจริง", r.csv > 1, r.csv - 1 + " แถว");
 
+      /* ---------- ชุดข้อตั้งต้น: 8 ข้อ อ้างอิง WFME ---------- */
+      const def = await page.evaluate(() => {
+        const f = rotationForm();
+        const scale = f.items.filter(x => x.kind === "scale");
+        const bad = f.items.flatMap(x => x.wfme || []).filter(w => !WFME_BY_ID[w]);
+        const ev = wfmeEvidence();
+        const cited = [...new Set(f.items.flatMap(x => x.wfme || []))];
+        return {
+          scale: scale.length,
+          scaleNoWfme: scale.filter(x => !(x.wfme || []).length).map(x => x.id),
+          kinds: f.items.map(x => x.kind).join(","),
+          bad, version: f.version,
+          /* หน้ามาตรฐาน WFME ต้องอ้างหลักฐานได้ทุกหมวดที่ฟอร์มบอกว่าตัวเองเป็นหลักฐานให้ */
+          uncited: cited.filter(w => !(ev[w]?.sources || []).some(sc => /แบบประเมินการทำงานในสาย/.test(sc.label))),
+          /* ข้อมูลสาธิตต้องไม่มีคำตอบไร้ข้อถามเลย */
+          orphans: (store.data.rotationEvals || []).reduce((n, x) => n + rotationOrphanAnswers(x).length, 0)
+        };
+      });
+      t.eq("ชุดตั้งต้นมีข้อให้คะแนน 8 ข้อ", def.scale, 8);
+      t.eq("ทุกข้อให้คะแนนผูกกับหมวด WFME", def.scaleNoWfme, []);
+      t.eq("ไม่มีรหัส WFME ที่ไม่มีอยู่จริง", def.bad, []);
+      t.check("มีทั้งหัวข้อคั่น entrustment ผลโดยรวม และสองช่องข้อความ",
+              /section/.test(def.kinds) && /entrust/.test(def.kinds) && /choice/.test(def.kinds)
+              && def.kinds.split(",").filter(k => k === "paragraph").length === 2, def.kinds);
+      t.eq("หน้ามาตรฐาน WFME อ้างหลักฐานครบทุกหมวดที่ฟอร์มระบุ", def.uncited, []);
+      t.eq("ข้อมูลสาธิตสร้างจากนิยามของฟอร์ม ไม่มีคำตอบไร้ข้อถาม", def.orphans, 0);
+
+      /* ---------- อัปเกรดชุดตั้งต้นให้เฉพาะฟอร์มที่ยังไม่เคยถูกแก้ ---------- */
+      const upg = await page.evaluate(() => {
+        const v1 = { title:"เดิม", scale:{ min:1, max:5 },
+          items:[{ id:"perf", kind:"section", th:"ผลการปฏิบัติงานตลอดรอบ" },
+                 { id:"knowledge", kind:"scale", th:"ความรู้" }, { id:"skill", kind:"scale", th:"ทักษะ" },
+                 { id:"professional", kind:"scale", th:"วิชาชีพ" },
+                 { id:"entrust", kind:"entrust", th:"entrust" },
+                 { id:"comment", kind:"paragraph", role:"comment", th:"ข้อเสนอแนะ" }] };
+        const d1 = { ...store.data, rotationForm: JSON.parse(JSON.stringify(v1)) };
+        store.data = d1; store.migrate();
+        const upgraded = store.data.rotationForm.version;
+        /* ฟอร์มที่แก้เองแล้ว (เพิ่มข้อหนึ่งข้อ) ต้องไม่ถูกทับ */
+        const edited = JSON.parse(JSON.stringify(v1));
+        edited.items.push({ id:"mine", kind:"text", th:"ข้อที่กลุ่มงานเพิ่มเอง" });
+        store.data = { ...store.data, rotationForm: edited }; store.migrate();
+        return { upgraded, keptMine: store.data.rotationForm.items.some(x => x.id === "mine"),
+                 keptVersion: store.data.rotationForm.version };
+      });
+      t.eq("ฟอร์มรุ่นเดิมที่ยังไม่เคยแก้ ถูกอัปเกรดเป็นชุดใหม่", upg.upgraded, 2);
+      t.check("ฟอร์มที่กลุ่มงานแก้เองแล้ว ไม่ถูกทับ",
+              upg.keptMine && !upg.keptVersion, JSON.stringify(upg));
+      await page.reload();
+      await page.waitForFunction(() => typeof store !== "undefined" && store.data?.rotationForm);
+
       /* ---------- แบบประเมินลงกองเป็นข้อมูลที่ผู้จัดหลักสูตรแก้ได้ ---------- */
       const form = await page.evaluate(async () => {
         const rot = rotationsToAssess(lastClosedMonth())[0];
@@ -456,31 +507,31 @@ export default async function run() {
         closeDialog();
 
         /* เพิ่มข้อความยาวเข้าไปในฟอร์ม แล้วต้องมีช่องกรอกโผล่ */
-        store.data.rotationForm.items.push({ id:"plan", kind:"paragraph", th:"แผนการพัฒนารอบหน้า" });
+        store.data.rotationForm.items.push({ id:"nextplan", kind:"paragraph", th:"แผนการพัฒนารอบหน้า" });
         store.save();
         openRotationEval(rot.id);
         await new Promise(r => setTimeout(r, 120));
-        out.newField = !!document.querySelector('#dlgBody [name="an_plan"]');
-        document.querySelector('#dlgBody [name="an_plan"]').value = "ฝึกอ่านฟิล์มเพิ่ม";
+        out.newField = !!document.querySelector('#dlgBody [name="an_nextplan"]');
+        document.querySelector('#dlgBody [name="an_nextplan"]').value = "ฝึกอ่านฟิล์มเพิ่ม";
         document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         let ev = rotationEvalFor(rot.id);
-        out.answer = ev.answers?.plan;
-        out.notScored = ev.scores?.plan === undefined;
+        out.answer = ev.answers?.nextplan;
+        out.notScored = ev.scores?.nextplan === undefined;
         out.scaleMax = ev.scaleMax;
 
         /* ลบข้อนั้นออกจากฟอร์ม — คำตอบเดิมต้องไม่หาย */
-        store.data.rotationForm.items = store.data.rotationForm.items.filter(x => x.id !== "plan");
+        store.data.rotationForm.items = store.data.rotationForm.items.filter(x => x.id !== "nextplan");
         store.save();
         openRotationEval(rot.id);
         await new Promise(r => setTimeout(r, 120));
-        out.orphanShown = /แผนการพัฒนา|plan/.test(document.querySelector("#dlgBody .notice.warn")?.textContent || "");
+        out.orphanShown = /แผนการพัฒนา|nextplan/.test(document.querySelector("#dlgBody .notice.warn")?.textContent || "");
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         ev = rotationEvalFor(rot.id);
-        out.keptAfterResave = ev.answers?.plan;
-        out.inCsv = rotationEvalCsvRows().some(row => row.some(c => String(c).includes("plan=")));
+        out.keptAfterResave = ev.answers?.nextplan;
+        out.inCsv = rotationEvalCsvRows().some(row => row.some(c => String(c).includes("nextplan=")));
         return out;
       });
       t.check("ค่าตั้งต้นของฟอร์มยังใช้รหัสข้อเดิม ผลประเมินที่บันทึกไว้แล้วจึงอ่านได้", form.legacyField);
@@ -509,7 +560,7 @@ export default async function run() {
       page.on("dialog", d => d.accept());
       const imp = await page.evaluate(async () => {
         const before = store.data.rotationEvals.length;
-        const csv = ["order,id,kind,question,options,minLabel,maxLabel,required,scored",
+        const csv = ["order,id,kind,question,options,minLabel,maxLabel,required,scored,wfme",
           "1,,section,ด้านการดูแลผู้ป่วย,,,,,",
           "2,,Linear scale,ซักประวัติได้ครบถ้วน,,ต้องปรับปรุงมาก,ดีเยี่ยม,1,",
           "3,,Multiple choice,ระดับการดูแลที่มอบหมายได้,1=ต้องกำกับ|2=ทำเองบางส่วน|3=ทำเองได้,,,,1",
@@ -530,7 +581,7 @@ export default async function run() {
       t.eq("ข้อความยาวข้อสุดท้ายถูกใช้เป็นช่องข้อเสนอแนะให้เอง", imp.commentRole, 1);
       t.check("นำเข้าฟอร์มใหม่ไม่ลบผลประเมินที่บันทึกไว้", imp.evalsUnchanged);
       t.eq("ส่งออก CSV ใช้คอลัมน์ชุดเดียวกับตอนนำเข้า",
-           imp.headerRoundTrip, "order,id,kind,question,options,minLabel,maxLabel,required,scored");
+           imp.headerRoundTrip, "order,id,kind,question,options,minLabel,maxLabel,required,scored,wfme");
 
       /* งานนำเสนอกับคาบท้ายเซสชันต้องมาอยู่ในหน้าเดียวกันนี้ด้วย */
       const pages = await page.evaluate(async () => {
