@@ -1173,6 +1173,16 @@ const ROTATION_FORM_V1_IDS = ["perf","knowledge","skill","professional","entrust
    id ที่มีอัญประกาศหรือวงเล็บเหลี่ยมจะพังทั้ง selector และ attribute จึงต้องล้างก่อนเสมอ */
 const safeItemId = (raw, i) =>
   String(raw ?? "").trim().replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || ("q" + (i + 1));
+/* ต่อท้ายให้ไม่ซ้ำ โดยเผื่อที่ไว้ให้ส่วนต่อท้ายเสมอ — เดิมต่อท้ายแล้วค่อยตัดที่ 40 ตัวอักษร
+   ถ้ารหัสเดิมยาวพอดี 40 ตัวอักษรอยู่แล้ว ส่วนต่อท้ายจะถูกตัดทิ้งจนรหัสไม่เปลี่ยนเลย วนซ้ำไม่รู้จบ */
+function uniqueItemId(raw, i, taken) {
+  const id0 = safeItemId(raw, i);
+  if (!taken(id0)) return id0;
+  const base = id0.slice(0, 34);
+  let n = 2, id = (base + "_" + n).slice(0, 40);
+  while (taken(id)) { n++; id = (base + "_" + n).slice(0, 40); }
+  return id;
+}
 const SERVICE_COLOURS = ["#1f6f8b","#7a4fa3","#1f7a4d","#a8630a","#a32d2d","#2b5fa8","#8a7015","#0f766e"];
 
 /* ---------------------------------------------------------------------
@@ -1317,8 +1327,7 @@ const store = {
     {
       const seen = new Set();
       d.rotationForm.items.forEach((it, i) => {
-        let id = it.id, n = 2;
-        while (seen.has(id)) id = safeItemId(it.id + "_" + n++, i);
+        const id = uniqueItemId(it.id, i, (x) => seen.has(x));
         seen.add(id); it.id = id;
       });
       /* entrust กับช่องข้อเสนอแนะเก็บลงฟิลด์ของตัวเองในเรกคอร์ด จึงมีได้อย่างละหนึ่ง */
@@ -6730,7 +6739,7 @@ function editRotationItem(id) {
       <input name="wfme" class="mono" value="${esc((it?.wfme || []).join(" "))}" /></label>
     <label class="f"><span>ตัวเลือก — บรรทัดละหนึ่ง เขียนเป็น <span class="mono">ค่า=ป้าย</span> เช่น <span class="mono">1=ดีมาก</span>
       <span class="muted">(ใช้เฉพาะชนิด “เลือกหนึ่งข้อ”)</span></span>
-      <textarea name="options">${esc(rotationOptions(it || {}).map(o => o.v + "=" + o.th).join("\\n"))}</textarea></label>
+      <textarea name="options">${esc(rotationOptions(it || {}).map(o => o.v + "=" + o.th).join("\n"))}</textarea></label>
     <div class="grid g2">
       <label class="f"><span>บังคับตอบ</span><select name="required">
         <option value="">ไม่บังคับ</option><option value="1" ${it?.required ? "selected" : ""}>บังคับ</option></select></label>
@@ -6742,7 +6751,7 @@ function editRotationItem(id) {
   const buttons = [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
       const th = dlgVal("th"), kind = dlgVal("kind");
       if (!th && kind !== "section") { toast("กรุณาใส่คำถาม"); return false; }
-      const opts = ($('#dlgBody [name="options"]')?.value || "").split("\\n").map(x => x.trim()).filter(Boolean)
+      const opts = ($('#dlgBody [name="options"]')?.value || "").split("\n").map(x => x.trim()).filter(Boolean)
         .map((line, i) => { const k = line.indexOf("="); return k < 0 ? { v:String(i + 1), th:line }
                                                                      : { v:line.slice(0, k).trim(), th:line.slice(k + 1).trim() }; });
       const rec = { kind, th, help: dlgVal("help"),
@@ -6751,16 +6760,14 @@ function editRotationItem(id) {
       if (kind === "choice") rec.options = opts; 
       if (it) { const keep = it.role ? { role: it.role } : {}; Object.assign(it, rec, keep); }
       else {
-        const want = safeItemId(dlgVal("id") || th, f.items.length);
-        let nid = want, n = 2;
-        while (f.items.some(x => x.id === nid)) nid = safeItemId(want + "_" + n++, f.items.length);
+        const nid = uniqueItemId(dlgVal("id") || th, f.items.length, (x) => f.items.some(y => y.id === x));
         f.items.push({ id: nid, ...rec });
       }
       audit(it ? "แก้ข้อในแบบประเมินลงกอง" : "เพิ่มข้อในแบบประเมินลงกอง", th || kind);
       store.save(); renderAll(); toast("บันทึกแล้ว");
     }}];
   if (it) buttons.push({ label:"ลบข้อนี้", cls:"btn-danger", onClick: () => {
-      if (!confirm("ลบข้อ “" + (it.th || it.id) + "” ออกจากแบบประเมิน?\\n" +
+      if (!confirm("ลบข้อ “" + (it.th || it.id) + "” ออกจากแบบประเมิน?\n" +
                    (used ? "ผลประเมิน " + used + " รายการมีคำตอบของข้อนี้อยู่ — คำตอบจะยังถูกเก็บไว้และยังส่งออกใน CSV แต่จะไม่มีช่องให้แก้อีก"
                          : "ยังไม่มีผลประเมินใดตอบข้อนี้"))) return false;
       f.items = f.items.filter(x => x.id !== it.id);
@@ -6825,8 +6832,7 @@ function importRotationFormFile(file) {
       let scaleMinLabel = "", scaleMaxLabel = "";
       rows.forEach((x, i) => {
         const kind = ROTATION_KIND_ALIAS[String(x.kind ?? "").trim().toLowerCase()] || "text";
-        let id = safeItemId(x.id || x.question, i), n = 2;
-        while (seen.has(id)) id = safeItemId((x.id || x.question) + "_" + n++, i);
+        const id = uniqueItemId(x.id || x.question, i, (v) => seen.has(v));
         seen.add(id);
         const it = { id, kind, th: String(x.question ?? "").trim(),
                      wfme: String(x.wfme ?? "").split(/[\s|,]+/).map(v => v.trim()).filter(v => WFME_BY_ID[v]),

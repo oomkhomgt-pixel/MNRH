@@ -518,6 +518,56 @@ export default async function run() {
       t.eq("หน้ามาตรฐาน WFME อ้างหลักฐานครบทุกหมวดที่ฟอร์มระบุ", def.uncited, []);
       t.eq("ข้อมูลสาธิตสร้างจากนิยามของฟอร์ม ไม่มีคำตอบไร้ข้อถาม", def.orphans, 0);
 
+      /* ---------- รหัสข้อที่ชนกันหลังตัดที่ 40 ตัวอักษร ต้องไม่วนซ้ำไม่รู้จบ ----------
+         เดิมต่อท้ายเลขกันซ้ำแล้วค่อยตัดที่ 40 ตัวอักษร ถ้ารหัสเดิมยาว 40 ตัวพอดีอยู่แล้ว
+         ส่วนต่อท้ายจะถูกตัดทิ้งจนรหัสไม่เปลี่ยนเลย — วนซ้ำไม่รู้จบจริง (ยืนยันด้วยสคริปต์แยกแล้ว)
+         ที่นี่ทดสอบว่าโค้ดที่แก้แล้ววิ่งจบเร็วและได้รหัสที่ไม่ซ้ำกันจริง ไม่ใช่แค่ไม่ค้าง */
+      const dedupe = await page.evaluate(() => {
+        /* store.data ถูกแทนที่ทั้งก้อนชั่วคราว ต้องคืนของเดิมกลับก่อนออกจากบล็อกนี้เสมอ
+           ไม่งั้นฟอร์มทดสอบ 4 ข้อนี้จะไปทับของจริง แล้วเทสต์ถัดไปในไฟล์นี้พังหมด */
+        const backup = store.data;
+        try {
+          const longId = "a".repeat(40);
+          const d1 = { ...store.data, rotationForm: { title:"ทดสอบชนกัน", scale:{ min:1, max:5 }, items: [
+            { id: longId, kind:"text", th:"ข้อที่ 1" },
+            { id: longId, kind:"text", th:"ข้อที่ 2" },
+            { id: longId, kind:"text", th:"ข้อที่ 3" },
+            { id: longId, kind:"text", th:"ข้อที่ 4" },
+          ] } };
+          const t0 = Date.now();
+          store.data = d1; store.migrate();
+          const ms = Date.now() - t0;
+          const ids = store.data.rotationForm.items.map(x => x.id);
+          return { ms, ids, unique: new Set(ids).size, tooLong: ids.some(x => x.length > 40) };
+        } finally {
+          store.data = backup;
+        }
+      });
+      t.eq("ทุกข้อได้รหัสไม่ซ้ำกันแม้รหัสเดิมยาวชนขอบเขต 40 ตัวอักษรพอดี", dedupe.unique, 4);
+      t.check("ไม่มีรหัสไหนยาวเกิน 40 ตัวอักษร", !dedupe.tooLong, dedupe.ids.join(", "));
+      t.check("แก้เสร็จเร็ว ไม่ค้าง (ต่ำกว่า 1 วินาที)", dedupe.ms < 1000, dedupe.ms + " ms");
+
+      /* ---------- ตัวเลือกของข้อแบบเลือกหนึ่งข้อในหน้าแก้ฟอร์ม ต้องขึ้นบรรทัดใหม่จริง ----------
+         เดิม join/split ใช้ "\\n" (แบ็กสแลชกับตัว n สองตัวอักษร) แทนตัวขึ้นบรรทัดจริง
+         ทำให้ตัวเลือกทุกตัวไปกองอยู่บรรทัดเดียว และพิมพ์ตัวเลือกหลายบรรทัดแล้วบันทึกไม่แยกข้อ */
+      const optsBug = await page.evaluate(() => {
+        const f = rotationForm();
+        f.items.push({ id:"opts_nl_test", kind:"choice", th:"ทดสอบขึ้นบรรทัด",
+          options: [{ v:"1", th:"หนึ่ง" }, { v:"2", th:"สอง" }, { v:"3", th:"สาม" }] });
+        editRotationItem("opts_nl_test");
+        const ta = document.querySelector('#dlgBody [name="options"]');
+        const rendered = ta.value;
+        ta.value = "4=สี่\n5=ห้า";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "บันทึก").click();
+        const saved = f.items.find(x => x.id === "opts_nl_test").options;
+        f.items = f.items.filter(x => x.id !== "opts_nl_test");
+        return { rendered, savedCount: saved.length, savedFirst: saved[0] };
+      });
+      t.eq("ตัวเลือกที่ขึ้นแสดงในกล่องแก้ฟอร์ม แยกกันคนละบรรทัดจริง (ไม่ใช่ \\\\n ดิบ)",
+           optsBug.rendered, "1=หนึ่ง\n2=สอง\n3=สาม");
+      t.eq("พิมพ์ตัวเลือกหลายบรรทัดแล้วบันทึก แยกออกมาได้ครบทุกข้อ", optsBug.savedCount, 2);
+      t.eq("ตัวเลือกแรกอ่านค่า/ป้ายถูกต้อง", optsBug.savedFirst, { v:"4", th:"สี่" });
+
       /* ---------- อัปเกรดชุดตั้งต้นให้เฉพาะฟอร์มที่ยังไม่เคยถูกแก้ ---------- */
       const upg = await page.evaluate(() => {
         const v1 = { title:"เดิม", scale:{ min:1, max:5 },
