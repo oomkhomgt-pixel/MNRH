@@ -402,6 +402,49 @@ export default async function run() {
          [epaFromSession.afterEditCount, epaFromSession.afterEditLevel], [1, 5]);
     t.eq("ลบผลประเมินแล้วระดับ EPA ที่มาจากคาบนั้นหายไปด้วย", epaFromSession.afterDelete, 0);
 
+    /* ---------- C10: กล่องติ๊ก EPA แสดงแค่ 12 อันดับแรก — บันทึกซ้ำต้องไม่ลบผลประเมิน EPA
+       ของหัวข้อที่ตกไปนอก 12 อันดับ (เช่น เพิ่ม EPA ใหม่จนลำดับเปลี่ยน) ---------- */
+    const c10 = await page.evaluate(async () => {
+      const backupEpas = store.data.epas;
+      const backupAssessments = store.data.epaAssessments;
+      const backupEvals = store.data.sessionEvals;
+      let ses = null;
+      for (let i = 1; i < 15 && !ses; i++)
+        ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
+      if (!ses) return { none: true };
+
+      /* เติม EPA ให้เกิน 12 หัวข้อที่ไม่ตรงอนุสาขาของคาบนี้แน่ ๆ (rank เดียวกัน) แล้ววางหัวข้อทดสอบ
+         ไว้ท้ายสุดด้วยรหัสที่เรียงหลังสุดเสมอ (Z นำหน้า) เพื่อให้ตกนอก 12 อันดับแรกแน่นอน */
+      const svcSub = serviceById(ses.serviceId)?.subspecialty || "";
+      const others = (store.data.epas || []).filter(e => e.subspecialty !== svcSub).length;
+      const padCount = Math.max(0, 13 - others);
+      const pad = Array.from({ length: padCount }, (_, i) => ({ id: "epa_pad_" + i, code: "PAD" + i, title: "pad", subspecialty: "__none__" }));
+      const hidden = { id: "epa_hidden_test", code: "ZZZ-hidden", title: "ทดสอบซ่อน", subspecialty: "__none__" };
+      store.data.epas = [...store.data.epas, ...pad, hidden];
+      store.data.epaAssessments = [...(store.data.epaAssessments || []), { id: "epaa_hidden_test",
+        residentId: ses.residentId, epaId: "epa_hidden_test", level: 3, by: "ทดสอบ", byUserId: "",
+        at: ses.date, caseId: "", sessionKey: ses.key }];
+
+      openSession(ses.key);
+      const checkboxExists = !!document.querySelector('[name="epa_epa_hidden_test"]');
+      const entrustEl = document.querySelector('#dlgBody [name="entrust"]');
+      if (entrustEl) entrustEl.value = "4";
+      [...document.querySelectorAll("#dlgFoot button")]
+        .find(x => x.textContent.includes("บันทึกผลประเมิน") || x.textContent.includes("บันทึกการแก้ไข"))?.click();
+      document.querySelector("#dlg")?.close();
+
+      const stillThere = (store.data.epaAssessments || []).some(a => a.id === "epaa_hidden_test");
+
+      store.data.epas = backupEpas;
+      store.data.epaAssessments = backupAssessments;
+      store.data.sessionEvals = backupEvals;
+      return { checkboxExists, stillThere };
+    });
+    if (!c10.none) {
+      t.check("หัวข้อ EPA ที่ตกนอก 12 อันดับแรก ไม่มีช่องติ๊กให้เห็นจริง (พิสูจน์ว่าทดสอบตรงเงื่อนไข)", !c10.checkboxExists);
+      t.check("บันทึกซ้ำแล้วผลประเมิน EPA ของหัวข้อที่ตกนอก 12 อันดับ ไม่ถูกลบไปด้วย", c10.stillThere);
+    }
+
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
     /* ---------- หน้าประเมิน: งานนำเสนอ · ลงกองสิ้นเดือน · ท้ายเซสชัน ---------- */
@@ -567,6 +610,75 @@ export default async function run() {
            optsBug.rendered, "1=หนึ่ง\n2=สอง\n3=สาม");
       t.eq("พิมพ์ตัวเลือกหลายบรรทัดแล้วบันทึก แยกออกมาได้ครบทุกข้อ", optsBug.savedCount, 2);
       t.eq("ตัวเลือกแรกอ่านค่า/ป้ายถูกต้อง", optsBug.savedFirst, { v:"4", th:"สี่" });
+
+      /* ---------- C5: คะแนนเดิมนอกช่วงตัวเลือกปกติ (เช่น ทศนิยม) ต้องไม่หายเมื่อบันทึกซ้ำ ---------- */
+      const c5 = await page.evaluate(() => {
+        const f = rotationForm();
+        const scaleItem = f.items.find(x => x.kind === "scale");
+        const ev = { scores: { [scaleItem.id]: 3.5 }, answers: {}, entrust: "", comment: "" };
+        const html = rotationFormBodyHtml(ev);
+        const escId = scaleItem.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const hasOption = new RegExp('name="sc_' + escId + '"[\\s\\S]*?value="3\\.5"[^>]*selected').test(html);
+        return { hasOption };
+      });
+      t.check("select ของข้อให้คะแนนมีตัวเลือกสำหรับคะแนนทศนิยมเดิม ไม่เด้งไปที่ว่าง", c5.hasOption);
+
+      /* ---------- C6: choice ที่ scored:true แต่ option value ไม่ใช่ตัวเลข ต้องไม่ทำให้ค่าเฉลี่ยกลายเป็น NaN ---------- */
+      const c6 = await page.evaluate(() => {
+        const ev = { scores: { good: 4, bad_choice: NaN } };
+        return { mean: evalMean(ev) };
+      });
+      t.eq("ค่า NaN ที่ปนอยู่ใน scores ไม่ทำให้ค่าเฉลี่ยทั้งก้อนกลายเป็น NaN", c6.mean, 4);
+
+      /* ---------- C7: entrust/comment เดิมต้องไม่หาย ถ้าฟอร์มปัจจุบันไม่มีข้อนั้นแล้ว ---------- */
+      const c7 = await page.evaluate(() => {
+        const f = rotationForm();
+        const backup = f.items;
+        f.items = []; /* จำลองว่าข้อ entrust และช่องข้อเสนอแนะถูกลบออกจากฟอร์มไปแล้ว */
+        const ev = { entrust: "4", comment: "ข้อความเดิมที่เคยบันทึกไว้", scores: {}, answers: {} };
+        const result = readRotationForm(ev);
+        f.items = backup;
+        return result;
+      });
+      t.eq("entrust เดิมไม่หายแม้ฟอร์มปัจจุบันไม่มีข้อ entrust แล้ว", c7.entrust, 4);
+      t.eq("ข้อเสนอแนะเดิมไม่หายแม้ฟอร์มปัจจุบันไม่มีช่องนั้นแล้ว", c7.comment, "ข้อความเดิมที่เคยบันทึกไว้");
+
+      /* ---------- C8: เปลี่ยนชนิดข้อจากให้คะแนนเป็นข้อความ คะแนนเก่าต้องไม่ค้างบังคำตอบใหม่ ---------- */
+      const c8 = await page.evaluate(() => {
+        const f = rotationForm();
+        const backup = f.items;
+        f.items = [{ id: "c8_item", kind: "text", th: "ทดสอบเปลี่ยนชนิด" }]; /* เดิมเป็น scale */
+        const ev = { scores: { c8_item: 4 }, answers: {}, entrust: "", comment: "" };
+        const result = readRotationForm(ev);
+        f.items = backup;
+        return result;
+      });
+      t.check("เปลี่ยนชนิดข้อจากให้คะแนนเป็นข้อความแล้ว คะแนนเดิมไม่ค้างในระบบ", !("c8_item" in c8.scores));
+
+      /* ---------- C9: นำเข้าไฟล์ JSON ที่ตัวเลือกเป็น array ของสตริงล้วน ต้องไม่ได้ค่าว่างทุกตัวเลือก ---------- */
+      {
+        page.once("dialog", (d) => d.accept());
+        const c9 = await page.evaluate(async () => {
+          const backup = JSON.parse(JSON.stringify(store.data.rotationForm));
+          const data = { items: [
+            { id: "c9item", kind: "choice", question: "ทดสอบตัวเลือกสตริงล้วน", options: ["ดี", "กลาง", "แย่"], scored: true }
+          ] };
+          const file = new File([JSON.stringify(data)], "form.json", { type: "application/json" });
+          importRotationFormFile(file);
+          await new Promise((res) => setTimeout(res, 150));
+          const it = store.data.rotationForm.items.find(x => x.th === "ทดสอบตัวเลือกสตริงล้วน");
+          const values = (it?.options || []).map(o => o.v);
+          /* importRotationFormFile บันทึกลง localStorage เองระหว่างทาง (store.save() ภายใน)
+             คืนค่าฟอร์มเดิมกลับใน store.data เฉย ๆ ไม่พอ ต้อง save() ซ้ำเพื่อล้างร่องรอยที่เพิ่งเขียนทับไว้
+             ไม่งั้นฟอร์มทดสอบชั่วคราวนี้จะติดค้างใน localStorage ไปกระทบเทสต์ถัดไปในไฟล์นี้ */
+          store.data.rotationForm = backup;
+          store.save();
+          return { values };
+        });
+        t.eq("นำเข้า JSON ที่ตัวเลือกเป็น array ของสตริงล้วน ได้ค่าตัวเลือกไม่ว่างสักตัว",
+             c9.values.filter(v => v === ""), []);
+        t.eq("ได้ครบ 3 ตัวเลือกตามไฟล์", c9.values.length, 3);
+      }
 
       /* ---------- อัปเกรดชุดตั้งต้นให้เฉพาะฟอร์มที่ยังไม่เคยถูกแก้ ---------- */
       const upg = await page.evaluate(() => {
@@ -734,6 +846,31 @@ export default async function run() {
       t.eq("แยกช่องสิ่งที่ทำได้ดีกับสิ่งที่ควรปรับปรุง",
            [talk.saved?.strengths, talk.saved?.comment], ["เตรียมตัวมาดี", "คุมเวลาให้ดีขึ้น"]);
       t.check("CSV กิจกรรมมีคะแนนรายด้านและผลการประเมิน", talk.csvHasItem && !!talk.csvOutcome, talk.csvOutcome);
+
+      /* ---------- C11: เปลี่ยนประเภทกิจกรรมพร้อมให้คะแนนในการบันทึกครั้งเดียวกัน
+         คะแนนข้อเฉพาะประเภทเดิม (ที่พิมพ์ไว้ตอนกล่องยังวาดตามประเภทเดิม) ต้องไม่หาย ---------- */
+      const c11 = await page.evaluate(async () => {
+        const a = visibleActivities()[0];
+        const originalType = a.type;
+        const otherType = ACTIVITY_TYPES.find(t => t.id !== originalType).id;
+        openActivity(a.id);
+        await new Promise(r => setTimeout(r, 150));
+        const items = talkEvalItemsFor(originalType);
+        const extraItem = items[items.length - 1];
+        const sel = document.querySelector('#dlgBody [name="tv_' + extraItem.id + '"]');
+        if (sel) sel.value = "5";
+        const typeSel = document.querySelector('#dlgBody [name="type"]');
+        typeSel.value = otherType;
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        const saved = store.data.activities.find(x => x.id === a.id);
+        return { originalType, otherType, extraId: extraItem.id, hadSel: !!sel,
+                 newType: saved.type, keptExtraScore: saved.assessment?.scores?.[extraItem.id] };
+      });
+      t.check("มีข้อเฉพาะประเภทเดิมให้กรอกจริง (พิสูจน์ว่าทดสอบตรงเงื่อนไข)", c11.hadSel);
+      t.eq("ประเภทกิจกรรมเปลี่ยนไปตามที่เลือกในกล่องจริง", c11.newType, c11.otherType);
+      t.eq("เปลี่ยนประเภทพร้อมให้คะแนนข้อเฉพาะประเภทเดิมในการบันทึกครั้งเดียวกัน คะแนนนั้นไม่หาย",
+           c11.keptExtraScore, 5);
 
       /* pre-op กับ post-op conference ถูกยุบเป็นคาบเดียวกัน ของเก่าต้องย้ายตามให้ครบ */
       const merged = await page.evaluate(async () => {

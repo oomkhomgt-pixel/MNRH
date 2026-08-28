@@ -3393,7 +3393,9 @@ const sessionByKey = (key) => {
   return sessionsForDate(iso).find(x => x.key === key) || null;
 };
 const evalMean = (ev) => {
-  const v = Object.values(ev.scores || {}).filter(x => typeof x === "number");
+  /* typeof NaN === "number" เป็นจริง — ถ้าไม่กรอง NaN ออกด้วย ข้อเดียวที่ค่าเพี้ยนจะทำให้
+     ค่าเฉลี่ยทั้งก้อนกลายเป็น NaN ไปด้วย (ข้อมูลเก่าที่นำเข้ามาก่อนมีการตรวจที่จุดบันทึกอาจยังมี NaN ค้าง) */
+  const v = Object.values(ev.scores || {}).filter(x => typeof x === "number" && Number.isFinite(x));
   return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
 };
 /* เซสชันที่ผ่านไปแล้วแต่ยังไม่มีผลประเมิน = งานค้างของอาจารย์ผู้รับผิดชอบ */
@@ -4514,6 +4516,9 @@ function openSession(key) {
   const ses = sessionByKey(key);
   if (!ses) { toast("ไม่พบเซสชันนี้แล้ว (ตารางหรือช่วงหมุนเวียนอาจถูกแก้ไข)"); return; }
   const r = store.resident(ses.residentId), svc = serviceById(ses.serviceId), ev = evalForKey(key);
+  /* กล่องติ๊ก EPA แสดงแค่ 12 อันดับแรก — ตอนบันทึกต้องรู้ว่ารายการไหน "ถูกแสดงจริง" ด้วย
+     เพื่อไม่ให้ทับ/ลบผลประเมิน EPA ของหัวข้อที่ตกไปนอก 12 อันดับ (ดู C10 ด้านล่างตอนบันทึก) */
+  let visibleEpaIds = [];
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
@@ -4561,11 +4566,13 @@ function openSession(key) {
       const sorted = epas.slice().sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code));
       const already = new Set((store.data.epaAssessments || [])
         .filter(a => a.sessionKey === ses.key).map(a => a.epaId));
+      const shown = sorted.slice(0, 12);
+      visibleEpaIds = shown.map(e => e.id);
       return `<fieldset class="f" style="border:1px solid var(--line);border-radius:var(--r);padding:.6rem .8rem">
         <legend class="small muted">หัวข้อ EPA ที่คาบนี้ครอบคลุม <span class="muted">(ไม่เลือกก็ได้)</span></legend>
         <p class="small muted" style="margin:.1rem 0 .5rem">ติ๊กแล้วระดับ entrustment ข้างบนจะถูกบันทึกเป็นผลประเมิน EPA ของหัวข้อนั้นด้วย
           — ประเมินครั้งเดียว ไม่ต้องมาให้ระดับซ้ำที่หน้า EPA</p>
-        <div class="row">${sorted.slice(0, 12).map(e => `<label class="tag" style="cursor:pointer">
+        <div class="row">${shown.map(e => `<label class="tag" style="cursor:pointer">
           <input type="checkbox" name="epa_${e.id}" ${already.has(e.id) ? "checked" : ""} />
           ${esc(e.code)} ${e.subspecialty === svcSub ? "★" : ""}
           <span class="muted">${esc((e.title || "").slice(0, 34))}</span></label>`).join("")}</div>
@@ -4638,9 +4645,12 @@ function openSession(key) {
            ลบของเดิมที่มาจากคาบนี้ก่อน เพื่อให้แก้ผลประเมินแล้วไม่เกิดรายการซ้อน
            เขียนเฉพาะเมื่อมีระดับ entrustment เพราะ EPA ใช้ระดับนั้นเป็นค่า */
         const pickedEpa = (store.data.epas || []).filter(e =>
-          $('#dlgBody [name="epa_' + e.id + '"]')?.checked);
+          visibleEpaIds.includes(e.id) && $('#dlgBody [name="epa_' + e.id + '"]')?.checked);
+        /* ลบเฉพาะของเดิมที่มาจากคาบนี้ "และ" เป็นหัวข้อที่กล่องนี้แสดงให้ติ๊กจริง — หัวข้อ EPA ที่เคย
+           ติ๊กไว้แต่ตกไปนอก 12 อันดับแรกที่แสดง (เช่น เพิ่ม EPA ใหม่จนลำดับเปลี่ยน) ไม่มีช่องติ๊กให้เห็น
+           เดิมลบทุกอย่างของ sessionKey นี้ทิ้งหมดไม่ว่าจะแสดงหรือไม่ ทำให้ผลประเมิน EPA เดิมหายเงียบ ๆ */
         store.data.epaAssessments = (store.data.epaAssessments || [])
-          .filter(a => a.sessionKey !== ses.key);
+          .filter(a => !(a.sessionKey === ses.key && visibleEpaIds.includes(a.epaId)));
         if (entrust) pickedEpa.forEach(e => store.data.epaAssessments.push({
           id: uid("epaa"), residentId: ses.residentId, epaId: e.id, level: +entrust,
           by: rec.staffId ? staffName(rec.staffId) : (currentUser()?.displayName || ""),
@@ -5441,6 +5451,12 @@ function rotationFormBodyHtml(ev) {
         const tail = v === min && sc.minLabel ? " — " + sc.minLabel : v === max && sc.maxLabel ? " — " + sc.maxLabel : "";
         opts.push(`<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${v}${esc(tail)}</option>`);
       }
+      /* ตัวเลือกสร้างจากช่วงจำนวนเต็มเท่านั้น — ถ้าคะแนนเดิมเป็นทศนิยมหรืออยู่นอกช่วง (เช่น
+         นำเข้าจากที่อื่น หรือสเกลเคยถูกแก้ขอบเขต) จะไม่ตรงกับตัวเลือกไหนเลย select จะเด้งไปที่ "—"
+         แล้วบันทึกซ้ำจะลบคะแนนเดิมทิ้งโดยไม่ตั้งใจ ต้องเติมตัวเลือกสำหรับค่าเดิมไว้ด้วยเสมอ */
+      if (cur !== "" && !(Number.isInteger(+cur) && +cur >= min && +cur <= max)) {
+        opts.push(`<option value="${esc(cur)}" selected>${esc(cur)} (ค่าที่บันทึกไว้เดิม นอกช่วงตัวเลือกปกติ)</option>`);
+      }
       return `<select name="sc_${esc(it.id)}"><option value="">—</option>${opts.join("")}</select>`;
     }
     if (it.kind === "entrust") {
@@ -5493,7 +5509,9 @@ function readRotationForm(ev) {
   const scores = { ...(ev?.scores || {}) };
   const answers = { ...(ev?.answers || {}) };
   const missing = [];
-  let entrust = "", comment = "";
+  /* เหมือน scores/answers — เริ่มจากค่าเดิม ถ้าฟอร์มปัจจุบันไม่มีข้อ entrust/ช่องข้อเสนอแนะแล้ว
+     (ถูกลบออกจากฟอร์ม) ค่าที่เคยบันทึกไว้ต้องไม่หายไปตอนบันทึกซ้ำ เดิมเริ่มที่ "" เสมอจึงทับค่าเดิมทิ้ง */
+  let entrust = ev?.entrust != null ? String(ev.entrust) : "", comment = ev?.comment || "";
   rotationAskItems().forEach(it => {
     if (it.kind === "entrust") { entrust = dlgVal("entrust"); if (it.required && !entrust) missing.push(it.th); return; }
     if (it.role === "comment") {
@@ -5503,7 +5521,11 @@ function readRotationForm(ev) {
     }
     if (rotationScored(it)) {
       const v = dlgVal("sc_" + it.id);
-      if (v) scores[it.id] = +v; else delete scores[it.id];
+      /* ข้อแบบเลือกหนึ่งข้อที่นับคะแนนได้ อาศัยว่าค่าตัวเลือกเป็นตัวเลข — ถ้าไม่ใช่ +v จะได้ NaN
+         ซึ่ง typeof NaN === "number" จึงหลุดผ่านตัวกรองปกติ แล้วทำให้ค่าเฉลี่ยทั้งข้อกลายเป็น NaN ไปด้วย */
+      if (v && Number.isFinite(+v)) scores[it.id] = +v; else delete scores[it.id];
+      /* ข้อนี้เพิ่งเปลี่ยนชนิดมาเป็นข้อให้คะแนน — คำตอบข้อความเดิมของ id เดียวกัน (ถ้ามี) ต้องไม่ค้าง */
+      delete answers[it.id];
       if (it.required && !v) missing.push(it.th);
       return;
     }
@@ -5511,6 +5533,9 @@ function readRotationForm(ev) {
       ? ($('#dlgBody [name="an_' + it.id + '"]')?.value || "").trim()
       : dlgVal("an_" + it.id);
     if (raw) answers[it.id] = raw; else delete answers[it.id];
+    /* กลับกัน — ข้อนี้ไม่ใช่ข้อให้คะแนนแล้ว คะแนนเดิมของ id เดียวกัน (ถ้ามี) ต้องไม่ค้างมาบังคำตอบใหม่
+       ทั้งในค่าเฉลี่ย (evalMean รวมทุกตัวเลขใน scores) และในการส่งออก CSV ที่เลือก scores ก่อนเสมอ */
+    delete scores[it.id];
     if (it.required && !raw) missing.push(it.th);
   });
   return { scores, answers, entrust: entrust ? +entrust : null, comment, missing };
@@ -6751,9 +6776,11 @@ function editRotationItem(id) {
   const buttons = [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
       const th = dlgVal("th"), kind = dlgVal("kind");
       if (!th && kind !== "section") { toast("กรุณาใส่คำถาม"); return false; }
+      /* พิมพ์ "=ป้าย" (ไม่มีค่าก่อนเครื่องหมาย =) ต้องได้ค่าลำดับแทนค่าว่าง — ค่าว่างชนกับ
+         placeholder "—" ของ select ทำให้เลือกตัวเลือกนี้แล้วเหมือนไม่เลือก คำตอบไม่ถูกบันทึก */
       const opts = ($('#dlgBody [name="options"]')?.value || "").split("\n").map(x => x.trim()).filter(Boolean)
-        .map((line, i) => { const k = line.indexOf("="); return k < 0 ? { v:String(i + 1), th:line }
-                                                                     : { v:line.slice(0, k).trim(), th:line.slice(k + 1).trim() }; });
+        .map((line, i) => { const k = line.indexOf("="); const v = k < 0 ? "" : line.slice(0, k).trim();
+                            return v ? { v, th:line.slice(k + 1).trim() } : { v:String(i + 1), th: k < 0 ? line : line.slice(k + 1).trim() }; });
       const rec = { kind, th, help: dlgVal("help"),
                     wfme: dlgVal("wfme").split(/[\s|,]+/).map(x => x.trim()).filter(x => WFME_BY_ID[x]),
                     required: !!dlgVal("required"), scored: kind === "scale" ? true : !!dlgVal("scored") };
@@ -6809,7 +6836,12 @@ function importRotationFormFile(file) {
         const data = JSON.parse(txt);
         rows = (Array.isArray(data) ? data : data.items || []).map(x => ({
           order:x.order, id:x.id, kind:x.kind, question:x.question ?? x.th ?? x.label,
-          options:Array.isArray(x.options) ? x.options.map(o => (o.v ?? "") + "=" + (o.th ?? o)).join("|") : x.options,
+          /* ตัวเลือกที่เป็น array ของสตริงล้วน (ไม่มี .v/.th) ต้องได้ค่าลำดับแทน ไม่ใช่ค่าว่าง
+             เดิม o.v บนสตริงเป็น undefined เสมอ ทุกตัวเลือกจึงได้ v="" ชนกับ placeholder ว่าง
+             เลือกอะไรก็เหมือนไม่เลือก คำตอบไม่ถูกบันทึกเลย */
+          options:Array.isArray(x.options) ? x.options.map((o, k) =>
+            (typeof o === "string" ? String(k + 1) : String(o.v ?? k + 1)) + "=" +
+            (typeof o === "string" ? o : String(o.th ?? o.v ?? ""))).join("|") : x.options,
           minLabel:x.minLabel, maxLabel:x.maxLabel, required:x.required, scored:x.scored,
           wfme:Array.isArray(x.wfme) ? x.wfme.join(" ") : x.wfme
         }));
@@ -6837,9 +6869,11 @@ function importRotationFormFile(file) {
         const it = { id, kind, th: String(x.question ?? "").trim(),
                      wfme: String(x.wfme ?? "").split(/[\s|,]+/).map(v => v.trim()).filter(v => WFME_BY_ID[v]),
                      required: yes(x.required), scored: kind === "scale" ? true : yes(x.scored) };
+        /* "=ป้าย" (ไม่มีค่าก่อน =) ต้องได้ค่าลำดับแทนค่าว่าง เหตุผลเดียวกับตอนแก้ในกล่องแก้ข้อ —
+           ค่าว่างชนกับ placeholder ของ select ทำให้เลือกตัวเลือกนี้แล้วเหมือนไม่เลือกเลย */
         if (kind === "choice") it.options = String(x.options ?? "").split("|").map(p => p.trim()).filter(Boolean)
-          .map((p, k) => { const j = p.indexOf("="); return j < 0 ? { v:String(k + 1), th:p }
-                                                                 : { v:p.slice(0, j).trim(), th:p.slice(j + 1).trim() }; });
+          .map((p, k) => { const j = p.indexOf("="); const v = j < 0 ? "" : p.slice(0, j).trim();
+                           return v ? { v, th:p.slice(j + 1).trim() } : { v:String(k + 1), th: j < 0 ? p : p.slice(j + 1).trim() }; });
         if (kind === "scale") {
           if (x.minLabel) scaleMinLabel = String(x.minLabel).trim();
           if (x.maxLabel) scaleMaxLabel = String(x.maxLabel).trim();
@@ -7461,6 +7495,10 @@ function readTalkEval(a) {
 
 function applyActivityEdits(a) {
   if (!canEditResidentData(a.residentId)) return;   /* กันการแก้ผ่านทางอื่นที่ไม่ผ่านหน้าจอ */
+  /* ช่องให้คะแนนในกล่องนี้ถูกวาดขึ้นตามประเภทเดิมของกิจกรรม (talkEvalItemsFor(a.type) ตอนเปิดกล่อง)
+     ถ้าเปลี่ยนประเภทพร้อมให้คะแนนในการบันทึกครั้งเดียวกัน ต้องอ่านคะแนนด้วยประเภทเดิมที่วาดจริง
+     ไม่ใช่ประเภทใหม่ที่เพิ่งเลือก — ไม่งั้นข้อเฉพาะประเภทของเดิมที่พิมพ์ไว้จะหาไม่เจอแล้วหายไปเงียบ ๆ */
+  const renderedType = a.type;
   a.title = dlgVal("title") || a.title;
   a.type = dlgVal("type") || a.type;
   a.subspecialty = dlgVal("subspecialty") || a.subspecialty;
@@ -7471,7 +7509,7 @@ function applyActivityEdits(a) {
   a.wfme = (TYPE_BY_ID[a.type]?.wfme || []).slice();
   a.note = ($('#dlgBody [name="note"]')?.value || "").trim();
   /* ผลประเมินเป็นของอาจารย์ — เจ้าของกิจกรรมแก้คะแนนตัวเองไม่ได้ */
-  if (canAssess()) a.assessment = readTalkEval(a);
+  if (canAssess()) a.assessment = readTalkEval({ ...a, type: renderedType });
 }
 
 function manualAdd() {
