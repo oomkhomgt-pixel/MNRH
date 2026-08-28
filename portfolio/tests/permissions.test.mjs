@@ -62,6 +62,18 @@ export default async function run() {
       t.eq("logbook ที่ไม่ระบุเจ้าของ ส่งรายการเปล่า", sync.leaked, 0);
       t.eq("บังคับกลับมาที่โหมดเฉพาะ logbook แม้ตั้งค่าเป็นข้อมูลทั้งชุด", sync.mode, "logbook");
 
+      /* หน้าตั้งค่าสัญญาไว้ว่าโหมด logbook ส่งแค่ วันที่/diagnosis/operation เท่านั้น ไม่มีตัวระบุอื่น
+         เดิมแอบส่ง ref (เลขอ้างอิงเคสภายใน) ติดไปด้วยทุกรายการ ทั้งที่ไม่เคยบอกผู้ใช้ */
+      const payloadFields = await page.evaluate(() => {
+        const cfg = syncCfg();
+        cfg.mode = "logbook"; cfg.residentId = myResidentId(); cfg.withRole = false;
+        const items = syncPayloadItems();
+        return { keys: [...new Set(items.flatMap(Object.keys))], count: items.length };
+      });
+      t.check("ส่งข้อมูล logbook มีรายการให้ตรวจจริง", payloadFields.count > 0, payloadFields.count + " รายการ");
+      t.eq("ฟิลด์ที่ส่งจริงตรงกับที่สัญญาไว้ในหน้าตั้งค่า — วันที่/diagnosis/operation เท่านั้น ไม่มีตัวระบุอื่น",
+           payloadFields.keys.sort(), ["date", "diagnosis", "operation"]);
+
       /* ส่งข้อมูลทั้งชุดออกนอกเครื่องต้องถูกปฏิเสธก่อนถึงขั้นเรียก fetch */
       t.check("ส่งข้อมูลทั้งชุดขึ้นคลาวด์ไม่ได้", await page.evaluate(async () => {
         let called = false;

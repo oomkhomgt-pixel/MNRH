@@ -5588,7 +5588,10 @@ function syncPayloadItems(rid) {
   if (!owner) return [];
   const mine = (store.data.cases || []).filter(c => c.participants?.some(p => p.residentId === owner));
   return mine.filter(c => c.date && (c.operation || c.diagnosis)).map(c => {
-    const item = { ref: c.sourceRef || c.id, date: c.date, diagnosis: c.diagnosis || "", operation: c.operation || "" };
+    /* หน้าตั้งค่าสัญญากับผู้ใช้ไว้ว่าโหมด logbook ส่งแค่ 3 ฟิลด์นี้ ไม่มีตัวระบุอื่นใด
+       เดิมแอบส่ง ref (เลขอ้างอิงเคสจากระบบคิว/รหัสภายใน) ติดไปด้วยทุกครั้ง ทั้งที่ PUT เป็นการส่ง
+       รายการทั้งชุดแทนที่ของเดิมอยู่แล้ว (ไม่ใช่ upsert ทีละรายการ) จึงไม่จำเป็นต้องมีตัวระบุนี้เลย */
+    const item = { date: c.date, diagnosis: c.diagnosis || "", operation: c.operation || "" };
     if (cfg.withRole) {
       const p = c.participants?.find(x => x.residentId === owner);
       if (p) item.role = ROLE_BY_ID[p.role]?.en || p.role;
