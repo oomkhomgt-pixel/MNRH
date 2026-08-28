@@ -24,10 +24,11 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;          /* ปล่อยให้ API ของระบบคิววิ่งตรงเสมอ */
 
-  /* เปิดหน้าเว็บ: เอาของใหม่ก่อน ถ้าออฟไลน์ค่อยใช้ของที่เก็บไว้ */
+  /* เปิดหน้าเว็บ: เอาของใหม่ก่อน ถ้าออฟไลน์ค่อยใช้ของที่เก็บไว้
+     เก็บลง cache เฉพาะตอบกลับที่ปกติดี (res.ok) — คำตอบพัง (captive portal, 5xx) ไม่ควรทับของเดิมที่ใช้งานได้ */
   if (req.mode === "navigate") {
     e.respondWith(fetch(req).then(res => {
-      caches.open(CACHE).then(c => c.put("./index.html", res.clone()));
+      if (res.ok) caches.open(CACHE).then(c => c.put("./index.html", res.clone()));
       return res;
     }).catch(() => caches.match("./index.html")));
     return;
@@ -38,9 +39,11 @@ self.addEventListener("fetch", (e) => {
   if (SHELL.includes(path)) {
     e.respondWith(caches.match(req).then(hit => {
       const net = fetch(req).then(res => {
-        caches.open(CACHE).then(c => c.put(req, res.clone()));
+        if (res.ok) caches.open(CACHE).then(c => c.put(req, res.clone()));
         return res;
-      }).catch(() => hit);
+      /* ออฟไลน์และไม่เคยมีของเก่าเก็บไว้เลย (hit เป็น undefined) ต้องไม่ resolve เป็น undefined
+         เพราะ respondWith ต้องได้ Response เสมอ ไม่งั้น TypeError ทันที */
+      }).catch(() => hit || new Response("", { status: 503, statusText: "offline" }));
       return hit || net;
     }));
   }

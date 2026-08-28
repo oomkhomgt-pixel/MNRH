@@ -7413,7 +7413,18 @@ function showDialog(title, bodyHtml, buttons) {
   (buttons || []).forEach(b => {
     const el = document.createElement("button");
     el.type = "button"; el.textContent = b.label; el.className = b.cls || "";
-    el.addEventListener("click", () => { if (b.onClick && b.onClick() === false) return; $("#dlg").close(); });
+    el.addEventListener("click", () => {
+      const result = b.onClick && b.onClick();
+      /* onClick บางปุ่มเป็น async (เช่น "ดึงจากระบบกลาง" ที่ดึงข้อมูลจากเซิร์ฟเวอร์ก่อนตัดสินใจ)
+         ถ้าเช็ค === false แบบ sync ตรง ๆ จะได้ Promise object ซึ่งไม่มีวันเท่ากับ false เลย
+         กล่องจึงปิดทันทีก่อนงานที่ยังไม่เสร็จ ต้องรอผลจริงก่อนตัดสินใจปิดเฉพาะกรณีนี้ */
+      if (result && typeof result.then === "function") {
+        result.then((v) => { if (v !== false) $("#dlg").close(); });
+        return;
+      }
+      if (result === false) return;
+      $("#dlg").close();
+    });
     foot.appendChild(el);
   });
   const close = document.createElement("button");

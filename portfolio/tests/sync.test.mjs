@@ -240,6 +240,35 @@ export default async function run() {
       t.check("A7: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+
+    /* ---------- D2: ปุ่ม "ดึงจากระบบกลาง" เป็น async onClick — กล่องต้องไม่ปิดก่อนงานเสร็จ ----------
+       เดิม showDialog เช็ค onClick()===false แบบ sync ตรง ๆ ปุ่มนี้เป็น async จึงได้ Promise object
+       กลับมาเสมอ (ไม่มีวันเท่ากับ false) กล่องจึงปิดทันทีตั้งแต่กดปุ่ม ก่อนที่ fetch จะได้คำตอบด้วยซ้ำ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const cfg = syncCfg();
+        cfg.url = "https://example.invalid/logbook"; cfg.user = "u1";
+        syncSettingsDialog();
+        let resolveFetch;
+        const gate = new Promise((res) => { resolveFetch = res; });
+        const realFetch = window.fetch;
+        window.fetch = () => gate.then(() => new Response(JSON.stringify({ items: [] }), { status: 200 }));
+        const btn = [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "ดึงจากระบบกลาง");
+        btn.click();
+        const stillOpenDuring = document.querySelector("#dlg")?.open === true;
+        resolveFetch();
+        await new Promise((res) => setTimeout(res, 80));
+        window.fetch = realFetch;
+        const stillOpenAfter = document.querySelector("#dlg")?.open === true;
+        document.querySelector("#dlg")?.close();
+        return { stillOpenDuring, stillOpenAfter };
+      });
+      t.check("กดปุ่มดึงจากระบบกลาง กล่องยังเปิดอยู่ระหว่างรอผลจริง ไม่ปิดทันทีที่กด", r.stillOpenDuring);
+      t.check("ดึงเสร็จแล้ว กล่องยังเปิดอยู่ตามที่ปุ่มนี้ตั้งใจไว้ (return false เสมอ)", r.stillOpenAfter);
+      t.check("D2: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();
