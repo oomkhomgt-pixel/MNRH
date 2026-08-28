@@ -1377,7 +1377,13 @@ const store = {
       });
       Object.values(d.epaTargets || {}).forEach(t => { if (t && t[from] != null) delete t[from]; });
     });
-    Object.keys(LEGACY_SUBSPECIALTIES).forEach(k => { if (d.keywords?.[k]) delete d.keywords[k]; });
+    /* คำสำคัญที่กลุ่มงานเพิ่มเองไว้ที่อนุสาขาเก่า ต้องย้ายรวมไปที่อนุสาขาใหม่ ไม่ใช่ลบทิ้งเฉย ๆ
+       เดิมลบทันทีโดยไม่เอาไปรวมกับของอนุสาขาปลายทางเลย คำสำคัญที่เคยตั้งไว้เองจะหายไปเงียบ ๆ */
+    Object.entries(LEGACY_SUBSPECIALTIES).forEach(([from, to]) => {
+      if (d.keywords?.[from]?.length)
+        d.keywords[to] = [...new Set([...(d.keywords[to] || []), ...d.keywords[from]])];
+      if (d.keywords?.[from]) delete d.keywords[from];
+    });
     Object.values(d.requirements || {}).forEach(req => {
       if (req && req.subspecialties > SUBSPECIALTIES.length - 1) req.subspecialties = SUBSPECIALTIES.length - 1;
     });
@@ -5903,6 +5909,11 @@ function mergeDatasets(base, mine, theirs) {
       if (bRec && sameJson(rec, bRec)) return;                    /* เครื่องนี้ไม่ได้แก้ ปล่อยของคลาวด์ไว้ */
       if (tRec && bRec && !sameJson(tRec, bRec) && !sameJson(tRec, rec))
         conflicts.push({ key, id, note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
+      /* ไม่มีฐานเปรียบเทียบเลย (เช่น เครื่องนี้เพิ่งดึงข้อมูลมาครั้งแรก) — เทียบไม่ได้ว่าของเราแก้จริง
+         หรือแค่ยังไม่เคยซิงก์ ถ้าของคลาวด์ต่างจากของเรา ต้องบันทึกไว้เป็นรายการที่ชนกันด้วย
+         ไม่ใช่ทับเงียบ ๆ โดยไม่มีร่องรอยให้ตรวจสอบภายหลัง (เดิม bRec ที่ไม่มีทำให้เงื่อนไขข้างบนเป็นเท็จเสมอ) */
+      else if (!bRec && tRec && !sameJson(tRec, rec))
+        conflicts.push({ key, id, note: "ไม่มีฐานเปรียบเทียบ (ซิงก์ครั้งแรกของเครื่องนี้) — เก็บฉบับของเครื่องนี้ไว้ ควรตรวจสอบ" });
       out.set(id, rec);                                           /* ทับเฉพาะรายการที่เราแก้จริง */
     });
     b.forEach((bRec, id) => {
@@ -6934,6 +6945,10 @@ function importRotationFormFile(file) {
       f.items = items;
       if (scaleMinLabel) f.scale.minLabel = scaleMinLabel;
       if (scaleMaxLabel) f.scale.maxLabel = scaleMaxLabel;
+      /* ประทับ version ไว้ว่าฟอร์มนี้ถูกกำหนดค่าเองแล้ว (ผ่านการนำเข้าไฟล์) — ถ้าไม่ประทับไว้
+         และไฟล์ที่นำเข้าดันมีรหัสข้อตรงกับชุดตั้งต้นรุ่นแรกเป๊ะ (เช่น export รุ่นแรกมาแก้แค่คำอธิบาย
+         แล้วนำเข้ากลับ) migrate() ตอนโหลดหน้าครั้งถัดไปจะเข้าใจผิดว่ายังไม่เคยถูกแก้ แล้วทับด้วยชุดใหม่ */
+      f.version ||= 1;
       audit("นำเข้าแบบประเมินลงกอง", items.length + " ข้อ จาก " + file.name);
       store.save(); renderAll();
       toast("นำเข้าแบบประเมินแล้ว " + items.length + " ข้อ");

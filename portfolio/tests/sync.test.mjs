@@ -43,6 +43,30 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- A5: ไม่มีฐานเปรียบเทียบ (เครื่องนี้ซิงก์ครั้งแรก) ก็ต้องบันทึกรายการที่ชนกันไว้ด้วย ----------
+       เดิมทับของคลาวด์ทุกครั้งโดยไม่มีร่องรอยเลยเมื่อ base เป็น null/undefined เพราะเงื่อนไขตรวจ
+       conflict ต้องการ bRec ที่มีค่าเสมอ ถ้าไม่มีฐานเปรียบเทียบก็จะไม่มีทางเข้าเงื่อนไขนั้นได้เลย */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const mk = (comment) => ({ id: "rev_nobaseline", rotationId: "rot_x", residentId: "res_a",
+          month: "2026-07", scores: { knowledge: 4 }, comment });
+        /* base เป็น null ตรง ๆ (ยังไม่เคยมีฐานเปรียบเทียบมาก่อนเลย) */
+        const out = mergeDatasets(null, { rotationEvals: [mk("ของเครื่องนี้")] },
+                                         { rotationEvals: [mk("ของคลาวด์")] });
+        /* กรณีเดียวกันแต่ของคลาวด์กับของเราตรงกันพอดี — ไม่ควรมี conflict ปลอม ๆ */
+        const out2 = mergeDatasets(undefined, { rotationEvals: [mk("เหมือนกัน")] },
+                                                { rotationEvals: [mk("เหมือนกัน")] });
+        return { conflictKeys: out.conflicts.map(c => c.key), winner: out.merged.rotationEvals?.[0]?.comment,
+                 noFalseConflict: out2.conflicts.length === 0 };
+      });
+      t.eq("ไม่มีฐานเปรียบเทียบแล้วของสองฝั่งต่างกัน ยังบันทึกไว้เป็นรายการที่ชนกัน", r.conflictKeys, ["rotationEvals"]);
+      t.eq("และยังคงเก็บฉบับของเครื่องนี้ไว้เหมือนเดิม", r.winner, "ของเครื่องนี้");
+      t.check("ไม่มีฐานเปรียบเทียบแต่ของสองฝั่งตรงกันพอดี ไม่ถือเป็นรายการที่ชนกัน", r.noFalseConflict);
+      t.check("A5: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- ชื่อภาษาไทยของส่วนข้อมูลที่ชนกัน ---------- */
     {
       const { page } = await openAs(browser, srv.url, "admin");
@@ -161,6 +185,59 @@ export default async function run() {
       t.check("ยอมรับคำถามที่สองแล้ว การกระทำรันจริง", accepted.ran);
       t.check("ยอมรับคำถามที่สองแล้ว ตั้งคิวส่งขึ้นคลาวด์ตามปกติ", accepted.pending === true);
       t.check("กลไกยืนยันก่อนดันขึ้นคลาวด์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- A6: คำสำคัญที่ตั้งไว้ที่อนุสาขาเก่า ต้องย้ายรวมไปอนุสาขาใหม่ ไม่ใช่ถูกลบทิ้ง ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        store.data.keywords ||= {};
+        store.data.keywords.shoulder = ["ไหล่หลุด", "rotator cuff"];
+        store.data.keywords.sports = ["ACL"];
+        store.migrate();
+        const merged = store.data.keywords.sports || [];
+        const goneOld = store.data.keywords.shoulder === undefined;
+        return { merged, goneOld };
+      });
+      t.eq("คำสำคัญของอนุสาขาเก่าถูกย้ายไปรวมกับของอนุสาขาใหม่ครบ ไม่หายไปเงียบ ๆ",
+           r.merged.slice().sort(), ["ACL", "rotator cuff", "ไหล่หลุด"].sort());
+      t.check("คีย์ของอนุสาขาเก่าถูกลบออกหลังย้ายแล้ว", r.goneOld);
+      t.check("A6: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- A7: นำเข้าแบบประเมินลงกองผ่าน CSV ต้องประทับ version ไว้ ----------
+       เดิมไม่ประทับ version เลย — ถ้าไฟล์ที่นำเข้ามีรหัสข้อตรงกับชุดตั้งต้นรุ่นแรกเป๊ะ (เช่น export
+       รุ่นแรกมาแก้แค่คำอธิบายแล้วนำเข้ากลับ) migrate() ครั้งถัดไปจะเข้าใจผิดว่ายังไม่เคยถูกแก้
+       แล้วทับด้วยชุดตั้งต้นใหม่ทั้งก้อน ลบสิ่งที่กลุ่มงานเพิ่งแก้ไปทิ้ง */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      page.once("dialog", (d) => d.accept());
+      const r = await page.evaluate(async () => {
+        const backup = JSON.parse(JSON.stringify(store.data.rotationForm));
+        /* จำลองฟอร์มรุ่นแรกที่ยังไม่เคยถูกอัปเกรด (ไม่มี version) แล้วนำเข้าไฟล์ CSV ที่ id ตรงกับรุ่นแรกเป๊ะ
+           แต่แก้คำถามไปแล้ว (กลุ่มงานแก้เองผ่านการนำเข้าไฟล์ ไม่ใช่ทางแก้ทีละข้อ) */
+        const v1Ids = ["perf", "knowledge", "skill", "professional", "entrust", "comment"];
+        const csv = "order,id,kind,question,options,minLabel,maxLabel,required,scored,wfme\n" +
+          v1Ids.map((id, i) => (i + 1) + "," + id + "," + (id === "entrust" ? "entrust" : "scale") +
+            ",แก้คำถามแล้ว " + id + ",,,,0,1,").join("\n");
+        store.data.rotationForm = { title: "เดิม", scale: { min: 1, max: 5 },
+          items: v1Ids.map(id => ({ id, kind: id === "entrust" ? "entrust" : "scale", th: id })) };
+        const file = new File([csv], "form.csv", { type: "text/csv" });
+        importRotationFormFile(file);
+        await new Promise((res) => setTimeout(res, 150));
+        const versionAfterImport = store.data.rotationForm.version;
+        store.migrate(); /* จำลองการโหลดหน้าครั้งถัดไป */
+        const survivedMigrate = store.data.rotationForm.items.some(x => x.th.startsWith("แก้คำถามแล้ว"));
+        store.data.rotationForm = backup;
+        store.save();
+        return { versionAfterImport, survivedMigrate };
+      });
+      t.check("นำเข้า CSV แล้วฟอร์มถูกประทับ version ไว้ทันที ไม่ปล่อยว่าง", !!r.versionAfterImport);
+      t.check("โหลดหน้าครั้งถัดไป (migrate) ไม่ทับฟอร์มที่เพิ่งนำเข้ามา แม้รหัสข้อจะตรงกับรุ่นแรกเป๊ะ",
+              r.survivedMigrate);
+      t.check("A7: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
   } finally {
