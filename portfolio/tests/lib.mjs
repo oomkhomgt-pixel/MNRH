@@ -36,10 +36,12 @@ export function launchOptions() {
   return p ? { executablePath: p } : {};
 }
 
-/* เปิดหน้าแฟ้มสะสมงานพร้อมล็อกอินเป็นบทบาทที่ต้องการ และเก็บ error ทุกชนิดที่หลุดออกมา */
-export async function openAs(browser, base, role) {
+/* เปิดหน้าแฟ้มสะสมงานพร้อมล็อกอินเป็นบทบาทที่ต้องการ และเก็บ error ทุกชนิดที่หลุดออกมา
+   opts รับ context options ของ Playwright ได้ด้วย (เช่น timezoneId) — ใช้ทดสอบบั๊กที่ขึ้นกับเขตเวลา
+   โดยไม่ต้องพึ่ง TZ ของเครื่องที่รันเทสต์ */
+export async function openAs(browser, base, role, opts = {}) {
   const errors = [];
-  const page = await browser.newPage();
+  const page = await browser.newPage(opts);
   page.on("pageerror", e => errors.push("uncaught: " + e.message));
   page.on("console", m => { if (m.type() === "error") errors.push("console: " + m.text()); });
   await page.goto(base + "/portfolio/index.html");

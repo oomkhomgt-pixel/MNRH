@@ -1206,9 +1206,13 @@ const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const uid = (p = "id") => p + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const daysAgoISO = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
-const daysAheadISO = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+/* แปลง Date เป็น "YYYY-MM-DD" จากส่วนประกอบวันที่ตามเวลาท้องถิ่นของเครื่อง (ไม่ใช่ UTC)
+   .toISOString() คืนวันที่ตาม UTC เสมอ — ในเขตเวลาไทย (UTC+7) เที่ยงคืนถึงตี 7 ของทุกวัน
+   .toISOString() จะยังเป็น "เมื่อวาน" ทำให้ todayISO()/addDaysISO() เพี้ยนไปหนึ่งวันในช่วงนั้น */
+const isoOfLocalDate = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const todayISO = () => isoOfLocalDate(new Date());
+const daysAgoISO = (n) => isoOfLocalDate(new Date(Date.now() - n * 86400000));
+const daysAheadISO = (n) => isoOfLocalDate(new Date(Date.now() + n * 86400000));
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -1707,7 +1711,7 @@ const serviceAbbr = (id) => {
 function mondayOf(iso) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   /* ให้จันทร์เป็นวันแรกของสัปดาห์ */
-  return d.toISOString().slice(0, 10);
+  return isoOfLocalDate(d);
 }
 const THAI_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 /* คืนรายการ 12 เดือนของปีการศึกษา เริ่ม ก.ค. จบ มิ.ย. */
@@ -1729,7 +1733,7 @@ function inkOn(hex) {
   const [r, g, b] = [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16) || 0);
   return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? "#12181f" : "#ffffff";
 }
-const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoOfLocalDate(d); };
 
 /* =====================================================================
    6b) ตัวจัดแผนหมุนเวียนรายปี ตามกติกาของกลุ่มงาน

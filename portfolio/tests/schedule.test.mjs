@@ -733,6 +733,35 @@ export default async function run() {
       await rp.close();
     }
 
+    /* ---------- เลขวันที่ต้องถูกต้องในเขตเวลาไทย (UTC+7) ไม่ใช่แค่ตอนรันบนเครื่องที่ตั้ง UTC ----------
+       เดิม addDaysISO/mondayOf/todayISO() แปลงวันที่ผ่าน .toISOString() ซึ่งคืนวันที่ตาม UTC เสมอ
+       ในเขตเวลา UTC+ ทุกเขต ผลลัพธ์จะเพี้ยนถอยหลังไปหนึ่งวันตลอดเวลา ไม่ใช่แค่ช่วงใกล้เที่ยงคืน
+       ทดสอบตรงนี้เปิดหน้าด้วย timezoneId ไทยโดยตรง ไม่พึ่ง TZ ของเครื่องที่รันเทสต์ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin", { timezoneId: "Asia/Bangkok" });
+      const r = await page.evaluate(() => {
+        const d = new Date();
+        const wantToday = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        return {
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          identity: addDaysISO("2026-08-28", 0),
+          plusOne: addDaysISO("2026-08-28", 1),
+          minusOne: addDaysISO("2026-08-28", -1),
+          monday: mondayOf("2026-08-28"),
+          todayMatchesLocalCalendar: todayISO() === wantToday,
+          today: todayISO(), wantToday
+        };
+      });
+      t.eq("เปิดหน้าด้วยเขตเวลาไทยจริง", r.tz, "Asia/Bangkok");
+      t.eq("addDaysISO บวก 0 วันได้วันเดิม แม้อยู่ในเขตเวลา UTC+7", r.identity, "2026-08-28");
+      t.eq("addDaysISO บวก 1 วันถูกต้อง", r.plusOne, "2026-08-29");
+      t.eq("addDaysISO ลบ 1 วันถูกต้อง", r.minusOne, "2026-08-27");
+      t.eq("mondayOf หาวันจันทร์ของสัปดาห์ถูกต้องในเขตเวลาไทย (28 ส.ค. 69 เป็นวันศุกร์)", r.monday, "2026-08-24");
+      t.eq("todayISO() ตรงกับปฏิทินท้องถิ่น ไม่ใช่ปฏิทิน UTC", r.today, r.wantToday);
+      t.check("ทดสอบเขตเวลาไทย: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     await srv.close();
