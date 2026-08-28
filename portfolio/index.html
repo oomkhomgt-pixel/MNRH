@@ -4171,7 +4171,10 @@ function renderRotation() {
   renderTalks();
 
   /* --- ผลประเมินท้ายเซสชันล่าสุด --- */
-  const evs = (store.data.sessionEvals || []).slice().sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 15);
+  /* ผลประเมินเป็นข้อมูลรายบุคคล เหมือน visibleActivities()/visibleResidents() —
+     แพทย์ประจำบ้านต้องเห็นเฉพาะของตัวเอง ไม่งั้นเห็นคะแนน/ข้อเสนอแนะของเพื่อนร่วมสายทั้งหมด */
+  const visibleEvals = (store.data.sessionEvals || []).filter(ev => canSeeResident(ev.residentId));
+  const evs = visibleEvals.slice().sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 15);
   $("#evalList").innerHTML = evs.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>วันที่</th><th>แพทย์ประจำบ้าน</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>คะแนนเฉลี่ย</th><th>ระดับการทำได้เอง</th><th>ข้อเสนอแนะ</th></tr></thead>
     <tbody>${evs.map(ev => {
@@ -4186,7 +4189,7 @@ function renderRotation() {
         <td class="small">${esc((ev.comment || "").slice(0, 90))}</td>
       </tr>`;
     }).join("")}</tbody></table></div>
-    <p class="small muted" style="margin-top:.5rem">บันทึกไว้ทั้งหมด ${store.data.sessionEvals.length} ครั้ง</p>`
+    <p class="small muted" style="margin-top:.5rem">บันทึกไว้ทั้งหมด ${visibleEvals.length} ครั้ง</p>`
     : `<p class="empty">ยังไม่มีการประเมินท้ายเซสชัน</p>`;
 }
 
@@ -4937,7 +4940,9 @@ function editService(id) {
 function evalCsvRows() {
   const head = ["วันที่","ช่วง","แพทย์ประจำบ้าน","ชั้นปี","Service","Subspecialty","เซสชัน","สถานที่","ผู้ประเมิน",
                 ...EVAL_ITEMS.map(i => i.th), "คะแนนเฉลี่ย","ระดับ entrustment","ข้อเสนอแนะ","บันทึกเมื่อ"];
-  return [head].concat((store.data.sessionEvals || []).slice().sort((a, b) => a.date.localeCompare(b.date)).map(ev => {
+  /* เหมือน #evalList — แพทย์ประจำบ้านต้องดาวน์โหลดได้เฉพาะผลประเมินของตัวเอง */
+  return [head].concat((store.data.sessionEvals || []).filter(ev => canSeeResident(ev.residentId))
+    .slice().sort((a, b) => a.date.localeCompare(b.date)).map(ev => {
     const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
     return [ev.date, PART_BY_ID[ev.part]?.th || ev.part, r?.name || "", r?.year || "", svc?.name || "",
       SUB_BY_ID[svc?.subspecialty]?.en || "", ev.sessionName || "", ev.location || "", staffName(ev.staffId),

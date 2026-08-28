@@ -36,6 +36,22 @@ export default async function run() {
         return !open;
       }));
 
+      /* ผลประเมินท้ายเซสชันเป็นข้อมูลรายบุคคล เหมือนกิจกรรม — เห็นและดาวน์โหลดได้เฉพาะของตัวเอง
+         เดิม #evalList และ evalCsvRows() ไม่กรองเลย ทุกคนเห็นคะแนน/ข้อเสนอแนะของทุกคนในสาย */
+      const evalLeak = await page.evaluate(() => {
+        const me = myResidentId(), other = store.data.residents.find(r => r.id !== me).id;
+        store.data.sessionEvals.push({ id: "ev_leak_test", residentId: other, staffId: "",
+          date: todayISO(), part: "am", sessionName: "ทดสอบรั่ว", serviceId: "",
+          scores: {}, entrust: "3", comment: "ข้อความลับของคนอื่น ห้ามเห็น" });
+        renderRotation();
+        const inList = ($("#evalList").innerHTML || "").includes("ข้อความลับของคนอื่น");
+        const inCsv = evalCsvRows().some(row => row.some(cell => String(cell).includes("ข้อความลับของคนอื่น")));
+        store.data.sessionEvals = store.data.sessionEvals.filter(e => e.id !== "ev_leak_test");
+        return { inList, inCsv };
+      });
+      t.check("ไม่เห็นผลประเมินท้ายเซสชันของคนอื่นในตารางสัปดาห์", !evalLeak.inList);
+      t.check("ดาวน์โหลด CSV ผลประเมินไม่หลุดของคนอื่นมาด้วย", !evalLeak.inCsv);
+
       /* logbook เป็นของรายบุคคล — ไม่ระบุเจ้าของต้องไม่ส่งอะไรเลย
          เดิมช่องว่างแปลว่า "ทุกเคสในเครื่อง" ซึ่งส่งเคสของคนอื่นออกไปได้ */
       const sync = await page.evaluate(() => {
