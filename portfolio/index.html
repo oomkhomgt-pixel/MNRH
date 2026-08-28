@@ -1275,10 +1275,23 @@ async function sha256(buf) {
 const store = {
   data: null,
   load() {
+    let raw = null;
     try {
-      const raw = localStorage.getItem(APP.key);
+      raw = localStorage.getItem(APP.key);
       if (raw) { this.data = JSON.parse(raw); this.migrate(); return; }
-    } catch (e) { console.warn("อ่านข้อมูลเดิมไม่ได้", e); }
+    } catch (e) {
+      console.warn("อ่านข้อมูลเดิมไม่ได้", e);
+      /* กันสำเนาดิบของข้อมูลเดิมที่อ่านไม่ออกไว้ก่อนเสมอ ไม่งั้นข้อมูลฝึกอบรมทั้งหมดจะหายไป
+         แบบไม่มีร่องรอยให้กู้คืนเลย เมื่อ seedData()/save() ด้านล่างเขียนทับคีย์เดิมไปแล้ว */
+      if (raw) {
+        const backupKey = APP.key + "_corrupt_" + Date.now();
+        try {
+          localStorage.setItem(backupKey, raw);
+          toast("ข้อมูลเดิมในเครื่องเสียหายและเปิดไม่ได้ — สำรองสำเนาดิบไว้ที่ localStorage คีย์ " +
+                backupKey + " แล้ว กรุณาแจ้งผู้ดูแลระบบก่อนใช้งานต่อ", 15000);
+        } catch (e2) { console.warn("สำรองสำเนาดิบไม่ได้", e2); }
+      }
+    }
     this.data = seedData();
     this.save();
   },
@@ -5212,6 +5225,10 @@ function renderResidentDetail() {
              toCsv(activityCsvRows(store.activitiesOf(r.id))), "text/csv;charset=utf-8");
   });
   box.querySelector("[data-printlog]")?.addEventListener("click", () => printLogbook(r.id));
+  /* คลิกเลือกแพทย์ประจำบ้านในรายชื่อเรียกฟังก์ชันนี้ตรง ๆ ไม่ผ่าน renderAll() จึงไม่มีใครไปซ่อนปุ่มที่
+     ต้องเห็นเฉพาะ data-perm="admin" ให้ใหม่ — ปุ่ม "แก้ไขข้อมูล" จึงโผล่ให้ non-admin เห็นได้ (ยังกดไม่ได้
+     จริงเพราะ editResident() มี guard ภายในอีกชั้น แต่ทำให้สับสน) เรียกซ้ำตรงนี้กันไว้เลย */
+  if (session) applyPermissions();
 }
 
 /* =====================================================================
@@ -6128,6 +6145,9 @@ async function backupToFolder(auto) {
 }
 
 function backupToDownload() {
+  /* ไฟล์นี้คือฐานข้อมูลทั้งก้อนแบบดิบ รวมข้อมูลผู้ป่วยและรหัสผ่านของบัญชี เหมือน exportJson() —
+     เดิมไม่มีการเช็คสิทธิ์ภายในฟังก์ชันเองเลย อาศัยแค่ปุ่มถูกซ่อนในหน้าตั้งค่าเท่านั้น */
+  if (!canManage()) { toast("การสำรองข้อมูลทั้งชุดเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const json = JSON.stringify(store.data, null, 1);
   const name = backupFileName();
   download(name, json, "application/json");
@@ -6520,6 +6540,9 @@ function caseCsvRows(list) {
 /* ใบกรอกสำหรับนำไปลงระบบ logbook ของราชวิทยาลัย — เฉพาะเคสที่ยังไม่ได้ลง */
 function printRcostWorksheet(residentId) {
   const r = store.resident(residentId); if (!r) return;
+  /* จุดเข้าถึงจริงในหน้าจอกรองด้วย canSeeResident ไว้แล้วทุกทาง แต่ฟังก์ชันเองไม่มี guard —
+     ถ้าเรียกตรงผ่าน console ด้วย residentId ของคนอื่น จะเปิดรายงานที่มี HN/diagnosis ของคนอื่นได้ */
+  if (!canSeeResident(r.id)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
   const pending = rcostPending(r.id).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const html = reportHead("ใบกรอก logbook ราชวิทยาลัย — " + r.name,
     "ชั้นปีที่ " + r.year + " · เคสที่ยังไม่ได้บันทึกในระบบราชวิทยาลัย " + pending.length + " เคส") + `
@@ -6541,6 +6564,8 @@ function printRcostWorksheet(residentId) {
 
 function printLogbook(residentId) {
   const r = store.resident(residentId); if (!r) return;
+  /* จุดเข้าถึงจริงในหน้าจอกรองด้วย canSeeResident ไว้แล้วทุกทาง แต่ฟังก์ชันเองไม่มี guard */
+  if (!canSeeResident(r.id)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
   const mine = casesOf(r.id).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const byRole = {}; CASE_ROLES.forEach(x => byRole[x.id] = mine.filter(c => roleOf(c, r.id) === x.id).length);
   const bySub = {};
@@ -7688,6 +7713,8 @@ function reportHead(title, sub) {
 
 function printPortfolio(residentId) {
   const r = store.resident(residentId); if (!r) return;
+  /* จุดเข้าถึงจริงในหน้าจอกรองด้วย canSeeResident ไว้แล้วทุกทาง แต่ฟังก์ชันเองไม่มี guard */
+  if (!canSeeResident(r.id)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
   const p = progressFor(r), gaps = gapsFor(r);
   const acts = store.activitiesOf(r.id).sort((a, b) => a.date.localeCompare(b.date));
   const projects = store.data.research.filter(x => x.residentId === r.id);
@@ -8858,7 +8885,12 @@ function init() {
   $("#btnResidentDashboard").addEventListener("click", () => selectedResident ? exportResidentDashboard(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnWfmeReport").addEventListener("click", printWfmeReport);
   $("#btnWfmeCsv").addEventListener("click", () => download("wfme-evidence-map.csv", toCsv(wfmeCsvRows()), "text/csv;charset=utf-8"));
-  $("#btnCsvAll").addEventListener("click", () => download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8"));
+  $("#btnCsvAll").addEventListener("click", () => {
+    /* ปุ่มนี้ดาวน์โหลดกิจกรรมของ "ทั้งภาควิชา" ไม่กรองตาม canSeeResident เลย — เดิมอาศัยแค่ปุ่มถูกซ่อน
+       ในหน้าตั้งค่าเท่านั้น ไม่มีการเช็คสิทธิ์ภายในเลย เหมือน exportJson()/backupToDownload() */
+    if (!canManage()) { toast("การดาวน์โหลดกิจกรรมทั้งภาควิชาเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
+    download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8");
+  });
   [$("#btnExport"), $("#btnExport2")].forEach(b => b.addEventListener("click", exportJson));
   [$("#btnDashboard"), $("#btnDashboard2")].forEach(b => b?.addEventListener("click", exportDashboard));
   [$("#btnImport"), $("#btnImport2")].forEach(b => b.addEventListener("click", () => $("#importPick").click()));

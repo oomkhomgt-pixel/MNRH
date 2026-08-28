@@ -269,6 +269,31 @@ export default async function run() {
       t.check("D2: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+
+    /* ---------- A8: ข้อมูลเดิมใน localStorage เสียหาย (parse ไม่ออก) ต้องกันสำเนาไว้ก่อนทับ ----------
+       เดิม parse ไม่ออกแล้วเรียก seedData()/save() ทับคีย์เดิมทันที ข้อมูลฝึกอบรมที่เสียหายบางส่วน
+       (กู้คืนได้บ้างด้วยมือ) จะหายไปแบบไม่มีร่องรอยให้กู้คืนเลย */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const KEY = "mnrh_ortho_portfolio_v1";
+        const corrupted = "{ ข้อมูลเสียหาย ไม่ใช่ JSON ที่ถูกต้อง !!!";
+        localStorage.setItem(KEY, corrupted);
+        store.load();
+        const backupKeys = Object.keys(localStorage).filter(k => k.startsWith(KEY + "_corrupt_"));
+        const recovered = backupKeys.length ? localStorage.getItem(backupKeys[0]) : "";
+        return {
+          hasSeedData: Array.isArray(store.data.residents) && store.data.residents.length > 0,
+          backupCount: backupKeys.length,
+          recoveredMatches: recovered === corrupted
+        };
+      });
+      t.check("ข้อมูลเสียหายแล้วยังโหลดขึ้นมาใช้งานต่อได้ (ไม่ค้าง ไม่พัง)", r.hasSeedData);
+      t.eq("กันสำเนาดิบของข้อมูลเดิมไว้ในคีย์แยกก่อนทับ", r.backupCount, 1);
+      t.check("สำเนาที่กันไว้ตรงกับข้อมูลดิบเดิมเป๊ะ กู้คืนได้จริงถ้าจำเป็น", r.recoveredMatches);
+      t.check("A8: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();

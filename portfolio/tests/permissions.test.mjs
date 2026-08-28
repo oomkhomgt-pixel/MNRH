@@ -84,6 +84,48 @@ export default async function run() {
         return !called;
       }));
 
+      /* ---------- C3: ฟังก์ชันพิมพ์รายงานที่อ้างอิง residentId ต้องมี guard ภายในด้วย ----------
+         ไม่ใช่พึ่งแค่ว่าจุดเข้าถึงจริงในหน้าจอกรองไว้แล้ว — เรียกตรงผ่าน console ด้วย id ของคนอื่นต้องไม่ทำงาน */
+      const printGuard = await page.evaluate(() => {
+        const other = store.data.residents.find(x => x.id !== myResidentId()).id;
+        window.print = () => {};
+        const before = document.querySelector("#reportBody")?.innerHTML || "";
+        printLogbook(other);
+        const afterLogbook = document.querySelector("#reportBody")?.innerHTML || "";
+        printPortfolio(other);
+        const afterPortfolio = document.querySelector("#reportBody")?.innerHTML || "";
+        printRcostWorksheet(other);
+        const afterRcost = document.querySelector("#reportBody")?.innerHTML || "";
+        return { before, afterLogbook, afterPortfolio, afterRcost };
+      });
+      t.eq("printLogbook ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterLogbook, printGuard.before);
+      t.eq("printPortfolio ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterPortfolio, printGuard.before);
+      t.eq("printRcostWorksheet ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterRcost, printGuard.before);
+
+      /* ---------- A9: ดาวน์โหลดข้อมูลทั้งชุด/กิจกรรมทั้งภาควิชา ต้องมี guard ภายในด้วย ---------- */
+      const exportGuard = await page.evaluate(() => {
+        let called = false;
+        const realDownload = window.download; window.download = () => { called = true; };
+        backupToDownload();
+        const backupCalled = called; called = false;
+        document.querySelector("#btnCsvAll")?.click();
+        const csvAllCalled = called;
+        window.download = realDownload;
+        return { backupCalled, csvAllCalled };
+      });
+      t.check("backupToDownload() เรียกตรง ๆ โดยแพทย์ประจำบ้านไม่ทำงาน", !exportGuard.backupCalled);
+      t.check("ปุ่มดาวน์โหลดกิจกรรมทั้งภาควิชา (CSV) กดตรง ๆ โดยแพทย์ประจำบ้านไม่ทำงาน", !exportGuard.csvAllCalled);
+
+      /* ---------- D3: ปุ่ม "แก้ไขข้อมูล" ต้องถูกซ่อนหลังเลือกดูรายละเอียดคนใดคนหนึ่งด้วย ----------
+         เดิม renderResidentDetail() ไม่เรียก applyPermissions() ซ้ำ ปุ่มที่วาดใหม่จึงโผล่ให้เห็น
+         (ยังกดไม่ได้จริงเพราะ editResident() กันไว้อีกชั้น แต่ทำให้สับสน) */
+      const d3 = await page.evaluate(() => {
+        selectedResident = store.data.residents[0].id;
+        renderResidentDetail();
+        return { hidden: document.querySelector("[data-edit-res]")?.hidden };
+      });
+      t.check("ปุ่มแก้ไขข้อมูลถูกซ่อนให้ถูกต้องหลังเลือกดูรายละเอียดแพทย์ประจำบ้าน", d3.hidden === true);
+
       /* หน้าตั้งค่าซิงก์ต้องเป็นแบบอ่านอย่างเดียว ไม่มีช่องให้แก้ปลายทาง */
       const dlg = await page.evaluate(() => {
         syncSettingsDialog();
