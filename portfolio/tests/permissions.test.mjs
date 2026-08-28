@@ -454,6 +454,9 @@ export default async function run() {
         const users = { admin: pick("admin"), staff: pick("staff"), resident: pick("resident") };
         const attempt = async (u, pin) => {
           localStorage.removeItem("mnrh_ortho_portfolio_session_v1");
+          /* ล้าง session ในหน่วยความจำด้วย ไม่ใช่แค่ localStorage — ไม่งั้นความพยายามที่ควรถูกบล็อก
+             จะยังเห็น currentUser() เป็นค่าเดิมจากรอบก่อนที่ล็อกอินสำเร็จ ทำให้ทดสอบเพี้ยน */
+          session = null;
           document.querySelector("#loginUser").value = u.id;
           document.querySelector("#loginPin").value = pin;
           document.querySelector("#loginGo").click();
@@ -462,13 +465,26 @@ export default async function run() {
         const wrong = await attempt(users.admin, "1234");
         const crossRole = await attempt(users.admin, users.resident.pin);
         const right = await attempt(users.admin, users.admin.pin);
+
+        /* บัญชีที่ยังไม่ได้ตั้งรหัส (pin ว่าง) ต้องเข้าไม่ได้เลย — ทั้งเว้นว่างและใส่อะไรก็ตาม
+           เดิม u.pin && u.pin !== pin ปล่อยผ่านทั้งเงื่อนไขเมื่อ pin ว่าง เข้าได้โดยไม่ต้องรู้รหัสอะไรเลย */
+        const noPinUser = { id: "usr_no_pin_test", username: "nopintest", displayName: "ทดสอบไม่มีรหัส",
+          role: "staff", pin: "", active: true };
+        store.data.users.push(noPinUser);
+        /* renderLoginGate() ต้องรันใหม่ ไม่งั้น go() ยังอ้างรายชื่อผู้ใช้ชุดเก่าที่ไม่มีบัญชีนี้อยู่ */
+        renderLoginGate();
+        const noPinBlank = await attempt(noPinUser, "");
+        const noPinAnything = await attempt(noPinUser, "ใส่อะไรก็ได้");
+        store.data.users = store.data.users.filter(u => u.id !== noPinUser.id);
+        renderLoginGate();
+
         /* ปุ่มเติมรหัสต้องเติมได้ตรงกับรหัสที่บัญชีนั้นใช้จริง */
         document.querySelector("#loginUser").value = users.staff.id;
         document.querySelector("#loginPin").value = "";
         document.querySelector("#loginDemo").click();
         const filled = document.querySelector("#loginPin").value;
         return {
-          wrong, crossRole, right, filled, staffPin: users.staff.pin,
+          wrong, crossRole, right, noPinBlank, noPinAnything, filled, staffPin: users.staff.pin,
           pins: [users.admin.pin, users.staff.pin, users.resident.pin],
           distinct: new Set(store.data.users.map(u => u.pin)).size,
           total: store.data.users.length
@@ -477,6 +493,8 @@ export default async function run() {
       t.check("รหัสเดิม 1234 ใช้ไม่ได้แล้ว", r.wrong === false);
       t.check("รหัสของบทบาทอื่นใช้ข้ามบัญชีไม่ได้", r.crossRole === false);
       t.check("รหัสที่ถูกต้องเข้าได้", r.right === true, r.pins.join(" · "));
+      t.check("บัญชีที่ยังไม่ตั้งรหัส เข้าด้วยช่องว่างไม่ได้", r.noPinBlank === false);
+      t.check("บัญชีที่ยังไม่ตั้งรหัส เข้าด้วยรหัสอะไรก็ตามไม่ได้", r.noPinAnything === false);
       t.check("แต่ละบทบาทได้รหัสคนละชุด",
               new Set(r.pins.map(x => x[0])).size === 3, r.pins.join(" · "));
       t.check("ทุกบัญชีสาธิตมีรหัสไม่ซ้ำกัน", r.distinct === r.total,

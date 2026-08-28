@@ -1383,13 +1383,20 @@ const store = {
       console.error(e);
     }
   },
-  reset() { this.data = seedData(); this.save(); },
+  reset() {
+    /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อน — ถ้าไม่ล้าง ครั้งต่อไปที่ merge จะเทียบข้อมูลสาธิตชุดใหม่
+       กับฐานของชุดเก่า แล้วเข้าใจผิดว่าทุกอย่างถูก "แก้" พร้อมกันหมด จนทับของบนคลาวด์ทั้งก้อน */
+    try { localStorage.removeItem(BASELINE_KEY); } catch {}
+    this.data = seedData(); this.save();
+  },
   wipe() {
     /* เดิมไล่พิมพ์คีย์ตั้งต้นไว้ตรงนี้ ทุกครั้งที่เพิ่มคอลเลกชันใหม่ก็ลืมมาเติม
        ผลคือหลังล้างข้อมูล คอลเลกชันนั้นเป็น undefined จนกว่าจะรีโหลด แล้วปุ่มที่ไปแตะมันก็พัง
        ปล่อยให้ migrate() สร้างโครงให้แทน — มันสร้างทุกคีย์ด้วย ||= อยู่แล้ว จึงรันบนก้อนว่างได้
        และคอลเลกชันที่เพิ่มในอนาคตจะไม่หลุดซ้ำอีก */
     localStorage.removeItem(APP.key);
+    /* เหตุผลเดียวกับ reset(): ฐานเปรียบเทียบเก่าต้องไม่ข้ามมาเทียบกับก้อนที่ล้างใหม่ */
+    try { localStorage.removeItem(BASELINE_KEY); } catch {}
     this.data = { meta:{ created:new Date().toISOString() } };
     this.migrate();
     this.save();
@@ -5591,6 +5598,19 @@ const syncMode = () => (syncCfg().mode === "full" && canManage()) ? "full" : "lo
 const syncTarget = () => (syncMode() === "full" ? syncCfg().cloudUrl : syncCfg().url);
 
 let syncTimer = null, syncing = false, suppressDirty = false;
+/* ล้างข้อมูล/โหลดสาธิต/นำเข้าไฟล์ ล้วนจบด้วย save() ซึ่งจะตั้งเวลาไปดันขึ้นคลาวด์ให้อัตโนมัติใน 5 วิ
+   ถ้าตั้งซิงก์อัตโนมัติไว้ ต้องถามแยกก่อนว่าจะยอมให้การกระทำที่ทำลายข้อมูลเดิมนี้ไปทับของบนคลาวด์ด้วยหรือไม่
+   ปฏิเสธแล้วยังแก้ข้อมูลในเครื่องได้ตามปกติ แค่ไม่ส่งขึ้นคลาวด์รอบนี้ */
+function confirmCloudPushGate() {
+  if (!syncTarget() || !syncCfg().auto) return true;
+  return confirm("มีการตั้งซิงก์อัตโนมัติกับคลาวด์ไว้ การกระทำนี้จะถูกส่งขึ้นคลาวด์ภายในไม่กี่วินาทีถ้ากด OK\nกด Cancel เพื่อแก้ข้อมูลในเครื่องต่อไปโดยไม่ส่งขึ้นคลาวด์ตอนนี้");
+}
+function runDestructiveDataOp(fn) {
+  if (confirmCloudPushGate()) { fn(); return; }
+  const prev = suppressDirty;
+  suppressDirty = true;
+  try { fn(); } finally { suppressDirty = prev; }
+}
 function markDirty() {
   const cfg = syncCfg();
   if (suppressDirty || !syncTarget() || !cfg.auto) return;
@@ -8255,7 +8275,10 @@ function importJson(file) {
       const data = JSON.parse(fr.result);
       if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
       if (!confirm("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม) ดำเนินการต่อ?")) return;
-      store.data = data; store.migrate(); store.save(); selectedResident = null; renderAll();
+      /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset() */
+      try { localStorage.removeItem(BASELINE_KEY); } catch {}
+      runDestructiveDataOp(() => { store.data = data; store.migrate(); store.save(); });
+      selectedResident = null; renderAll();
       audit("นำเข้าข้อมูลทั้งชุดจากไฟล์", data.residents.length + " คน · " + data.activities.length + " กิจกรรม");
       toast("นำเข้าข้อมูลแล้ว");
     } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
@@ -8458,7 +8481,17 @@ function renderLoginGate() {
   const go = () => {
     const id = $("#loginUser").value, pin = $("#loginPin").value;
     const u = users.find(x => x.id === id);
-    if (!u || (u.pin && u.pin !== pin)) {
+    if (!u) {
+      $("#loginError").innerHTML = `<p class="notice warn small">รหัสผ่านไม่ถูกต้อง</p>`;
+      return;
+    }
+    /* บัญชีที่ยังไม่มีรหัส (u.pin ว่าง) ต้องล็อกอินไม่ได้เลย — เดิม u.pin && ... ปล่อยผ่านเงื่อนไข
+       ทั้งก้อนเมื่อ pin ว่าง ทำให้ใส่อะไรก็เข้าได้ ต้องให้ผู้จัดหลักสูตรตั้งรหัสก่อนใช้งานจริง */
+    if (!u.pin) {
+      $("#loginError").innerHTML = `<p class="notice warn small">บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน ให้ผู้จัดหลักสูตรตั้งรหัสก่อนใช้งาน</p>`;
+      return;
+    }
+    if (u.pin !== pin) {
       $("#loginError").innerHTML = `<p class="notice warn small">รหัสผ่านไม่ถูกต้อง</p>`;
       return;
     }
@@ -8716,11 +8749,13 @@ function init() {
   $("#importPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; });
   $("#btnSeed").addEventListener("click", () => {
     if (!confirm("โหลดข้อมูลสาธิตใหม่ ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่ทั้งหมด ดำเนินการต่อ?")) return;
-    store.reset(); selectedResident = null; renderAll(); toast("โหลดข้อมูลสาธิตใหม่แล้ว");
+    runDestructiveDataOp(() => store.reset());
+    selectedResident = null; renderAll(); toast("โหลดข้อมูลสาธิตใหม่แล้ว");
   });
   $("#btnWipe").addEventListener("click", () => {
     if (!confirm("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน")) return;
-    store.wipe(); selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
+    runDestructiveDataOp(() => store.wipe());
+    selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
   });
 
   setupApp();

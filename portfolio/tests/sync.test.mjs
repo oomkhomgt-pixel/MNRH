@@ -79,6 +79,90 @@ export default async function run() {
       t.check("ล้างข้อมูล: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+
+    /* ---------- ล้าง/โหลดสาธิต/นำเข้าไฟล์ ต้องล้างฐานเปรียบเทียบเก่าทิ้งด้วย ----------
+       ฐานเก่าอ้างถึงข้อมูลชุดก่อน ถ้าไม่ล้าง รอบซิงก์ถัดไปจะเข้าใจผิดว่าทุกอย่างถูก "แก้"
+       พร้อมกันหมด แล้วทับของบนคลาวด์ทั้งก้อนแบบไม่บันทึกเป็นรายการที่ชนกันด้วยซ้ำ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        writeBaseline(3, { rotationEvals: [{ id: "rev_baseline" }] });
+        const hadBefore = readBaseline() !== null;
+        store.wipe();
+        const afterWipe = readBaseline();
+        writeBaseline(4, { rotationEvals: [{ id: "rev_baseline2" }] });
+        store.reset();
+        const afterReset = readBaseline();
+        return { hadBefore, afterWipe, afterReset };
+      });
+      t.check("ตั้งฐานเปรียบเทียบไว้ก่อนทดสอบได้จริง", r.hadBefore);
+      t.eq("wipe() ล้างฐานเปรียบเทียบเก่าทิ้งด้วย", r.afterWipe, null);
+      t.eq("reset() ล้างฐานเปรียบเทียบเก่าทิ้งด้วย", r.afterReset, null);
+      t.check("ล้างฐานเปรียบเทียบ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- ล้างข้อมูลเมื่อตั้งซิงก์อัตโนมัติไว้ ต้องถามแยกก่อนดันขึ้นคลาวด์ ----------
+       ปฏิเสธคำถามที่สองแล้วข้อมูลในเครื่องยังต้องถูกล้างตามปกติ แค่ไม่ตั้งคิวส่งขึ้นคลาวด์
+       (wipe()/reset() เองก็ล้างค่าซิงก์ทิ้งเป็นผลข้างเคียงอยู่แล้ว จึงพิสูจน์ผ่านปุ่มลบข้อมูลได้ตรง ๆ) */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      let dialogs = [];
+      page.on("dialog", async (d) => {
+        const accept = dialogs.shift();
+        if (accept) await d.accept(); else await d.dismiss();
+      });
+      await page.evaluate(() => {
+        syncCfg().url = "https://example.invalid/logbook"; syncCfg().auto = true;
+        syncCfg().pending = false;
+      });
+      dialogs = [true, false]; /* ยืนยันลบ → ปฏิเสธการดันขึ้นคลาวด์ */
+      await page.evaluate(() => { document.querySelector("#btnWipe").click(); });
+      const afterDecline = await page.evaluate(() => ({
+        residents: store.data.residents.length, pending: !!syncCfg().pending
+      }));
+      t.check("ปฏิเสธการดันขึ้นคลาวด์แล้ว ข้อมูลในเครื่องยังถูกล้างตามปกติ", afterDecline.residents === 0);
+      t.check("ปฏิเสธการดันขึ้นคลาวด์แล้ว ไม่ตั้งคิวส่งขึ้นคลาวด์", afterDecline.pending === false);
+      t.check("ปุ่มลบข้อมูล + ปฏิเสธดันขึ้นคลาวด์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- กลไก confirmCloudPushGate/runDestructiveDataOp เอง ----------
+       ทดสอบตรงที่ตัวกลไก ไม่ผ่านปุ่ม UI เพราะ wipe()/reset() ล้างเป้าหมายซิงก์ทิ้งเองอยู่แล้ว
+       จึงไม่เห็นผลต่างของ pending หลัง save() — ต้องพิสูจน์ด้วยการกระทำที่ไม่ล้างเป้าหมายซิงก์ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      let dialogAnswer = true;
+      page.on("dialog", async (d) => { if (dialogAnswer) await d.accept(); else await d.dismiss(); });
+
+      const noTarget = await page.evaluate(() => {
+        syncCfg().url = ""; syncCfg().auto = true;
+        return confirmCloudPushGate(); /* ไม่มีเป้าหมาย → ผ่านเลยไม่ต้องถาม */
+      });
+      t.check("ไม่มีเป้าหมายซิงก์ → ไม่มีคำถามซ้อน ผ่านทันที", noTarget === true);
+
+      dialogAnswer = false;
+      const declined = await page.evaluate(() => {
+        syncCfg().url = "https://example.invalid/logbook"; syncCfg().pending = false;
+        let ran = false;
+        runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test" }); store.save(); });
+        return { ran, pending: !!syncCfg().pending, activities: store.data.activities.length };
+      });
+      t.check("ปฏิเสธคำถามที่สองแล้ว การกระทำยังรันจริง", declined.ran);
+      t.check("ปฏิเสธคำถามที่สองแล้ว ไม่ตั้งคิวส่งขึ้นคลาวด์ (markDirty ถูกกด suppress)", declined.pending === false);
+
+      dialogAnswer = true;
+      const accepted = await page.evaluate(() => {
+        syncCfg().pending = false;
+        let ran = false;
+        runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test2" }); store.save(); });
+        return { ran, pending: !!syncCfg().pending };
+      });
+      t.check("ยอมรับคำถามที่สองแล้ว การกระทำรันจริง", accepted.ran);
+      t.check("ยอมรับคำถามที่สองแล้ว ตั้งคิวส่งขึ้นคลาวด์ตามปกติ", accepted.pending === true);
+      t.check("กลไกยืนยันก่อนดันขึ้นคลาวด์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();
