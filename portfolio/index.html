@@ -1622,6 +1622,10 @@ function computeSessions(iso, data) {
      คือชนะงานบริการตามตาราง แต่ยังแพ้กิจกรรมวิชาการ เพราะวิชาการมาก่อนเสมอ */
   (data.visits || []).forEach(v => {
     if (v.date !== iso || v.status !== "approved") return;
+    /* วันหยุดราชการลบคาบตามตารางประจำสัปดาห์ทิ้งทั้งวัน — คำขอไปเข้าคาบของสายอื่นอ้างอิงช่องในตาราง
+       ประจำสัปดาห์ของวันนั้น (t.day===dow) ซึ่งไม่ได้เกิดขึ้นจริงในวันหยุด ถ้าไม่กันไว้ตรงนี้ คำขอเดิม
+       จะสร้างคาบผีที่ไม่มีกิจกรรมจริงรองรับขึ้นมา (ต่างจากเวร ER ที่ยังต้องมีคนคุมทุกวันแม้วันหยุด) */
+    if (duty?.holiday) return;
     const svc = svcById(v.serviceId);
     const t = (svc?.template || [])[v.index];
     if (!t || t.day !== dow) return;          /* ตารางของสายนั้นถูกแก้ไปแล้ว คำขอเดิมจึงใช้ไม่ได้ */
@@ -1825,10 +1829,15 @@ function buildRotationPlan(ay, residents, services, staff) {
   /* ปี 3 — free elective 3 เดือนติดกัน ไปพร้อมกันได้ไม่เกิน 2 คน */
   const electiveLoad = new Array(12).fill(0);
   (byYear[3] || []).forEach((r, i) => {
-    const pref = (i * 4) % 12;
+    /* index 0 คือ ก.ค. ต้นปีการศึกษา ถึง index 11 คือ มิ.ย. ปลายปี — ห้ามวน mod 12 ข้ามขอบเขตนี้
+       เพราะ [10,11,0] จะถูกนับเป็น "3 เดือนติดกัน" ทั้งที่ index 0 ไม่ใช่เดือนถัดจาก index 11 จริง
+       (เป็น ก.ค. ต้นปีเดียวกัน ซึ่งอาจถูกใช้ไปแล้วหรือไม่ใช่ช่วงเวลาติดกันจริงเลย) จุดเริ่มจึงต้องอยู่ใน 0–9 เท่านั้น
+       ให้เดือนที่ 3 (start+2) ไม่มีทางเกิน index 11 */
+    const pref = (i * 4) % 10;
     let window = null;
-    for (let o = 0; o < 12 && !window; o++) {
-      const w = [0, 1, 2].map(k => (pref + o + k) % 12);
+    for (let o = 0; o < 10 && !window; o++) {
+      const start = (pref + o) % 10;
+      const w = [start, start + 1, start + 2];
       if (w.every(m => !grid[r.id][m] && electiveLoad[m] < R3_ELECTIVE_CONCURRENT_MAX)) window = w;
     }
     if (!window) {
@@ -3752,11 +3761,21 @@ function decideSwap(id, accept) {
     const busy = staffBusyOn(sw.toStaffId, sw.date, sw.part, sw.serviceId);
     if (busy.length && !confirm("วันนั้นคุณมีคาบอื่นอยู่แล้ว (" + busy.map(b => b.name).join(", ") +
         ") ตอบรับต่อหรือไม่?")) return;
+    /* ขาคืนก็ต้องเช็คว่าคนที่ต้องไปแทน (fromStaffId เดิม) ว่างวันแลกกลับจริงเหมือนกัน
+       เดิมเช็คแค่วันของขาแรก วันคืนไม่เคยถูกเช็คเลย */
+    if (sw.returnDate) {
+      const busyReturn = staffBusyOn(sw.fromStaffId, sw.returnDate, sw.part, sw.serviceId);
+      if (busyReturn.length && !confirm(staffName(sw.fromStaffId) + " มีคาบอื่นในวันแลกกลับ (" + fmtDate(sw.returnDate) + ") อยู่แล้ว (" +
+          busyReturn.map(b => b.name).join(", ") + ") ตอบรับต่อหรือไม่?")) return;
+    }
   }
   sw.status = accept ? "accepted" : "declined";
   sw.decidedBy = currentUser()?.displayName || "";
   sw.decidedAt = new Date().toISOString();
-  if (accept && sw.returnDate && !(store.data.swaps || []).some(x => x.pairId === sw.pairId && x.date === sw.returnDate)) {
+  /* ตัด sw ตัวเองออกจากการเช็คชนกัน — ถ้าวันแลกกลับตรงกับวันเดิมพอดี (returnDate===date)
+     sw ที่กำลังตอบรับอยู่นี้ก็มี pairId+date ตรงกับเงื่อนไขอยู่แล้ว ทำให้ .some() เจอตัวเองแล้วคิดว่า
+     "มีขาคืนอยู่แล้ว" ทั้งที่จริงยังไม่เคยสร้างขาคืนเลย ขาคืนจึงไม่ถูกสร้างขึ้นมาเลยในกรณีนี้ */
+  if (accept && sw.returnDate && !(store.data.swaps || []).some(x => x.id !== sw.id && x.pairId === sw.pairId && x.date === sw.returnDate)) {
     store.data.swaps.push({ id: uid("swap"), pairId: sw.pairId, date: sw.returnDate, part: sw.part,
       serviceId: sw.serviceId, fromStaffId: sw.toStaffId, toStaffId: sw.fromStaffId,
       note: sw.note, returnDate: sw.date, status: "accepted",
@@ -3785,7 +3804,10 @@ function staffBusyOn(staffId, iso, part, ignoreServiceId) {
     /* คาบแบบ advisory บอกว่าใครรับผิดชอบ ไม่ได้บอกว่าตัวอยู่ตรงไหน (เช่น อาจารย์ผู้กำกับของรอบหมุนเวียน)
        จึงไม่ใช่เหตุผลที่จะบอกว่าวันนั้นติดคาบอื่นอยู่แล้ว — เหมือนที่มันไม่ถูกนับตอนตัดสินคาบชนกัน */
     if (ses.advisory) return false;
-    if (ignoreServiceId && ses.serviceId === ignoreServiceId) return false;
+    /* ignoreServiceId ใช้เพื่อไม่นับคาบที่กำลังจะแลกเองว่าเป็น "คาบอื่นที่ชนกัน" — ต้องตัดเฉพาะคาบ
+       ที่ตรงกับ part ที่กำลังแลกด้วย ไม่งั้นหน่วยเดียวกันที่มีหลายคาบต่อวัน (เช้า/บ่าย) จะถูกมองข้าม
+       ไปหมดทั้งหน่วย ทำให้คาบอื่นของหน่วยเดียวกันที่ชนกันจริงไม่ถูกเตือน */
+    if (ignoreServiceId && ses.serviceId === ignoreServiceId && (!part || partsOverlap(ses.part, part))) return false;
     if (part && !partsOverlap(ses.part, part)) return false;
     const k = ses.name + "|" + ses.part;
     if (seen.has(k)) return false;
@@ -4716,6 +4738,11 @@ function renderDutyTable() {
     list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
   const multi = (list, sel, attr) => `<select multiple size="2" data-d="${attr}">${
     list.map(x => `<option value="${x.id}" ${(sel || []).includes(x.id) ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
+  /* หน้างานต้องเลือกได้เฉพาะคนที่อยู่สาย ER ของวันนั้นจริง (ตามตารางหมุนเวียน) — เดิมเลือกได้จาก
+     รายชื่อแพทย์ประจำบ้านทั้งหมด ถ้าเลือกคนนอกสาย จะไม่มีคาบเกิดขึ้นจริงและไม่มีอะไรเตือนเลย */
+  const erTeamOn = (serviceId, iso) => !serviceId ? [] : (store.data.residents || []).filter(r =>
+    (store.data.rotations || []).some(x => x.residentId === r.id && x.serviceId === serviceId &&
+      (!x.start || iso >= x.start) && (!x.end || iso <= x.end)));
 
   box.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr><th>วันที่</th><th>วัน</th><th>OPD (สาย)</th><th>OPD (อาจารย์ — วันพฤหัสบดี)</th>
@@ -4730,7 +4757,7 @@ function renderDutyTable() {
         <td>${multi(staff, d.opdStaffIds, iso + "|opdStaffIds")}</td>
         <td><select data-d="${iso}|erServiceId">${opts(teams, d.erServiceId, "—")}</select></td>
         <td>${multi(staff, d.erStaffIds, iso + "|erStaffIds")}</td>
-        <td>${multi(visibleResidents(), d.erResidentIds, iso + "|erResidentIds")}</td>
+        <td>${multi(erTeamOn(d.erServiceId, iso), d.erResidentIds, iso + "|erResidentIds")}</td>
         <td style="text-align:center"><input type="checkbox" data-d="${iso}|holiday" ${d.holiday ? "checked" : ""} /></td>
       </tr>`;
     }).join("")}</tbody></table></div>`;
@@ -4761,7 +4788,7 @@ function editRotation(id) {
         ${rotatableServices().filter(x => x.team).map(x => `<option value="${x.id}" ${rot?.alsoServiceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
       <label class="f"><span>เริ่ม</span><input type="date" name="start" value="${esc(rot?.start || mondayOf(todayISO()))}" /></label>
       <label class="f"><span>สิ้นสุด</span><input type="date" name="end" value="${esc(rot?.end || addDaysISO(mondayOf(todayISO()), 27))}" /></label>
-      <label class="f"><span>อาจารย์ผู้กำกับประจำบล็อก</span><select name="supervisorId">
+      <label class="f"><span>อาจารย์ผู้กำกับประจำบล็อก</span><select name="supervisorId"><option value="">— ไม่ระบุ —</option>
         ${(store.data.staff || []).map(x => `<option value="${x.id}" ${rot?.supervisorId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
     <label class="f"><span>บันทึกเพิ่มเติม</span><input name="note" value="${esc(rot?.note || "")}" /></label>
@@ -4784,6 +4811,13 @@ function editRotation(id) {
         store.save(); renderAll(); toast("ลบแล้ว");
       }}] : [])
   ]);
+  /* เลือกหน่วยใหม่แล้วช่วยเดาอาจารย์ผู้กำกับตามค่าเริ่มต้นของหน่วยนั้นให้ — เฉพาะตอนสร้างรอบใหม่และ
+     ยังไม่มีใครเลือกอาจารย์ผู้กำกับไว้เอง (ช่องว่าง) ไม่งั้นจะไปทับตัวเลือกที่ตั้งใจไว้แล้วโดยไม่รู้ตัว
+     เดิมไม่มี listener นี้เลย ตัวแปรที่ใช้เดาค่าเริ่มต้นถูกใช้เฉพาะตอนสร้างตารางอัตโนมัติเท่านั้น */
+  if (!rot) $('#dlgBody [name="serviceId"]').addEventListener("change", (e) => {
+    const sel = $('#dlgBody [name="supervisorId"]');
+    if (sel && !sel.value) sel.value = defaultSupervisorFor(e.target.value, store.data.services, store.data.staff) || "";
+  });
 }
 
 /* --- ทะเบียนอาจารย์ --- */

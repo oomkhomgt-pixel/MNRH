@@ -119,6 +119,35 @@ export default async function run() {
       return plan.rotations.every(r => !serviceById(r.serviceId)?.central);
     }));
 
+    /* ---------- B8: free elective ของปี 3 ต้องเป็นเดือนติดกันจริงในปีการศึกษาเดียวกัน ----------
+       เดิมวนหาช่วงว่างด้วย mod 12 ทำให้ [10,11,0] ถูกนับว่า "3 เดือนติดกัน" ทั้งที่ index 0
+       คือ ก.ค. ต้นปีเดียวกัน ไม่ใช่เดือนถัดจาก index 11 (มิ.ย.) จริง — ข้อมูลสาธิตมีปี 3 น้อยเกินไปที่จะ
+       บีบให้ตัวค้นหาต้องเดินไปชนขอบเขตนี้เอง จึงเติมปี 3 ชั่วคราวให้ความจุใกล้เต็ม (2 คน/เดือน x 3 เดือน) */
+    const b8 = await page.evaluate(() => {
+      const backupResidents = store.data.residents;
+      const extra = Array.from({ length: 6 }, (_, i) => ({ id: "res_b8_" + i, name: "ทดสอบปี3-" + i,
+        nick: "b8-" + i, year: 3, cohort: "2567", advisor: "", email: "" }));
+      store.data.residents = [...store.data.residents, ...extra];
+      const plan = buildRotationPlan(currentAY(), store.data.residents, store.data.services);
+      const electiveSvc = store.data.services.find(x => x.elective);
+      const r3 = store.data.residents.filter(r => r.year === 3);
+      const bad = [];
+      r3.forEach(r => {
+        /* ที่ระบบรู้ตัวแล้วว่าจัดติดกันไม่ได้ (เพดานเต็มจริง) มีคำเตือนกำกับไว้แล้ว ข้ามการเช็คนี้ได้ */
+        if (plan.warnings.some(w => w.includes(r.name) && w.includes("ไม่ติดกัน"))) return;
+        const starts = plan.rotations.filter(x => x.residentId === r.id && x.serviceId === electiveSvc.id).map(x => x.start);
+        const idxs = starts.map(s => plan.months.findIndex(mm => monthStartISO(mm) === s)).sort((a, b) => a - b);
+        if (idxs.length < 2) return;
+        const contiguous = idxs.every((v, i) => i === 0 || v === idxs[i - 1] + 1);
+        if (!contiguous) bad.push(r.name + ":" + idxs.join(","));
+      });
+      store.data.residents = backupResidents;
+      return { bad, r3Count: r3.length, hasElective: !!electiveSvc };
+    });
+    t.check("มีข้อมูลปี 3 และหน่วย elective ให้ตรวจจริง", b8.r3Count > 0 && b8.hasElective);
+    t.eq("ทุกคนปี 3 ที่ไม่มีคำเตือนว่าจัดไม่ติดกัน ได้เดือนที่ติดกันจริงในปีการศึกษาเดียวกัน ไม่ข้ามขอบเขตปี",
+         b8.bad, []);
+
     /* ---------- การเลือกรายวันตัดสินคาบที่ลำดับเท่ากัน ---------- */
     const picked = await page.evaluate(() => {
       const rot = store.data.rotations.find(r => serviceById(r.serviceId)?.subUnit);
@@ -211,6 +240,68 @@ export default async function run() {
             holiday.withDuty.every(k => k === "duty"), holiday.withDuty.join(",") || "(ไม่เหลืออะไร)");
     t.eq("วันหยุดที่ไม่ได้ระบุเวรไว้ ไม่มีคาบเลย", holiday.bare, 0);
 
+    /* ---------- B6: วันหยุดราชการ คำขอไปเข้าคาบของสายอื่นที่อนุมัติแล้ว ต้องไม่สร้างคาบผี ----------
+       เดิม out.length=0 (ล้างวันหยุด) รันก่อนชั้นคำขอไปเข้าคาบของสายอื่น คำขอเดิมจึงรอดจากการล้าง
+       ทั้งที่ตารางประจำสัปดาห์ของวันนั้นไม่ได้เกิดขึ้นจริงแล้ว (ต่างจากเวร ER ที่ยังต้องมีคนคุมทุกวัน) */
+    const b6 = await page.evaluate(() => {
+      const iso = "2026-08-12";
+      const dow = new Date(iso + "T00:00:00").getDay();
+      let svc = null, idx = -1;
+      for (const s of store.data.services) {
+        idx = (s.template || []).findIndex(t => t.day === dow);
+        if (idx >= 0) { svc = s; break; }
+      }
+      if (!svc) return { none: true };
+      store.data.visits = [{ id: "v_holiday_test", residentId: store.data.residents[0].id, date: iso,
+        serviceId: svc.id, index: idx, reasonType: "research", reason: "ทดสอบ", status: "approved" }];
+      const row = dutyRow(iso);
+      row.holiday = false;
+      const normalCount = sessionsForDate(iso).filter(s => s.visitId === "v_holiday_test").length;
+      row.holiday = true;
+      const holidayCount = sessionsForDate(iso).filter(s => s.visitId === "v_holiday_test").length;
+      store.data.visits = [];
+      return { none: false, normalCount, holidayCount };
+    });
+    if (!b6.none) {
+      t.check("วันปกติ คำขอไปเข้าคาบของสายอื่นที่อนุมัติแล้ว สร้างคาบขึ้นจริง (พิสูจน์ว่าทดสอบตรงเงื่อนไข)", b6.normalCount > 0);
+      t.eq("วันหยุดราชการ คำขอเดิมไม่สร้างคาบผีที่ไม่มีตารางประจำสัปดาห์รองรับ", b6.holidayCount, 0);
+    }
+
+    /* ---------- B7: ตัวเลือก "หน้างาน" ต้องจำกัดเฉพาะคนในสาย ER ของวันนั้นจริง ----------
+       เดิมเลือกได้จากรายชื่อแพทย์ประจำบ้านทั้งหมด เลือกคนนอกสายได้แต่ไม่มีคาบเกิดขึ้นจริง ไม่มีเตือน */
+    const b7 = await page.evaluate(() => {
+      const white = store.data.services.find(x => x.abbr === "ขาว");
+      const iso = "2026-08-06";
+      const row = dutyRow(iso);
+      row.erServiceId = white.id;
+      dutyMonth = "2026-08"; renderDutyTable();
+      const sel = document.querySelector('[data-d="' + iso + '|erResidentIds"]');
+      const optIds = sel ? [...sel.options].map(o => o.value) : [];
+      const teamIds = new Set(store.data.residents.filter(r => rotationOn(r.id, iso)?.serviceId === white.id).map(r => r.id));
+      return { optCount: optIds.length, outsiders: optIds.filter(id => !teamIds.has(id)), teamSize: teamIds.size };
+    });
+    t.eq("ตัวเลือกหน้างานไม่มีคนนอกสาย ER ของวันนั้นปนมา", b7.outsiders, []);
+    t.check("มีตัวเลือกให้จริง ไม่ใช่ว่างเปล่า", b7.optCount === b7.teamSize && b7.optCount > 0,
+            b7.optCount + " จากทีม " + b7.teamSize + " คน");
+
+    /* ---------- B4: สร้างรอบหมุนเวียนใหม่ ช่องอาจารย์ผู้กำกับต้องเริ่มที่ว่าง ไม่ใช่คนแรกในรายชื่อ ----------
+       เดิม select ไม่มีตัวเลือกว่าง เบราว์เซอร์จึงเลือกคนแรกในรายชื่อให้อัตโนมัติโดยไม่มีใครตั้งใจเลือก
+       และเปลี่ยนหน่วยแล้วไม่มีอะไรช่วยเดาอาจารย์ผู้กำกับตามค่าเริ่มต้นของหน่วยนั้นให้เลย */
+    const b4 = await page.evaluate(() => {
+      editRotation(null);
+      const supDefault = document.querySelector('#dlgBody [name="supervisorId"]').value;
+      const svcSel = document.querySelector('#dlgBody [name="serviceId"]');
+      const svc = rotatableServices().find(x => x.id !== svcSel.value) || rotatableServices()[0];
+      svcSel.value = svc.id;
+      svcSel.dispatchEvent(new Event("change"));
+      const supAfter = document.querySelector('#dlgBody [name="supervisorId"]').value;
+      const expected = defaultSupervisorFor(svc.id, store.data.services, store.data.staff) || "";
+      document.querySelector("#dlg")?.close();
+      return { supDefault, supAfter, expected };
+    });
+    t.eq("สร้างรอบหมุนเวียนใหม่ ช่องอาจารย์ผู้กำกับเริ่มที่ว่าง ไม่ใช่คนแรกในรายชื่อโดยไม่ตั้งใจ", b4.supDefault, "");
+    t.eq("เลือกหน่วยใหม่แล้วช่วยเดาอาจารย์ผู้กำกับตามค่าเริ่มต้นของหน่วยนั้นให้", b4.supAfter, b4.expected);
+
     /* ---------- อาจารย์แลกวัน OR กัน ----------
        จุดที่พลาดง่ายคือไปแก้ตารางประจำสัปดาห์ ซึ่งจะเปลี่ยนทั้งปีและทำให้ประวัติผิดย้อนหลัง
        การแลกจึงต้องมีผลเฉพาะวันนั้น และต้องไม่ทำให้ผลประเมินที่ทำไว้แล้วหลุดจากคาบ */
@@ -283,6 +374,46 @@ export default async function run() {
     t.eq("ส่งคำขอแล้วได้รายการเดียวที่ยังรอตอบรับ ยังไม่แตะวันแลกกลับ",
          pair.afterRequest, pair.wantRequest);
     t.eq("ตอบรับแล้วอีกฝั่งของการแลกถูกสร้างให้เอง", pair.afterAccept, pair.wantAccept);
+
+    /* ---------- B3: แลกกลับวันเดียวกับที่ขอพอดี (returnDate === date) ก็ต้องสร้างขาคืนได้ ----------
+       เดิม .some() หาการชนกันของ pairId+date รวม sw เองด้วย (เพราะ date กับ returnDate เท่ากัน)
+       จึงคิดว่ามีขาคืนอยู่แล้ว ทั้งที่ยังไม่เคยสร้างเลย — ขาคืนไม่ถูกสร้างขึ้นมาเลยในกรณีนี้ */
+    const selfCollision = await page.evaluate(() => {
+      store.data.swaps = [];
+      const iso = todayISO();
+      const a = store.data.staff[0].id, b = store.data.staff[1].id;
+      const realConfirm = window.confirm; window.confirm = () => true;
+      store.data.swaps.push({ id: "sw_self", pairId: "p_self", date: iso, part: "", serviceId: "",
+        fromStaffId: a, toStaffId: b, note: "", returnDate: iso, status: "pending",
+        requestedBy: "", requestedAt: "", decidedBy: "", decidedAt: "" });
+      decideSwap("sw_self", true);
+      window.confirm = realConfirm;
+      const legs = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
+      store.data.swaps = [];
+      return { legs };
+    });
+    t.eq("แลกกลับวันเดียวกับที่ขอ ก็ยังสร้างขาคืนให้ครบทั้งสองขา ไม่หายไปเงียบ ๆ", selfCollision.legs.length, 2);
+
+    /* ---------- B3: ตอบรับการแลกที่มีวันแลกกลับ ต้องเช็คว่าวันแลกกลับชนคาบเดิมของผู้ขอด้วย ----------
+       เดิมเช็ค staffBusyOn แค่วันของขาแรก (sw.date) วันแลกกลับไม่เคยถูกเช็คเลย */
+    const returnCheck = await page.evaluate(() => {
+      store.data.swaps = [];
+      const a = store.data.staff[0].id, b = store.data.staff[1].id;
+      const iso = todayISO(), back = addDaysISO(iso, 7);
+      const calls = [];
+      const real = staffBusyOn;
+      staffBusyOn = (...args) => { calls.push(args); return real(...args); };
+      const realConfirm = window.confirm; window.confirm = () => true;
+      store.data.swaps.push({ id: "sw_spy", pairId: "p_spy", date: iso, part: "", serviceId: "",
+        fromStaffId: a, toStaffId: b, note: "", returnDate: back, status: "pending",
+        requestedBy: "", requestedAt: "", decidedBy: "", decidedAt: "" });
+      decideSwap("sw_spy", true);
+      staffBusyOn = real; window.confirm = realConfirm;
+      store.data.swaps = [];
+      return { checkedDates: calls.map(c => c[1]), back };
+    });
+    t.check("ตอบรับการแลกที่มีวันแลกกลับ เช็ควันแลกกลับด้วย ไม่ใช่แค่วันของขาแรก",
+            returnCheck.checkedDates.includes(returnCheck.back), JSON.stringify(returnCheck.checkedDates));
 
     /* แพทย์ประจำบ้านไม่ย้ายตามอาจารย์ที่แลกวัน — อยู่กับสายของตัวเองเสมอ */
     const stay = await page.evaluate(() => {
