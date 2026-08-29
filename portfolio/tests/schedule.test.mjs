@@ -652,6 +652,14 @@ export default async function run() {
         });
         (d.research || []).forEach(x => { if (x.advisor && !roster.has(x.advisor)) off.push("ที่ปรึกษาวิจัย: " + x.advisor); });
         (d.residents || []).forEach(r => { if (r.advisor && !roster.has(r.advisor)) off.push("ที่ปรึกษา: " + r.advisor); });
+        /* เคสผ่าตัดกับผลประเมิน EPA ก็อ้างชื่ออาจารย์เหมือนกัน เดิมยังไม่มีเทสต์ตรวจจุดนี้ */
+        (d.cases || []).forEach(c => {
+          if (c.primarySurgeon && !roster.has(c.primarySurgeon)) off.push("ศัลยแพทย์หลัก: " + c.primarySurgeon);
+          (c.participants || []).forEach(p => {
+            if (p.verifiedBy && !roster.has(p.verifiedBy)) off.push("ผู้รับรองเคส: " + p.verifiedBy);
+          });
+        });
+        (d.epaAssessments || []).forEach(e => { if (e.by && !roster.has(e.by)) off.push("ผู้ประเมิน EPA: " + e.by); });
         const noAdvisor = (d.residents || []).filter(r => !r.advisor).map(r => r.name);
         /* ที่ปรึกษางานวิจัยควรถืออนุสาขาตรงกับโครงการ */
         const mismatch = (d.research || []).filter(x => {
