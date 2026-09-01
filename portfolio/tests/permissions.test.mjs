@@ -197,6 +197,20 @@ export default async function run() {
       t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
               !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
 
+      /* ปฏิทิน: picker ต้องซ่อน และต่อให้แก้ calResidentId ตรง ๆ ทาง console แล้วสั่ง render ใหม่
+         ก็ต้องดีดกลับมาเป็นตัวเองเสมอ — ไม่มีทางเห็นปฏิทินของคนอื่นได้ */
+      const calScope = await page.evaluate(() => {
+        showView("calendar");
+        const pickerHidden = document.querySelector("#calResidentPick").hidden;
+        const other = store.data.residents.find(r => r.id !== myResidentId());
+        calResidentId = other?.id || "__hijack__";
+        renderCalendar();
+        return { pickerHidden, resetToMine: calResidentId === myResidentId(), attempted: other?.id || "__hijack__" };
+      });
+      t.check("แพทย์ประจำบ้าน: ตัวเลือกเปลี่ยนคนในหน้าปฏิทินถูกซ่อน", calScope.pickerHidden);
+      t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
+              calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
+
       t.check("แพทย์ประจำบ้าน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

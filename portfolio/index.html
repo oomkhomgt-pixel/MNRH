@@ -221,6 +221,18 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .timeline .ev::before{content:"";position:absolute;left:-1.24rem;top:.35rem;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff}
 .timeline .ev.todo::before{background:#c9d2da}
 
+/* ปฏิทินรายบุคคลสไตล์ Google Calendar */
+.gcal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.gcal-dow{font-size:.75rem;text-align:center;color:var(--ink-2);font-weight:600;padding:.15rem 0 .35rem}
+.gcal-cell{border:1px solid var(--line);border-radius:8px;padding:.3rem;min-height:92px;min-width:0;background:#fff;overflow-wrap:break-word}
+.gcal-cell.outside{background:#f8f9fb}
+.gcal-cell.outside .gcal-date{color:var(--muted)}
+.gcal-cell.today{outline:2px solid var(--brand);outline-offset:-1px}
+.gcal-date{display:block;font-size:.74rem;font-weight:650;margin-bottom:.2rem}
+.gcal-week .gcal-cell{min-height:240px}
+.gcal-chip{padding:.24rem .34rem;font-size:.72rem;margin-bottom:2px}
+.gcal-chip .tc-info{color:var(--brand-ink);font-weight:600}
+
 @media print{
   body{background:#fff}
   .topbar,nav.tabs,.no-print,.dropzone{display:none!important}
@@ -289,6 +301,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
     <button data-view="rotation">ตาราง: หมุนเวียน · เวร · นำเสนอ</button>
     <button data-view="residents">แพทย์ประจำบ้าน</button>
+    <button data-view="calendar">ปฏิทิน</button>
     <button data-view="assess" data-perm="staff">ประเมิน</button>
     <button data-view="logbook">Logbook เคสผ่าตัด</button>
     <button data-view="epa">EPA</button>
@@ -547,6 +560,34 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="residentList"></div>
     </div>
     <div id="residentDetail"></div>
+  </section>
+
+  <!-- ============ CALENDAR ============ -->
+  <section class="view" id="view-calendar">
+    <div class="card no-print">
+      <div class="between">
+        <div style="min-width:0">
+          <h1>ปฏิทิน</h1>
+          <p class="muted small" id="calWho">—</p>
+        </div>
+        <div class="row">
+          <select id="calResidentPick" data-perm="staff" hidden></select>
+          <div class="row seg">
+            <button class="btn-sm" id="calModeMonth" aria-current="true">เดือน</button>
+            <button class="btn-sm" id="calModeWeek" aria-current="false">สัปดาห์</button>
+          </div>
+          <button class="btn-sm" id="calPrev" aria-label="ก่อนหน้า">‹</button>
+          <b class="small" id="calLabel">—</b>
+          <button class="btn-sm" id="calNext" aria-label="ถัดไป">›</button>
+          <button class="btn-sm" id="calToday">วันนี้</button>
+        </div>
+      </div>
+      <p class="muted small">มุมมองปฏิทินรายบุคคล — คลิกที่คาบเพื่อเปิดแบบประเมินท้ายเซสชันเหมือนหน้าตารางประจำสัปดาห์
+        · เฉพาะคาบ Topic conference เท่านั้นที่โชว์อาจารย์ผู้นิเทศและหัวหน้าสาย คาบอื่นไม่มีบรรทัดนี้</p>
+    </div>
+    <div class="card">
+      <div id="calGrid"></div>
+    </div>
   </section>
 
   <!-- ============ ASSESS ============ -->
@@ -4166,6 +4207,76 @@ function renderSwapTable() {
   }));
   $$("#swapTable [data-swapok]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapok, true)));
   $$("#swapTable [data-swapno]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapno, false)));
+}
+
+/* --- ปฏิทินรายบุคคล (สไตล์ Google Calendar) --- */
+let calResidentId = "";
+let calMode = "month";               /* "month" | "week" */
+let calMonth = todayISO().slice(0, 7);
+let calWeekStart = mondayOf(todayISO());
+
+/* แยกจาก sessionChip() ตั้งใจ — sessionChip มีเทสต์ผูกอยู่กับ weekGrid/nowBoard/pendingBoard แล้ว
+   ไม่อยากไปแตะ ผู้นิเทศ+หัวหน้าสายโชว์เฉพาะคาบ Topic conference เท่านั้น คาบอื่นไม่มีบรรทัดนี้เลย */
+function calChip(ses, big) {
+  const tc = ses.topicConference ? topicConfInfo(ses.date) : null;
+  return `<button class="sess gcal-chip" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
+    ${big ? `<span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>${ses.start && ses.end ? `<span class="pill">${esc(sessionTimeLabel(ses))}</span>` : ""}` : ""}
+    <b>${esc(ses.name)}</b>
+    ${big ? `<span class="who">${esc(sessionStaffLabel(ses))}${ses.location ? " · " + esc(ses.location) : ""}</span>` : ""}
+    ${tc ? `<span class="who tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</span>` : ""}
+  </button>`;
+}
+
+function renderCalMonth(box) {
+  $("#calLabel").textContent = ymLabel(calMonth);
+  const first = calMonth + "-01";
+  const leadDays = (new Date(first + "T00:00:00").getDay() + 6) % 7;   /* จันทร์เป็นวันแรกของสัปดาห์ */
+  const gridStart = addDaysISO(first, -leadDays);
+  const cells = Array.from({ length: 42 }, (_, i) => addDaysISO(gridStart, i));
+  const today = todayISO();
+  box.innerHTML = `<div class="gcal-grid">
+    ${DAY_SHORT.slice(1).concat(DAY_SHORT[0]).map(d => `<div class="gcal-dow">${d}</div>`).join("")}
+    ${cells.map(iso => {
+      const inMonth = iso.slice(0, 7) === calMonth;
+      const sessions = calResidentId ? sessionsForDate(iso).filter(s => s.residentId === calResidentId) : [];
+      return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
+        <span class="gcal-date">${Number(iso.slice(8))}</span>
+        ${sessions.map(ses => calChip(ses, false)).join("")}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function renderCalWeek(box) {
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(calWeekStart, i));
+  $("#calLabel").textContent = fmtDate(days[0]) + " – " + fmtDate(days[6]);
+  const today = todayISO();
+  box.innerHTML = `<div class="gcal-grid gcal-week">
+    ${days.map(iso => `<div class="gcal-dow">${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]} ${fmtDate(iso).replace(/ \d{4}$/, "")}</div>`).join("")}
+    ${days.map(iso => {
+      const sessions = calResidentId ? sessionsForDate(iso).filter(s => s.residentId === calResidentId) : [];
+      return `<div class="gcal-cell ${iso === today ? "today" : ""}">
+        ${sessions.length ? sessions.map(ses => calChip(ses, true)).join("") : `<span class="small muted">—</span>`}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function renderCalendar() {
+  const box = $("#calGrid"); if (!box) return;
+  /* แพทย์ประจำบ้านเห็นแค่ตัวเองเสมอ ไม่มีทางเลือกดูของคนอื่นได้ ไม่ว่าจะพยายามตั้งค่าอย่างไร */
+  if (isResident()) calResidentId = myResidentId();
+  else if (!calResidentId || !visibleResidents().some(r => r.id === calResidentId))
+    calResidentId = visibleResidents()[0]?.id || "";
+  const r = store.resident(calResidentId);
+  $("#calWho").textContent = r ? r.name + " (ปี " + r.year + ")" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
+
+  const pick = $("#calResidentPick");
+  if (pick) pick.innerHTML = visibleResidents()
+    .map(x => `<option value="${x.id}" ${x.id === calResidentId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+
+  if (calMode === "week") renderCalWeek(box); else renderCalMonth(box);
+  $$("#calGrid .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
 }
 
 function renderRotation() {
@@ -8559,6 +8670,7 @@ function renderAll() {
   renderStaffTable();
   renderServiceTable();
   renderResidents();
+  renderCalendar();
   renderAssess();
   renderLogbook();
   renderEpa();
@@ -8966,6 +9078,29 @@ function init() {
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
   $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
   $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
+  $("#calModeMonth").addEventListener("click", () => {
+    calMode = "month"; $("#calModeMonth").setAttribute("aria-current", "true");
+    $("#calModeWeek").setAttribute("aria-current", "false"); renderCalendar();
+  });
+  $("#calModeWeek").addEventListener("click", () => {
+    calMode = "week"; $("#calModeWeek").setAttribute("aria-current", "true");
+    $("#calModeMonth").setAttribute("aria-current", "false"); renderCalendar();
+  });
+  $("#calPrev").addEventListener("click", () => {
+    if (calMode === "week") calWeekStart = addDaysISO(calWeekStart, -7); else calMonth = shiftMonth(calMonth, -1);
+    renderCalendar();
+  });
+  $("#calNext").addEventListener("click", () => {
+    if (calMode === "week") calWeekStart = addDaysISO(calWeekStart, 7); else calMonth = shiftMonth(calMonth, 1);
+    renderCalendar();
+  });
+  $("#calToday").addEventListener("click", () => {
+    calMonth = todayISO().slice(0, 7); calWeekStart = mondayOf(todayISO()); renderCalendar();
+  });
+  $("#calResidentPick").addEventListener("change", (e) => {
+    if (isResident()) return;    /* กันไว้อีกชั้น แม้ picker จะถูกซ่อนสำหรับ resident อยู่แล้ว */
+    calResidentId = e.target.value; renderCalendar();
+  });
   $("#btnPrintPortfolio").addEventListener("click", () => selectedResident ? printPortfolio(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnResidentDashboard").addEventListener("click", () => selectedResident ? exportResidentDashboard(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnWfmeReport").addEventListener("click", printWfmeReport);
