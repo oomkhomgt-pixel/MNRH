@@ -453,6 +453,22 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
       <div class="card">
         <div class="between">
+          <h2>ผู้นิเทศ Topic conference รายสัปดาห์</h2>
+          <div class="row no-print">
+            <button class="btn-sm" id="tcPrev">‹ เดือนก่อน</button>
+            <b class="small" id="tcLabel">—</b>
+            <button class="btn-sm" id="tcNext">เดือนถัดไป ›</button>
+          </div>
+        </div>
+        <p class="muted small">กำหนดอาจารย์ผู้นิเทศและสายที่อยู่เวรของคาบ Topic conference / Journal club / Staff lecture
+          วันพฤหัสบดีแต่ละสัปดาห์ (09:00–12:00) — ผู้จัดหลักสูตรตั้งเองรายสัปดาห์ ไม่หมุนอัตโนมัติ
+          · หัวหน้าสายคำนวณสดจากสายที่เลือก (ปี 3 ที่ไม่มีปี 4 ร่วมสายในเดือนนั้น) ไม่มีให้เลือกเอง
+          · ยังไม่ได้กำหนด = แสดง “ยังไม่ได้กำหนด” ในปฏิทินและข้อความแจ้งเตือน LINE</p>
+        <div id="tcTable"></div>
+      </div>
+
+      <div class="card">
+        <div class="between">
           <h2>การแลกวัน OR ของอาจารย์</h2>
           <button class="btn-sm no-print" id="btnAddSwap" data-perm="staff">+ ขอแลกวัน</button>
         </div>
@@ -1353,6 +1369,9 @@ const store = {
     /* ตารางเวรรายเดือน — ของที่ไม่ซ้ำทุกสัปดาห์ เช่น อาจารย์เวร ER รายวัน
        สายที่อยู่ ER วันพฤหัส OPD วันพฤหัสที่ลงเป็นชื่ออาจารย์ และวันหยุดราชการ */
     d.duty ||= [];
+    /* ผู้นิเทศ Topic conference รายสัปดาห์ + สายที่อยู่เวรสัปดาห์นั้น — ผู้จัดหลักสูตรกำหนดเองรายสัปดาห์
+       เหมือนตารางเวร ER ข้างบน ไม่ใช่คำนวณอัตโนมัติ */
+    d.topicConf ||= [];
     /* การแลกวัน OR ของอาจารย์ — เป็นข้อยกเว้นรายวัน ไม่ใช่การแก้ตารางประจำสัปดาห์
        ถ้าไปแก้ตารางประจำสัปดาห์ สัปดาห์อื่นทั้งปีจะเปลี่ยนตามไปด้วย และประวัติที่ผ่านมาจะผิด */
     d.swaps ||= [];
@@ -1369,6 +1388,11 @@ const store = {
     /* เดิมแต่ละคาบมีอาจารย์ได้คนเดียว ตอนนี้มีได้หลายคน เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขาปนกัน */
     (d.services || []).forEach(svc => (svc.template || []).forEach(t => {
       if (!Array.isArray(t.staffIds)) t.staffIds = t.staffId ? [t.staffId] : [];
+    }));
+    /* ข้อมูลเก่าก่อนเพิ่มธง topicConference — ปักธงให้คาบ Topic conference ของส่วนกลางครั้งเดียว
+       เช็คด้วย == null กันทับซ้ำถ้ามีใครแก้ค่านี้เองภายหลัง (เช่นปิดคาบนี้ชั่วคราว) */
+    (d.services || []).filter(svc => svc.central).forEach(svc => (svc.template || []).forEach(t => {
+      if (t.topicConference == null) t.topicConference = t.day === 4 && /^Topic conference/.test(t.name || "");
     }));
     /* ย้ายข้อมูลเก่าที่ยังอ้างอนุสาขาที่ถูกตัดออกไปแล้ว */
     const moved = (id) => LEGACY_SUBSPECIALTIES[id] || id;
@@ -1557,7 +1581,7 @@ function computeSessions(iso, data) {
       start: t.start || "", end: t.end || "",
       location: t.location || svc.site || "",
       staffIds, staffId: staffIds[0] || "", subs,
-      kind: serviceKind(svc), academic: !!t.academic,
+      kind: serviceKind(svc), academic: !!t.academic, topicConference: !!t.topicConference,
       priority: typeof t.priority === "number" ? t.priority
               : t.academic ? (prio.academic ?? 40)
               : (prio[serviceKind(svc)] ?? 10)
@@ -1734,6 +1758,25 @@ function isChiefOn(residentId, iso) {
   if (!svc?.team) return false;
   return !(store.data.rotations || []).some(x => x.serviceId === rot.serviceId &&
     x.start <= iso && x.end >= iso && store.resident(x.residentId)?.year === 4);
+}
+/* หัวหน้าสาย (ปี 3 ไม่มีปี 4 ร่วมสาย) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา */
+function chiefResidentOfTeam(serviceId, iso) {
+  if (!serviceId) return null;
+  return (store.data.residents || []).find(r =>
+    rotationOn(r.id, iso)?.serviceId === serviceId && isChiefOn(r.id, iso)) || null;
+}
+/* ข้อมูลผู้นิเทศ + หัวหน้าสายของ Topic conference วันที่ iso — คำนวณสดทุกครั้ง ไม่เก็บชื่อไว้ตรง ๆ
+   ไม่มีการกำหนด = "ยังไม่ได้กำหนด" เสมอ */
+function topicConfInfo(iso) {
+  const row = (store.data.topicConf || []).find(x => x.date === iso);
+  const staff = row?.staffId ? staffName(row.staffId) : "";
+  const team = row?.teamServiceId ? serviceById(row.teamServiceId) : null;
+  const chief = team ? chiefResidentOfTeam(team.id, iso) : null;
+  return {
+    staffLabel: staff || "ยังไม่ได้กำหนด",
+    teamLabel: team ? team.name : "ยังไม่ได้กำหนด",
+    chiefLabel: !team ? "ยังไม่ได้กำหนด" : chief ? chief.name : "— (สายนี้ไม่มีหัวหน้าสายในเดือนนี้)"
+  };
 }
 const serviceAbbr = (id) => {
   const svc = serviceById(id);
@@ -2290,7 +2333,8 @@ function seedData() {
         ...[1,2,3,5].map(d => ({ day:d, part:"am", name:"Morning conference — trauma film + pre/post-op",
           start:"09:00", end:"10:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true, academic:true })),
         { day:4, part:"am", name:"Topic conference / Journal club / Staff lecture (แล้วแต่สัปดาห์)",
-          start:"09:00", end:"12:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true, academic:true },
+          start:"09:00", end:"12:00", staffIds:[], location:"ห้องประชุม", years:[], whenAway:true, academic:true,
+          topicConference:true },
         { day:4, part:"pm", name:"Inter-hospital conference (ปี 4)", start:"13:00", end:"15:30",
           staffIds:[], location:"ห้องประชุม", years:[4], whenAway:true, academic:true },
         /* จากหมายเหตุท้ายตารางเวร */
@@ -4789,6 +4833,44 @@ function renderDutyTable() {
     else if (el.multiple) row[field] = [...el.selectedOptions].map(o => o.value);
     else row[field] = el.value;
     audit("แก้ตารางเวรรายเดือน", fmtDate(iso));
+    store.save(); renderAll();
+  }));
+}
+
+/* --- ผู้นิเทศ Topic conference รายสัปดาห์ --- */
+let tcMonth = todayISO().slice(0, 7);
+const topicConfRow = (iso) => (store.data.topicConf ||= []).find(x => x.date === iso)
+  || ((store.data.topicConf.push({ id: uid("tc"), date: iso, staffId:"", teamServiceId:"" })),
+      store.data.topicConf[store.data.topicConf.length - 1]);
+
+function renderTopicConfTable() {
+  const box = $("#tcTable"); if (!box) return;
+  $("#tcLabel").textContent = ymLabel(tcMonth);
+  const days = monthDays(tcMonth).filter(iso => new Date(iso + "T00:00:00").getDay() === 4);
+  const teams = (store.data.services || []).filter(x => x.team);
+  const staff = store.data.staff || [];
+  const opts = (list, sel, blank) => `<option value="">${blank}</option>` +
+    list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+
+  box.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>อาจารย์ผู้นิเทศ</th><th>สายที่อยู่เวร</th><th>หัวหน้าสาย</th></tr></thead>
+    <tbody>${days.map(iso => {
+      const row = (store.data.topicConf || []).find(x => x.date === iso) || {};
+      const info = topicConfInfo(iso);
+      return `<tr>
+        <td class="small">${fmtDate(iso).replace(/ \d{4}$/, "")}</td>
+        <td><select data-tc="${iso}|staffId">${opts(staff, row.staffId, "— ยังไม่ได้กำหนด —")}</select></td>
+        <td><select data-tc="${iso}|teamServiceId">${opts(teams, row.teamServiceId, "— ยังไม่ได้กำหนด —")}</select></td>
+        <td class="small muted">${esc(info.chiefLabel)}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+
+  $$("#tcTable [data-tc]").forEach(el => el.addEventListener("change", () => {
+    if (!canManage()) { toast("การกำหนดผู้นิเทศ Topic conference เป็นสิทธิ์ของผู้จัดหลักสูตร"); renderTopicConfTable(); return; }
+    const [iso, field] = el.dataset.tc.split("|");
+    const row = topicConfRow(iso);
+    row[field] = el.value;
+    audit("แก้ผู้นิเทศ Topic conference", fmtDate(iso));
     store.save(); renderAll();
   }));
 }
@@ -8486,6 +8568,7 @@ function renderAll() {
   renderCoverage();
   renderWfme();
   renderDutyTable();
+  renderTopicConfTable();
   renderSwapTable();
   renderVisitTable();
   renderSettings();
@@ -8878,6 +8961,8 @@ function init() {
     audit("ล้างตารางเวรรายเดือน", ymLabel(dutyMonth));
     store.save(); renderAll(); toast("ล้างแล้ว");
   });
+  $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
+  $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
   $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
   $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
   $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
