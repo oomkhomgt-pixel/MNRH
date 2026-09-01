@@ -60,6 +60,10 @@ nav.tabs button{
 }
 nav.tabs button:hover{background:#f2f5f7}
 nav.tabs button[aria-current="true"]{color:var(--brand-ink);border-bottom-color:var(--brand);font-weight:650}
+/* แถวหน้าย่อยของกลุ่มที่เปิดอยู่ — pill สไตล์ .seg เดิม อยู่ใต้แถวกลุ่มในแถบ sticky เดียวกัน
+   ห่อบรรทัดผ่าน .row (ห้ามใช้ overflow-x — จอแคบต้องไม่ปัดข้างทั้งหน้า) */
+#subtabs{max-width:1180px;margin:0 auto;padding:.45rem .75rem .55rem;border-top:1px solid var(--line)}
+#subtabs .seg{margin-bottom:0}
 main{max-width:1180px;margin:0 auto;padding:1rem 1rem 4rem}
 .view{display:none} .view.on{display:block}
 
@@ -296,20 +300,43 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <button class="btn-sm" id="btnImport" data-perm="admin">นำเข้า</button>
     </div>
   </div>
+  <!-- แถบนำทางสองชั้น: แถวบนคือ "กลุ่ม" 6 กลุ่ม แถวล่าง (#subtabs) คือหน้าย่อยของกลุ่มที่เปิดอยู่
+       ทุก view เดิมทั้ง 12 หน้ายังอยู่ครบ ไม่มีหน้าไหนถูกตัด — แค่จัดกลุ่มการเข้าถึงใหม่
+       ปุ่มกลุ่มถือ data-view ของหน้าย่อยตัวแรก จึงเข้า showView() ทางเดียวกับปุ่มหน้าย่อยทุกปุ่ม
+       ทุกกลุ่มมีสิทธิ์เดียวกันทั้งกลุ่ม (ไม่มีกลุ่มที่ปน public กับ staff) data-perm จึงอยู่ที่ปุ่มกลุ่มได้เลย -->
   <nav class="tabs" id="tabs">
-    <button data-view="today" aria-current="true">วันนี้</button>
-    <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
-    <button data-view="rotation">ตาราง: หมุนเวียน · เวร · นำเสนอ</button>
-    <button data-view="residents">แพทย์ประจำบ้าน</button>
-    <button data-view="calendar">ปฏิทิน</button>
-    <button data-view="assess" data-perm="staff">ประเมิน</button>
-    <button data-view="logbook">Logbook เคสผ่าตัด</button>
-    <button data-view="epa">EPA</button>
-    <button data-view="research">งานวิจัย</button>
-    <button data-view="coverage" data-perm="staff">ความครอบคลุมอนุสาขา</button>
-    <button data-view="wfme" data-perm="staff">มาตรฐาน WFME</button>
-    <button data-view="settings" data-perm="admin">ตั้งค่า &amp; ข้อมูล</button>
+    <button data-view="today" data-group="g0" aria-current="true">วันนี้</button>
+    <button data-view="rotation" data-group="g1">ตาราง &amp; ปฏิทิน</button>
+    <button data-view="residents" data-group="g2">แพทย์ประจำบ้าน</button>
+    <button data-view="assess" data-group="g3" data-perm="staff">ประเมิน</button>
+    <button data-view="coverage" data-group="g4" data-perm="staff">มาตรฐาน &amp; ความครอบคลุม</button>
+    <button data-view="settings" data-group="g5" data-perm="admin">ตั้งค่า &amp; ข้อมูล</button>
   </nav>
+  <!-- หน้าย่อยของทุกกลุ่มอยู่ใน DOM เสมอ (ซ่อนทั้ง wrapper เมื่อไม่ใช่กลุ่มที่เปิด) — ชุดทดสอบจอแคบ
+       ไล่จาก [data-view] ทั้งเอกสาร จึงยังเห็นครบทั้ง 12 หน้า · กลุ่มที่มีหน้าเดียว (ประเมิน ตั้งค่า)
+       ไม่มี wrapper เลย แถวนี้จะยุบหายไปเองตอนเปิดกลุ่มนั้น -->
+  <div id="subtabs" class="no-print" hidden>
+    <div class="row seg" data-subgroup="g0">
+      <button data-view="today">วันนี้</button>
+      <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
+    </div>
+    <div class="row seg" data-subgroup="g1" hidden>
+      <button data-view="rotation">ตารางรวม: หมุนเวียน · เวร · นำเสนอ</button>
+      <button data-view="calendar">ปฏิทินรายคน</button>
+    </div>
+    <div class="row seg" data-subgroup="g2" hidden>
+      <button data-view="residents">รายชื่อ &amp; แฟ้ม</button>
+      <button data-view="logbook">Logbook เคสผ่าตัด</button>
+      <button data-view="epa">EPA</button>
+      <button data-view="research">งานวิจัย</button>
+    </div>
+    <!-- ไม่ใส่ data-perm ที่ wrapper — applyPermissions() ไล่ตั้งค่า hidden ของทุก [data-perm] ทุกครั้งที่วาดใหม่
+         จะไปตีกับการซ่อน/โชว์ตามกลุ่มที่ showView() คุมอยู่ สิทธิ์ถูกกั้นที่ปุ่มกลุ่มใน #tabs แล้ว -->
+    <div class="row seg" data-subgroup="g4" hidden>
+      <button data-view="coverage">ความครอบคลุมอนุสาขา</button>
+      <button data-view="wfme">มาตรฐาน WFME</button>
+    </div>
+  </div>
 </header>
 
 <main>
@@ -3780,7 +3807,8 @@ function todayForStaff(iso, all) {
       ดูทั้งหมดได้ที่หน้าตาราง</p>` : ""}
     <div class="row no-print" style="margin-top:.8rem">
       <button class="btn-sm" data-tgo="rotation">ตารางทั้งสัปดาห์</button>
-      <button class="btn-sm" data-tgo="activities">กิจกรรมที่รอรับรอง</button>
+      <!-- เดิมชี้ไป "activities" ซึ่งเป็นแท็บที่ถูกยุบเข้าหน้าประเมินไปแล้ว — กดแล้วทุก view ดับ -->
+      <button class="btn-sm" data-tgo="assess">งานประเมินที่ค้าง</button>
     </div>
   </div>`);
   return out;
@@ -8625,9 +8653,20 @@ function importJson(file) {
 /* =====================================================================
    21) การสลับหน้า และการวาดใหม่ทั้งหมด
    ===================================================================== */
+/* view ไหนสังกัดกลุ่มไหน — อ่านจาก markup ของแถบนำทางเอง จะได้ไม่มีสองที่ให้แก้ไม่ตรงกัน
+   view ที่ไม่อยู่ใน #subtabs (กลุ่มที่มีหน้าเดียว) ตกไปหาปุ่มกลุ่มใน #tabs ที่ถือ data-view ตรงกัน */
+const groupOfView = (name) =>
+  $(`#subtabs [data-view="${name}"]`)?.closest("[data-subgroup]")?.dataset.subgroup
+  || $(`#tabs [data-view="${name}"]`)?.dataset.group || "";
+
 function showView(name) {
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "view-" + name));
-  $$("#tabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.view === name)));
+  const g = groupOfView(name);
+  $$("#tabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.group === g)));
+  $$("#subtabs [data-subgroup]").forEach(w => { w.hidden = w.dataset.subgroup !== g; });
+  $$("#subtabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.view === name)));
+  /* กลุ่มที่มีหน้าเดียวไม่มีแถวหน้าย่อยให้โชว์ — ยุบทั้งแถบไปเลย ไม่เหลือช่องว่าง */
+  $("#subtabs").hidden = !$(`#subtabs [data-subgroup="${g}"]`);
   if (name !== "report") location.hash = name;
   window.scrollTo({ top: 0 });
 }
@@ -8955,9 +8994,10 @@ function init() {
   store.load();
   setupIngest();
 
-  $("#tabs").addEventListener("click", (e) => {
+  /* ปุ่มกลุ่มและปุ่มหน้าย่อยเข้า showView() ทางเดียวกัน — ปุ่มกลุ่มถือ data-view ของหน้าย่อยตัวแรกอยู่แล้ว */
+  [$("#tabs"), $("#subtabs")].forEach(nav => nav.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-view]"); if (b) showView(b.dataset.view);
-  });
+  }));
   $("#btnManualAdd").addEventListener("click", manualAdd);
   $("#btnAddResident").addEventListener("click", () => editResident(null));
   $("#btnAddResearch").addEventListener("click", () => editResearch(null));
@@ -9139,9 +9179,11 @@ function init() {
   applyPermissions();
   renderAll();
   const hash = location.hash.replace("#", "");
-  const wanted = $("#view-" + hash) ? hash : defaultViewForRole();
-  const tab = $$("#tabs button").find(b => b.dataset.view === wanted);
-  showView(tab && !tab.hidden ? wanted : defaultViewForRole());
+  const wanted = $("#view-" + hash) && hash !== "report" ? hash : defaultViewForRole();
+  /* เช็คสิทธิ์ที่ปุ่มกลุ่ม ไม่ใช่ปุ่มหน้าย่อย — ปุ่มหน้าย่อยไม่เคยถูกตั้ง hidden เอง (ซ่อนที่ wrapper ตามกลุ่ม)
+     เดิมเช็คที่ปุ่มแท็บของ view ตรง ๆ ซึ่งตอนนี้บาง view ไม่มีปุ่มใน #tabs แล้ว */
+  const gbtn = $(`#tabs [data-group="${groupOfView(wanted)}"]`);
+  showView(gbtn && !gbtn.hidden ? wanted : defaultViewForRole());
 }
 
 document.addEventListener("DOMContentLoaded", init);

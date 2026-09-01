@@ -100,6 +100,53 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- แถบนำทางสองชั้น: กลุ่ม 6 กลุ่ม + แถวหน้าย่อย ----------
+       ยุบแท็บ 12 อันเป็น 6 กลุ่ม — ทุก view เดิมต้องยังไปถึงได้ครบ (ผ่านแถวหน้าย่อยหรือ hash)
+       และสิทธิ์ต่อกลุ่มต้องเท่ากับสิทธิ์ต่อแท็บเดิมทุกประการ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const nav = await page.evaluate(() => {
+        const groups = [...document.querySelectorAll("#tabs button")];
+        showView("residents");
+        const subVisible = [...document.querySelectorAll("#subtabs [data-subgroup]:not([hidden]) button")].map(b => b.dataset.view);
+        const subBarShown = !document.querySelector("#subtabs").hidden;
+        document.querySelector('#subtabs [data-view="epa"]').click();
+        const epaOn = document.querySelector("#view-epa").classList.contains("on");
+        const groupCurrent = groups.find(b => b.getAttribute("aria-current") === "true")?.dataset.group;
+        const subCurrent = [...document.querySelectorAll("#subtabs button")].find(b => b.getAttribute("aria-current") === "true")?.dataset.view;
+        showView("settings");
+        const subBarGone = document.querySelector("#subtabs").hidden;
+        return { total: groups.length, visible: groups.filter(b => !b.hidden).length,
+                 subVisible, subBarShown, epaOn, groupCurrent, subCurrent, subBarGone };
+      });
+      t.eq("admin เห็นปุ่มกลุ่มครบ 6 กลุ่ม", [nav.total, nav.visible], [6, 6]);
+      t.eq("เปิดกลุ่มแพทย์ประจำบ้านแล้วแถวหน้าย่อยมี 4 หน้า", nav.subVisible, ["residents", "logbook", "epa", "research"]);
+      t.check("แถวหน้าย่อยโชว์อยู่จริง", nav.subBarShown);
+      t.check("คลิกหน้าย่อย EPA แล้ว view-epa เปิด", nav.epaOn);
+      t.eq("ไฮไลต์ย้ายถูกทั้งแถวกลุ่มและแถวหน้าย่อย", [nav.groupCurrent, nav.subCurrent], ["g2", "epa"]);
+      t.check("กลุ่มที่มีหน้าเดียว (ตั้งค่า) ไม่มีแถวหน้าย่อยค้าง", nav.subBarGone);
+
+      /* ลิงก์เจาะลึกด้วย hash ยังใช้ได้กับ view ที่ไม่มีปุ่มของตัวเองใน #tabs แล้ว */
+      await page.evaluate(() => { location.hash = "epa"; });
+      await page.reload();
+      await page.waitForFunction(() => typeof currentUser === "function" && !!currentUser());
+      await page.waitForTimeout(300);
+      const deep = await page.evaluate(() => ({
+        epaOn: document.querySelector("#view-epa").classList.contains("on"),
+        groupCurrent: [...document.querySelectorAll("#tabs button")].find(b => b.getAttribute("aria-current") === "true")?.dataset.group
+      }));
+      t.eq("hash #epa หลัง reload ยังเปิดหน้า EPA พร้อมไฮไลต์กลุ่มถูกต้อง", [deep.epaOn, deep.groupCurrent], [true, "g2"]);
+      t.check("แถบนำทางกลุ่ม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+
+      const { page: rp, errors: rerrors } = await openAs(browser, srv.url, "resident");
+      const rnav = await rp.evaluate(() =>
+        [...document.querySelectorAll("#tabs button")].filter(b => b.hidden).map(b => b.dataset.group).sort());
+      t.eq("resident ไม่เห็นกลุ่มประเมิน/มาตรฐาน/ตั้งค่า", rnav, ["g3", "g4", "g5"]);
+      t.check("แถบนำทาง (resident): ไม่มี error หลุดในคอนโซล", rerrors.length === 0, rerrors.join(" | "));
+      await rp.close();
+    }
+
     /* ---------- อนุสาขาที่ถูกยุบ ต้องพาข้อมูลเก่าย้ายตามไปด้วย ----------
        infection ถูกยุบเข้า trauma ถ้าไม่ย้าย ข้อมูลที่บันทึกไว้แล้วจะกลายเป็นอนุสาขาที่ไม่มีอยู่จริง
        แล้วหายไปจากทุกตาราง โดยไม่มีอะไรบอก */
