@@ -10,3 +10,7 @@ sync-server/dataset.json
 # playwright ที่ติดตั้งไว้รันชุดทดสอบ ไม่เก็บลง repo
 # ไม่มี / ปิดท้าย เพราะบางครั้งเป็น symlink ไปยังที่ติดตั้งจริง ไม่ใช่โฟลเดอร์
 portfolio/tests/node_modules
+
+# dependency ของไปป์ไลน์แจ้งเตือน LINE — package-lock.json เก็บลง repo (เหมือน portfolio/tests/)
+# เพื่อให้ `npm ci` บน GitHub Actions ได้เวอร์ชันเดียวกันทุกครั้ง
+line-alert/node_modules

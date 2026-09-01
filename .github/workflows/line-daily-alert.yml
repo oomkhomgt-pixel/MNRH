@@ -1,0 +1,85 @@
+# ส่งสรุปกิจกรรมประจำวันของแพทย์ประจำบ้านเข้ากลุ่ม LINE ของภาควิชาทุกวัน
+#
+# แยกไฟล์ต่างหากจาก portfolio.yml โดยตั้งใจ — งานนี้ต้องมี LINE channel access token ซึ่งเป็นความลับ
+# (ห้ามอยู่ในโค้ดฝั่งไคลเอนต์ของ portfolio/ เด็ดขาด) และรันเป็นตารางเวลาจริงทุกวัน ไม่ใช่แค่ตรวจโค้ดตอน push
+#
+# ตั้งค่าก่อนใช้งานจริง — ดู line-alert/README.md ทั้งไฟล์สำหรับขั้นตอนแบบละเอียด (ไม่ต้องเป็นโปรแกรมเมอร์):
+#   1. สร้าง LINE Messaging API channel + เชิญบอทเข้ากลุ่มเดิมของแผนก
+#   2. ตั้งค่า GitHub Secrets สองตัว: LINE_CHANNEL_ACCESS_TOKEN, LINE_GROUP_ID
+#   3. ทดสอบด้วย dry_run: true ก่อนปล่อยให้รันอัตโนมัติจริง
+name: แจ้งเตือน LINE รายวัน
+
+on:
+  # เที่ยงคืนตาม UTC = 07:00 น. เวลาไทยพอดี เพราะไทยเป็น UTC+7 ตลอดปี ไม่มี daylight saving
+  # (ระวังพลาดจุดนี้ — เคยเป็นบั๊กเขตเวลาคลาสเดียวกันมาแล้วในโปรเจกต์นี้ ดู portfolio/tests/schedule.test.mjs)
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "โหมดทดสอบ — ไม่ส่งเข้า LINE จริง แค่แสดงข้อความใน log"
+        type: boolean
+        default: true
+
+concurrency:
+  group: line-daily-alert
+  cancel-in-progress: false   # อย่ายกเลิกรอบที่กำลังส่งจริงอยู่ กันข้อความส่งไม่ครบ/ซ้ำ
+
+jobs:
+  send:
+    name: คำนวณตาราง · จัดข้อความ · ส่ง LINE
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: line-alert
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: line-alert/package-lock.json
+
+      - name: ติดตั้ง dependency
+        run: npm ci
+        timeout-minutes: 5
+
+      - name: แคชเบราว์เซอร์ของ playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('line-alert/package-lock.json') }}
+
+      - name: ติดตั้ง Chromium
+        run: npx playwright install chromium
+        timeout-minutes: 5
+
+      - name: ตรวจไวยากรณ์
+        run: |
+          node --check data-source.mjs
+          node --check compute.mjs
+          node --check format.mjs
+          node --check line-client.mjs
+          node --check send-daily-alert.mjs
+
+      # ด่านตรวจก่อนยิงจริงทุกครั้ง — ไม่ยิง network จริง ไม่ต้องมี credential
+      - name: รัน smoke test
+        run: node smoke.test.mjs
+
+      - name: ส่งแจ้งเตือน
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
+          # ค่านี้มีเฉพาะตอนสั่งเองผ่าน workflow_dispatch เท่านั้น — รอบที่รันตามตาราง (schedule)
+          # จะเป็นค่าว่างเสมอ จึงตกไปที่เงื่อนไข "ส่งจริง" โดยอัตโนมัติ ไม่มีทางค้างเป็น dry-run เงียบ ๆ
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN_INPUT" = "true" ]; then
+            echo "สั่งทดสอบ (dry-run) ผ่าน workflow_dispatch — จะไม่ส่งเข้า LINE จริง"
+            node send-daily-alert.mjs --dry-run
+          else
+            node send-daily-alert.mjs
+          fi
