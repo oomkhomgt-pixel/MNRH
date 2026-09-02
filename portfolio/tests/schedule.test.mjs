@@ -601,8 +601,9 @@ export default async function run() {
         openRotationEval(target.id);
         await new Promise(res => setTimeout(res, 120));
         const opened = !!document.querySelector("#dlgBody [name=\"sc_knowledge\"]");
-        document.querySelector("#dlgBody [name=\"sc_knowledge\"]").value = "4";
-        document.querySelector("#dlgBody [name=\"sc_plan\"]").value = "3";
+        /* ข้อให้คะแนนเป็นปุ่ม radio แล้ว — ติ๊กตัวที่มี value ตรง ไม่ใช่ตั้ง .value ของ select */
+        document.querySelector("#dlgBody [name=\"sc_knowledge\"][value=\"4\"]").checked = true;
+        document.querySelector("#dlgBody [name=\"sc_plan\"][value=\"3\"]").checked = true;
         document.querySelector("#dlgBody [name=\"entrust\"]").value = "3";
         document.querySelector("#dlgBody [name=\"comment\"]").value = "ทดสอบข้อเสนอแนะ";
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
@@ -760,10 +761,23 @@ export default async function run() {
         const ev = { scores: { [scaleItem.id]: 3.5 }, answers: {}, entrust: "", comment: "" };
         const html = rotationFormBodyHtml(ev);
         const escId = scaleItem.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const hasOption = new RegExp('name="sc_' + escId + '"[\\s\\S]*?value="3\\.5"[^>]*selected').test(html);
+        const hasOption = new RegExp('name="sc_' + escId + '"[\\s\\S]*?value="3\\.5"[^>]*checked').test(html);
         return { hasOption };
       });
-      t.check("select ของข้อให้คะแนนมีตัวเลือกสำหรับคะแนนทศนิยมเดิม ไม่เด้งไปที่ว่าง", c5.hasOption);
+      t.check("ปุ่มคะแนนมีปุ่ม 'ค่าเดิม' ที่ติ๊กอยู่สำหรับคะแนนทศนิยมเดิม ไม่เด้งไปที่ว่าง", c5.hasOption);
+
+      /* ---------- C5b: เปิดผลลงกองสาธิตที่คะแนนเป็นทศนิยม แล้วบันทึกซ้ำโดยไม่แตะอะไร คะแนนต้องเท่าเดิมทุกตัว ---------- */
+      const c5b = await page.evaluate(async () => {
+        const ev = (store.data.rotationEvals || []).find(e => Object.values(e.scores || {}).some(v => !Number.isInteger(v)));
+        if (!ev) return null;
+        const before = JSON.stringify(ev.scores);
+        openRotationEval(ev.rotationId);
+        await new Promise(r => setTimeout(r, 120));
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        return { before, after: JSON.stringify(rotationEvalFor(ev.rotationId).scores), open: document.querySelector("#dlg").open };
+      });
+      if (c5b) t.check("บันทึกซ้ำโดยไม่แตะ คะแนนทศนิยมเดิมยังอยู่ครบทุกข้อ", c5b.before === c5b.after && !c5b.open, c5b.before + " → " + c5b.after);
 
       /* ---------- C6: choice ที่ scored:true แต่ option value ไม่ใช่ตัวเลข ต้องไม่ทำให้ค่าเฉลี่ยกลายเป็น NaN ---------- */
       const c6 = await page.evaluate(() => {
@@ -863,7 +877,7 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 120));
         out.newField = !!document.querySelector('#dlgBody [name="an_nextplan"]');
         document.querySelector('#dlgBody [name="an_nextplan"]').value = "ฝึกอ่านฟิล์มเพิ่ม";
-        document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
+        document.querySelector('#dlgBody [name="sc_knowledge"][value="4"]').checked = true;
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         let ev = rotationEvalFor(rot.id);
@@ -957,10 +971,11 @@ export default async function run() {
                || visibleActivities().find(x => !x.assessment);
         openActivity(a.id);
         await new Promise(r => setTimeout(r, 150));
-        const sels = [...document.querySelectorAll('#dlgBody select[name^="tv_"]')];
+        const sels = [...document.querySelectorAll('#dlgBody .scale-pick[data-field^="tv_"]')];
         const expected = talkEvalItemsFor(a.type).length;
         /* ให้คะแนนแค่สองข้อ เพื่อพิสูจน์ว่าค่าเฉลี่ยคิดจากข้อที่กรอกเท่านั้น ไม่นับข้อว่างเป็นศูนย์ */
-        sels[0].value = "5"; sels[1].value = "3";
+        sels[0].querySelector('input[value="5"]').checked = true;
+        sels[1].querySelector('input[value="3"]').checked = true;
         document.querySelector('#dlgBody [name="tvOutcome"]').value = "advice";
         document.querySelector('#dlgBody [name="assessBy"]').value = "อ.ทดสอบ";
         document.querySelector('#dlgBody [name="tvGood"]').value = "เตรียมตัวมาดี";
@@ -999,8 +1014,8 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 150));
         const items = talkEvalItemsFor(originalType);
         const extraItem = items[items.length - 1];
-        const sel = document.querySelector('#dlgBody [name="tv_' + extraItem.id + '"]');
-        if (sel) sel.value = "5";
+        const sel = document.querySelector('#dlgBody [name="tv_' + extraItem.id + '"][value="5"]');
+        if (sel) sel.checked = true;
         const typeSel = document.querySelector('#dlgBody [name="type"]');
         typeSel.value = otherType;
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
