@@ -284,7 +284,8 @@ export default async function run() {
       const sel = document.querySelector("#epaResident"); sel.value = sel.options[1].value; sel.dispatchEvent(new Event("change"));
       r.epaPersonOpensOnPick = !cards[1].classList.contains("folded") && epaResidentId === sel.options[1].value;
       showView("calendar");
-      r.calGridShown = !!document.querySelector("#calGrid .gcal-grid") && !document.querySelector("#calResidentPick");
+      r.calGridShown = !!document.querySelector("#calGrid .gcal-grid") && !document.querySelector("#calResidentPick")
+        && document.querySelector("#calScopeWrap").hidden === true;
       return r;
     });
     t.check("EPA ของอาจารย์: ภาพรวมทั้งกลุ่มงานมาก่อนและเปิดอยู่ · รายบุคคลพับไว้จนกว่าจะเลือกคน",

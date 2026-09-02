@@ -1057,8 +1057,12 @@ export default async function run() {
       /* pre-op กับ post-op conference ถูกยุบเป็นคาบเดียวกัน ของเก่าต้องย้ายตามให้ครบ */
       const merged = await page.evaluate(async () => {
         const d = store.data;
-        const a = d.activities[0], t0 = d.schedule[0];
-        a.type = "postop"; if (t0) t0.type = "postop";
+        const a = d.activities[0];
+        a.type = "postop";
+        /* ข้อมูลสาธิตไม่ลงตาราง F/P ล่วงหน้าแล้ว — สร้างแถว postop เองเพื่อพิสูจน์ว่า migration ย้ายแถวในตารางด้วย */
+        const t0 = { id: "talk_postop_test", date: todayISO(), start: "09:30", end: "10:00", slot: "Post-op", type: "postop",
+                     residentId: a.residentId, title: "ทดสอบ post-op", subspecialty: "trauma", location: "", moderatorId: "", activityId: null, note: "" };
+        d.schedule.push(t0);
         Object.values(d.requirements).forEach(req => { req.preop = 10; req.postop = 12; });
         localStorage.setItem("mnrh_ortho_portfolio_v1", JSON.stringify(d));
         return { actId: a.id, talkId: t0?.id };
@@ -1070,7 +1074,7 @@ export default async function run() {
         label: TYPE_BY_ID.preop?.th,
         desc: TYPE_BY_ID.preop?.desc,
         act: store.data.activities.find(x => x.id === ids.actId)?.type,
-        talk: ids.talkId ? store.data.schedule.find(x => x.id === ids.talkId)?.type : "preop",
+        talk: store.data.schedule.find(x => x.id === ids.talkId)?.type,
         req: store.data.requirements[1]?.preop,
         reqOld: store.data.requirements[1]?.postop ?? null
       }), merged);

@@ -291,12 +291,14 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-cell.outside .gcal-date{color:var(--muted)}
 .gcal-cell.today{outline:2px solid var(--brand);outline-offset:-1px}
 .gcal-date{display:block;font-size:.74rem;font-weight:650;margin-bottom:.2rem}
-/* chip = ตัวย่อประเภท + ชื่อสั้น บรรทัดเดียว — สีขอบ/ตัวย่อตามประเภท (--pres ตั้งจาก PRESENTATION_COLOUR)
-   พื้นตามสถานะใช้ .done/.due ของ .sess · รายละเอียดเต็มอยู่ในกล่องตอนกด ไม่ยัดลงช่องวัน */
-.gcal-chip{display:flex;align-items:center;gap:.3rem;padding:.18rem .34rem;font-size:.72rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;min-height:0}
-.gcal-chip .abbr{display:inline;flex:none;font-weight:750;color:var(--pres,var(--brand))}
-.gcal-chip .nm{overflow:hidden;text-overflow:ellipsis}
-@media (max-width:480px){ .gcal-chip .nm{display:none} .gcal-chip{justify-content:center;padding:.18rem .2rem} }
+/* chip = ตัวย่อประเภท + ชื่อผู้นำเสนอ บรรทัดหนึ่ง · หัวข้อย่อบรรทัดสอง — สีขอบ/ตัวย่อตามประเภท (--pres จาก PRESENTATION_COLOUR)
+   พื้นตามสถานะใช้ .done/.due ของ .sess · ช่องประจำที่ยังไม่มีคน = .slot เส้นประ · รายละเอียดเต็มอยู่ในกล่องตอนกด */
+.gcal-chip{display:block;padding:.18rem .34rem;font-size:.72rem;margin-bottom:2px;line-height:1.25;overflow:hidden}
+.gcal-chip .abbr{display:inline;font-weight:750;color:var(--pres,var(--brand))}
+.gcal-chip .nm{display:inline}
+.gcal-chip .ttl{display:block;color:var(--muted);font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gcal-chip.slot{background:#fbfcfd;border-style:dashed}
+@media (max-width:480px){ .gcal-chip .nm,.gcal-chip .ttl{display:none} .gcal-chip{text-align:center;padding:.18rem .2rem} }
 
 @media print{
   body{background:#fff}
@@ -623,6 +625,12 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <h1>ปฏิทิน</h1>
         </div>
         <div class="row">
+          <!-- ซ่อน/โชว์ด้วย JS ใน renderCalendar (data-perm ซ่อนได้แต่ฝั่ง staff ไม่ใช่ฝั่ง resident):
+               แพทย์ประจำบ้านสลับ ทั้งกลุ่มงาน/ของฉัน ได้ · อาจารย์และผู้จัดหลักสูตรเห็นแค่ตารางรวม -->
+          <div class="row seg" id="calScopeWrap" hidden>
+            <button class="btn-sm" id="calScopeAll" aria-current="true">ทั้งกลุ่มงาน</button>
+            <button class="btn-sm" id="calScopeMine" aria-current="false">ของฉัน</button>
+          </div>
           <button class="btn-sm" id="calPrev" aria-label="เดือนก่อน">‹</button>
           <b class="small" id="calLabel">—</b>
           <button class="btn-sm" id="calNext" aria-label="เดือนถัดไป">›</button>
@@ -634,10 +642,10 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
         <button class="btn-sm" id="btnTalkCsv">CSV</button>
       </div>
-      <p class="muted small">ปฏิทินรวมการนำเสนอวิชาการของทั้งกลุ่มงาน (แพทย์ประจำบ้านเห็นเฉพาะของตัวเอง) —
-        แต่ละรายการแสดงตัวย่อประเภท (T Topic conference · P Pre/post-op · F Trauma film · J Journal club) กับชื่อผู้นำเสนอ
-        สีขอบตามประเภท พื้นตามสถานะ · <b>กดที่รายการเพื่อดูรายละเอียดเต็ม</b> แก้ไข หรือบันทึกว่านำเสนอแล้ว
-        · ผู้นิเทศ/หัวหน้าสายของวันพฤหัสบดี (กำหนดที่หน้าตาราง แท็บ “เวรและคำขอ”) อยู่ในกล่องรายละเอียดของ Topic conference และ Journal club</p>
+      <p class="muted small">ปฏิทินรวมการนำเสนอวิชาการของทั้งกลุ่มงาน — Trauma film (F) และ Pre/post-op (P) เป็นช่องประจำทุกวันราชการ
+        ไม่ระบุผู้นำเสนอล่วงหน้า ชื่อจะปรากฏเมื่อส่งสไลด์เข้าระบบ · Topic conference (T) และ Journal club (J) วันพฤหัสบดีลงตารางล่วงหน้า
+        · สีขอบตามประเภท พื้นตามสถานะ · <b>กดที่รายการเพื่อดูรายละเอียดเต็ม</b> แก้ไข หรือบันทึกว่านำเสนอแล้ว
+        · ผู้นิเทศ/หัวหน้าสายของวันพฤหัสบดี (กำหนดที่หน้าตาราง แท็บ “เวรและคำขอ”) อยู่ในกล่องรายละเอียดของ T/J</p>
     </div>
     <div class="card">
       <div id="calGrid"></div>
@@ -891,6 +899,13 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         ตัวเลขมากกว่าได้สิทธิ์ก่อน คาบที่แพ้ยังแสดงอยู่ในปฏิทินโดยทำเครื่องหมายไว้ และไม่ถูกนับเป็นงานค้างประเมิน
         ถ้าเท่ากัน ระบบจะไม่ตัดสินให้ แต่จะบอกว่าชนกันเพื่อให้เลือกเอง</p></details>
       <div id="priorityEditor"></div>
+    </div>
+    <div class="card" data-perm="admin" data-anchor="Morning conference" data-fold="set-morning" data-fold-closed>
+      <h2>รูปแบบ Morning conference (Trauma film / Pre-post-op)</h2>
+      <details class="hint"><summary>ใช้ทำอะไร</summary><p class="muted small">Trauma film และ Pre/post-op conference ไม่ลงตารางล่วงหน้า —
+        ปฏิทินวาดช่องเปล่าให้ทุกวันตามรูปแบบนี้ (เว้นวันหยุดราชการ) ชื่อผู้นำเสนอปรากฏเมื่อส่งสไลด์เข้าระบบ
+        · วันพฤหัสบดีเป็น Topic conference / Journal club ซึ่งลงตารางล่วงหน้าได้ที่หน้าปฏิทิน จึงไม่ต้องติ๊กไว้ที่นี่</p></details>
+      <div id="morningConfEditor"></div>
     </div>
     <div class="card" data-anchor="คำสำคัญ" data-fold="set-คำสำคัญ" data-fold-closed>
       <h2>คำสำคัญที่ใช้จัดกลุ่มอนุสาขา</h2>
@@ -1191,6 +1206,10 @@ const PART_BY_ID = Object.fromEntries(SESSION_PARTS.map(p => [p.id, p]));
 /* เมื่อคาบสองอันของคนเดียวกันชนกัน อันที่ลำดับความสำคัญสูงกว่าเป็นตัวหลัก
    อีกอันยังแสดงอยู่แต่ถูกทำเครื่องหมายว่าถูกแทนที่ ไม่ลบทิ้ง เพราะคนจัดตารางต้องเห็นว่ามันชนกัน */
 const SESSION_PRIORITY_DEFAULT = { academic: 40, central: 30, duty: 25, subUnit: 20, team: 10, external: 10, elective: 10, other: 10 };
+/* รูปแบบ morning conference ประจำวัน — Trauma film แล้วต่อด้วย Pre/post-op ทุกวันราชการยกเว้นพฤหัสบดี
+   (พฤหัสฯ เป็น Topic conference / Journal club ที่ลงตารางล่วงหน้า) ไม่มีการ fix ผู้นำเสนอล่วงหน้า
+   ปฏิทินวาดช่องเปล่าจากรูปแบบนี้ ชื่อโผล่เมื่อส่งสไลด์เข้ามา · แก้ได้ที่หน้าตั้งค่า เก็บใน programme.morningConference */
+const MORNING_CONFERENCE_DEFAULT = { days: [1, 2, 3, 5], traumafilm: { start:"09:00", end:"09:30" }, preop: { start:"09:30", end:"10:00" } };
 /* กิจกรรมวิชาการเป็นหน้าที่แรกของแพทย์ประจำบ้าน มาก่อนงานบริการทุกอย่าง
    การบันทึกรายวันจึงชนะได้แค่คาบงานบริการด้วยกัน ไม่ชนะกิจกรรมวิชาการ */
 const PICKED_PRIORITY = 35;
@@ -1646,6 +1665,7 @@ const store = {
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
     /* ลำดับความสำคัญของเซสชันเมื่อชนกัน — ตัวเลขมากกว่าคือได้สิทธิ์ก่อน แก้ได้ที่หน้าตั้งค่า */
     d.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
+    d.programme.morningConference ||= structuredClone(MORNING_CONFERENCE_DEFAULT);
     /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
        ลำดับความสำคัญเป็นค่าตั้งต้นของทั้งปี ส่วนอันนี้คือความจริงของวันนั้น */
     d.sessionPicks ||= [];
@@ -2843,13 +2863,12 @@ function seedData() {
     });
   });
 
-  /* --- ตารางนำเสนอวิชาการ: ใครนำเสนอเรื่องอะไร วันไหน เวลาใด --- */
+  /* --- ตารางนำเสนอวิชาการที่ลงล่วงหน้า: วันพฤหัสฯ Topic conference + Journal club (ระบุผู้นำเสนอ+ผู้คุมไว้ก่อน)
+         และ Research progress เดือนละครั้ง — Trauma film / Pre-post-op ไม่ลงตารางล่วงหน้า (ดูกิจกรรมย้อนหลังด้านล่าง) --- */
   const TALK_SLOTS = [
-    { dow:1, start:"07:30", end:"08:30", type:"preop",      slot:"Pre-operative conference" },
-    { dow:2, start:"12:00", end:"13:00", type:"journal",    slot:"Journal club" },
-    { dow:3, start:"07:30", end:"08:30", type:"traumafilm", slot:"Trauma film conference" },
-    { dow:4, start:"07:30", end:"08:30", type:"topic",      slot:"Topic presentation" },
-    { dow:5, start:"13:00", end:"14:00", type:"research",   slot:"Research progress", monthlyFirst:true }
+    { dow:4, start:"09:00", end:"10:30", type:"topic",    slot:"Topic presentation" },
+    { dow:4, start:"10:30", end:"12:00", type:"journal",  slot:"Journal club" },
+    { dow:5, start:"13:00", end:"14:00", type:"research", slot:"Research progress", monthlyFirst:true }
   ];
   const PLANNED = {
     topic: [["Osteoporotic vertebral compression fracture: เมื่อไรจึงผ่าตัด","spine"],
@@ -2914,6 +2933,26 @@ function seedData() {
       });
     });
   }
+
+  /* Trauma film / Pre-post-op ไม่มีการ fix ผู้นำเสนอล่วงหน้า — รู้ว่าใครนำเสนอจากสไลด์ที่ส่งเข้ามาเท่านั้น
+     สร้างกิจกรรมย้อนหลังตามรูปแบบ morning conference ประมาณ 2 ใน 3 วัน (ที่เหลือปล่อยว่างให้เห็นช่องที่ไม่มีสไลด์ส่ง)
+     ให้ปฏิทินอดีตมีชื่อโผล่จากสไลด์จริง ส่วนวันข้างหน้าเป็นช่องเปล่า */
+  const mc = MORNING_CONFERENCE_DEFAULT;
+  for (let w = -8; w <= -1; w++) mc.days.forEach(dow => ["traumafilm", "preop"].forEach((ty, ti) => {
+    const date = addDaysISO(addDaysISO(thisMonday, w * 7), dow - 1);
+    if ((w + dow + ti) % 3 === 0 || activities.some(a => a.type === ty && a.date === date)) return;
+    const presenter = residents[turn % residents.length]; turn++;
+    const pick = PLANNED[ty][(w + 8 + dow) % PLANNED[ty].length];
+    activities.push({
+      id: uid("act"), residentId: presenter.id, type: ty, subspecialty: pick[1], title: pick[0], date,
+      academicYear: academicYear(date), source: "slides",
+      evidence: { fileName: ty + "_" + date + ".pptx", fileType:"pptx", slideCount: 8 + ((w + dow) % 12), hash:"",
+                  excerpt:"(ข้อมูลสาธิต — ข้อความจากสไลด์จะถูกเก็บไว้ตรงนี้เมื่อบันทึกจากไฟล์จริง)", detectedBy:"keyword", confidence: 0.72 },
+      wfme: (TYPE_BY_ID[ty]?.wfme || []).slice(),
+      assessment: (w + dow + ti) % 2 === 0 ? demoTalkEval(ty, 4, staffBySub(pick[1], w + dow), date, w + dow) : null,
+      verified: true, verifiedBy: staffBySub(pick[1], w + dow + 1), note:"", createdAt: date + "T09:00:00"
+    });
+  }));
 
   const programme = {
     mission: "ผลิตแพทย์ออร์โธปิดิกส์ที่ให้การดูแลผู้ป่วยกระดูกและข้อได้อย่างปลอดภัยตามมาตรฐานวิชาชีพ " +
@@ -3657,7 +3696,7 @@ function savePending(key) {
   store.data.activities.push(act);
   /* จับคู่กับรายการในตารางนำเสนอโดยอัตโนมัติ ถ้ามีที่ตรงกัน */
   const talk = matchTalk(act.residentId, act.type, act.date);
-  if (talk) { talk.activityId = act.id; act.scheduleId = talk.id; }
+  if (talk) { talk.activityId = act.id; act.scheduleId = talk.id; if (!talk.residentId) talk.residentId = act.residentId; }
   store.save();
   pending.delete(key);
   renderIngestQueue();
@@ -4450,9 +4489,10 @@ function renderSwapTable() {
 }
 
 /* --- ปฏิทินรวมการนำเสนอ (สไตล์ Google Calendar, รายเดือนเดียว) ---
-   ไม่มีโหมดรายคน — ทุกคนเห็นปฏิทินรวมชุดเดียวกัน แพทย์ประจำบ้านเห็นเฉพาะของตัวเองอยู่แล้วเพราะ
-   presentationsForDate() กรองด้วย canSeeResident ไม่ต้องมีตัวเลือกให้สลับ */
+   ตารางนำเสนอเป็นของทั้งภาควิชา ทุกบทบาทเห็นชุดเดียวกัน · แพทย์ประจำบ้านสลับดู "ของฉัน" ได้ (เปิดมาเป็นทั้งกลุ่มงานก่อน)
+   อาจารย์/ผู้จัดหลักสูตรเห็นแค่ตารางรวม ไม่มีปุ่มสลับ */
 let calMonth = todayISO().slice(0, 7);
+let calScope = "all";                /* "all" | "mine" — มีผลเฉพาะ resident */
 
 function renderCalMonth(box) {
   $("#calLabel").textContent = ymLabel(calMonth);
@@ -4466,14 +4506,18 @@ function renderCalMonth(box) {
     <span class="swatch"><i style="background:var(--ok-soft)"></i>บันทึกสไลด์แล้ว</span>
     <span class="swatch"><i style="background:var(--warn-soft)"></i>ยังไม่มีบันทึกสไลด์</span>
     <span class="swatch"><i style="background:#fff"></i>ตามกำหนด</span>
+    <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ ยังไม่ระบุผู้นำเสนอ</span>
   </div>`;
+  /* โหมด "ของฉัน" (resident เท่านั้น): ช่องประจำที่ยังไม่มีเจ้าของไม่ใช่ของใคร จึงไม่โชว์ */
+  const mine = isResident() && calScope === "mine";
   box.innerHTML = legend + `<div class="gcal-grid">
     ${DAY_SHORT.slice(1).concat(DAY_SHORT[0]).map(d => `<div class="gcal-dow">${d}</div>`).join("")}
     ${cells.map(iso => {
       const inMonth = iso.slice(0, 7) === calMonth;
+      const items = presentationsForDate(iso).filter(p => !mine || p.residentId === myResidentId());
       return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
         <span class="gcal-date">${Number(iso.slice(8))}</span>
-        ${presentationsForDate(iso).map(presentationChip).join("")}
+        ${items.map(presentationChip).join("")}
       </div>`;
     }).join("")}
   </div>`;
@@ -4481,6 +4525,13 @@ function renderCalMonth(box) {
 
 function renderCalendar() {
   const box = $("#calGrid"); if (!box) return;
+  if (!isResident()) calScope = "all";
+  const wrap = $("#calScopeWrap");
+  if (wrap) {
+    wrap.hidden = !isResident();
+    $("#calScopeAll")?.setAttribute("aria-current", String(calScope === "all"));
+    $("#calScopeMine")?.setAttribute("aria-current", String(calScope === "mine"));
+  }
   renderCalMonth(box);
   $$("#calGrid [data-pres]").forEach(b => b.addEventListener("click", () => {
     const i = b.dataset.pres.indexOf(":");
@@ -4716,7 +4767,8 @@ const TALK_STATUS_TAG = {
 };
 /* หารายการในตารางที่ตรงกับสิ่งที่เพิ่งบันทึกจากสไลด์ (คนเดียวกัน ประเภทเดียวกัน วันใกล้กัน) */
 function matchTalk(residentId, type, date) {
-  return (store.data.schedule || []).find(t => t.residentId === residentId && t.type === type &&
+  /* แถวที่ยังไม่ระบุผู้นำเสนอ (ลงล่วงหน้าแค่ช่อง) จับคู่ได้กับใครก็ได้ที่ส่งสไลด์ประเภทนั้นวันใกล้กัน */
+  return (store.data.schedule || []).find(t => (!t.residentId || t.residentId === residentId) && t.type === type &&
     !t.activityId && Math.abs((Date.parse(t.date) - Date.parse(date)) / 86400000) <= 3);
 }
 /* ประเภทกิจกรรมที่นับเป็น "การนำเสนอ" บนปฏิทิน — งานวิจัย (research) ไม่ขึ้นปฏิทิน เพราะไม่มีวันที่นำเสนอตายตัวแบบนี้ */
@@ -4724,10 +4776,14 @@ const PRESENTATION_TYPES = ["traumafilm", "preop", "topic", "journal"];
 /* สีประจำประเภทบนปฏิทิน (ที่อื่นในแอปไม่มีสีของประเภทกิจกรรม มีแต่สีของหน่วย) — ที่เดียวที่ทั้ง chip และคำอธิบายสีอ่าน */
 const PRESENTATION_COLOUR = { topic:"#1d4ed8", preop:"#7c3aed", traumafilm:"#ea580c", journal:"#0f766e" };
 
-/* การนำเสนอของวันหนึ่ง รวมสองแหล่ง:
-   1) store.data.schedule ที่ลงล่วงหน้าไว้ (ปกติมีแค่ topic/journal ที่ระบุผู้นำเสนอ+ผู้คุมไว้ก่อนจริง)
+const morningConference = () => store.data.programme?.morningConference || MORNING_CONFERENCE_DEFAULT;
+
+/* การนำเสนอของวันหนึ่ง รวมสามแหล่ง (ตารางนำเสนอเป็นของทั้งภาควิชา — ไม่กรองตามสิทธิ์ที่นี่):
+   1) store.data.schedule ที่ลงล่วงหน้าไว้ (ปกติคือ topic/journal วันพฤหัสฯ ที่ระบุผู้นำเสนอ+ผู้คุมไว้ก่อน)
    2) store.data.activities ชนิด trauma film / pre-post-op ที่ยังไม่เคยผูกกับรายการในตาราง (ไม่มี scheduleId) —
-      กรณีนี้คือบันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ล่วงหน้า รู้ตัวว่านำเสนอแล้วจากไฟล์เท่านั้น
+      บันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ล่วงหน้า รู้ตัวว่านำเสนอแล้ว (และรู้ว่าใคร) จากไฟล์เท่านั้น
+   3) ช่องประจำ (kind "slot") ของ trauma film / pre-post-op ตามรูปแบบ morning conference ในวันที่ยังไม่มีข้อ 1/2
+      ของประเภทนั้น และไม่ใช่วันหยุดราชการ — ไม่มีเจ้าของ ไม่ใช่แถวข้อมูล คำนวณสดทุกครั้ง
    เคสที่ผูกกันแล้ว (มี scheduleId / activityId ตรงกัน) จะมาจากข้อ 1 อย่างเดียว ไม่นับซ้ำ */
 function presentationsForDate(iso) {
   const fromSchedule = (store.data.schedule || [])
@@ -4736,26 +4792,38 @@ function presentationsForDate(iso) {
   const fromActivity = (store.data.activities || [])
     .filter(a => a.date === iso && (a.type === "traumafilm" || a.type === "preop") && !a.scheduleId)
     .map(a => ({ kind:"activity", id:a.id, ...a }));
-  return fromSchedule.concat(fromActivity)
-    .filter(p => canSeeResident(p.residentId))
+  const slots = [];
+  const mc = morningConference();
+  if ((mc.days || []).includes(new Date(iso + "T00:00:00").getDay()) && !dutyOn(iso)?.holiday) {
+    ["traumafilm", "preop"].forEach(ty => {
+      if (fromSchedule.some(p => p.type === ty) || fromActivity.some(p => p.type === ty)) return;
+      const tm = mc[ty] || {};
+      slots.push({ kind:"slot", id: ty + ":" + iso, type: ty, date: iso, start: tm.start || "", end: tm.end || "", residentId:"", title:"" });
+    });
+  }
+  return fromSchedule.concat(fromActivity, slots)
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 }
+/* ทุกรายการของเดือนหนึ่ง — ใช้กับพิมพ์/CSV ของปฏิทิน */
+const presentationsInMonth = (ym) => monthDays(ym).flatMap(presentationsForDate);
 
-/* ชื่อสั้นสำหรับช่องวันที่แคบ — ตัดคำนำหน้าออก (nick ในข้อมูลเป็นรหัสสาย เช่น "ฟ้า-1" ใช้แสดงไม่ได้
-   ส่วน stripName มีไว้จับคู่ชื่อ ไม่ใช่ไว้แสดง) */
-const presenterShort = (r) => String(r?.name || "—").replace(/^(นพ\.|พญ\.)\s*/, "");
-
-/* chip บรรทัดเดียว: ตัวย่อประเภท + ชื่อสั้น — ช่องวันหนึ่งกว้างไม่ถึง 200px ใส่ชื่อเต็ม/หัวข้อ/ผู้นิเทศลงไปแล้วอ่านไม่ได้จริง
-   รายละเอียดทั้งหมดอยู่ใน presentationDetailDialog ตอนกด · บันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ถือว่านำเสนอแล้วเสมอ */
+/* chip สองบรรทัด: ตัวย่อประเภท + ชื่อผู้นำเสนอ · หัวข้อย่อ (ตัดด้วย … ทาง CSS) — ไม่ใส่ชื่อประเภทเต็ม/ป้ายสถานะ/ผู้นิเทศ
+   ลงช่องวัน รายละเอียดทั้งหมดอยู่ใน presentationDetailDialog ตอนกด
+   · บันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ถือว่านำเสนอแล้วเสมอ · ช่องประจำ (slot) ยังไม่มีคน: อนาคต = เส้นประ "ยังไม่ระบุผู้นำเสนอ"
+     อดีต = จาง "ไม่มีสไลด์ส่ง" (ไม่ใช้พื้นส้ม .due ซึ่งสงวนให้แถวที่ระบุคนแล้วยังไม่ส่ง) */
 function presentationChip(p) {
   const r = store.resident(p.residentId);
-  const status = p.kind === "schedule" ? talkStatus(p) : "done";
-  const type = TYPE_BY_ID[p.type];
-  const colour = PRESENTATION_COLOUR[p.type] || "var(--brand)";
-  const cls = "sess gcal-chip pres-" + p.type + (status === "done" ? " done" : status === "missing" ? " due" : "");
-  const title = (r?.name || "—") + " · " + (type?.th || p.type) + (p.title ? " — " + p.title : "") + " · " + TALK_STATUS_TAG[status][1];
-  return `<button class="${cls}" data-pres="${p.kind}:${esc(p.id)}" style="border-left-color:${colour};--pres:${colour}" title="${esc(title)}">
-    <b class="abbr">${esc(type?.icon || "?")}</b><span class="nm">${esc(presenterShort(r))}</span></button>`;
+  const type = TYPE_BY_ID[p.type], colour = PRESENTATION_COLOUR[p.type] || "var(--brand)";
+  const isSlot = p.kind === "slot", past = p.date < todayISO();
+  const status = isSlot ? "" : p.kind === "schedule" ? talkStatus(p) : "done";
+  const cls = "sess gcal-chip pres-" + p.type +
+    (isSlot ? (past ? " slot muted-sess" : " slot") : status === "done" ? " done" : status === "missing" ? " due" : "");
+  const name = r ? r.name : isSlot && past ? "ไม่มีสไลด์ส่ง" : "ยังไม่ระบุผู้นำเสนอ";
+  const line2 = p.title || (p.start ? p.start + (p.end ? "–" + p.end : "") : "");
+  const hint = (type?.th || p.type) + " · " + name + (p.title ? " — " + p.title : "") + (isSlot ? "" : " · " + TALK_STATUS_TAG[status][1]);
+  return `<button class="${cls}" data-pres="${p.kind}:${esc(p.id)}" style="border-left-color:${colour};--pres:${colour}" title="${esc(hint)}">
+    <b class="abbr">${esc(type?.icon || "?")}</b> <span class="nm${r ? "" : " muted"}">${esc(name)}</span>
+    ${line2 ? `<span class="ttl">${esc(line2)}</span>` : ""}</button>`;
 }
 
 /* กล่องรายละเอียดเต็มของรายการบนปฏิทิน — อ่านได้ทุกคนที่เห็นรายการนั้น ปุ่มท้ายกล่องขึ้นตามสิทธิ์:
@@ -4763,16 +4831,31 @@ function presentationChip(p) {
    · รายการที่มาจากกิจกรรมที่บันทึกแล้วเปิดกิจกรรมนั้นต่อได้ — ปุ่มที่เปิดกล่องใหม่ต้อง closeDialog() ก่อน
    (showModal ซ้อนกันไม่ได้) และคืน false ไม่ให้ showDialog ปิดกล่องใหม่ที่เพิ่งเปิดตาม */
 function presentationDetailDialog(kind, id) {
+  if (kind === "slot") {
+    /* ช่องประจำ ไม่มีแถวข้อมูล — id คือ "type:วันที่" */
+    const i = id.indexOf(":"), type = id.slice(0, i), iso = id.slice(i + 1);
+    const tm = morningConference()[type] || {}, past = iso < todayISO();
+    const body = `<div class="kv">
+      <dt>ประเภท</dt><dd>${esc(TYPE_BY_ID[type]?.th || type)}</dd>
+      <dt>วันที่</dt><dd>${fmtDate(iso)}${tm.start ? " · " + esc(tm.start) + (tm.end ? "–" + esc(tm.end) : "") + " น." : ""}</dd>
+      <dt>ผู้นำเสนอ</dt><dd>${past ? "ไม่มีสไลด์ส่งเข้ามาสำหรับวันนี้" : "ยังไม่ระบุ — ชื่อจะปรากฏเมื่อผู้นำเสนอส่งสไลด์เข้าระบบ"}</dd>
+    </div>
+    <p class="small muted">ช่องประจำตามรูปแบบ morning conference (ผู้จัดหลักสูตรปรับวัน/เวลาได้ที่หน้าตั้งค่า) ไม่ได้ลงตารางไว้ล่วงหน้า</p>`;
+    const buttons = [{ label:"ไปหน้ารับสไลด์", cls:"btn-primary", onClick: () => { closeDialog(); showView("ingest"); return false; } }];
+    if (canManage()) buttons.push({ label:"ลงตารางล่วงหน้าสำหรับวันนี้", onClick: () => { closeDialog(); editTalk(null, { date: iso, type }); return false; } });
+    showDialog("ช่องนำเสนอประจำวัน", body, buttons);
+    return;
+  }
   const rec = kind === "schedule" ? (store.data.schedule || []).find(x => x.id === id)
                                   : (store.data.activities || []).find(x => x.id === id);
-  if (!rec || !canSeeResident(rec.residentId)) return;
+  if (!rec) return;
   const r = store.resident(rec.residentId);
   const status = kind === "schedule" ? talkStatus(rec) : "done";
   const tag = TALK_STATUS_TAG[status];
   const tc = (rec.type === "topic" || rec.type === "journal") ? topicConfInfo(rec.date) : null;
   const e = rec.evidence || {};
   const body = `<div class="kv">
-    <dt>ผู้นำเสนอ</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+    <dt>ผู้นำเสนอ</dt><dd>${r ? esc(r.name) + " (ชั้นปีที่ " + esc(String(r.year || "—")) + ")" : "ยังไม่ระบุผู้นำเสนอ"}</dd>
     <dt>ประเภท</dt><dd>${esc(TYPE_BY_ID[rec.type]?.th || rec.type)}${rec.slot ? " · " + esc(rec.slot) : ""}</dd>
     <dt>หัวข้อ</dt><dd><b>${esc(rec.title || "—")}</b>${rec.subspecialty
       ? ` <span class="tag b">${esc(SUB_BY_ID[rec.subspecialty]?.en || rec.subspecialty)}</span>` : ""}</dd>
@@ -4790,26 +4873,30 @@ function presentationDetailDialog(kind, id) {
     buttons.push({ label:"แก้ไขรายการ", cls:"btn-primary", onClick: () => { closeDialog(); editTalk(id); return false; } });
   if (kind === "schedule" && status === "missing" && canEditResidentData(rec.residentId))
     buttons.push({ label:"บันทึกว่านำเสนอแล้ว (ไม่มีไฟล์สไลด์)", onClick: () => recordFromTalk(id) });
-  if (kind === "activity")
+  /* ดูรายละเอียดการนำเสนอได้ทุกคน แต่เปิดกิจกรรมในแฟ้ม (ผลประเมิน หลักฐาน) ได้เฉพาะคนที่มีสิทธิ์เห็นแฟ้มคนนั้น */
+  if (kind === "activity" && canSeeResident(rec.residentId))
     buttons.push({ label:"เปิดกิจกรรม", cls:"btn-primary", onClick: () => { closeDialog(); openActivity(id); return false; } });
   showDialog("รายละเอียดการนำเสนอ", body, buttons);
 }
 
-function editTalk(id) {
+/* preset = ค่าตั้งต้นตอนสร้างใหม่จากช่องประจำในปฏิทิน ({ date, type }) */
+function editTalk(id, preset = {}) {
   /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไขไม่มี data-perm และฟังก์ชันนี้ไม่มี guard
      แพทย์ประจำบ้านจึงแก้/ลบแถวของคนอื่นได้จาก console หรือปุ่มที่โผล่ */
   if (!canManage()) { toast("การแก้ตารางนำเสนอเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const t = id ? store.data.schedule.find(x => x.id === id) : null;
   if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน"); return; }
+  const curType = t?.type || preset.type || "";
   const body = `
     <div class="grid g2">
-      <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(t?.date || todayISO())}" /></label>
+      <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(t?.date || preset.date || todayISO())}" /></label>
       <label class="f"><span>รายการ (ชื่อกิจกรรมในตาราง)</span><input name="slot" value="${esc(t?.slot || "")}" placeholder="เช่น Topic presentation" /></label>
       <label class="f"><span>เวลาเริ่ม</span><input type="time" name="start" value="${esc(t?.start || "07:30")}" /></label>
       <label class="f"><span>เวลาสิ้นสุด</span><input type="time" name="end" value="${esc(t?.end || "08:30")}" /></label>
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(x =>
-        `<option value="${x.id}" ${t?.type === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></label>
-      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${store.data.residents.map(r =>
+        `<option value="${x.id}" ${curType === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">
+        <option value="" ${!t?.residentId ? "selected" : ""}>— ยังไม่ระบุ (ให้ผู้ที่ส่งสไลด์เป็นผู้นำเสนอ) —</option>${store.data.residents.map(r =>
         `<option value="${r.id}" ${t?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
     </div>
     <label class="f"><span>หัวข้อ</span><input name="title" value="${esc(t?.title || "")}" placeholder="ชื่อเรื่องที่จะนำเสนอ" /></label>
@@ -4844,43 +4931,53 @@ function editTalk(id) {
 /* บันทึกกิจกรรมจากรายการในตาราง เมื่อไม่มีไฟล์สไลด์ให้วาง */
 function recordFromTalk(id) {
   const t = store.data.schedule.find(x => x.id === id); if (!t) return;
-  /* บันทึกเข้าแฟ้มของใครได้ = สิทธิ์เดียวกับการแก้กิจกรรมของคนนั้น (อาจารย์ หรือเจ้าของแถวเอง) */
-  if (!canEditResidentData(t.residentId)) { toast("บันทึกเข้าแฟ้มของแพทย์ประจำบ้านคนอื่นไม่ได้"); return; }
+  /* บันทึกเข้าแฟ้มของใครได้ = สิทธิ์เดียวกับการแก้กิจกรรมของคนนั้น (อาจารย์ หรือเจ้าของแถวเอง)
+     แถวที่ยังไม่ระบุผู้นำเสนอ: แพทย์ประจำบ้านที่กดคือผู้นำเสนอ (อาจารย์กดแทนไม่ได้ เพราะไม่รู้ว่าของใคร) */
+  const rid = t.residentId || myResidentId();
+  if (!rid) { toast("แถวนี้ยังไม่ระบุผู้นำเสนอ — ให้ผู้นำเสนอเป็นคนกดบันทึกเอง"); return; }
+  if (!canEditResidentData(rid)) { toast("บันทึกเข้าแฟ้มของแพทย์ประจำบ้านคนอื่นไม่ได้"); return; }
   const act = {
-    id: uid("act"), residentId: t.residentId, type: t.type, subspecialty: t.subspecialty,
+    id: uid("act"), residentId: rid, type: t.type, subspecialty: t.subspecialty,
     title: t.title, date: t.date, academicYear: academicYear(t.date), source: "manual", evidence: null,
     wfme: (TYPE_BY_ID[t.type]?.wfme || []).slice(), assessment: null, verified: false, verifiedBy: "",
     note: "บันทึกจากตารางนำเสนอ (" + (t.slot || "") + ")", scheduleId: t.id, createdAt: new Date().toISOString()
   };
   store.data.activities.push(act);
   t.activityId = act.id;
+  if (!t.residentId) t.residentId = rid;
   store.save(); renderAll();
   toast("บันทึกเข้าแฟ้มแล้ว — ยังไม่มีไฟล์สไลด์แนบ");
 }
 
+/* สถานะเป็นคำ ใช้ทั้ง CSV และรายงานพิมพ์ — ช่องประจำไม่มีสถานะแบบแถวที่ระบุคนแล้ว */
+const presentationStatusLabel = (p) =>
+  p.kind === "slot" ? (p.date < todayISO() ? "ไม่มีสไลด์ส่ง" : "ยังไม่ระบุผู้นำเสนอ")
+  : TALK_STATUS_TAG[p.kind === "schedule" ? talkStatus(p) : "done"][1];
+
+/* พิมพ์/CSV ตามเดือนที่ปฏิทินกำลังแสดง รวมทั้งสามแหล่งเหมือนที่เห็นบนจอ (เดิมดึงแค่แถวที่ลงตารางไว้ ไม่มี F/P จากสไลด์) */
 function talkCsvRows() {
   const head = ["วันที่","วัน","เวลาเริ่ม","เวลาสิ้นสุด","รายการ","ประเภท","ผู้นำเสนอ","ชั้นปี","หัวข้อ","Subspecialty","สถานที่","ผู้ดำเนินการ","สถานะ"];
-  return [head].concat((store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)).map(t => {
-    const r = store.resident(t.residentId);
-    return [t.date, DAY_NAMES[new Date(t.date + "T00:00:00").getDay()], t.start || "", t.end || "", t.slot || "",
-      TYPE_BY_ID[t.type]?.en || t.type, r?.name || "", r?.year || "", t.title,
-      SUB_BY_ID[t.subspecialty]?.en || "", t.location || "", staffName(t.moderatorId), TALK_STATUS_TAG[talkStatus(t)][1]];
+  return [head].concat(presentationsInMonth(calMonth).map(p => {
+    const r = store.resident(p.residentId);
+    return [p.date, DAY_NAMES[new Date(p.date + "T00:00:00").getDay()], p.start || "", p.end || "", p.slot || "",
+      TYPE_BY_ID[p.type]?.en || p.type, r?.name || "", r?.year || "", p.title || "",
+      SUB_BY_ID[p.subspecialty]?.en || "", p.location || "", staffName(p.moderatorId), presentationStatusLabel(p)];
   }));
 }
 
 function printTalks() {
-  const all = (store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
-  const rows = all.filter(t => t.date >= addDaysISO(todayISO(), -28));
-  const html = reportHead("ตารางนำเสนอวิชาการ", "ตั้งแต่ " + fmtDate(addDaysISO(todayISO(), -28))) + `
+  const rows = presentationsInMonth(calMonth);
+  const html = reportHead("ปฏิทินการนำเสนอวิชาการ", ymLabel(calMonth)) + `
   <div class="card"><table>
-    <thead><tr><th>วันที่</th><th>เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานที่</th></tr></thead>
-    <tbody>${rows.map(t => {
-      const r = store.resident(t.residentId);
-      return `<tr><td>${DAY_SHORT[new Date(t.date + "T00:00:00").getDay()]} ${fmtDate(t.date)}</td>
-        <td>${esc(t.start || "")}${t.end ? "–" + esc(t.end) : ""}</td>
-        <td>${esc(t.slot || "")}</td><td>${esc(r?.name || "—")}</td>
-        <td>${esc(t.title)}<br /><span class="small muted">${esc(SUB_BY_ID[t.subspecialty]?.en || "")}</span></td>
-        <td>${esc(staffName(t.moderatorId))}</td><td class="small">${esc(t.location || "")}</td></tr>`;
+    <thead><tr><th>วันที่</th><th>เวลา</th><th>ประเภท</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานะ</th></tr></thead>
+    <tbody>${rows.map(p => {
+      const r = store.resident(p.residentId);
+      return `<tr><td>${DAY_SHORT[new Date(p.date + "T00:00:00").getDay()]} ${fmtDate(p.date)}</td>
+        <td>${esc(p.start || "")}${p.end ? "–" + esc(p.end) : ""}</td>
+        <td>${esc(TYPE_BY_ID[p.type]?.th || p.type)}${p.slot ? `<br /><span class="small muted">${esc(p.slot)}</span>` : ""}</td>
+        <td>${esc(r?.name || "—")}</td>
+        <td>${esc(p.title || "")}${p.subspecialty ? `<br /><span class="small muted">${esc(SUB_BY_ID[p.subspecialty]?.en || "")}</span>` : ""}</td>
+        <td>${esc(staffName(p.moderatorId))}</td><td class="small">${esc(presentationStatusLabel(p))}</td></tr>`;
     }).join("")}</tbody></table></div>`;
   printReport(html);
 }
@@ -7799,6 +7896,24 @@ function renderSettings() {
     toast("ปรับลำดับความสำคัญแล้ว");
   }));
 
+  const mc = store.data.programme.morningConference ||= structuredClone(MORNING_CONFERENCE_DEFAULT);
+  $("#morningConfEditor").innerHTML = `
+    <div class="row" style="margin-bottom:.5rem">${[1, 2, 3, 4, 5].map(d => `<label class="row small" style="gap:.3rem;align-items:center">
+      <input type="checkbox" data-mc-day="${d}" ${(mc.days || []).includes(d) ? "checked" : ""} />${DAY_NAMES[d]}</label>`).join("")}</div>
+    <div class="row">${["traumafilm", "preop"].map(ty => `
+      <label class="f" style="max-width:11rem"><span>${esc(TYPE_BY_ID[ty].th)} เริ่ม</span><input type="time" data-mc="${ty}.start" value="${esc(mc[ty]?.start || "")}" /></label>
+      <label class="f" style="max-width:11rem"><span>จบ</span><input type="time" data-mc="${ty}.end" value="${esc(mc[ty]?.end || "")}" /></label>`).join("")}</div>`;
+  $$("#morningConfEditor [data-mc-day]").forEach(inp => inp.addEventListener("change", () => {
+    const d = +inp.dataset.mcDay;
+    mc.days = inp.checked ? [...new Set([...(mc.days || []), d])].sort() : (mc.days || []).filter(x => x !== d);
+    store.save(); renderAll(); toast("ปรับรูปแบบ morning conference แล้ว");
+  }));
+  $$("#morningConfEditor [data-mc]").forEach(inp => inp.addEventListener("change", () => {
+    const [ty, k] = inp.dataset.mc.split(".");
+    (mc[ty] ||= {})[k] = inp.value;
+    store.save(); renderAll(); toast("ปรับรูปแบบ morning conference แล้ว");
+  }));
+
   $("#keywordEditor").innerHTML = SUBSPECIALTIES.filter(s => s.id !== "general").map(s => `
     <label class="f"><span>${esc(s.en)}
       <span class="muted" style="font-weight:400">(คำตั้งต้น ${SUB_BY_ID[s.id].kw.length} คำ)</span></span>
@@ -9529,6 +9644,8 @@ function init() {
   });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
+  $("#calScopeAll").addEventListener("click", () => { calScope = "all"; renderCalendar(); });
+  $("#calScopeMine").addEventListener("click", () => { calScope = "mine"; renderCalendar(); });
   $("#calPrev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
   $("#calNext").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
   $("#calToday").addEventListener("click", () => { calMonth = todayISO().slice(0, 7); renderCalendar(); });

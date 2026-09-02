@@ -181,23 +181,30 @@ export default async function run() {
       t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
               !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
 
-      /* ปฏิทินรวม: ไม่มีตัวเลือกเปลี่ยนคนให้แก้เลย และทุก chip ที่วาดออกมาต้องเป็นของตัวเอง —
-         ตัวกรองอยู่ที่ presentationsForDate (canSeeResident) ไม่ใช่ที่ UI ต่อให้เรียก render ใหม่เองก็ไม่มีของคนอื่นโผล่ */
+      /* ปฏิทินรวม: ตารางนำเสนอเป็นของทั้งภาควิชา แพทย์ประจำบ้านเห็นของคนอื่นได้ (ไม่ใช่ช่องโหว่ — เป็นตารางสาธารณะ)
+         แต่ "ของฉัน" ต้องกรองเหลือแต่ของตัวเองจริง และการเปิดกิจกรรมของคนอื่นยังถูก openActivity บล็อกตามเดิม */
       const calMine = await page.evaluate(() => {
         showView("calendar");
         const me = myResidentId();
-        const anyOfMine = store.data.schedule.find(x => x.residentId === me);
-        if (anyOfMine) { calMonth = anyOfMine.date.slice(0, 7); renderCalendar(); }
-        const owners = [...document.querySelectorAll("#calGrid [data-pres]")].map(b => {
+        const anyOfMine = store.data.schedule.find(x => x.residentId === me) ||
+          store.data.activities.find(x => x.residentId === me && ["traumafilm", "preop"].includes(x.type));
+        if (anyOfMine) calMonth = anyOfMine.date.slice(0, 7);
+        const ownerOf = (b) => {
           const i = b.dataset.pres.indexOf(":");
           const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
+          if (kind === "slot") return "slot";
           return (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id)?.residentId;
-        });
-        return { noControls: !document.querySelector("#calResidentPick") && !document.querySelector("#calScopeAll"),
-                 n: owners.length, allMine: owners.every(x => x === me) };
+        };
+        document.querySelector("#calScopeAll").click();
+        const all = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
+        document.querySelector("#calScopeMine").click();
+        const mine = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
+        return { toggleShown: document.querySelector("#calScopeWrap").hidden === false,
+                 seesOthers: all.some(x => x && x !== me && x !== "slot"),
+                 mineN: mine.length, allMine: mine.every(x => x === me) };
       });
-      t.check("แพทย์ประจำบ้าน: ปฏิทินไม่มีตัวเลือกเปลี่ยนคน และทุกรายการที่เห็นเป็นของตัวเอง",
-              calMine.noControls && calMine.n > 0 && calMine.allMine, JSON.stringify(calMine));
+      t.check("แพทย์ประจำบ้าน: ปฏิทินรวมเห็นของคนอื่นได้ แต่กด 'ของฉัน' แล้วเหลือแต่ของตัวเอง",
+              calMine.toggleShown && calMine.seesOthers && calMine.mineN > 0 && calMine.allMine, JSON.stringify(calMine));
       const own = await page.evaluate(() => {
         showView("residents");
         const epaFirst = [...document.querySelectorAll("#view-epa > .card")].filter(c => !c.hidden)[0];
@@ -211,8 +218,7 @@ export default async function run() {
 
       /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
          แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้
-         ตั้งแต่รวมตารางนำเสนอเข้าปฏิทินแล้ว ปฏิทินของแพทย์ประจำบ้านกรองไม่ให้เห็น chip ของคนอื่นเลยอยู่แล้ว
-         (presentationsForDate กรองด้วย canSeeResident) แต่ก็ยังต้องตรวจฟังก์ชันตรง ๆ ไว้เผื่อมีทางอื่นเรียกถึง */
+         ปฏิทินรวมให้เห็นรายการของคนอื่นได้ (ตารางสาธารณะของภาควิชา) เส้นแบ่งจึงอยู่ที่ฟังก์ชันแก้/บันทึก ไม่ใช่ที่การมองเห็น */
       const talk = await page.evaluate(() => {
         const me = myResidentId();
         const other = store.data.schedule.find(x => x.residentId !== me);
@@ -226,9 +232,8 @@ export default async function run() {
         let ownRecorded = null;
         if (mine) { recordFromTalk(mine.id); ownRecorded = store.data.activities.length === afterOther + 1 && !!mine.activityId; }
 
-        /* ปฏิทิน: chip ของคนอื่นต้องไม่โผล่มาให้เห็นเลย (ไม่ใช่แค่ปุ่มแก้ไขถูกซ่อน) */
+        /* ปฏิทิน: แถวของตัวเองที่ยังไม่มีสไลด์ต้องกดบันทึกได้จากปฏิทินโดยตรง */
         showView("calendar");
-        const otherOnDate = presentationsForDate(other.date).find(p => p.kind === "schedule" && p.id === other.id);
         const missingMine = store.data.schedule.find(x => x.residentId === me && !x.activityId && x.date < todayISO());
         let ownChipClickable = null;
         if (missingMine) {
@@ -236,12 +241,11 @@ export default async function run() {
           const chip = document.querySelector(`#calGrid button[data-pres="schedule:${missingMine.id}"]`);
           ownChipClickable = !!chip;
         }
-        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, otherChipShown: !!otherOnDate, ownChipClickable };
+        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, ownChipClickable };
       });
       t.check("แก้ตารางนำเสนอของคนอื่นไม่ได้ (กล่องไม่เปิด)", !talk.editOpened);
       t.check("บันทึกเข้าแฟ้มของคนอื่นจากตารางนำเสนอไม่ได้", !talk.otherGrew);
       t.check("บันทึกแถวของตัวเองจากตารางนำเสนอได้", talk.ownRecorded !== false, talk.ownRecorded === null ? "ไม่มีแถวของตัวเองในข้อมูลสาธิต" : "");
-      t.check("ปฏิทิน: การนำเสนอของคนอื่นไม่โผล่ให้เห็นเลย", !talk.otherChipShown);
       t.check("ปฏิทิน: แถวของตัวเองที่ยังไม่มีบันทึกสไลด์ กดบันทึกได้จากปฏิทินโดยตรง",
               talk.ownChipClickable !== false, talk.ownChipClickable === null ? "ไม่มีแถวที่ยังไม่บันทึกของตัวเองในข้อมูลสาธิต" : "");
 
