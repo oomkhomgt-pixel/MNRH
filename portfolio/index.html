@@ -283,7 +283,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .timeline .ev::before{content:"";position:absolute;left:-1.24rem;top:.35rem;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff}
 .timeline .ev.todo::before{background:#c9d2da}
 
-/* ปฏิทินรายบุคคลสไตล์ Google Calendar */
+/* ปฏิทินการนำเสนอสไตล์ Google Calendar */
 .gcal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 .gcal-dow{font-size:.75rem;text-align:center;color:var(--ink-2);font-weight:600;padding:.15rem 0 .35rem}
 .gcal-cell{border:1px solid var(--line);border-radius:8px;padding:.3rem;min-height:92px;min-width:0;background:#fff;overflow-wrap:break-word}
@@ -291,7 +291,6 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-cell.outside .gcal-date{color:var(--muted)}
 .gcal-cell.today{outline:2px solid var(--brand);outline-offset:-1px}
 .gcal-date{display:block;font-size:.74rem;font-weight:650;margin-bottom:.2rem}
-.gcal-week .gcal-cell{min-height:240px}
 .gcal-chip{padding:.24rem .34rem;font-size:.72rem;margin-bottom:2px}
 .gcal-chip .tc-info{color:var(--brand-ink);font-weight:600}
 
@@ -383,9 +382,9 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
     </div>
     <div class="row seg" data-subgroup="g1" hidden>
-      <!-- ป้ายสั้น — ตัวเลือก เดือน/สัปดาห์/นำเสนอ อยู่ในหน้าอยู่แล้ว ป้ายยาวทำให้แถวนี้ห่อสองบรรทัดบนมือถือ -->
-      <button data-view="rotation">ตารางรวม</button>
-      <button data-view="calendar">ปฏิทินรายคน</button>
+      <!-- ป้ายสั้น — ตัวเลือกตารางรายเดือน/เวร และตารางรวม/รายคน อยู่ในหน้าอยู่แล้ว ป้ายยาวทำให้แถวนี้ห่อสองบรรทัดบนมือถือ -->
+      <button data-view="rotation">ตาราง</button>
+      <button data-view="calendar">ปฏิทิน</button>
     </div>
     <div class="row seg" data-subgroup="g2" hidden>
       <button data-view="residents" data-perm="staff">รายชื่อ</button>
@@ -471,7 +470,6 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <div class="row seg no-print" id="calSeg">
       <button data-seg="month" aria-current="true">ตารางรายเดือน (สาย / อนุสาขา)</button>
       <button data-seg="week">เวรและคำขอ</button>
-      <button data-seg="talks">ตารางนำเสนอ</button>
     </div>
 
     <!-- ---- แบบที่ 1: ตารางหมุนเวียนรายเดือน ---- -->
@@ -579,30 +577,6 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       </div>
 
     </div>
-
-    <!-- ---- แบบที่ 2: ตารางนำเสนอ ---- -->
-    <div data-segview="talks" hidden>
-      <div class="card">
-        <div class="between">
-          <div>
-            <h2>ตารางนำเสนอ</h2>
-            <p class="muted small">วันไหน ใครนำเสนอเรื่องอะไร เวลาใด ที่ไหน และใครเป็นผู้ดำเนินการ
-              · เมื่อบันทึกสไลด์เข้าแฟ้ม ระบบจะจับคู่กับรายการในตารางนี้ให้เอง</p>
-          </div>
-          <div class="row no-print">
-            <button class="btn-sm btn-primary" id="btnAddTalk" data-perm="admin">+ ลงตารางนำเสนอ</button>
-            <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
-            <button class="btn-sm" id="btnTalkCsv">CSV</button>
-          </div>
-        </div>
-        <h3>ที่กำลังจะถึง</h3>
-        <div id="talkUpcoming"></div>
-      </div>
-      <div class="card">
-        <div class="between"><h2>รายการทั้งหมด</h2><div class="row filters no-print" id="talkFilters"></div></div>
-        <div id="talkTable"></div>
-      </div>
-    </div>
   </section>
 
   <!-- ============ RESIDENTS ============ -->
@@ -645,19 +619,25 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <p class="muted small" id="calWho">—</p>
         </div>
         <div class="row">
-          <select id="calResidentPick" data-perm="staff" hidden></select>
-          <div class="row seg">
-            <button class="btn-sm" id="calModeMonth" aria-current="true">เดือน</button>
-            <button class="btn-sm" id="calModeWeek" aria-current="false">สัปดาห์</button>
+          <div class="row seg" data-perm="staff">
+            <button class="btn-sm" id="calScopeAll" aria-current="true">ตารางรวม</button>
+            <button class="btn-sm" id="calScopeMine" aria-current="false">รายคน</button>
           </div>
-          <button class="btn-sm" id="calPrev" aria-label="ก่อนหน้า">‹</button>
+          <select id="calResidentPick" hidden></select>
+          <button class="btn-sm" id="calPrev" aria-label="เดือนก่อน">‹</button>
           <b class="small" id="calLabel">—</b>
-          <button class="btn-sm" id="calNext" aria-label="ถัดไป">›</button>
+          <button class="btn-sm" id="calNext" aria-label="เดือนถัดไป">›</button>
           <button class="btn-sm" id="calToday">วันนี้</button>
         </div>
       </div>
-      <p class="muted small">มุมมองปฏิทินรายบุคคล — คลิกที่คาบเพื่อเปิดแบบประเมินท้ายเซสชันเหมือนหน้าตารางประจำสัปดาห์
-        · เฉพาะคาบ Topic conference เท่านั้นที่โชว์อาจารย์ผู้นิเทศและหัวหน้าสาย คาบอื่นไม่มีบรรทัดนี้</p>
+      <div class="row no-print" style="margin-top:.5rem">
+        <button class="btn-sm btn-primary" id="btnAddTalk" data-perm="admin">+ ลงตารางนำเสนอ</button>
+        <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
+        <button class="btn-sm" id="btnTalkCsv">CSV</button>
+      </div>
+      <p class="muted small">ปฏิทินการนำเสนอวิชาการ — Trauma film, Pre/post-op conference, Topic conference, Journal club
+        · คลิกที่รายการเพื่อดู/แก้ไขรายละเอียด · เฉพาะ Topic conference และ Journal club เท่านั้นที่โชว์บรรทัดผู้นิเทศและหัวหน้าสายของวันพฤหัสบดีนั้น
+        (กำหนดที่หน้าตาราง แท็บ “เวรและคำขอ”) รายการอื่นไม่มีบรรทัดนี้</p>
     </div>
     <div class="card">
       <div id="calGrid"></div>
@@ -671,7 +651,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <h1>ประเมิน</h1>
         <div class="row" id="assessCounts"></div>
       </div>
-      <p class="muted small">งานประเมินทั้งหมดของอาจารย์อยู่ที่นี่ที่เดียว — งานนำเสนอ · ลงกองสิ้นเดือนตามสาย/อนุสาขาที่วน · ท้ายเซสชัน</p>
+      <p class="muted small">งานประเมินทั้งหมดของอาจารย์อยู่ที่นี่ที่เดียว — งานนำเสนอ · ลงกองสิ้นเดือนตามสาย/อนุสาขาที่วน</p>
       <div class="row seg no-print" id="assessNav"></div>
     </div>
     <div id="assessBody"></div>
@@ -841,7 +821,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <div class="card" data-anchor="อาจารย์" data-fold="set-อาจารย์" data-fold-closed>
       <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
         <button class="btn-sm no-print" id="btnAddStaff">+ เพิ่มอาจารย์</button></div>
-      <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชันและผู้ประเมินท้ายเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
+      <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
       <div id="staffTable"></div>
     </div>
     <div class="card" data-anchor="หน่วย" data-fold="set-หน่วย" data-fold-closed>
@@ -1193,7 +1173,7 @@ const OR_QUEUE_DEFAULT = {
 };
 
 /* ---------------------------------------------------------------------
-   4b) ตารางหมุนเวียนและการประเมินท้ายเซสชัน
+   4b) ตารางหมุนเวียนและคาบทำงานประจำวัน
    --------------------------------------------------------------------- */
 /* งานห้องผ่าตัดและ OPD ของกลุ่มงานกินเวลาทั้งวัน ยกเว้นช่วงที่มีกิจกรรมวิชาการคั่น
    จึงมีช่วง "เต็มวัน" แยกจากเช้า/บ่าย และถือว่าคาบเต็มวันคาบเกี่ยวกับทั้งเช้าและบ่าย */
@@ -1230,7 +1210,7 @@ const dutyOn = (iso) => (store.data.duty || []).find(d => d.date === iso) || nul
 const DAY_NAMES = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
 const DAY_SHORT = ["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
 
-/* ระดับการให้ปฏิบัติงานด้วยตนเอง (entrustment) ใช้ในแบบประเมินท้ายเซสชัน */
+/* ระดับการให้ปฏิบัติงานด้วยตนเอง (entrustment) ใช้ในแบบประเมินลงกอง */
 const ENTRUST_LEVELS = [
   { v:1, th:"สังเกตการณ์เท่านั้น" },
   { v:2, th:"ทำได้ภายใต้การกำกับใกล้ชิด" },
@@ -1666,13 +1646,12 @@ const store = {
     /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
        ลำดับความสำคัญเป็นค่าตั้งต้นของทั้งปี ส่วนอันนี้คือความจริงของวันนั้น */
     d.sessionPicks ||= [];
-    /* ผลประเมินลงกองเมื่อจบรอบหมุนเวียนแต่ละเดือน — คนละชั้นกับประเมินท้ายเซสชัน
-       ท้ายเซสชันคือรายคาบ ส่วนอันนี้คือสรุปทั้งเดือนของสาย/อนุสาขาที่วนอยู่ */
+    /* ผลประเมินลงกองเมื่อจบรอบหมุนเวียนแต่ละเดือน — สรุปทั้งเดือนของสาย/อนุสาขาที่วนอยู่ ไม่ใช่รายคาบ */
     d.rotationEvals ||= [];
     /* นิยามของแบบประเมินลงกอง — คัดลอกค่าตั้งต้นเข้าฐานข้อมูลครั้งเดียว
        หลังจากนั้นเป็นของผู้จัดหลักสูตร โปรแกรมไม่เขียนทับอีก (แบบเดียวกับ sessionPriority) */
     d.rotationForm ||= structuredClone(ROTATION_FORM_DEFAULT);
-    /* ชุดตั้งต้นรุ่นแรกเป็นเกณฑ์กลางสามข้อ ยกมาจากแบบประเมินท้ายเซสชัน ไม่ได้ออกแบบมาเพื่อรอบรายเดือน
+    /* ชุดตั้งต้นรุ่นแรกเป็นเกณฑ์กลางสามข้อ ยกมาจากแบบประเมินท้ายเซสชันเดิม (ฟีเจอร์นั้นถูกตัดออกไปแล้ว) ไม่ได้ออกแบบมาเพื่อรอบรายเดือน
        เครื่องที่เคยเปิดแอปไว้แล้วจะค้างอยู่กับชุดนั้นตลอดไปเพราะ ||= ไม่เขียนทับ
        จึงอัปเกรดให้ครั้งเดียว เฉพาะฟอร์มที่ยัง "ไม่เคยถูกแก้" คือรหัสข้อตรงกับชุดเดิมเป๊ะ
        ฟอร์มที่กลุ่มงานแก้เองแล้วต้องไม่ถูกทับ ไม่ว่าจะเป็นรุ่นไหน */
@@ -4467,23 +4446,10 @@ function renderSwapTable() {
   $$("#swapTable [data-swapno]").forEach(b => b.addEventListener("click", () => decideSwap(b.dataset.swapno, false)));
 }
 
-/* --- ปฏิทินรายบุคคล (สไตล์ Google Calendar) --- */
+/* --- ปฏิทินการนำเสนอ (สไตล์ Google Calendar, รายเดือนเดียว) --- */
 let calResidentId = "";
-let calMode = "month";               /* "month" | "week" */
+let calScope = "all";                /* "all" (ตารางรวม) | "mine" (รายคน) */
 let calMonth = todayISO().slice(0, 7);
-let calWeekStart = mondayOf(todayISO());
-
-/* แยกจาก sessionChip() ตั้งใจ — sessionChip มีเทสต์ผูกอยู่กับ nowBoard แล้ว ไม่อยากไปแตะ
-   ผู้นิเทศ+หัวหน้าสายโชว์เฉพาะคาบ Topic conference เท่านั้น คาบอื่นไม่มีบรรทัดนี้เลย */
-function calChip(ses, big) {
-  const tc = ses.topicConference ? topicConfInfo(ses.date) : null;
-  return `<button class="sess gcal-chip" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
-    ${big ? `<span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>${ses.start && ses.end ? `<span class="pill">${esc(sessionTimeLabel(ses))}</span>` : ""}` : ""}
-    <b>${esc(ses.name)}</b>
-    ${big ? `<span class="who">${esc(sessionStaffLabel(ses))}${ses.location ? " · " + esc(ses.location) : ""}</span>` : ""}
-    ${tc ? `<span class="who tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</span>` : ""}
-  </button>`;
-}
 
 function renderCalMonth(box) {
   $("#calLabel").textContent = ymLabel(calMonth);
@@ -4496,25 +4462,10 @@ function renderCalMonth(box) {
     ${DAY_SHORT.slice(1).concat(DAY_SHORT[0]).map(d => `<div class="gcal-dow">${d}</div>`).join("")}
     ${cells.map(iso => {
       const inMonth = iso.slice(0, 7) === calMonth;
-      const sessions = calResidentId ? sessionsForDate(iso).filter(s => s.residentId === calResidentId) : [];
+      const items = presentationsForDate(iso).filter(p => calScope === "all" || p.residentId === calResidentId);
       return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
         <span class="gcal-date">${Number(iso.slice(8))}</span>
-        ${sessions.map(ses => calChip(ses, false)).join("")}
-      </div>`;
-    }).join("")}
-  </div>`;
-}
-
-function renderCalWeek(box) {
-  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(calWeekStart, i));
-  $("#calLabel").textContent = fmtDate(days[0]) + " – " + fmtDate(days[6]);
-  const today = todayISO();
-  box.innerHTML = `<div class="gcal-grid gcal-week">
-    ${days.map(iso => `<div class="gcal-dow">${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]} ${fmtDate(iso).replace(/ \d{4}$/, "")}</div>`).join("")}
-    ${days.map(iso => {
-      const sessions = calResidentId ? sessionsForDate(iso).filter(s => s.residentId === calResidentId) : [];
-      return `<div class="gcal-cell ${iso === today ? "today" : ""}">
-        ${sessions.length ? sessions.map(ses => calChip(ses, true)).join("") : `<span class="small muted">—</span>`}
+        ${items.map(presentationChip).join("")}
       </div>`;
     }).join("")}
   </div>`;
@@ -4522,25 +4473,42 @@ function renderCalWeek(box) {
 
 function renderCalendar() {
   const box = $("#calGrid"); if (!box) return;
-  /* แพทย์ประจำบ้านเห็นแค่ตัวเองเสมอ ไม่มีทางเลือกดูของคนอื่นได้ ไม่ว่าจะพยายามตั้งค่าอย่างไร */
-  if (isResident()) calResidentId = myResidentId();
+  /* แพทย์ประจำบ้านเห็นแค่ตัวเองเสมอ ไม่มีตารางรวมหรือเลือกคนอื่นได้ ไม่ว่าจะพยายามตั้งค่าอย่างไร */
+  if (isResident()) { calScope = "mine"; calResidentId = myResidentId(); }
   else if (calResidentId && !visibleResidents().some(r => r.id === calResidentId)) calResidentId = "";
-  const r = store.resident(calResidentId);
+  $("#calScopeAll")?.setAttribute("aria-current", String(calScope === "all"));
+  $("#calScopeMine")?.setAttribute("aria-current", String(calScope === "mine"));
   const pick = $("#calResidentPick");
-  /* อาจารย์/ผู้จัดหลักสูตรเปิดมาเป็น "เลือกคนก่อน" — ไม่เดาเอาคนแรกมาโชว์ ภาพรวมทุกคนอยู่ที่ตารางรวม */
-  if (pick) pick.innerHTML = (isResident() ? "" : `<option value="" ${calResidentId ? "" : "selected"}>— เลือกแพทย์ประจำบ้าน —</option>`) +
-    visibleResidents().map(x => `<option value="${x.id}" ${x.id === calResidentId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
-  if (!r) {
-    $("#calWho").textContent = visibleResidents().length ? "ยังไม่ได้เลือกแพทย์ประจำบ้าน" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
-    box.innerHTML = `<p class="empty">เลือกแพทย์ประจำบ้านจากรายการด้านบนเพื่อดูปฏิทินรายคน
-      <br /><button type="button" class="btn-sm" data-goto-roster style="margin-top:.6rem">ดูตารางรวมของทุกคน</button></p>`;
-    box.querySelector("[data-goto-roster]")?.addEventListener("click", () => showView("rotation"));
-    return;
+  if (pick) {
+    pick.hidden = isResident() || calScope !== "mine";
+    pick.innerHTML = (isResident() ? "" : `<option value="" ${calResidentId ? "" : "selected"}>— เลือกแพทย์ประจำบ้าน —</option>`) +
+      visibleResidents().map(x => `<option value="${x.id}" ${x.id === calResidentId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
   }
-  $("#calWho").textContent = r.name + " (ปี " + r.year + ")";
-
-  if (calMode === "week") renderCalWeek(box); else renderCalMonth(box);
-  $$("#calGrid .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
+  if (calScope === "all") {
+    $("#calWho").textContent = "ภาพรวมทั้งกลุ่มงาน";
+    renderCalMonth(box);
+  } else {
+    const r = store.resident(calResidentId);
+    /* "รายคน" ไม่เดาเอาคนแรกมาโชว์ — ต้องเลือกก่อนเสมอ ภาพรวมทุกคนอยู่ที่ "ตารางรวม" ซึ่งเปิดมาเป็นค่าเริ่มต้นอยู่แล้ว */
+    if (!r) {
+      $("#calWho").textContent = visibleResidents().length ? "ยังไม่ได้เลือกแพทย์ประจำบ้าน" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
+      box.innerHTML = `<p class="empty">เลือกแพทย์ประจำบ้านจากรายการด้านบนเพื่อดูปฏิทินรายคน
+        <br /><button type="button" class="btn-sm" data-goto-scope-all style="margin-top:.6rem">ดูตารางรวมของทุกคน</button></p>`;
+      box.querySelector("[data-goto-scope-all]")?.addEventListener("click", () => { calScope = "all"; renderCalendar(); });
+      return;
+    }
+    $("#calWho").textContent = r.name + " (ปี " + r.year + ")";
+    renderCalMonth(box);
+  }
+  $$("#calGrid button[data-pres]").forEach(b => b.addEventListener("click", () => {
+    const i = b.dataset.pres.indexOf(":"), kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
+    if (kind !== "schedule") { openActivity(id); return; }
+    /* ผู้จัดหลักสูตรคลิกแล้วเปิดแก้ไขเสมอ — เจ้าของแถวที่ยังไม่มีบันทึกสไลด์กดครั้งเดียวบันทึกได้เลย
+       ไม่ต้องผ่านกล่องแก้ไขซึ่งเป็นสิทธิ์ของผู้จัดหลักสูตรเท่านั้น (ตรงกับปุ่ม "บันทึกว่านำเสนอแล้ว" เดิม) */
+    const rec = store.data.schedule.find(x => x.id === id);
+    if (!canManage() && rec && talkStatus(rec) === "missing" && canEditResidentData(rec.residentId)) recordFromTalk(id);
+    else editTalk(id);
+  }));
 }
 
 function renderRotation() {
@@ -4584,7 +4552,6 @@ function renderRotation() {
   $$("#nowBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
 
   renderMonthGrid();
-  renderTalks();
 }
 
 /* --- แบบที่ 1: ตารางหมุนเวียนรายเดือน --- */
@@ -4700,8 +4667,7 @@ function printMonthGrid() {
   printReport(html);
 }
 
-/* --- แบบที่ 2: ตารางนำเสนอ (วัน เวลา ผู้นำเสนอ หัวข้อ) --- */
-const talkFilter = { type:"", residentId:"", scope:"all" };
+/* --- ตารางนำเสนอ (วัน เวลา ผู้นำเสนอ หัวข้อ) — เนื้อหาของหน้าปฏิทิน --- */
 function talkStatus(t) {
   if (t.activityId && store.data.activities.some(a => a.id === t.activityId)) return "done";
   return t.date < todayISO() ? "missing" : "planned";
@@ -4716,63 +4682,47 @@ function matchTalk(residentId, type, date) {
   return (store.data.schedule || []).find(t => t.residentId === residentId && t.type === type &&
     !t.activityId && Math.abs((Date.parse(t.date) - Date.parse(date)) / 86400000) <= 3);
 }
-const talkRow = (t) => {
-  const r = store.resident(t.residentId), st = talkStatus(t), tag = TALK_STATUS_TAG[st];
-  return `<tr>
-    <td class="small"><b>${DAY_SHORT[new Date(t.date + "T00:00:00").getDay()]} ${fmtDate(t.date)}</b><br />
-      <span class="muted">${esc(t.start || "")}${t.end ? "–" + esc(t.end) : ""} น.</span></td>
-    <td class="small">${esc(t.slot || TYPE_BY_ID[t.type]?.th || "")}<br /><span class="muted">${esc(t.location || "")}</span></td>
-    <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
-    <td>${esc(t.title)}<br /><span class="small muted">${esc(SUB_BY_ID[t.subspecialty]?.en || "")}</span></td>
-    <td class="small">${esc(staffName(t.moderatorId))}</td>
-    <td><span class="tag ${tag[0]}">${tag[1]}</span></td>
-    <td class="no-print"><button class="btn-sm" data-talk="${t.id}" data-perm="admin">แก้ไข</button>
-      ${st === "missing" && canEditResidentData(t.residentId)
-        ? `<button class="btn-sm" data-talkrec="${t.id}">บันทึกว่านำเสนอแล้ว</button>` : ""}</td>
-  </tr>`;
-};
+/* ประเภทกิจกรรมที่นับเป็น "การนำเสนอ" บนปฏิทิน — งานวิจัย (research) ไม่ขึ้นปฏิทิน เพราะไม่มีวันที่นำเสนอตายตัวแบบนี้ */
+const PRESENTATION_TYPES = ["traumafilm", "preop", "topic", "journal"];
 
-function renderTalks() {
-  const all = (store.data.schedule || []).slice().sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
-  const today = todayISO();
-  const upcoming = all.filter(t => t.date >= today).slice(0, 8);
-  $("#talkUpcoming").innerHTML = upcoming.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่ / เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานะ</th><th></th></tr></thead>
-    <tbody>${upcoming.map(talkRow).join("")}</tbody></table></div>`
-    : `<p class="empty">ยังไม่มีรายการที่กำลังจะถึง</p>`;
+/* การนำเสนอของวันหนึ่ง รวมสองแหล่ง:
+   1) store.data.schedule ที่ลงล่วงหน้าไว้ (ปกติมีแค่ topic/journal ที่ระบุผู้นำเสนอ+ผู้คุมไว้ก่อนจริง)
+   2) store.data.activities ชนิด trauma film / pre-post-op ที่ยังไม่เคยผูกกับรายการในตาราง (ไม่มี scheduleId) —
+      กรณีนี้คือบันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ล่วงหน้า รู้ตัวว่านำเสนอแล้วจากไฟล์เท่านั้น
+   เคสที่ผูกกันแล้ว (มี scheduleId / activityId ตรงกัน) จะมาจากข้อ 1 อย่างเดียว ไม่นับซ้ำ */
+function presentationsForDate(iso) {
+  const fromSchedule = (store.data.schedule || [])
+    .filter(t => t.date === iso && PRESENTATION_TYPES.includes(t.type))
+    .map(t => ({ kind:"schedule", id:t.id, ...t }));
+  const fromActivity = (store.data.activities || [])
+    .filter(a => a.date === iso && (a.type === "traumafilm" || a.type === "preop") && !a.scheduleId)
+    .map(a => ({ kind:"activity", id:a.id, ...a }));
+  return fromSchedule.concat(fromActivity)
+    .filter(p => canSeeResident(p.residentId))
+    .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+}
 
-  $("#talkFilters").innerHTML = `
-    <select data-tf="scope">
-      <option value="all" ${talkFilter.scope === "all" ? "selected" : ""}>ทั้งหมด</option>
-      <option value="past" ${talkFilter.scope === "past" ? "selected" : ""}>ที่ผ่านมาแล้ว</option>
-      <option value="future" ${talkFilter.scope === "future" ? "selected" : ""}>ที่ยังไม่ถึง</option>
-      <option value="missing" ${talkFilter.scope === "missing" ? "selected" : ""}>ที่ยังไม่มีบันทึกสไลด์</option>
-    </select>
-    <select data-tf="type"><option value="">ทุกรายการ</option>${ACTIVITY_TYPES.map(t =>
-      `<option value="${t.id}" ${talkFilter.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select>
-    <select data-tf="residentId"><option value="">ทุกคน</option>${visibleResidents().map(r =>
-      `<option value="${r.id}" ${talkFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>`;
-  $$("#talkFilters [data-tf]").forEach(el => el.addEventListener("change", () => { talkFilter[el.dataset.tf] = el.value; renderTalks(); }));
-
-  const rows = all.filter(t =>
-    (!talkFilter.type || t.type === talkFilter.type) &&
-    (!talkFilter.residentId || t.residentId === talkFilter.residentId) &&
-    (talkFilter.scope === "all" ||
-     (talkFilter.scope === "past" && t.date < today) ||
-     (talkFilter.scope === "future" && t.date >= today) ||
-     (talkFilter.scope === "missing" && talkStatus(t) === "missing")));
-  $("#talkTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่ / เวลา</th><th>รายการ</th><th>ผู้นำเสนอ</th><th>หัวข้อ</th><th>ผู้ดำเนินการ</th><th>สถานะ</th><th></th></tr></thead>
-    <tbody>${rows.map(talkRow).join("")}</tbody></table></div>
-    <p class="small muted" style="margin-top:.5rem">แสดง ${rows.length} รายการ จากทั้งหมด ${all.length} รายการ ·
-      ยังไม่มีบันทึกสไลด์ ${all.filter(t => talkStatus(t) === "missing").length} รายการ</p>`
-    : `<p class="empty">ไม่พบรายการตามเงื่อนไข</p>`;
-
-  $$("#talkUpcoming [data-talk], #talkTable [data-talk]").forEach(b => b.addEventListener("click", () => editTalk(b.dataset.talk)));
-  $$("#talkUpcoming [data-talkrec], #talkTable [data-talkrec]").forEach(b => b.addEventListener("click", () => recordFromTalk(b.dataset.talkrec)));
-  /* ตัวกรองเรียกฟังก์ชันนี้ตรง ๆ ไม่ผ่าน renderAll — ปุ่ม data-perm ที่เพิ่งวาดต้องถูกซ่อนตามสิทธิ์ด้วย
-     (แพทเทิร์นเดียวกับ renderResidentDetail) */
-  if (session) applyPermissions();
+/* บันทึกจากไฟล์สไลด์ไม่มีสถานะ done/missing/planned แบบตารางที่ลงล่วงหน้า — มีอยู่แล้วคือนำเสนอแล้วเสมอ
+   ผู้นิเทศ+หัวหน้าสายโชว์เฉพาะวันที่เป็น Topic conference/Journal club เท่านั้น (คนละข้อมูลกับ moderatorId ของรายการนั้นเอง)
+   คลิกได้เฉพาะคนที่ทำอะไรกับรายการนี้ได้จริง — กิจกรรมที่บันทึกแล้วเปิดดูได้ทุกคนที่เห็น (เหมือน openActivity ที่อื่น),
+   รายการในตารางเปิดแก้ได้เฉพาะผู้จัดหลักสูตร หรือกดบันทึกตัวเองได้เมื่อเป็นเจ้าของแถวที่ยังไม่มีบันทึกสไลด์
+   (ตรงกับที่ปุ่ม "บันทึกว่านำเสนอแล้ว" เดิมเคยเปิดให้ใคร) คนอื่นเห็นครบในกล่องอยู่แล้วจึงไม่ต้องคลิกอะไรต่อ */
+function presentationChip(p) {
+  const r = store.resident(p.residentId);
+  const status = p.kind === "schedule" ? talkStatus(p) : "done";
+  const tag = TALK_STATUS_TAG[status];
+  const tc = (p.type === "topic" || p.type === "journal") ? topicConfInfo(p.date) : null;
+  const clickable = p.kind === "activity" || canManage() || (status === "missing" && canEditResidentData(p.residentId));
+  const el = clickable ? "button" : "div";
+  const cls = "sess gcal-chip" + (status === "done" ? " done" : status === "missing" ? " due" : "");
+  /* data-pres ติดไว้ทุก chip เพื่อระบุตัวรายการ (เทสต์และโค้ดอื่นอ่านได้) — แต่ผูก listener คลิกไว้เฉพาะ <button> เท่านั้น
+     <div> ที่คลิกไม่ได้จริงจะได้ไม่เผลอเปิดกล่องที่บล็อกด้วย toast ซึ่งงงเปล่า ๆ */
+  return `<${el} class="${cls}" data-pres="${p.kind}:${esc(p.id)}">
+    <b>${esc(r?.name || "—")}</b>
+    <span class="who">${esc(TYPE_BY_ID[p.type]?.th || p.type)}${p.title ? " — " + esc(p.title) : ""}</span>
+    <span class="tag ${tag[0]}">${tag[1]}</span>
+    ${tc ? `<span class="who tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</span>` : ""}
+  </${el}>`;
 }
 
 function editTalk(id) {
@@ -4813,6 +4763,8 @@ function editTalk(id) {
         if (t) Object.assign(t, rec); else store.data.schedule.push({ id: uid("talk"), activityId: null, note:"", ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
+    ...(t && talkStatus(t) === "missing" && canEditResidentData(t.residentId)
+      ? [{ label:"บันทึกว่านำเสนอแล้ว (ไม่มีไฟล์สไลด์)", onClick: () => recordFromTalk(t.id) }] : []),
     ...(t ? [{ label:"ลบรายการ", cls:"btn-danger", onClick: () => {
         removeWithUndo("ลบรายการออกจากตารางนำเสนอแล้ว", [{ list:"schedule", keep: x => x.id !== t.id }]);
       }}] : [])
@@ -5625,8 +5577,8 @@ function activityCsvRows(list) {
 
 /* =====================================================================
    13b) หน้าประเมิน — งานที่อาจารย์ผู้คุมต้องทำ รวมไว้ที่เดียว
-        1) งานนำเสนอ  2) ลงกองสิ้นเดือนตามสาย/อนุสาขาที่วน  3) ท้ายเซสชัน
-        เดิมงานสามอย่างนี้กระจายอยู่คนละหน้า อาจารย์จึงไม่มีที่ไหนที่บอกได้ว่า
+        1) งานนำเสนอ  2) ลงกองสิ้นเดือนตามสาย/อนุสาขาที่วน
+        เดิมงานสองอย่างนี้กระจายอยู่คนละหน้า อาจารย์จึงไม่มีที่ไหนที่บอกได้ว่า
         "ตอนนี้ฉันค้างอะไรอยู่บ้าง" ซึ่งเป็นคำถามเดียวที่เปิดหน้านี้มาถาม
    ===================================================================== */
 const assessView = { page:"talks", month:"", mineOnly:true };
@@ -5780,7 +5732,7 @@ function renderAssess() {
     body.innerHTML = `<div class="card">
       <h2>ประเมินลงกองเมื่อจบรอบหมุนเวียน</h2>
       <p class="muted small">หนึ่งแถวคือแพทย์ประจำบ้านหนึ่งคนที่วนอยู่สาย/อนุสาขานั้นตลอดเดือน
-        · ประเมินหลังจบเดือน ไม่ใช่ระหว่างเดือน · คนละชั้นกับประเมินท้ายเซสชันซึ่งเป็นรายคาบ</p>
+        · ประเมินหลังจบเดือน ไม่ใช่ระหว่างเดือน</p>
       <div class="row no-print" style="margin-bottom:.6rem">
         <select id="assessMonth">${months.map(m =>
           `<option value="${m}" ${assessView.month === m ? "selected" : ""}>เดือน ${esc(m)}${
@@ -9507,25 +9459,11 @@ function init() {
   });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
-  $("#calModeMonth").addEventListener("click", () => {
-    calMode = "month"; $("#calModeMonth").setAttribute("aria-current", "true");
-    $("#calModeWeek").setAttribute("aria-current", "false"); renderCalendar();
-  });
-  $("#calModeWeek").addEventListener("click", () => {
-    calMode = "week"; $("#calModeWeek").setAttribute("aria-current", "true");
-    $("#calModeMonth").setAttribute("aria-current", "false"); renderCalendar();
-  });
-  $("#calPrev").addEventListener("click", () => {
-    if (calMode === "week") calWeekStart = addDaysISO(calWeekStart, -7); else calMonth = shiftMonth(calMonth, -1);
-    renderCalendar();
-  });
-  $("#calNext").addEventListener("click", () => {
-    if (calMode === "week") calWeekStart = addDaysISO(calWeekStart, 7); else calMonth = shiftMonth(calMonth, 1);
-    renderCalendar();
-  });
-  $("#calToday").addEventListener("click", () => {
-    calMonth = todayISO().slice(0, 7); calWeekStart = mondayOf(todayISO()); renderCalendar();
-  });
+  $("#calScopeAll").addEventListener("click", () => { calScope = "all"; renderCalendar(); });
+  $("#calScopeMine").addEventListener("click", () => { calScope = "mine"; renderCalendar(); });
+  $("#calPrev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
+  $("#calNext").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
+  $("#calToday").addEventListener("click", () => { calMonth = todayISO().slice(0, 7); renderCalendar(); });
   $("#calResidentPick").addEventListener("change", (e) => {
     if (isResident()) return;    /* กันไว้อีกชั้น แม้ picker จะถูกซ่อนสำหรับ resident อยู่แล้ว */
     calResidentId = e.target.value; renderCalendar();

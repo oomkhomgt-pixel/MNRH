@@ -207,7 +207,9 @@ export default async function run() {
               calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
 
       /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
-         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้ */
+         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้
+         ตั้งแต่รวมตารางนำเสนอเข้าปฏิทินแล้ว ปฏิทินของแพทย์ประจำบ้านกรองไม่ให้เห็น chip ของคนอื่นเลยอยู่แล้ว
+         (presentationsForDate กรองด้วย canSeeResident) แต่ก็ยังต้องตรวจฟังก์ชันตรง ๆ ไว้เผื่อมีทางอื่นเรียกถึง */
       const talk = await page.evaluate(() => {
         const me = myResidentId();
         const other = store.data.schedule.find(x => x.residentId !== me);
@@ -220,14 +222,25 @@ export default async function run() {
         const afterOther = store.data.activities.length;
         let ownRecorded = null;
         if (mine) { recordFromTalk(mine.id); ownRecorded = store.data.activities.length === afterOther + 1 && !!mine.activityId; }
-        showView("rotation");
-        const editBtnVisible = [...document.querySelectorAll("#talkTable [data-talk]")].some(b => !b.hidden);
-        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, editBtnVisible };
+
+        /* ปฏิทิน: chip ของคนอื่นต้องไม่โผล่มาให้เห็นเลย (ไม่ใช่แค่ปุ่มแก้ไขถูกซ่อน) */
+        showView("calendar");
+        const otherOnDate = presentationsForDate(other.date).find(p => p.kind === "schedule" && p.id === other.id);
+        const missingMine = store.data.schedule.find(x => x.residentId === me && !x.activityId && x.date < todayISO());
+        let ownChipClickable = null;
+        if (missingMine) {
+          calMonth = missingMine.date.slice(0, 7); renderCalendar();
+          const chip = document.querySelector(`#calGrid button[data-pres="schedule:${missingMine.id}"]`);
+          ownChipClickable = !!chip;
+        }
+        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, otherChipShown: !!otherOnDate, ownChipClickable };
       });
       t.check("แก้ตารางนำเสนอของคนอื่นไม่ได้ (กล่องไม่เปิด)", !talk.editOpened);
       t.check("บันทึกเข้าแฟ้มของคนอื่นจากตารางนำเสนอไม่ได้", !talk.otherGrew);
       t.check("บันทึกแถวของตัวเองจากตารางนำเสนอได้", talk.ownRecorded !== false, talk.ownRecorded === null ? "ไม่มีแถวของตัวเองในข้อมูลสาธิต" : "");
-      t.check("ปุ่มแก้ไขในตารางนำเสนอถูกซ่อนสำหรับแพทย์ประจำบ้าน", !talk.editBtnVisible);
+      t.check("ปฏิทิน: การนำเสนอของคนอื่นไม่โผล่ให้เห็นเลย", !talk.otherChipShown);
+      t.check("ปฏิทิน: แถวของตัวเองที่ยังไม่มีบันทึกสไลด์ กดบันทึกได้จากปฏิทินโดยตรง",
+              talk.ownChipClickable !== false, talk.ownChipClickable === null ? "ไม่มีแถวที่ยังไม่บันทึกของตัวเองในข้อมูลสาธิต" : "");
 
       /* หน้า logbook/EPA ต้องพูดความจริงกับแพทย์ประจำบ้าน — ตัวเลขของตัวเอง ไม่ใช่ทั้งแผนก
          และไม่มีคำสั่ง/คำเตือนที่เขาทำอะไรไม่ได้ */
