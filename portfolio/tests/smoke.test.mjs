@@ -112,12 +112,12 @@ export default async function run() {
 
       /* ตารางกว้างมีสัญญาณว่าเลื่อนได้ */
       const scrollable = await page.evaluate(() => {
-        document.querySelector('#calSeg [data-seg="week"]')?.click();
+        showView("rotation");
         markScrollable();
-        const w = document.querySelector("#weekGrid .tbl-wrap");
+        const w = document.querySelector("#monthGrid .tbl-wrap");
         return { found: !!w, can: !!w?.classList.contains("can-scroll"), atEnd: !!w?.classList.contains("at-end") };
       });
-      t.check(role + ": 390px ตารางสัปดาห์ที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
+      t.check(role + ": 390px ตารางรายเดือนที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
               scrollable.found && scrollable.can && !scrollable.atEnd, JSON.stringify(scrollable));
 
       /* แถวตัวกรองไม่กินทั้งจอ */

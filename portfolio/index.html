@@ -470,7 +470,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
     <div class="row seg no-print" id="calSeg">
       <button data-seg="month" aria-current="true">ตารางรายเดือน (สาย / อนุสาขา)</button>
-      <button data-seg="week">ตารางเวรรายสัปดาห์</button>
+      <button data-seg="week">เวรและคำขอ</button>
       <button data-seg="talks">ตารางนำเสนอ</button>
     </div>
 
@@ -506,28 +506,10 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="monthGrid"></div>
         <div id="teamComposition" style="margin-top:1.2rem"></div>
       </div>
-      <div class="card" data-fold="rot-all" data-fold-closed>
-        <h2>ช่วงหมุนเวียนทั้งหมด</h2>
-        <div id="rotationTable"></div>
-      </div>
     </div>
 
-    <!-- ---- ตารางเวรรายสัปดาห์ + การประเมินท้ายเซสชัน ---- -->
+    <!-- ---- เวรรายเดือน · ผู้นิเทศ Topic conference · คำขอแลกวัน/เข้าคาบสายอื่น ---- -->
     <div data-segview="week" hidden>
-      <div class="card">
-        <div class="between">
-          <h2>ตารางประจำสัปดาห์</h2>
-          <div class="row no-print">
-            <button class="btn-sm" id="weekPrev">‹ สัปดาห์ก่อน</button>
-            <b class="small" id="weekLabel">—</b>
-            <button class="btn-sm" id="weekNext">สัปดาห์ถัดไป ›</button>
-            <button class="btn-sm" id="weekToday">สัปดาห์นี้</button>
-          </div>
-        </div>
-        <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อดูรายละเอียด บันทึกว่าเข้าคาบไหน หรือขอแลกวัน</p>
-        <div id="weekGrid"></div>
-      </div>
-
       <div class="card" data-fold="rot-duty" data-fold-closed data-fold-sum="">
         <div class="between">
           <h2>ตารางเวรรายเดือน</h2>
@@ -3787,7 +3769,6 @@ const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ?
 /* =====================================================================
    11b) หน้าตารางหมุนเวียนและเวร
    ===================================================================== */
-let weekStart = mondayOf(todayISO());
 const daysBetween = (a, b) => Math.round((Date.parse(b + "T00:00:00") - Date.parse(a + "T00:00:00")) / 86400000);
 const sessionByKey = (key) => {
   const iso = String(key).split("|")[1];
@@ -4492,8 +4473,8 @@ let calMode = "month";               /* "month" | "week" */
 let calMonth = todayISO().slice(0, 7);
 let calWeekStart = mondayOf(todayISO());
 
-/* แยกจาก sessionChip() ตั้งใจ — sessionChip มีเทสต์ผูกอยู่กับ weekGrid/nowBoard/pendingBoard แล้ว
-   ไม่อยากไปแตะ ผู้นิเทศ+หัวหน้าสายโชว์เฉพาะคาบ Topic conference เท่านั้น คาบอื่นไม่มีบรรทัดนี้เลย */
+/* แยกจาก sessionChip() ตั้งใจ — sessionChip มีเทสต์ผูกอยู่กับ nowBoard แล้ว ไม่อยากไปแตะ
+   ผู้นิเทศ+หัวหน้าสายโชว์เฉพาะคาบ Topic conference เท่านั้น คาบอื่นไม่มีบรรทัดนี้เลย */
 function calChip(ses, big) {
   const tc = ses.topicConference ? topicConfInfo(ses.date) : null;
   return `<button class="sess gcal-chip" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
@@ -4552,10 +4533,8 @@ function renderCalendar() {
   if (!r) {
     $("#calWho").textContent = visibleResidents().length ? "ยังไม่ได้เลือกแพทย์ประจำบ้าน" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
     box.innerHTML = `<p class="empty">เลือกแพทย์ประจำบ้านจากรายการด้านบนเพื่อดูปฏิทินรายคน
-      <br /><button type="button" class="btn-sm" data-goto-roster style="margin-top:.6rem">ดูตารางเวรรายสัปดาห์ของทุกคน</button></p>`;
-    box.querySelector("[data-goto-roster]")?.addEventListener("click", () => {
-      showView("rotation"); $('#calSeg [data-seg="week"]')?.click();
-    });
+      <br /><button type="button" class="btn-sm" data-goto-roster style="margin-top:.6rem">ดูตารางรวมของทุกคน</button></p>`;
+    box.querySelector("[data-goto-roster]")?.addEventListener("click", () => showView("rotation"));
     return;
   }
   $("#calWho").textContent = r.name + " (ปี " + r.year + ")";
@@ -4602,63 +4581,11 @@ function renderRotation() {
     </div>`;
   }).join("")}</div>` : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
 
-  /* --- ตารางประจำสัปดาห์ --- */
-  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
-  $("#weekLabel").textContent = fmtDate(days[0]) + " – " + fmtDate(days[6]);
-  const byDay = days.map(iso => sessionsForDate(iso));
-  $("#weekGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="cal">
-    <thead><tr><th class="who">แพทย์ประจำบ้าน</th>
-      ${days.map((iso, i) => `<th${iso === today ? ' style="color:var(--brand-ink)"' : ""}>${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]} ${fmtDate(iso).replace(/ \d{4}$/, "")}</th>`).join("")}
-    </tr></thead>
-    <tbody>${rs.map(r => `<tr>
-      <th class="who">${esc(r.name)}<br /><span class="small muted">ปี ${r.year}${(() => {
-        const rot = rotationOn(r.id, weekStart) || rotationOn(r.id, days[6]);
-        const svc = rot ? serviceById(rot.serviceId) : null;
-        return svc ? " · " + esc(svc.name) : "";
-      })()}</span></th>
-      ${days.map((iso, i) => {
-        const mine = byDay[i].filter(x => x.residentId === r.id);
-        return `<td class="${iso === today ? "today" : ""}">${mine.map(ses => sessionChip(ses, false)).join("") ||
-          `<span class="small muted" style="padding-left:.2rem">—</span>`}</td>`;
-      }).join("")}
-    </tr>`).join("")}</tbody></table></div>` : "";
-  $$("#weekGrid .sess, #nowBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
-
-  /* --- ช่วงหมุนเวียนทั้งหมด --- */
-  renderRotationTable();
+  $$("#nowBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
 
   renderMonthGrid();
   renderTalks();
 }
-
-/* ตารางช่วงหมุนเวียนทั้งหมด — แยกออกมาให้ปุ่ม "แสดงเพิ่ม" วาดใหม่เฉพาะส่วนนี้ ไม่ต้อง renderAll ทั้งแอป */
-function renderRotationTable() {
-  const today = todayISO();
-  const rots = (store.data.rotations || []).slice().sort((a, b) => (b.start || "").localeCompare(a.start || ""));
-  const shown = rots.slice(0, moreLimit("rotations", 25));
-  /* ป้ายตอนพับต้องเป็นจำนวนจริง ไม่ใช่จำนวนแถวที่วาดไว้ (25/50/…) */
-  const card = $("#rotationTable")?.closest("[data-fold]"); if (card) card.dataset.foldSum = rots.length ? rots.length + " ช่วง" : "";
-  $("#rotationTable").innerHTML = rots.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>ช่วงวันที่</th><th>แพทย์ประจำบ้าน</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th><th>สถานะ</th><th></th></tr></thead>
-    <tbody>${shown.map(rot => {
-      const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
-      const state = today < rot.start ? ["", "จะเริ่ม " + fmtDate(rot.start)] : today > rot.end ? ["", "ผ่านไปแล้ว"] : ["ok", "กำลังหมุนเวียนอยู่"];
-      return `<tr>
-        <td class="small">${fmtDate(rot.start)}<br />ถึง ${fmtDate(rot.end)}</td>
-        <td>${esc(r?.name || "—")}<br /><span class="small muted">ปี ${r?.year || "—"}</span></td>
-        <td><span style="color:${serviceInk(rot.serviceId)};font-weight:600">${esc(svc?.name || "—")}</span>
-          ${isChiefOn(rot.residentId, rot.start) ? `<br /><span class="tag ok">หัวหน้าสาย</span>` : ""}</td>
-        <td class="small">${esc(svc ? serviceSubLabel(svc) : "—")}</td>
-        <td class="small">${esc(svc?.site || "—")}</td>
-        <td class="small">${esc(staffName(rot.supervisorId))}</td>
-        <td><span class="tag ${state[0]}">${state[1]}</span></td>
-        <td class="no-print"><button class="btn-sm" data-rot="${rot.id}">แก้ไข</button></td>
-      </tr>`;
-    }).join("")}</tbody></table></div>${moreHtml("rotations", shown.length, rots.length, 25, "ช่วง", renderRotationTable)}`
-    : `<p class="empty">ยังไม่ได้กำหนดช่วงหมุนเวียน</p>`;
-  $$("#rotationTable [data-rot]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rot)));
-}
-
 
 /* --- แบบที่ 1: ตารางหมุนเวียนรายเดือน --- */
 let ayView = null;
@@ -5376,7 +5303,7 @@ function editService(id) {
 }
 
 function printRoster() {
-  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(mondayOf(todayISO()), i));
   const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
   const html = reportHead("ตารางหมุนเวียนและเวรประจำสัปดาห์", fmtDate(days[0]) + " – " + fmtDate(days[6])) + `
   <div class="card"><table>
@@ -5390,7 +5317,6 @@ function printRoster() {
           .map(x => (PART_BY_ID[x.part]?.th || "") + " " + esc(x.name) + "<br /><span class='muted'>" + esc(staffName(x.staffId)) + "</span>").join("<br />") || "—"}</td>`).join("")}
       </tr>`;
     }).join("")}</tbody></table>
-    <p class="small muted">ผู้รับผิดชอบแต่ละเซสชันเป็นผู้ประเมินแพทย์ประจำบ้านเมื่อจบเซสชัน</p>
   </div>`;
   printReport(html);
 }
@@ -9581,9 +9507,6 @@ function init() {
   });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
-  $("#weekPrev").addEventListener("click", () => { weekStart = addDaysISO(weekStart, -7); renderRotation(); });
-  $("#weekNext").addEventListener("click", () => { weekStart = addDaysISO(weekStart, 7); renderRotation(); });
-  $("#weekToday").addEventListener("click", () => { weekStart = mondayOf(todayISO()); renderRotation(); });
   $("#calModeMonth").addEventListener("click", () => {
     calMode = "month"; $("#calModeMonth").setAttribute("aria-current", "true");
     $("#calModeWeek").setAttribute("aria-current", "false"); renderCalendar();
