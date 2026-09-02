@@ -298,7 +298,18 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-chip .nm{display:inline}
 .gcal-chip .ttl{display:block;color:var(--muted);font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gcal-chip.slot{background:#fbfcfd;border-style:dashed}
-@media (max-width:480px){ .gcal-chip .nm,.gcal-chip .ttl{display:none} .gcal-chip{text-align:center;padding:.18rem .2rem} }
+/* จอแคบ: ช่องวันกว้างไม่ถึง 50px — chip เหลือตัวย่ออย่างเดียว เรียงข้างกันแทนซ้อนลงมา ตัดกฎ 44px ของ .sess ออก
+   (chip พวกนี้กดได้แต่ไม่ใช่ปุ่มหลัก และช่องวันทั้งช่องยังสูงพอสำหรับนิ้ว) ทั้งเดือนจะได้อยู่ในจอเดียว */
+@media (max-width:480px){
+  .gcal-grid{gap:2px}
+  .gcal-cell{display:flex;flex-wrap:wrap;align-content:flex-start;gap:2px;min-height:44px;padding:.15rem;border-radius:5px}
+  .gcal-date{width:100%;font-size:.66rem;margin-bottom:0;line-height:1.1}
+  .gcal-chip{display:inline-block;width:auto;min-height:0;margin:0;padding:0 .22rem;border-left-width:3px;border-radius:4px;font-size:.68rem;line-height:1.4;text-align:center}
+  .gcal-chip .nm,.gcal-chip .ttl{display:none}
+  .gcal-legend{gap:.2rem}
+  .gcal-legend .swatch{font-size:.66rem;padding:0 .35rem}
+  .gcal-legend .lg-name{display:none}
+}
 
 @media print{
   body{background:#fff}
@@ -642,10 +653,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <button class="btn-sm" id="btnPrintTalks">พิมพ์</button>
         <button class="btn-sm" id="btnTalkCsv">CSV</button>
       </div>
-      <p class="muted small">ปฏิทินรวมการนำเสนอวิชาการของทั้งกลุ่มงาน — Trauma film (F) และ Pre/post-op (P) เป็นช่องประจำทุกวันราชการ
-        ไม่ระบุผู้นำเสนอล่วงหน้า ชื่อจะปรากฏเมื่อส่งสไลด์เข้าระบบ · Topic conference (T) และ Journal club (J) วันพฤหัสบดีลงตารางล่วงหน้า
-        · สีขอบตามประเภท พื้นตามสถานะ · <b>กดที่รายการเพื่อดูรายละเอียดเต็ม</b> แก้ไข หรือบันทึกว่านำเสนอแล้ว
-        · ผู้นิเทศ/หัวหน้าสายของวันพฤหัสบดี (กำหนดที่หน้าตาราง แท็บ “เวรและคำขอ”) อยู่ในกล่องรายละเอียดของ T/J</p>
+      <details class="hint"><summary>ปฏิทินนี้แสดงอะไร · กดรายการเพื่อดูรายละเอียดเต็ม</summary><p class="muted small">ปฏิทินรวมการนำเสนอวิชาการของทั้งกลุ่มงาน —
+        Trauma film (F) และ Pre/post-op (P) เป็นช่องประจำทุกวันราชการ ไม่ระบุผู้นำเสนอล่วงหน้า ชื่อจะปรากฏเมื่อส่งสไลด์เข้าระบบ
+        · Topic conference (T) และ Journal club (J) วันพฤหัสบดีลงตารางล่วงหน้า · สีขอบตามประเภท พื้นตามสถานะ
+        · กดที่รายการเพื่อดูรายละเอียดเต็ม แก้ไข หรือบันทึกว่านำเสนอแล้ว
+        · ผู้นิเทศ/หัวหน้าสายของวันพฤหัสบดี (กำหนดที่หน้าตาราง แท็บ “เวรและคำขอ”) อยู่ในกล่องรายละเอียดของ T/J</p></details>
     </div>
     <div class="card">
       <div id="calGrid"></div>
@@ -4501,12 +4513,13 @@ function renderCalMonth(box) {
   const gridStart = addDaysISO(first, -leadDays);
   const cells = Array.from({ length: 42 }, (_, i) => addDaysISO(gridStart, i));
   const today = todayISO();
-  const legend = `<div class="row" style="margin-bottom:.5rem;gap:.35rem">
-    ${PRESENTATION_TYPES.map(ty => `<span class="swatch"><i style="background:${PRESENTATION_COLOUR[ty]}"></i><b>${esc(TYPE_BY_ID[ty].icon)}</b>&nbsp;${esc(TYPE_BY_ID[ty].th)}</span>`).join("")}
+  /* จอแคบซ่อนชื่อประเภทเต็ม (.lg-name) เหลือสี+ตัวย่อ — ชื่อเต็มอยู่ในคำอธิบายใต้หัวปฏิทินอยู่แล้ว */
+  const legend = `<div class="row gcal-legend" style="margin-bottom:.5rem;gap:.35rem">
+    ${PRESENTATION_TYPES.map(ty => `<span class="swatch"><i style="background:${PRESENTATION_COLOUR[ty]}"></i><b>${esc(TYPE_BY_ID[ty].icon)}</b><span class="lg-name">&nbsp;${esc(TYPE_BY_ID[ty].th)}</span></span>`).join("")}
     <span class="swatch"><i style="background:var(--ok-soft)"></i>บันทึกสไลด์แล้ว</span>
     <span class="swatch"><i style="background:var(--warn-soft)"></i>ยังไม่มีบันทึกสไลด์</span>
     <span class="swatch"><i style="background:#fff"></i>ตามกำหนด</span>
-    <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ ยังไม่ระบุผู้นำเสนอ</span>
+    <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ<span class="lg-name"> ยังไม่ระบุผู้นำเสนอ</span></span>
   </div>`;
   /* โหมด "ของฉัน" (resident เท่านั้น): ช่องประจำที่ยังไม่มีเจ้าของไม่ใช่ของใคร จึงไม่โชว์ */
   const mine = isResident() && calScope === "mine";
