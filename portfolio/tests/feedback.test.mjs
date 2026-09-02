@@ -96,6 +96,25 @@ export default async function run() {
     });
     if (revUndo) t.check("ลบผลประเมินลงกองแล้วมี 'เลิกทำ' และกู้คืนได้", revUndo.gone && revUndo.hasUndo && revUndo.back && revUndo.count);
 
+    /* ---------- ผู้จัดหลักสูตรเห็นงานลงกองค้างทั้งกลุ่มงานบนหน้าวันนี้ · แพทย์ประจำบ้านเห็นผลลงกองรายข้อ ไม่ใช่ id ดิบ ---------- */
+    const vis = await page.evaluate(() => {
+      showView("today"); renderToday();
+      const adminStat = /ผลประเมินลงกองค้าง/.test(document.querySelector("#todayBody").textContent);
+      const ev = (store.data.rotationEvals || []).find(x => Object.keys(x.scores || {}).length && x.answers?.outcome);
+      if (!ev) return { adminStat, noEval: true };
+      selectedResident = ev.residentId; showView("residents"); renderResidents();
+      const box = document.querySelector("#residentDetail");
+      const sec = box.textContent;
+      const label = rotationOutcomeLabel(ev);
+      return { adminStat, hasSection: /ผลประเมินลงกอง \(\d+ รอบ\)/.test(sec), hasLabel: !!label && sec.includes(label),
+               rawId: /\b(pass|advice|watch)\b/.test(sec), tags: box.querySelectorAll(".tag[title]").length > 0 };
+    });
+    t.check("หน้าวันนี้ของผู้จัดหลักสูตรมีตัวเลขผลประเมินลงกองค้างทั้งกลุ่มงาน", vis.adminStat);
+    if (!vis.noEval) {
+      t.check("หน้าแพทย์ประจำบ้านมีตารางผลประเมินลงกอง พร้อมป้ายผลโดยรวม (ไม่ใช่ pass/advice/watch ดิบ) และคะแนนรายข้อ",
+              vis.hasSection && vis.hasLabel && !vis.rawId && vis.tags, JSON.stringify(vis));
+    }
+
     /* ---------- ยืนยันด้วยกล่องของแอป ไม่ใช่ popup ของเบราว์เซอร์ ---------- */
     const cd = await page.evaluate(async () => {
       showView("settings");

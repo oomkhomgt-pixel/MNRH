@@ -691,6 +691,12 @@ export default async function run() {
           bad, version: f.version,
           /* หน้ามาตรฐาน WFME ต้องอ้างหลักฐานได้ทุกหมวดที่ฟอร์มบอกว่าตัวเองเป็นหลักฐานให้ */
           uncited: cited.filter(w => !(ev[w]?.sources || []).some(sc => /แบบประเมินการทำงานในสาย/.test(sc.label))),
+          /* แบบประเมินการนำเสนอก็ต้องถูกอ้างในหน้ามาตรฐานครบทุกหมวดที่ข้อของมันระบุ
+             (รวมข้อเฉพาะประเภท — เฉพาะประเภทที่มีกิจกรรมถูกให้คะแนนแล้ว ตามเงื่อนไขของ wfmeEvidence) */
+          talkUncited: [...new Set([...new Set(store.data.activities.filter(a => a.assessment?.scores && Object.keys(a.assessment.scores).length).map(a => a.type))]
+              .flatMap(t => talkEvalItemsFor(t)).flatMap(x => x.wfme || []))]
+            .filter(w => !(ev[w]?.sources || []).some(sc => /แบบประเมินการนำเสนอ/.test(sc.label))),
+          talkBadWfme: ACTIVITY_TYPES.flatMap(t => talkEvalItemsFor(t.id)).flatMap(x => x.wfme || []).filter(w => !WFME_BY_ID[w]),
           /* ข้อมูลสาธิตต้องไม่มีคำตอบไร้ข้อถามเลย */
           orphans: (store.data.rotationEvals || []).reduce((n, x) => n + rotationOrphanAnswers(x).length, 0)
         };
@@ -702,6 +708,8 @@ export default async function run() {
               /section/.test(def.kinds) && /entrust/.test(def.kinds) && /choice/.test(def.kinds)
               && def.kinds.split(",").filter(k => k === "paragraph").length === 2, def.kinds);
       t.eq("หน้ามาตรฐาน WFME อ้างหลักฐานครบทุกหมวดที่ฟอร์มระบุ", def.uncited, []);
+      t.eq("หน้ามาตรฐาน WFME อ้างแบบประเมินการนำเสนอครบทุกหมวดที่ข้อของมันระบุ", def.talkUncited, []);
+      t.eq("รหัส WFME ในแบบประเมินการนำเสนอมีอยู่จริงทุกตัว", def.talkBadWfme, []);
       t.eq("ข้อมูลสาธิตสร้างจากนิยามของฟอร์ม ไม่มีคำตอบไร้ข้อถาม", def.orphans, 0);
 
       /* ---------- รหัสข้อที่ชนกันหลังตัดที่ 40 ตัวอักษร ต้องไม่วนซ้ำไม่รู้จบ ----------
@@ -1076,6 +1084,29 @@ export default async function run() {
         t.check("ติ๊กคะแนนแล้วค่าเฉลี่ยขึ้นทันที", nextFlow.meanShown);
         t.check("กดแล้วบันทึกคนแรก และเปิดกล่องของคนถัดไปโดยอัตโนมัติ",
                 nextFlow.savedFirst && nextFlow.openAgain && nextFlow.title1 !== nextFlow.title2, nextFlow.title1 + " → " + nextFlow.title2);
+      }
+
+      /* ---------- งานลงกองที่ค้าง ต้องขึ้นหน้า "วันนี้" ของอาจารย์ ข้ามทุกเดือนที่ปิดแล้ว และกดแล้วพาไปเดือนนั้น ---------- */
+      const backlog = await page.evaluate(async () => {
+        showView("today"); renderToday();
+        const text = document.querySelector("#todayBody").textContent;
+        const n = rotationBacklogFor(myStaffId()).length;
+        const m = text.match(/ประเมินลงกองที่ค้าง\s*(\d+) รอบ/);
+        const out = { shown: !!m, n, count: m ? +m[1] : null, hasBtn: !!document.querySelector("#todayBody [data-tgo-rot]") };
+        const btn = document.querySelector("#todayBody [data-tgo-rot]");
+        if (btn) {
+          btn.click();
+          await new Promise(r => setTimeout(r, 100));
+          out.view = currentViewName(); out.page = assessView.page; out.month = assessView.month; out.btnMonth = btn.dataset.tgoRot;
+          out.optionHasCount = [...document.querySelectorAll("#assessMonth option")].some(o => /ค้าง \d+/.test(o.textContent));
+        }
+        return out;
+      });
+      t.check("หน้าวันนี้ของอาจารย์มีการ์ดประเมินลงกองที่ค้าง และตัวเลขตรงกับ rotationBacklogFor()", backlog.shown && backlog.count === backlog.n, backlog.count + " / " + backlog.n);
+      if (backlog.n > 0) {
+        t.check("กดแถวที่ค้างแล้วไปหน้าประเมิน แท็บลงกอง เดือนของรอบนั้น",
+                backlog.hasBtn && backlog.view === "assess" && backlog.page === "month" && backlog.month === backlog.btnMonth, JSON.stringify(backlog));
+        t.check("ตัวเลือกเดือนบอกจำนวนที่ค้างต่อเดือน", backlog.optionHasCount);
       }
 
       /* ---------- C11: เปลี่ยนประเภทกิจกรรมพร้อมให้คะแนนในการบันทึกครั้งเดียวกัน

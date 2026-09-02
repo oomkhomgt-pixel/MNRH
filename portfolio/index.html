@@ -3808,6 +3808,11 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  /* ไปหน้าประเมินลงกองของเดือนที่ระบุ — ต้อง renderAssess() ก่อน เพราะ showView ไม่วาดใหม่ */
+  $$("#todayBody [data-tgo-rot]").forEach(b => b.addEventListener("click", () => {
+    assessView.page = "month"; assessView.month = b.dataset.tgoRot; assessView.mineOnly = true;
+    renderAssess(); showView("assess");
+  }));
   $$("#todayBody [data-visitok]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitok, true)));
   $$("#todayBody [data-visitno]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitno, false)));
   $$("#todayBody [data-tvisit]").forEach(b => b.addEventListener("click", () => openVisit(myResidentId(), b.dataset.tvisit)));
@@ -4014,6 +4019,22 @@ function todayForStaff(iso, all) {
       <button class="btn-sm" data-tgo="assess">งานประเมินที่ค้าง</button>
     </div>
   </div>`);
+
+  /* ประเมินลงกองที่ค้าง — เดิมเห็นได้แค่ในหน้าประเมินทีละเดือน รอบที่ค้างจากสามเดือนก่อนจึงหายเงียบ
+     กดแถวไหนจะพาไปหน้าประเมินของเดือนนั้นเลย */
+  const rotBacklog = rotationBacklogFor(sid);
+  out.push(`<div class="card">
+    <h2>ประเมินลงกองที่ค้าง <span class="tag ${rotBacklog.length ? "warn" : "ok"}">${rotBacklog.length} รอบ</span></h2>
+    <p class="small muted" style="margin:.2rem 0 .5rem">รอบหมุนเวียนที่จบไปแล้ว (ทุกเดือนที่ปิดแล้ว) และยังไม่มีผลประเมินลงกอง
+      — นับรอบที่คุณเป็นอาจารย์ผู้กำกับ รวมรอบที่ยังไม่มีผู้กำกับ</p>
+    ${rotBacklog.length ? rotBacklog.slice(0, 6).map(rot => {
+      const r = store.resident(rot.residentId);
+      return `<button class="sess due" data-tgo-rot="${esc(rot.end.slice(0, 7))}" style="border-left-color:${serviceColour(rot.serviceId)}">
+        <span class="pill">${esc(ymLabel(rot.end.slice(0, 7)))}</span><b>${esc(r?.name || "—")}</b>
+        <span class="who">${esc(serviceById(rot.serviceId)?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
+    }).join("") : `<p class="empty">ไม่มีรอบค้างประเมิน</p>`}
+    ${rotBacklog.length > 6 ? `<p class="small muted">และอีก ${rotBacklog.length - 6} รอบ</p>` : ""}
+  </div>`);
   return out;
 }
 
@@ -4051,6 +4072,7 @@ function todayForAdmin(iso, all) {
       <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
       <div class="stat"><b>${(store.data.visits || []).filter(v => v.status === "pending").length}</b><span>คำขอไปเข้าคาบสายอื่นรออนุมัติ</span></div>
       <div class="stat"><b>${(store.data.swaps || []).filter(v => v.status === "pending").length}</b><span>คำขอแลกวันรอตอบรับ</span></div>
+      <div class="stat"><b>${rotationBacklogFor("").length}</b><span>ผลประเมินลงกองค้าง (ทุกเดือนที่ปิดแล้ว)</span></div>
     </div>
     ${idle.length ? `<p class="small muted" style="margin-top:.7rem">ไม่มีคาบวันนี้:
       ${idle.slice(0, 12).map(r => esc(r.name) + " (ปี " + r.year + ")").join(" · ")}
@@ -5682,12 +5704,24 @@ function renderResidentDetail() {
     ${(() => {
       const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => b.date.localeCompare(a.date));
       const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
-      if (!evs.length && !rots.length) return "";
-      return `<h3 style="margin-top:1rem">การหมุนเวียนและการประเมินท้ายเซสชัน</h3>
+      const revs = (store.data.rotationEvals || []).filter(x => x.residentId === r.id)
+        .sort((a, b) => String(b.end || "").localeCompare(String(a.end || "")));
+      if (!evs.length && !rots.length && !revs.length) return "";
+      return `<h3 style="margin-top:1rem">การหมุนเวียน ผลประเมินลงกอง และการประเมินท้ายเซสชัน</h3>
       ${rots.length ? `<div class="row" style="margin-bottom:.5rem">${rots.slice(0, 6).map(rot => {
         const svc = serviceById(rot.serviceId);
         return `<span class="tag" title="${esc(staffName(rot.supervisorId))}">${esc(svc?.name || "—")} · ${fmtDate(rot.start)}–${fmtDate(rot.end)}</span>`;
       }).join("")}</div>` : ""}
+      ${revs.length ? `<h4 style="margin:.6rem 0 .3rem">ผลประเมินลงกอง (${revs.length} รอบ)</h4>
+        <div class="tbl-wrap"><table>
+        <thead><tr><th>เดือน / สาย</th><th>เฉลี่ย</th><th>ผลโดยรวม</th><th>คะแนนรายข้อ</th><th>สิ่งที่ทำได้ดี</th><th>ควรพัฒนา</th></tr></thead>
+        <tbody>${revs.slice(0, 12).map(ev => `<tr>
+          <td class="small">${esc(ymLabel(ev.month || String(ev.end || "").slice(0, 7)))}<br /><span class="muted">${esc(serviceById(ev.serviceId)?.name || "")} · ${esc(staffName(ev.staffId))}</span></td>
+          <td class="small">${esc(rotationEvalLabel(ev))}</td>
+          <td class="small">${esc(rotationOutcomeLabel(ev) || "—")}</td>
+          <td class="small">${rotationScoreTags(ev) || "—"}</td>
+          <td class="small">${rotationTextAnswers(ev).map(x => esc(x.v)).join("<br />") || "—"}</td>
+          <td class="small">${esc(ev.comment || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${evs.length ? `<div class="tbl-wrap"><table>
         <thead><tr><th>วันที่</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>เฉลี่ย</th><th>entrustment</th><th>ข้อเสนอแนะ</th></tr></thead>
         <tbody>${evs.slice(0, 12).map(ev => `<tr>
@@ -5735,7 +5769,9 @@ function renderResidentDetail() {
           ${a.source === "slides" ? `<span class="tag">จากสไลด์</span>` : `<span class="tag">บันทึกด้วยมือ</span>`}
         </div>
         <div>${esc(a.title)}</div>
-        ${a.assessment ? `<div class="small muted">ประเมิน ${a.assessment.score}/5 โดย ${esc(a.assessment.by)} — ${esc(a.assessment.comment || "")}</div>` : ""}
+        ${a.assessment ? `<div class="small muted">ประเมิน ${a.assessment.score ?? "—"}/5${a.assessment.outcome ? " · " + esc(TALK_OUTCOME_BY_ID[a.assessment.outcome]?.th || "") : ""} โดย ${esc(a.assessment.by || "—")}${
+          a.assessment.strengths ? "<br />ทำได้ดี: " + esc(a.assessment.strengths) : ""}${
+          a.assessment.comment ? "<br />ควรปรับปรุง: " + esc(a.assessment.comment) : ""}</div>` : ""}
         <div class="no-print row small" style="margin-top:.2rem">
           <button class="btn-sm btn-ghost" data-act-open="${a.id}">รายละเอียด / ประเมิน</button>
         </div>
@@ -5905,6 +5941,18 @@ function rotationOutcomeLabel(ev) {
                  return rotationOptions(it).find(o => o.v === String(v))?.th || String(v); })
     .filter(Boolean).join(" · ");
 }
+/* คะแนนรายข้อของผลลงกองเป็นแท็กสั้น ๆ — แพทย์ประจำบ้านต้องเห็นว่าอ่อนข้อไหน ไม่ใช่ค่าเฉลี่ยก้อนเดียว
+   ใช้ทั้งหน้าแพทย์ประจำบ้านและรายงานพิมพ์ */
+function rotationScoreTags(ev) {
+  return rotationFormItems().filter(it => it.kind === "scale" && ev?.scores?.[it.id] != null)
+    .map(it => { const th = String(it.th || it.id);
+      return `<span class="tag" title="${esc(th)}">${esc(th.slice(0, 22))}${th.length > 22 ? "…" : ""} <b>${esc(String(ev.scores[it.id]))}</b></span>`; }).join(" ");
+}
+/* คำตอบข้อความของข้อที่ไม่ใช่คะแนน (ไม่รวมผลโดยรวมและช่องข้อเสนอแนะ ซึ่งแสดงแยกต่างหาก) */
+function rotationTextAnswers(ev) {
+  return rotationFormItems().filter(it => (it.kind === "paragraph" || it.kind === "text") && it.role !== "comment")
+    .map(it => { const v = ev?.answers?.[it.id]; return v ? { th: it.th || it.id, v: String(v) } : null; }).filter(Boolean);
+}
 
 /* เดือนที่จบไปแล้ว เรียงใหม่สุดก่อน — ประเมินลงกองทำหลังจบเดือน ไม่ใช่ระหว่างเดือน */
 function assessMonths() {
@@ -5924,6 +5972,16 @@ const rotationOutside = (rot) => {
   const svc = serviceById(rot.serviceId);
   return !!(svc?.external || svc?.elective);
 };
+/* งานประเมินลงกองที่ค้าง ข้ามทุกเดือนที่ปิดแล้ว — ไม่ใช่แค่เดือนที่เลือกอยู่ในหน้าประเมิน
+   ระบุอาจารย์ = รอบที่คนนั้นเป็นผู้กำกับ บวกรอบที่ยังไม่มีผู้กำกับ (ไม่งั้นรอบพวกนั้นไม่มีใครเห็นเลย) · ไม่ระบุ = ทั้งกลุ่มงาน */
+function rotationBacklogFor(staffId) {
+  const thisMonth = todayISO().slice(0, 7);
+  return (store.data.rotations || [])
+    .filter(rot => rot.end && rot.end.slice(0, 7) < thisMonth && canSeeResident(rot.residentId))
+    .filter(rot => !rotationOutside(rot) && !rotationEvalFor(rot.id))
+    .filter(rot => !staffId || rot.supervisorId === staffId || !rot.supervisorId)
+    .sort((a, b) => a.end.localeCompare(b.end));
+}
 function rotationsToAssess(month) {
   return (store.data.rotations || [])
     .filter(rot => (rot.end || "").slice(0, 7) === month && canSeeResident(rot.residentId))
@@ -5985,7 +6043,8 @@ function renderAssess() {
         · ประเมินหลังจบเดือน ไม่ใช่ระหว่างเดือน · คนละชั้นกับประเมินท้ายเซสชันซึ่งเป็นรายคาบ</p>
       <div class="row no-print" style="margin-bottom:.6rem">
         <select id="assessMonth">${months.map(m =>
-          `<option value="${m}" ${assessView.month === m ? "selected" : ""}>เดือน ${esc(m)}</option>`).join("")}</select>
+          `<option value="${m}" ${assessView.month === m ? "selected" : ""}>เดือน ${esc(m)}${
+            (n => n ? " · ค้าง " + n : "")(rotationsToAssess(m).filter(r => !rotationEvalFor(r.id)).length)}</option>`).join("")}</select>
         <label class="row small" style="gap:.3rem;align-items:center">
           <input type="checkbox" id="assessMine" ${assessView.mineOnly ? "checked" : ""} />
           เฉพาะรอบที่ฉันเป็นอาจารย์ผู้กำกับ</label>
@@ -7859,7 +7918,7 @@ function wfmeEvidence() {
   if (talkAssessN) {
     const byTalkWfme = {}, seenTalkItem = new Set();
     (store.data.activities || []).forEach(a => {
-      if (!a.assessment?.scores) return;
+      if (!a.assessment?.scores || !Object.keys(a.assessment.scores).length) return;   /* เงื่อนไขเดียวกับตัวนับข้างบน */
       talkEvalItemsFor(a.type).forEach(it => {
         if (seenTalkItem.has(it.id)) return;
         seenTalkItem.add(it.id);
@@ -8463,9 +8522,10 @@ function printPortfolio(residentId) {
           <td>${esc(staffName(rot.supervisorId))}</td>
           <td class="small">${rev
             ? esc(rotationEvalLabel(rev))
-              + rotationAskItems().filter(it => it.kind !== "entrust" && it.role !== "comment")
-                  .map(it => { const v = rev.answers?.[it.id]; return v ? "<br /><b>" + esc(it.th || it.id) + ":</b> " + esc(String(v)) : ""; }).join("")
-              + (rev.comment ? "<br /><span class='muted'>" + esc(rev.comment) + "</span>" : "")
+              + (rotationOutcomeLabel(rev) ? " · <b>" + esc(rotationOutcomeLabel(rev)) + "</b>" : "")
+              + (rotationScoreTags(rev) ? "<br />" + rotationScoreTags(rev) : "")
+              + rotationTextAnswers(rev).map(x => "<br /><b>" + esc(x.th) + ":</b> " + esc(x.v)).join("")
+              + (rev.comment ? "<br /><b>ควรพัฒนา:</b> " + esc(rev.comment) : "")
             : (rotationOutside(rot) ? "ไปวนนอกกลุ่มงาน" : "—")}</td></tr>`; }).join("")}</tbody></table>` : ""}
       ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
         <table><thead><tr><th>Service</th><th>จำนวนครั้ง</th><th>คะแนนเฉลี่ย</th><th>entrustment เฉลี่ย</th></tr></thead>
