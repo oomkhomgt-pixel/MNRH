@@ -211,6 +211,64 @@ export default async function run() {
       t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
               calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
 
+      /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
+         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้ */
+      const talk = await page.evaluate(() => {
+        const me = myResidentId();
+        const other = store.data.schedule.find(x => x.residentId !== me);
+        const mine = store.data.schedule.find(x => x.residentId === me && !x.activityId);
+        const n0 = store.data.activities.length;
+        editTalk(other.id);
+        const editOpened = !!document.querySelector("#dlg")?.open;
+        if (editOpened) document.querySelector("#dlg").close();
+        recordFromTalk(other.id);
+        const afterOther = store.data.activities.length;
+        let ownRecorded = null;
+        if (mine) { recordFromTalk(mine.id); ownRecorded = store.data.activities.length === afterOther + 1 && !!mine.activityId; }
+        showView("rotation");
+        const editBtnVisible = [...document.querySelectorAll("#talkTable [data-talk]")].some(b => !b.hidden);
+        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, editBtnVisible };
+      });
+      t.check("แก้ตารางนำเสนอของคนอื่นไม่ได้ (กล่องไม่เปิด)", !talk.editOpened);
+      t.check("บันทึกเข้าแฟ้มของคนอื่นจากตารางนำเสนอไม่ได้", !talk.otherGrew);
+      t.check("บันทึกแถวของตัวเองจากตารางนำเสนอได้", talk.ownRecorded !== false, talk.ownRecorded === null ? "ไม่มีแถวของตัวเองในข้อมูลสาธิต" : "");
+      t.check("ปุ่มแก้ไขในตารางนำเสนอถูกซ่อนสำหรับแพทย์ประจำบ้าน", !talk.editBtnVisible);
+
+      /* หน้า logbook/EPA ต้องพูดความจริงกับแพทย์ประจำบ้าน — ตัวเลขของตัวเอง ไม่ใช่ทั้งแผนก
+         และไม่มีคำสั่ง/คำเตือนที่เขาทำอะไรไม่ได้ */
+      const lb = await page.evaluate(() => {
+        showView("logbook");
+        const me = myResidentId();
+        const mine = store.data.cases.filter(c => (c.participants || []).some(p => p.residentId === me)).length;
+        return {
+          firstStat: +document.querySelector("#logbookStats .stat b")?.textContent, mine,
+          importBanner: document.querySelector("#importStatus").innerHTML.trim(),
+          unassignedHidden: document.querySelector("#unassignedList").closest(".card").hidden,
+          epaCaveatHidden: document.querySelector("#epaCaveat").hidden
+        };
+      });
+      t.eq("logbook: ตัวเลขแรกคือเคสของตัวเอง ไม่ใช่ทั้งแผนก", lb.firstStat, lb.mine);
+      t.check("logbook: ไม่มีคำแนะนำ 'กดดึงจากระบบคิว' ที่ทำไม่ได้", lb.importBanner === "");
+      t.check("logbook: การ์ดเคสที่ยังไม่ระบุผู้ร่วมผ่าตัด (งานของอาจารย์) ถูกซ่อน", lb.unassignedHidden);
+      t.check("EPA: คำเตือนที่ชี้ไปหน้าตั้งค่าถูกซ่อน", lb.epaCaveatHidden);
+
+      /* กล่องขอไปเข้าคาบสายอื่น: เปลี่ยนวันแล้วรายการคาบต้องเป็นของวันใหม่ */
+      const visit = await page.evaluate(() => {
+        const me = myResidentId();
+        let d0 = todayISO();
+        /* หาวันทำการที่วันถัดไปก็เป็นวันทำการ จะได้เทียบสองวันที่มี option ต่างกันได้ */
+        for (let i = 0; i < 10; i++) { const dow = new Date(d0 + "T00:00:00").getDay(); if (dow >= 1 && dow <= 4) break; d0 = addDaysISO(d0, 1); }
+        const d1 = addDaysISO(d0, 1);
+        openVisit(me, d0);
+        const inp = document.querySelector('#dlgBody [name="date"]');
+        inp.value = d1; inp.dispatchEvent(new Event("change", { bubbles: true }));
+        const got = [...document.querySelectorAll('#dlgBody [name="target"] option')].map(o => o.value).filter(Boolean);
+        const want = visitOptions(me, d1).map(o => o.serviceId + "|" + o.index);
+        document.querySelector("#dlg").close();
+        return { got, want };
+      });
+      t.eq("เปลี่ยนวันในกล่องขอไปเข้าคาบ แล้วรายการคาบเป็นของวันใหม่", visit.got, visit.want);
+
       t.check("แพทย์ประจำบ้าน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

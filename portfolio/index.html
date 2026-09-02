@@ -95,6 +95,8 @@ input,select,textarea{
   font:inherit;width:100%;padding:.45rem .6rem;border:1px solid var(--line-2);border-radius:9px;background:#fff;color:var(--ink)
 }
 input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+/* ปุ่มทุกชนิดต้องมีกรอบ focus ตอนใช้คีย์บอร์ด — เดิมมีเฉพาะช่องกรอก ปุ่ม/แท็บ/ชิปคาบไม่มีเลย */
+button:focus-visible,.sess:focus-visible,.seg button:focus-visible,nav.tabs button:focus-visible,details>summary:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 textarea{min-height:80px;resize:vertical}
 input[type=checkbox],input[type=radio]{width:auto}
 
@@ -652,7 +654,9 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div class="grid g4" id="logbookStats" style="margin-top:.8rem"></div>
     </div>
 
-    <div class="card">
+    <!-- การ์ดนี้เป็นงานของอาจารย์ — แพทย์ประจำบ้านเคยเห็นข้อความ "ทุกเคสมีผู้ร่วมผ่าตัดครบแล้ว" ซึ่งไม่จริง
+         เพราะรายการถูกล้างเป็นว่างตามสิทธิ์ ไม่ใช่เพราะครบจริง -->
+    <div class="card" data-perm="staff">
       <div class="between">
         <h2>เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด</h2>
         <div class="row no-print">
@@ -693,7 +697,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <button class="btn-sm btn-primary" id="btnEpaAssess" data-perm="staff">+ บันทึกการประเมิน</button>
         </div>
       </div>
-      <div class="notice warn small" id="epaCaveat"></div>
+      <!-- คำเตือนชี้ไปหน้าตั้งค่า — คนที่เปิดหน้าตั้งค่าได้เท่านั้นที่ควรเห็น -->
+      <div class="notice warn small" id="epaCaveat" data-perm="admin"></div>
       <div id="epaBoard"></div>
     </div>
     <div class="card" data-perm="staff">
@@ -881,7 +886,11 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
 <dialog id="dlg">
   <form method="dialog" id="dlgForm">
-    <div class="dlg-head"><h3 id="dlgTitle">—</h3><button class="btn-sm btn-ghost" value="cancel" type="submit">ปิด</button></div>
+    <!-- ปุ่ม submit ตัวแรกของฟอร์มคือ "ปุ่มเริ่มต้น" ที่ Enter ในช่องกรอกจะกด — เดิมเป็นปุ่ม "ปิด" ในหัว
+         ทำให้พิมพ์แล้วกด Enter = กล่องปิดและข้อมูลหาย ตอนนี้ปุ่มเริ่มต้นถูกซ่อนไว้ แล้ว listener ของฟอร์ม
+         ส่งต่อไปที่ปุ่มหลัก (.btn-primary) ใน footer แทน · ปุ่มปิดในหัวเป็น type="button" ธรรมดา -->
+    <button type="submit" class="sr-only" tabindex="-1" aria-hidden="true" id="dlgDefault"></button>
+    <div class="dlg-head"><h3 id="dlgTitle">—</h3><button class="btn-sm btn-ghost" type="button" id="dlgClose">ปิด</button></div>
     <div class="dlg-body" id="dlgBody"></div>
     <div class="dlg-foot" id="dlgFoot"></div>
   </form>
@@ -3676,7 +3685,8 @@ function todayForResident(iso, all) {
           || `<p class="small muted" style="margin:.3rem 0 0">รับรองครบแล้ว</p>`}</div>
       <div class="nowcard"><div class="between"><b>เคสที่มีชื่อคุณแต่ยังไม่รับรอง</b>
         <span class="tag ${unverifiedCases.length ? "warn" : "ok"}">${unverifiedCases.length}</span></div>
-        <p class="small muted" style="margin:.3rem 0 0">การรับรองเป็นของอาจารย์ ไม่ใช่สิ่งที่คุณกดเองได้</p></div>
+        <p class="small muted" style="margin:.3rem 0 0">การรับรองเป็นของอาจารย์ ไม่ใช่สิ่งที่คุณกดเองได้</p>
+        ${unverifiedCases.length ? `<button class="btn-sm no-print" style="margin-top:.4rem" data-tgo="logbook">ดูใน logbook</button>` : ""}</div>
     </div>
     <div class="row no-print" style="margin-top:.8rem">
       <button class="btn-sm btn-primary" data-tgo="ingest">+ บันทึกกิจกรรม</button>
@@ -4116,10 +4126,7 @@ function openVisit(residentId, iso) {
         : `<span class="tag bad">วันนั้นไม่มีอาจารย์คุมสายของคุณในตาราง — ต้องให้ผู้จัดหลักสูตรอนุมัติ</span>`}</dd>
     </div>
     <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(date)}" /></label>
-    <label class="f"><span>คาบที่จะขอไปเข้า</span><select name="target">
-      ${opts.length ? opts.map(o => `<option value="${o.serviceId}|${o.index}">${esc(o.svcName)} · ${esc(o.name)}
-        (${esc(PART_BY_ID[o.part]?.th || o.part)}${o.staff ? " · " + esc(o.staff) : ""})</option>`).join("")
-        : `<option value="">— วันนั้นไม่มีคาบของสายอื่น —</option>`}</select></label>
+    <label class="f"><span>คาบที่จะขอไปเข้า</span><select name="target">${visitTargetOptions(opts)}</select></label>
     <div class="grid g2">
       <label class="f"><span>เหตุผล</span><select name="reasonType">${VISIT_REASONS.map(([id, th]) =>
         `<option value="${id}">${esc(th)}</option>`).join("")}</select></label>
@@ -4152,7 +4159,17 @@ function openVisit(residentId, iso) {
         toast(who ? "ส่งคำขอแล้ว — รอ " + who + " อนุมัติ" : "ส่งคำขอแล้ว — รอผู้จัดหลักสูตรอนุมัติ");
       }}
   ]);
+  /* เปลี่ยนวันแล้วรายการคาบต้องเป็นของวันใหม่ — เดิมสร้างครั้งเดียวจากวันแรก เปลี่ยนวันแล้วส่งคำขอได้
+     โดยอ้าง index ของคาบวันเดิม บันทึกผิดคาบเงียบ ๆ พร้อม toast ว่าสำเร็จ */
+  $('#dlgBody [name="date"]').addEventListener("change", (e) => {
+    const sel = $('#dlgBody [name="target"]');
+    if (sel && e.target.value) sel.innerHTML = visitTargetOptions(visitOptions(residentId, e.target.value));
+  });
 }
+const visitTargetOptions = (opts) => opts.length
+  ? opts.map(o => `<option value="${o.serviceId}|${o.index}">${esc(o.svcName)} · ${esc(o.name)}
+      (${esc(PART_BY_ID[o.part]?.th || o.part)}${o.staff ? " · " + esc(o.staff) : ""})</option>`).join("")
+  : `<option value="">— วันนั้นไม่มีคาบของสายอื่น —</option>`;
 
 function decideVisit(id, approve) {
   const v = (store.data.visits || []).find(x => x.id === id);
@@ -4571,8 +4588,9 @@ const talkRow = (t) => {
     <td>${esc(t.title)}<br /><span class="small muted">${esc(SUB_BY_ID[t.subspecialty]?.en || "")}</span></td>
     <td class="small">${esc(staffName(t.moderatorId))}</td>
     <td><span class="tag ${tag[0]}">${tag[1]}</span></td>
-    <td class="no-print"><button class="btn-sm" data-talk="${t.id}">แก้ไข</button>
-      ${st === "missing" ? `<button class="btn-sm" data-talkrec="${t.id}">บันทึกว่านำเสนอแล้ว</button>` : ""}</td>
+    <td class="no-print"><button class="btn-sm" data-talk="${t.id}" data-perm="admin">แก้ไข</button>
+      ${st === "missing" && canEditResidentData(t.residentId)
+        ? `<button class="btn-sm" data-talkrec="${t.id}">บันทึกว่านำเสนอแล้ว</button>` : ""}</td>
   </tr>`;
 };
 
@@ -4614,9 +4632,15 @@ function renderTalks() {
 
   $$("#talkUpcoming [data-talk], #talkTable [data-talk]").forEach(b => b.addEventListener("click", () => editTalk(b.dataset.talk)));
   $$("#talkUpcoming [data-talkrec], #talkTable [data-talkrec]").forEach(b => b.addEventListener("click", () => recordFromTalk(b.dataset.talkrec)));
+  /* ตัวกรองเรียกฟังก์ชันนี้ตรง ๆ ไม่ผ่าน renderAll — ปุ่ม data-perm ที่เพิ่งวาดต้องถูกซ่อนตามสิทธิ์ด้วย
+     (แพทเทิร์นเดียวกับ renderResidentDetail) */
+  if (session) applyPermissions();
 }
 
 function editTalk(id) {
+  /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไขไม่มี data-perm และฟังก์ชันนี้ไม่มี guard
+     แพทย์ประจำบ้านจึงแก้/ลบแถวของคนอื่นได้จาก console หรือปุ่มที่โผล่ */
+  if (!canManage()) { toast("การแก้ตารางนำเสนอเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const t = id ? store.data.schedule.find(x => x.id === id) : null;
   if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน"); return; }
   const body = `
@@ -4662,6 +4686,8 @@ function editTalk(id) {
 /* บันทึกกิจกรรมจากรายการในตาราง เมื่อไม่มีไฟล์สไลด์ให้วาง */
 function recordFromTalk(id) {
   const t = store.data.schedule.find(x => x.id === id); if (!t) return;
+  /* บันทึกเข้าแฟ้มของใครได้ = สิทธิ์เดียวกับการแก้กิจกรรมของคนนั้น (อาจารย์ หรือเจ้าของแถวเอง) */
+  if (!canEditResidentData(t.residentId)) { toast("บันทึกเข้าแฟ้มของแพทย์ประจำบ้านคนอื่นไม่ได้"); return; }
   const act = {
     id: uid("act"), residentId: t.residentId, type: t.type, subspecialty: t.subspecialty,
     title: t.title, date: t.date, academicYear: academicYear(t.date), source: "manual", evidence: null,
@@ -6475,19 +6501,32 @@ const unassignedCases = () => (store.data.cases || []).filter(c => !c.participan
 function renderLogbook() {
   const cases = store.data.cases || [];
   const q = store.data.orQueue || {};
-  $("#importStatus").innerHTML = q.lastImport
+  /* คำแนะนำ "กดดึงจากหน้าระบบคิว" มีความหมายเฉพาะกับคนที่มีปุ่มนั้น (staff) — แพทย์ประจำบ้านเห็นแล้วทำอะไรไม่ได้ */
+  $("#importStatus").innerHTML = !isStaff() ? "" : q.lastImport
     ? `<p class="notice small">นำเข้าล่าสุด ${new Date(q.lastImport).toLocaleString("th-TH")} จาก ${esc(q.lastSource || "—")}
         · เคสที่ซ้ำจะถูกอัปเดตทับ ไม่สร้างซ้ำ (จับคู่ด้วยเลขที่เคสของระบบคิว)</p>`
     : `<p class="notice small">ยังไม่เคยนำเข้าเคส — กด “ดึงจากหน้าระบบคิว” เพื่ออ่านเคสจากหน้าระบบคิวในที่เก็บเดียวกัน
         (ต้องเปิดผ่านเว็บเซิร์ฟเวอร์หรือ GitHub Pages เบราว์เซอร์จะไม่ยอมให้อ่านไฟล์ข้างเคียงเมื่อเปิดจาก file://)</p>`;
 
-  const withPeople = cases.filter(c => c.participants?.length).length;
-  $("#logbookStats").innerHTML = `
-    <div class="stat"><b>${cases.length}</b><span>เคสที่นำเข้าแล้ว</span></div>
-    <div class="stat"><b>${withPeople}</b><span>ระบุผู้ร่วมผ่าตัดแล้ว</span></div>
-    <div class="stat"><b>${cases.length - withPeople}</b><span>ยังไม่ได้ระบุ</span></div>
-    <div class="stat"><b>${cases.filter(c => c.participants?.some(p => p.verified)).length}</b><span>อาจารย์รับรองแล้ว</span></div>
-    <div class="stat"><b>${cases.filter(c => c.participants?.length && !c.participants.some(p => p.rcost?.done)).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
+  if (isStaff()) {
+    const withPeople = cases.filter(c => c.participants?.length).length;
+    $("#logbookStats").innerHTML = `
+      <div class="stat"><b>${cases.length}</b><span>เคสที่นำเข้าแล้ว</span></div>
+      <div class="stat"><b>${withPeople}</b><span>ระบุผู้ร่วมผ่าตัดแล้ว</span></div>
+      <div class="stat"><b>${cases.length - withPeople}</b><span>ยังไม่ได้ระบุ</span></div>
+      <div class="stat"><b>${cases.filter(c => c.participants?.some(p => p.verified)).length}</b><span>อาจารย์รับรองแล้ว</span></div>
+      <div class="stat"><b>${cases.filter(c => c.participants?.length && !c.participants.some(p => p.rcost?.done)).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
+  } else {
+    /* แพทย์ประจำบ้านเห็นตัวเลขของตัวเอง — เดิมโชว์ยอดทั้งแผนก (167 เคส) ทั้งที่ตารางข้างล่างมีแค่ของเขา 5 เคส */
+    const me = myResidentId();
+    const mine = cases.filter(c => (c.participants || []).some(p => p.residentId === me));
+    const meIn = (c) => (c.participants || []).find(p => p.residentId === me);
+    $("#logbookStats").innerHTML = `
+      <div class="stat"><b>${mine.length}</b><span>เคสของฉัน</span></div>
+      <div class="stat"><b>${mine.filter(c => meIn(c)?.role === "surgeon").length}</b><span>เป็นผู้ผ่าตัดหลัก</span></div>
+      <div class="stat"><b>${mine.filter(c => meIn(c)?.verified).length}</b><span>อาจารย์รับรองแล้ว</span></div>
+      <div class="stat"><b>${mine.filter(c => !meIn(c)?.rcost?.done).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
+  }
 
   /* --- เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด --- */
   const un = isStaff() ? unassignedCases().sort((a, b) => (b.date || "").localeCompare(a.date || "")) : [];
@@ -6910,16 +6949,22 @@ function renderEpa() {
 
 function epaAssessDialog(residentId, epaId) {
   if (!canAssess()) { toast("บัญชีนี้ไม่มีสิทธิ์ประเมิน"); return; }
-  const r = store.resident(residentId), e = (store.data.epas || []).find(x => x.id === epaId);
+  const epas = store.data.epas || [];
+  const r = store.resident(residentId);
+  /* เรียกโดยไม่ระบุหัวข้อ (ปุ่ม "+ บันทึกการประเมิน" บนหัวหน้า) → ให้เลือกหัวข้อในกล่องเอง */
+  const pick = !epaId;
+  const e = pick ? epas[0] : epas.find(x => x.id === epaId);
   if (!r || !e) return;
-  const lv = epaLevel(residentId, epaId), target = epaTargetFor(r.year, epaId);
+  const lv = pick ? null : epaLevel(residentId, epaId), target = pick ? "" : epaTargetFor(r.year, epaId);
   const recentCases = casesOf(residentId).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 15);
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r.name)} (ชั้นปีที่ ${r.year})</dd>
-      <dt>หัวข้อ</dt><dd><b>${esc(e.code)}</b> ${esc(e.title)} · ${esc(SUB_BY_ID[e.subspecialty]?.en || "")}</dd>
-      <dt>ระดับล่าสุด</dt><dd>${lv != null ? "ระดับ " + lv : "ยังไม่เคยประเมิน"} · เป้าหมายชั้นปีนี้ ${target || "—"}</dd>
+      ${pick ? "" : `<dt>หัวข้อ</dt><dd><b>${esc(e.code)}</b> ${esc(e.title)} · ${esc(SUB_BY_ID[e.subspecialty]?.en || "")}</dd>
+      <dt>ระดับล่าสุด</dt><dd>${lv != null ? "ระดับ " + lv : "ยังไม่เคยประเมิน"} · เป้าหมายชั้นปีนี้ ${target || "—"}</dd>`}
     </div>
+    ${pick ? `<label class="f"><span>หัวข้อ EPA</span><select name="epaId">${epas.map(x =>
+      `<option value="${x.id}">${esc(x.code)} ${esc(x.title)}${epaLevel(residentId, x.id) != null ? " (ล่าสุด ระดับ " + epaLevel(residentId, x.id) + ")" : ""}</option>`).join("")}</select></label>` : ""}
     <label class="f"><span>ระดับที่ประเมินครั้งนี้</span>
       <select name="level">${ENTRUST_LEVELS.map(l =>
         `<option value="${l.v}" ${lv === l.v ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}</select></label>
@@ -6930,13 +6975,15 @@ function epaAssessDialog(residentId, epaId) {
     <label class="f"><span>ผู้ประเมิน</span><input name="by" value="${esc(currentUser()?.displayName || "")}" /></label>`;
   showDialog("บันทึกการประเมิน EPA", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const chosenId = pick ? dlgVal("epaId") : epaId;
+        const chosen = epas.find(x => x.id === chosenId); if (!chosen) return false;
         store.data.epaAssessments.push({
-          id: uid("epaa"), residentId, epaId, level: +dlgVal("level"),
+          id: uid("epaa"), residentId, epaId: chosenId, level: +dlgVal("level"),
           by: dlgVal("by") || currentUser()?.displayName || "", byUserId: currentUser()?.id || "",
           at: todayISO(), caseId: dlgVal("caseId"), sessionKey: "",
           note: ($('#dlgBody [name="note"]')?.value || "").trim()
         });
-        audit("ประเมิน EPA", r.name + " · " + e.code + " ระดับ " + dlgVal("level"));
+        audit("ประเมิน EPA", r.name + " · " + chosen.code + " ระดับ " + dlgVal("level"));
         store.save(); renderAll(); toast("บันทึกการประเมินแล้ว");
       }}
   ]);
@@ -7678,6 +7725,10 @@ function showDialog(title, bodyHtml, buttons) {
   close.addEventListener("click", () => $("#dlg").close());
   foot.appendChild(close);
   $("#dlg").showModal();
+  /* focus ช่องกรอกแรก ไม่ใช่ปุ่ม "ปิด" ในหัว (ซึ่ง showModal จะเลือกให้เพราะเป็นตัวแรกใน DOM) */
+  const first = $("#dlgBody input:not([type=hidden]):not([disabled]), #dlgBody select:not([disabled]), #dlgBody textarea:not([disabled])")
+    || $("#dlgFoot .btn-primary");
+  first?.focus();
 }
 const dlgVal = (name) => { const el = $('#dlgBody [name="' + name + '"]'); return el ? el.value.trim() : ""; };
 /* ปิดกล่องปัจจุบันก่อนเปิดกล่องใหม่ — showModal ซ้อนกันไม่ได้ */
@@ -8659,6 +8710,12 @@ const groupOfView = (name) =>
   $(`#subtabs [data-view="${name}"]`)?.closest("[data-subgroup]")?.dataset.subgroup
   || $(`#tabs [data-view="${name}"]`)?.dataset.group || "";
 
+/* หน้า name เปิดได้ไหมสำหรับบทบาทปัจจุบัน — เช็คที่ปุ่มกลุ่มใน #tabs เพราะสิทธิ์อยู่ตรงนั้น
+   ใช้ทั้งตอน boot อ่าน hash และตอนผู้ใช้กด Back/Forward ของเบราว์เซอร์ */
+const viewAllowed = (name) => !!name && name !== "report" && !!$("#view-" + name) &&
+  !($(`#tabs [data-group="${groupOfView(name)}"]`)?.hidden ?? true);
+const currentViewName = () => ($$(".view").find(v => v.classList.contains("on"))?.id || "").replace(/^view-/, "");
+
 function showView(name) {
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "view-" + name));
   const g = groupOfView(name);
@@ -8667,7 +8724,8 @@ function showView(name) {
   $$("#subtabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.view === name)));
   /* กลุ่มที่มีหน้าเดียวไม่มีแถวหน้าย่อยให้โชว์ — ยุบทั้งแถบไปเลย ไม่เหลือช่องว่าง */
   $("#subtabs").hidden = !$(`#subtabs [data-subgroup="${g}"]`);
-  if (name !== "report") location.hash = name;
+  /* เขียน hash เฉพาะเมื่อเปลี่ยนจริง — ไม่งั้นได้ history entry ซ้ำ และ hashchange จะยิงกลับมาเอง */
+  if (name !== "report" && location.hash !== "#" + name) location.hash = name;
   window.scrollTo({ top: 0 });
 }
 
@@ -8998,6 +9056,13 @@ function init() {
   [$("#tabs"), $("#subtabs")].forEach(nav => nav.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-view]"); if (b) showView(b.dataset.view);
   }));
+  /* Enter ในช่องกรอกของกล่องโต้ตอบ = กดปุ่มหลัก (บันทึก) ไม่ใช่ปิดกล่องทิ้งข้อมูล (ดูคอมเมนต์ที่ #dlgForm)
+     ถ้ากล่องนั้นไม่มีปุ่มหลัก (กล่องดูอย่างเดียว) ก็ไม่ทำอะไร — ไม่ปิด */
+  $("#dlgForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    $("#dlgFoot .btn-primary")?.click();
+  });
+  $("#dlgClose").addEventListener("click", () => $("#dlg").close());
   $("#btnManualAdd").addEventListener("click", manualAdd);
   $("#btnAddResident").addEventListener("click", () => editResident(null));
   $("#btnAddResearch").addEventListener("click", () => editResearch(null));
@@ -9013,9 +9078,8 @@ function init() {
   $("#btnRformExport").addEventListener("click", () => download("rotation-eval-form.csv", toCsv(rotationFormCsvRows()), "text/csv;charset=utf-8"));
   $("#btnRformReset").addEventListener("click", resetRotationForm);
   $("#btnEpaAssess").addEventListener("click", () => {
-    const e = (store.data.epas || [])[0];
-    if (!e) { toast("ยังไม่มีหัวข้อ EPA"); return; }
-    epaAssessDialog(epaResidentId, e.id);
+    if (!(store.data.epas || []).length) { toast("ยังไม่มีหัวข้อ EPA"); return; }
+    epaAssessDialog(epaResidentId, "");   /* ไม่ระบุหัวข้อ → กล่องมีช่องเลือกหัวข้อเอง (เดิมล็อกหัวข้อแรกเสมอ) */
   });
   $("#btnSignOut").addEventListener("click", signOut);
   $("#btnAddStaff").addEventListener("click", () => editStaff(null));
@@ -9179,11 +9243,15 @@ function init() {
   applyPermissions();
   renderAll();
   const hash = location.hash.replace("#", "");
-  const wanted = $("#view-" + hash) && hash !== "report" ? hash : defaultViewForRole();
-  /* เช็คสิทธิ์ที่ปุ่มกลุ่ม ไม่ใช่ปุ่มหน้าย่อย — ปุ่มหน้าย่อยไม่เคยถูกตั้ง hidden เอง (ซ่อนที่ wrapper ตามกลุ่ม)
-     เดิมเช็คที่ปุ่มแท็บของ view ตรง ๆ ซึ่งตอนนี้บาง view ไม่มีปุ่มใน #tabs แล้ว */
-  const gbtn = $(`#tabs [data-group="${groupOfView(wanted)}"]`);
-  showView(gbtn && !gbtn.hidden ? wanted : defaultViewForRole());
+  showView(viewAllowed(hash) ? hash : defaultViewForRole());
+  /* ปุ่ม Back/Forward ของเบราว์เซอร์ — เดิม showView เขียน hash ทุกครั้งแต่ไม่มีใครฟัง hashchange
+     กด Back แล้ว URL เปลี่ยนแต่หน้าไม่เปลี่ยน เหมือนแอปค้าง */
+  window.addEventListener("hashchange", () => {
+    const want = location.hash.replace("#", "");
+    if (want === currentViewName()) return;
+    if (viewAllowed(want)) showView(want);
+    else history.replaceState(null, "", "#" + currentViewName());   /* หน้าที่ไม่มีสิทธิ์ — อยู่ที่เดิม */
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);
