@@ -183,7 +183,9 @@ export default async function run() {
     await page.emulateMedia({ media: "print" });
     fold.printExpands = await page.evaluate(() => {
       const c = document.querySelector('[data-fold="set-อาจารย์"]');
-      return c.classList.contains("folded") && getComputedStyle(c.querySelector("#staffTable")).display !== "none";
+      const hints = [...document.querySelectorAll("[data-fold] > details.hint")];
+      return c.classList.contains("folded") && getComputedStyle(c.querySelector("#staffTable")).display !== "none"
+        && hints.length > 0 && hints.every(h => getComputedStyle(h).display === "none");   /* คำอธิบาย ⓘ ไม่พิมพ์ ไม่ว่าการ์ดพับหรือกาง */
     });
     await page.emulateMedia({ media: "screen" });
     t.check("หน้าตั้งค่า: การ์ดทุกใบพับได้ พับไว้ก่อนยกเว้น checklist เตรียมปี", fold.foldable >= 15 && fold.foldedByDefault === fold.foldable - 1 && fold.checklistOpen, JSON.stringify(fold));
@@ -198,6 +200,7 @@ export default async function run() {
       const r = {};
       const card = document.querySelector('[data-fold="rot-all"]');
       r.folded = card.classList.contains("folded");
+      r.sumIsTotal = card.querySelector("h2 .fold-sum")?.textContent === store.data.rotations.length + " ช่วง";
       foldOpen(card);
       const total = store.data.rotations.length;
       r.total = total;
@@ -212,7 +215,7 @@ export default async function run() {
       r.caseTotal = filterCases().length;
       return r;
     });
-    t.check("ช่วงหมุนเวียนทั้งหมด: พับไว้ก่อน เปิดแล้วแสดง 25 แถวแรก", more.folded && more.first === Math.min(25, more.total), JSON.stringify(more));
+    t.check("ช่วงหมุนเวียนทั้งหมด: พับไว้ก่อน ป้ายบอกจำนวนจริง เปิดแล้วแสดง 25 แถวแรก", more.folded && more.sumIsTotal && more.first === Math.min(25, more.total), JSON.stringify(more));
     t.check("แสดงเพิ่มอีก 25 → 50 แถว · แสดงทั้งหมด → ครบทุกช่วง พร้อมปุ่มแก้ไขทุกแถว",
             more.afterMore === Math.min(50, more.total) && more.afterAll === more.total && more.editButtons === more.total, JSON.stringify(more));
     t.check("เคสทั้งหมดใน logbook เริ่มที่ 30 แถว", more.cases === Math.min(30, more.caseTotal), JSON.stringify(more));

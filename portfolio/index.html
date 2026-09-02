@@ -302,7 +302,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   .card{box-shadow:none;border-color:#ccc;break-inside:avoid;page-break-inside:avoid}
   .view{display:none!important} .view.on{display:block!important}
   /* พิมพ์ = เห็นครบทุกส่วนเสมอ ไม่ว่าจะพับอะไรไว้บนจอ */
-  [data-fold].folded>:not(:first-child){display:revert!important}
+  [data-fold].folded>:not(:first-child):not(details.hint){display:revert!important}
   .fold-sum,[data-fold] h2::before,[data-fold] h3::before{display:none!important}
   details.hint{display:none}
 }
@@ -4739,6 +4739,8 @@ function renderRotationTable() {
   const today = todayISO();
   const rots = (store.data.rotations || []).slice().sort((a, b) => (b.start || "").localeCompare(a.start || ""));
   const shown = rots.slice(0, moreLimit("rotations", 25));
+  /* ป้ายตอนพับต้องเป็นจำนวนจริง ไม่ใช่จำนวนแถวที่วาดไว้ (25/50/…) */
+  const card = $("#rotationTable")?.closest("[data-fold]"); if (card) card.dataset.foldSum = rots.length ? rots.length + " ช่วง" : "";
   $("#rotationTable").innerHTML = rots.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>ช่วงวันที่</th><th>แพทย์ประจำบ้าน</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th><th>สถานะ</th><th></th></tr></thead>
     <tbody>${shown.map(rot => {
