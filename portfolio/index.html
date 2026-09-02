@@ -3552,12 +3552,29 @@ function sessionStatus(ses) {
   if (evalForKey(ses.key)) return "done";
   return ses.date < todayISO() ? "due" : (ses.date === todayISO() ? "today" : "future");
 }
-function pendingEvaluations(days = 14, residentId = null) {
+/* คาบนี้จบไปแล้วหรือยัง ณ เวลา now — คาบของวันก่อนจบแล้วเสมอ คาบของวันนี้ดูเวลาจบ (ไม่ระบุใช้ช่วงของ part)
+   คาบนอกเวลา 16:00–08:00 จบเช้าวันถัดไป ในวันเดียวกันจึงถือว่ายังไม่จบ */
+function sessionEnded(ses, now = new Date()) {
+  const today = isoOfLocalDate(now);
+  if (ses.date !== today) return ses.date < today;
+  const span = (PART_BY_ID[ses.part]?.time || "").split("–");
+  const toMin = (s) => { const [h, m] = String(s || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+  const start = toMin(ses.start || span[0]), end = toMin(ses.end || span[1]);
+  if (end == null) return false;
+  if (start != null && end <= start) return false;
+  return now.getHours() * 60 + now.getMinutes() >= end;
+}
+/* now มีไว้ให้เทสต์กำหนดเวลาได้ — ผู้ใช้จริงไม่ส่ง */
+function pendingEvaluations(days = 14, residentId = null, now = new Date()) {
   const out = [];
-  for (let i = 1; i <= days; i++) {
-    sessionsForDate(daysAgoISO(i)).forEach(ses => {
+  const today = isoOfLocalDate(now);
+  /* เริ่มที่ i = 0 (วันนี้) — เดิมเริ่มที่เมื่อวาน คาบเช้าที่จบไปแล้วจึงไม่โผล่เป็นงานค้างจนกว่าจะข้ามวัน
+     อาจารย์ที่จะประเมินตอนบ่ายต้องไปหาเองในการ์ด "คาบที่คุณรับผิดชอบวันนี้" */
+  for (let i = 0; i <= days; i++) {
+    sessionsForDate(addDaysISO(today, -i)).forEach(ses => {
       if (residentId && ses.residentId !== residentId) return;
       if (ses.superseded) return;   /* คาบที่แพ้การชนกัน ไม่ถือเป็นงานค้างของอาจารย์ */
+      if (i === 0 && !sessionEnded(ses, now)) return;
       if (!evalForKey(ses.key)) out.push(ses);
     });
   }
@@ -3614,6 +3631,8 @@ function renderToday() {
 
   box.innerHTML = parts.join("");
   $$("#todayBody .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
+  $$("#todayBody [data-batch]").forEach(b => b.addEventListener("click", () =>
+    openSessionBatch(b.dataset.batch.split(",").map(sessionByKey))));
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
@@ -3787,6 +3806,7 @@ function todayForStaff(iso, all) {
         ${swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid)
           ? `<p class="notice small" style="margin:.4rem 0 0">ส่งคำขอแลกวันไปแล้ว รออีกฝ่ายตอบรับ — ตารางยังเป็นชื่อคุณ</p>` : ""}
         <div class="row no-print" style="margin-top:.4rem">
+          ${list.length >= 2 ? `<button class="btn-sm btn-primary" data-batch="${esc(list.map(s => s.key).join(","))}">ประเมินทั้งคาบ (${list.length} คน)</button>` : ""}
           <button class="btn-sm" data-tswap="${esc(first.date)}|${esc(sid)}|${esc(first.part)}|${esc(first.serviceId)}">
             ${(first.subs || []).length ? "แก้การแลกวัน"
               : swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid) ? "แก้คำขอแลกวัน"
@@ -3806,6 +3826,7 @@ function todayForStaff(iso, all) {
   const others = pendingEvaluations(14).length - pend.length;
   out.push(`<div class="card">
     <h2>ประเมินที่ค้าง <span class="tag ${pend.length ? "warn" : "ok"}">${pend.length} เซสชัน</span></h2>
+    ${batchButtonsHtml(pend)}
     ${pend.length ? pend.slice(0, 10).map(ses => {
       const r = store.resident(ses.residentId);
       return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
@@ -4369,6 +4390,7 @@ function renderRotation() {
     .sort((a, b) => b[1].length - a[1].length)
     .map(([sid, list]) => `<div class="nowcard">
       <div class="between"><b>${esc(staffName(sid))}</b><span class="tag warn">${list.length} รอประเมิน</span></div>
+      ${batchButtonsHtml(list)}
       <div style="margin-top:.4rem">${list.slice(0, 6).map(ses => {
         const r = store.resident(ses.residentId);
         return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
@@ -4401,6 +4423,8 @@ function renderRotation() {
       }).join("")}
     </tr>`).join("")}</tbody></table></div>` : "";
   $$("#weekGrid .sess, #nowBoard .sess, #pendingBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
+  $$("#pendingBoard [data-batch]").forEach(b => b.addEventListener("click", () =>
+    openSessionBatch(b.dataset.batch.split(",").map(sessionByKey))));
 
   /* --- ช่วงหมุนเวียนทั้งหมด --- */
   const rots = (store.data.rotations || []).slice().sort((a, b) => (b.start || "").localeCompare(a.start || ""));
@@ -4883,37 +4907,13 @@ function openSession(key) {
         EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
         const comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
         const entrust = dlgVal("entrust");
-        if (!Object.keys(scores).length && !comment && !entrust) { toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false; }
-        const rec = {
-          key: ses.key, date: ses.date, part: ses.part, residentId: ses.residentId, serviceId: ses.serviceId,
-          staffId: dlgVal("staffId") || ses.staffId, sessionName: ses.name, location: ses.location,
-          scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
-        };
-        if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
-
-        /* หัวข้อ EPA ที่ติ๊กไว้ — บันทึกระดับเดียวกันเป็นผลประเมิน EPA ให้เลย
-           ลบของเดิมที่มาจากคาบนี้ก่อน เพื่อให้แก้ผลประเมินแล้วไม่เกิดรายการซ้อน
-           เขียนเฉพาะเมื่อมีระดับ entrustment เพราะ EPA ใช้ระดับนั้นเป็นค่า */
-        const pickedEpa = (store.data.epas || []).filter(e =>
-          visibleEpaIds.includes(e.id) && $('#dlgBody [name="epa_' + e.id + '"]')?.checked);
-        /* ลบเฉพาะของเดิมที่มาจากคาบนี้ "และ" เป็นหัวข้อที่กล่องนี้แสดงให้ติ๊กจริง — หัวข้อ EPA ที่เคย
-           ติ๊กไว้แต่ตกไปนอก 12 อันดับแรกที่แสดง (เช่น เพิ่ม EPA ใหม่จนลำดับเปลี่ยน) ไม่มีช่องติ๊กให้เห็น
-           เดิมลบทุกอย่างของ sessionKey นี้ทิ้งหมดไม่ว่าจะแสดงหรือไม่ ทำให้ผลประเมิน EPA เดิมหายเงียบ ๆ */
-        store.data.epaAssessments = (store.data.epaAssessments || [])
-          .filter(a => !(a.sessionKey === ses.key && visibleEpaIds.includes(a.epaId)));
-        if (entrust) pickedEpa.forEach(e => store.data.epaAssessments.push({
-          id: uid("epaa"), residentId: ses.residentId, epaId: e.id, level: +entrust,
-          by: rec.staffId ? staffName(rec.staffId) : (currentUser()?.displayName || ""),
-          byUserId: currentUser()?.id || "", at: ses.date, caseId: "",
-          sessionKey: ses.key,                 /* บอกที่มา และใช้กันรายการซ้อนตอนแก้ */
-          note: "จากการประเมินท้ายเซสชัน — " + ses.name
-        }));
-
-        audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name +
-          (entrust && pickedEpa.length ? " · บันทึก EPA " + pickedEpa.map(e => e.code).join(", ") : ""));
+        const epaIds = (store.data.epas || []).filter(e =>
+          visibleEpaIds.includes(e.id) && $('#dlgBody [name="epa_' + e.id + '"]')?.checked).map(e => e.id);
+        const r = saveSessionEval(ses, { staffId: dlgVal("staffId"), scores, entrust, comment, epaIds, visibleEpaIds });
+        if (!r.ok) { toast(r.error); return false; }
         store.save(); renderAll();
-        toast(entrust && pickedEpa.length
-          ? "บันทึกผลประเมินแล้ว · บันทึกระดับ EPA " + pickedEpa.length + " หัวข้อให้พร้อมกัน"
+        toast(r.pickedEpa.length
+          ? "บันทึกผลประเมินแล้ว · บันทึกระดับ EPA " + r.pickedEpa.length + " หัวข้อให้พร้อมกัน"
           : "บันทึกผลประเมินแล้ว");
       }},
     ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
@@ -4924,6 +4924,107 @@ function openSession(key) {
         store.save(); renderAll(); toast("ลบแล้ว");
       }}] : [])
   ]);
+}
+
+/* บันทึกผลประเมินท้ายเซสชันของคาบเดียว — ตัวเดียวที่เขียน sessionEvals/epaAssessments ใช้ร่วมกันระหว่าง
+   กล่องรายคน (openSession) และกล่องประเมินทั้งคาบ (openSessionBatch) จะได้ไม่มีสองก๊อปปี้ที่เพี้ยนกัน
+   ไม่ save/renderAll เอง — ผู้เรียกทำหลังบันทึกครบทุกคน */
+function saveSessionEval(ses, { staffId, scores, entrust, comment, epaIds = [], visibleEpaIds = [] }) {
+  if (!Object.keys(scores).length && !comment && !entrust) return { ok: false, error: "ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง" };
+  const ev = evalForKey(ses.key);
+  const rec = {
+    key: ses.key, date: ses.date, part: ses.part, residentId: ses.residentId, serviceId: ses.serviceId,
+    staffId: staffId || ses.staffId, sessionName: ses.name, location: ses.location,
+    scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
+  };
+  if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
+
+  /* หัวข้อ EPA ที่ติ๊กไว้ — บันทึกระดับเดียวกันเป็นผลประเมิน EPA ให้เลย
+     ลบเฉพาะของเดิมที่มาจากคาบนี้ "และ" เป็นหัวข้อที่กล่องแสดงให้ติ๊กจริง (visibleEpaIds) — หัวข้อที่ตกไปนอก
+     12 อันดับแรกไม่มีช่องติ๊ก ถ้าลบทิ้งหมดผลประเมิน EPA เดิมจะหายเงียบ ๆ · เขียนเฉพาะเมื่อมีระดับ entrustment */
+  const pickedEpa = (store.data.epas || []).filter(e => epaIds.includes(e.id));
+  store.data.epaAssessments = (store.data.epaAssessments || [])
+    .filter(a => !(a.sessionKey === ses.key && visibleEpaIds.includes(a.epaId)));
+  if (entrust) pickedEpa.forEach(e => store.data.epaAssessments.push({
+    id: uid("epaa"), residentId: ses.residentId, epaId: e.id, level: +entrust,
+    by: rec.staffId ? staffName(rec.staffId) : (currentUser()?.displayName || ""),
+    byUserId: currentUser()?.id || "", at: ses.date, caseId: "",
+    sessionKey: ses.key,                 /* บอกที่มา และใช้กันรายการซ้อนตอนแก้ */
+    note: "จากการประเมินท้ายเซสชัน — " + ses.name
+  }));
+  audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name +
+    (entrust && pickedEpa.length ? " · บันทึก EPA " + pickedEpa.map(e => e.code).join(", ") : ""));
+  return { ok: true, pickedEpa: entrust ? pickedEpa : [] };
+}
+
+/* --- ประเมินทั้งคาบ: ทุกคนในคาบเดียวกันในกล่องเดียว --- */
+const batchKey = (s) => [s.date, s.part, s.serviceId, s.name].join("|");
+/* ปุ่ม "ประเมินทั้งคาบ" สำหรับทุกกลุ่มในรายการที่มีตั้งแต่ 2 คนขึ้นไป — ใช้ทั้งหน้าวันนี้และกระดานงานค้าง */
+function batchButtonsHtml(list, cls = "btn-sm") {
+  const g = {};
+  list.forEach(s => (g[batchKey(s)] ||= []).push(s));
+  const multi = Object.values(g).filter(x => x.length >= 2);
+  if (!multi.length) return "";
+  return `<div class="row no-print" style="margin:.2rem 0 .5rem">${multi.map(x =>
+    `<button class="${cls}" data-batch="${esc(x.map(s => s.key).join(","))}">ประเมินทั้งคาบ: ${esc(x[0].name)} ${fmtDate(x[0].date).replace(/ \d{4}$/, "")} (${x.length} คน)</button>`).join("")}</div>`;
+}
+function openSessionBatch(sessions) {
+  if (!canAssess()) { toast("บัญชีนี้ไม่มีสิทธิ์ประเมิน"); return; }
+  const list = (sessions || []).filter(Boolean);
+  if (!list.length) { toast("ไม่พบคาบนี้แล้ว (ตารางอาจถูกแก้ไข)"); return; }
+  const first = list[0];
+  const scoreSel = (name, val) => `<select name="${name}"><option value="">—</option>${[1,2,3,4,5].map(v =>
+    `<option value="${v}" ${String(val ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+  const entrustSel = (name, val) => `<select name="${name}"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
+    `<option value="${l.v}" ${String(val ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v}</option>`).join("")}</select>`;
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>เซสชัน</dt><dd>${esc(first.name)} · ${esc(PART_BY_ID[first.part]?.th || first.part)} ${esc(sessionTimeLabel(first))}</dd>
+      <dt>วันที่</dt><dd>${fmtDate(first.date)} · ${list.length} คน</dd>
+    </div>
+    <label class="f"><span>อาจารย์ผู้ประเมิน</span><select name="b_staff">${(store.data.staff || []).map(x =>
+      `<option value="${x.id}" ${(myStaffId() || first.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>แพทย์ประจำบ้าน</th>${EVAL_ITEMS.map(it => `<th class="small">${esc(it.th)}</th>`).join("")}
+        <th class="small">entrustment</th><th>ข้อเสนอแนะ</th><th></th></tr></thead>
+      <tbody>
+        <tr class="muted"><th class="small">ใช้ค่านี้กับทุกคน</th>
+          ${EVAL_ITEMS.map(it => `<td>${scoreSel("q_sc_" + it.id)}</td>`).join("")}
+          <td>${entrustSel("q_entrust")}</td>
+          <td colspan="2"><button type="button" class="btn-sm" data-fillall>เติมให้ทุกคนที่ยังว่าง</button></td></tr>
+        ${list.map((ses, i) => {
+          const r = store.resident(ses.residentId), ev = evalForKey(ses.key);
+          return `<tr>
+            <td><b>${esc(r?.name || "—")}</b><br /><span class="small muted">ปี ${r?.year || "—"}${ev ? ' · <span class="tag ok">ประเมินแล้ว</span>' : ""}</span></td>
+            ${EVAL_ITEMS.map(it => `<td>${scoreSel("r" + i + "_sc_" + it.id, ev?.scores?.[it.id])}</td>`).join("")}
+            <td>${entrustSel("r" + i + "_entrust", ev?.entrust)}</td>
+            <td><input name="r${i}_comment" value="${esc(ev?.comment || "")}" placeholder="สั้น ๆ" /></td>
+            <td><button type="button" class="btn-sm btn-ghost" data-openses="${esc(ses.key)}" title="ประเมินรายคนพร้อม EPA">รายละเอียด</button></td>
+          </tr>`;
+        }).join("")}
+      </tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">แถวที่ยังว่างทั้งแถวจะไม่ถูกบันทึก · หัวข้อ EPA ประเมินได้จากปุ่ม "รายละเอียด" ของแต่ละคน</p>`;
+  showDialog("ประเมินทั้งคาบ — " + first.name, body, [
+    { label:"บันทึกทุกแถวที่กรอก", cls:"btn-primary", onClick: () => {
+        let saved = 0;
+        list.forEach((ses, i) => {
+          const scores = {};
+          EVAL_ITEMS.forEach(it => { const v = dlgVal("r" + i + "_sc_" + it.id); if (v) scores[it.id] = +v; });
+          const entrust = dlgVal("r" + i + "_entrust"), comment = dlgVal("r" + i + "_comment");
+          if (!Object.keys(scores).length && !entrust && !comment) return;   /* แถวว่าง — ข้าม */
+          if (saveSessionEval(ses, { staffId: dlgVal("b_staff"), scores, entrust, comment }).ok) saved++;
+        });
+        if (!saved) { toast("ยังไม่ได้กรอกคะแนนของใครเลย"); return false; }
+        store.save(); renderAll(); toast("บันทึกผลประเมิน " + saved + " คน");
+      }}
+  ]);
+  $('#dlgBody [data-fillall]').addEventListener("click", () => {
+    list.forEach((_, i) => {
+      EVAL_ITEMS.forEach(it => { const t = $(`#dlgBody [name="r${i}_sc_${it.id}"]`), q = dlgVal("q_sc_" + it.id); if (t && !t.value && q) t.value = q; });
+      const te = $(`#dlgBody [name="r${i}_entrust"]`), qe = dlgVal("q_entrust"); if (te && !te.value && qe) te.value = qe;
+    });
+  });
+  $$('#dlgBody [data-openses]').forEach(b => b.addEventListener("click", () => { closeDialog(); openSession(b.dataset.openses); }));
 }
 
 /* --- ตารางเวรรายเดือน --- */
