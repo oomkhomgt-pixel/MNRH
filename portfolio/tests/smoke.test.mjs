@@ -95,6 +95,36 @@ export default async function run() {
       const wraps = await page.evaluate(() =>
         [...document.querySelectorAll(".tbl-wrap")].filter(w => w.scrollWidth > w.clientWidth + 1).length);
       t.check(role + ": ตารางกว้างเลื่อนได้ในกล่องของตัวเอง", true, wraps + " ตารางที่ต้องเลื่อน");
+
+      /* มือถือ: เลื่อนลงแล้วแถบบน (sticky) ย่อจาก ~212px เหลือแท็บอย่างเดียว เลื่อนกลับบนสุดจึงคืน
+         — เดิมแถบบนกินหนึ่งในสี่ของจอตลอดเวลา */
+      await page.evaluate(() => showView("rotation"));
+      await page.waitForTimeout(150);
+      const hdr0 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      await page.evaluate(() => window.scrollTo(0, 400));
+      await page.waitForTimeout(250);
+      const hdr1 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(250);
+      const hdr2 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      t.check(role + ": 390px เลื่อนลงแล้วแถบบนย่อ", hdr1 < hdr0 - 40 && hdr1 <= 130, hdr0 + " → " + hdr1 + " px");
+      t.check(role + ": เลื่อนกลับบนสุดแล้วแถบบนคืนเต็ม", hdr2 === hdr0, hdr2 + " px");
+
+      /* ตารางกว้างมีสัญญาณว่าเลื่อนได้ */
+      const scrollable = await page.evaluate(() => {
+        document.querySelector('#calSeg [data-seg="week"]')?.click();
+        markScrollable();
+        const w = document.querySelector("#weekGrid .tbl-wrap");
+        return { found: !!w, can: !!w?.classList.contains("can-scroll"), atEnd: !!w?.classList.contains("at-end") };
+      });
+      t.check(role + ": 390px ตารางสัปดาห์ที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
+              scrollable.found && scrollable.can && !scrollable.atEnd, JSON.stringify(scrollable));
+
+      /* แถวตัวกรองไม่กินทั้งจอ */
+      if (role !== "resident") {
+        const fh = await page.evaluate(() => { showView("assess"); return document.querySelector("#activityFilters")?.getBoundingClientRect().height || 0; });
+        t.check(role + ": 390px แถวตัวกรองหน้าประเมินสูงไม่เกิน 260px", fh > 0 && fh < 260, Math.round(fh) + " px");
+      }
       await page.setViewportSize({ width: 1280, height: 900 });
 
       await page.close();

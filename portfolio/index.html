@@ -115,6 +115,10 @@ tbody tr:hover{background:#fafbfc}
    position:absolute ถ้ากล่องนี้ไม่ใช่จุดอ้างอิง มันจะไปอ้างวิวพอร์ตแทน แล้วโผล่ไปอยู่ที่
    ~900px ในพิกัดหน้าเว็บ ทำให้หน้าจอมือถือปัดข้างได้ไปเจอที่ว่างเปล่า */
 .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
+/* ตารางที่กว้างกว่ากล่อง: เงาที่ขอบขวาบอกว่ายังมีต่อ (คลาสใส่โดย markScrollable) หายเมื่อเลื่อนสุด */
+.tbl-wrap.can-scroll:not(.at-end){box-shadow:inset -22px 0 16px -16px rgba(15,23,32,.22)}
+/* หัวข้อในการ์ดต้องไม่ถูกแถบบน (sticky) บัง — --hdr คือความสูงจริงของแถบบน ตั้งโดย syncHeader() */
+.card > h1,.card > h2,.view > .card,[data-anchor]{scroll-margin-top:calc(var(--hdr,152px) + 8px)}
 
 .stat{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:.8rem}
 .stat b{display:block;font-size:1.55rem;line-height:1.15}
@@ -178,10 +182,18 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
   /* จำนวนกิจกรรมที่เก็บในเครื่องดูได้ที่หน้าตั้งค่า ไม่ต้องกินอีกบรรทัดบนแถบบน */
   #storeState { display: none }
   #whoami { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-  .topbar-in .row { flex-wrap: nowrap }
+  /* แถวปุ่มบนแถบบนเลื่อนข้างได้แทนที่จะล้นทับ (เดิม nowrap เฉย ๆ) */
+  .topbar-in .row { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none }
   .brandmark .dot { width: 30px; height: 30px }
   .brandmark .t b { font-size: .85rem }
-  .card > h1, .card > h2, .view > .card { scroll-margin-top: 132px }
+  /* เลื่อนลงแล้วแถบบนย่อ: ซ่อนแถวชื่อ+ปุ่มบัญชี เหลือแท็บกับหน้าย่อย (~105px จาก ~212px) เลื่อนกลับบนสุดค่อยคืน */
+  .topbar.compact .topbar-in { display: none }
+  /* แถวตัวกรอง: สองคอลัมน์แทนเรียงลงมาทีละอัน (เดิมกินทั้งจอก่อนเห็นผลลัพธ์แถวแรก) */
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; align-items: stretch }
+  .filters > select { max-width: 100%; min-width: 0 }
+  .filters > input, .filters > button, .filters > label { grid-column: 1 / -1 }
+  /* ตารางกว้างบนมือถือ: บอกตรง ๆ ว่าเลื่อนได้ */
+  .tbl-wrap.can-scroll:not(.at-end)::before { content: "เลื่อนดูตารางได้ →"; display: block; font-size: .74rem; color: var(--muted); text-align: right; padding: 0 .3rem .2rem }
 }
 [hidden]{display:none!important}   /* คลาสที่กำหนด display เองต้องไม่ลบล้างแอตทริบิวต์ hidden */
 .gate{position:fixed;inset:0;z-index:120;background:var(--bg);display:grid;place-items:center;padding:1rem;overflow:auto}
@@ -323,7 +335,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <button data-view="ingest">รับสไลด์ (บันทึกอัตโนมัติ)</button>
     </div>
     <div class="row seg" data-subgroup="g1" hidden>
-      <button data-view="rotation">ตารางรวม: หมุนเวียน · เวร · นำเสนอ</button>
+      <!-- ป้ายสั้น — ตัวเลือก เดือน/สัปดาห์/นำเสนอ อยู่ในหน้าอยู่แล้ว ป้ายยาวทำให้แถวนี้ห่อสองบรรทัดบนมือถือ -->
+      <button data-view="rotation">ตารางรวม</button>
       <button data-view="calendar">ปฏิทินรายคน</button>
     </div>
     <div class="row seg" data-subgroup="g2" hidden>
@@ -569,7 +582,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="talkUpcoming"></div>
       </div>
       <div class="card">
-        <div class="between"><h2>รายการทั้งหมด</h2><div class="row no-print" id="talkFilters"></div></div>
+        <div class="between"><h2>รายการทั้งหมด</h2><div class="row filters no-print" id="talkFilters"></div></div>
         <div id="talkTable"></div>
       </div>
     </div>
@@ -677,7 +690,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <div class="card">
       <div class="between">
         <h2>เคสทั้งหมด</h2>
-        <div class="row no-print" id="caseFilters"></div>
+        <div class="row filters no-print" id="caseFilters"></div>
       </div>
       <div id="caseTable"></div>
     </div>
@@ -731,7 +744,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <p class="muted small">แดชบอร์ดเป็นไฟล์เดียวจบ เปิดในเบราว์เซอร์ได้โดยไม่ต้องมีเน็ต สั่งพิมพ์เป็น PDF ลง A4 ได้
         · เป็นตัวเลขรวม ไม่มีข้อมูลผู้ป่วยรายบุคคล · ได้ข้อมูลเท่าที่บัญชีของคุณมีสิทธิ์เห็น</p>
       <p class="muted small">เริ่มที่ภาพรวมเพื่อดูว่าอะไรขาด แล้วกดเข้าไปดูทีละประเภทงานนำเสนอเพื่อดูว่าใครขาด</p>
-      <div class="row no-print" id="coverageFilters"></div>
+      <div class="row filters no-print" id="coverageFilters"></div>
       <div class="row seg no-print" id="coverageNav"></div>
     </div>
     <div id="coverageBody"></div>
@@ -4973,9 +4986,10 @@ function openSessionBatch(sessions) {
   const list = (sessions || []).filter(Boolean);
   if (!list.length) { toast("ไม่พบคาบนี้แล้ว (ตารางอาจถูกแก้ไข)"); return; }
   const first = list[0];
-  const scoreSel = (name, val) => `<select name="${name}"><option value="">—</option>${[1,2,3,4,5].map(v =>
+  /* ช่องเลือกให้แคบ — 6 คอลัมน์ต้องพอดีกล่องบนจอเดสก์ท็อป ไม่ต้องเลื่อนข้าง */
+  const scoreSel = (name, val) => `<select name="${name}" style="min-width:4.2rem;width:4.2rem"><option value="">—</option>${[1,2,3,4,5].map(v =>
     `<option value="${v}" ${String(val ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
-  const entrustSel = (name, val) => `<select name="${name}"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
+  const entrustSel = (name, val) => `<select name="${name}" style="min-width:5.2rem;width:5.2rem"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
     `<option value="${l.v}" ${String(val ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v}</option>`).join("")}</select>`;
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
@@ -4985,8 +4999,9 @@ function openSessionBatch(sessions) {
     <label class="f"><span>อาจารย์ผู้ประเมิน</span><select name="b_staff">${(store.data.staff || []).map(x =>
       `<option value="${x.id}" ${(myStaffId() || first.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>แพทย์ประจำบ้าน</th>${EVAL_ITEMS.map(it => `<th class="small">${esc(it.th)}</th>`).join("")}
-        <th class="small">entrustment</th><th>ข้อเสนอแนะ</th><th></th></tr></thead>
+      <thead><tr><th>แพทย์ประจำบ้าน</th>${EVAL_ITEMS.map(it =>
+          `<th class="small" title="${esc(it.th)}">${esc(it.th.split(/และ|,| /)[0])}</th>`).join("")}
+        <th class="small">entrust</th><th>ข้อเสนอแนะ</th><th></th></tr></thead>
       <tbody>
         <tr class="muted"><th class="small">ใช้ค่านี้กับทุกคน</th>
           ${EVAL_ITEMS.map(it => `<td>${scoreSel("q_sc_" + it.id)}</td>`).join("")}
@@ -4998,7 +5013,7 @@ function openSessionBatch(sessions) {
             <td><b>${esc(r?.name || "—")}</b><br /><span class="small muted">ปี ${r?.year || "—"}${ev ? ' · <span class="tag ok">ประเมินแล้ว</span>' : ""}</span></td>
             ${EVAL_ITEMS.map(it => `<td>${scoreSel("r" + i + "_sc_" + it.id, ev?.scores?.[it.id])}</td>`).join("")}
             <td>${entrustSel("r" + i + "_entrust", ev?.entrust)}</td>
-            <td><input name="r${i}_comment" value="${esc(ev?.comment || "")}" placeholder="สั้น ๆ" /></td>
+            <td><input name="r${i}_comment" value="${esc(ev?.comment || "")}" placeholder="สั้น ๆ" style="min-width:9rem" /></td>
             <td><button type="button" class="btn-sm btn-ghost" data-openses="${esc(ses.key)}" title="ประเมินรายคนพร้อม EPA">รายละเอียด</button></td>
           </tr>`;
         }).join("")}
@@ -5776,7 +5791,7 @@ function renderAssess() {
       <h2>งานนำเสนอ — ประเมินและรับรอง</h2>
       <p class="muted small">กด “เปิด” เพื่อให้คะแนน เขียนข้อเสนอแนะ และรับรอง
         · ตั้งต้นกรองเฉพาะที่ยังไม่รับรอง เปลี่ยนได้ที่ตัวกรอง</p>
-      <div class="row no-print" id="activityFilters"></div>
+      <div class="row filters no-print" id="activityFilters"></div>
       <div id="activityTable"></div>
     </div>`;
     renderActivityFilters();
@@ -8828,6 +8843,7 @@ function showView(name) {
   /* เขียน hash เฉพาะเมื่อเปลี่ยนจริง — ไม่งั้นได้ history entry ซ้ำ และ hashchange จะยิงกลับมาเอง */
   if (name !== "report" && location.hash !== "#" + name) location.hash = name;
   window.scrollTo({ top: 0 });
+  markScrollable();   /* ตารางใน view ที่เพิ่งโผล่ เพิ่งวัดความกว้างได้ตอนนี้ */
 }
 
 function renderStoreState() {
@@ -8884,6 +8900,39 @@ function renderAll() {
   renderSettings();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
+  markScrollable(); syncHeader();
+}
+
+/* ตารางไหนกว้างกว่ากล่อง → ใส่ .can-scroll ให้เงา/ข้อความบอกว่าเลื่อนได้ · .at-end เมื่อเลื่อนสุดแล้ว
+   ต้องเรียกซ้ำหลังวาดใหม่ เปลี่ยนหน้า และย่อ/ขยายจอ เพราะตารางใน view ที่ซ่อนอยู่วัดความกว้างไม่ได้ */
+function markScrollable() {
+  $$(".tbl-wrap").forEach(w => {
+    const can = w.scrollWidth > w.clientWidth + 1;
+    w.classList.toggle("can-scroll", can);
+    if (can) w.classList.toggle("at-end", w.scrollLeft + w.clientWidth >= w.scrollWidth - 1);
+    if (!w.dataset.scrollWired) {
+      w.dataset.scrollWired = "1";
+      w.addEventListener("scroll", () => w.classList.toggle("at-end", w.scrollLeft + w.clientWidth >= w.scrollWidth - 1), { passive: true });
+    }
+  });
+}
+/* ความสูงจริงของแถบบน → --hdr (ใช้กับ scroll-margin-top) และย่อแถบบนบนมือถือเมื่อเลื่อนลง */
+const isPhone = () => window.matchMedia("(max-width: 640px)").matches;
+function syncHeader() {
+  const h = $("header.topbar"); if (!h) return;
+  document.documentElement.style.setProperty("--hdr", h.offsetHeight + "px");
+}
+function setupCompactHeader() {
+  const h = $("header.topbar"); if (!h) return;
+  let compact = false;
+  const apply = (on) => { if (on === compact) return; compact = on; h.classList.toggle("compact", on); syncHeader(); };
+  window.addEventListener("scroll", () => {
+    if (!isPhone()) { apply(false); return; }
+    /* hysteresis: ย่อเมื่อเลื่อนเกิน 96px คืนเมื่อกลับมาใกล้บนสุด (<24px) — กันกระพริบตอนอยู่ตรงรอยต่อ */
+    if (window.scrollY > 96) apply(true); else if (window.scrollY < 24) apply(false);
+  }, { passive: true });
+  window.addEventListener("resize", () => { if (!isPhone()) apply(false); syncHeader(); markScrollable(); });
+  syncHeader();
 }
 
 /* =====================================================================
@@ -9332,6 +9381,7 @@ function init() {
   });
 
   setupApp();
+  setupCompactHeader();
   setupSync();
   autoBackupIfDue();
   $("#btnDiagnose").addEventListener("click", async () => {
