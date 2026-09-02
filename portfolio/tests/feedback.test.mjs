@@ -79,6 +79,42 @@ export default async function run() {
     t.check("ลบหน่วยแล้วช่วงหมุนเวียนที่ผูกไว้หายตาม (" + cascade.rots + " ช่วง)", cascade.deleted);
     t.check("เลิกทำแล้วทั้งหน่วยและช่วงหมุนเวียนกลับมาครบ", cascade.restored);
 
+    /* ---------- ลบผลประเมินลงกองแล้วเลิกทำ (ผู้จัดหลักสูตร) ---------- */
+    const revUndo = await page.evaluate(async () => {
+      const ev = (store.data.rotationEvals || [])[0];
+      if (!ev) return null;
+      const n = store.data.rotationEvals.length;
+      openRotationEval(ev.rotationId);
+      await new Promise(r => setTimeout(r, 120));
+      [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "ลบผลประเมิน")?.click();
+      await new Promise(r => setTimeout(r, 100));
+      const gone = !rotationEvalFor(ev.rotationId);
+      const btn = document.querySelector("#toasts .toast button");
+      const hasUndo = btn?.textContent === "เลิกทำ";
+      btn?.click();
+      return { gone, hasUndo, back: !!rotationEvalFor(ev.rotationId), count: store.data.rotationEvals.length === n };
+    });
+    if (revUndo) t.check("ลบผลประเมินลงกองแล้วมี 'เลิกทำ' และกู้คืนได้", revUndo.gone && revUndo.hasUndo && revUndo.back && revUndo.count);
+
+    /* ---------- ผู้จัดหลักสูตรเห็นงานลงกองค้างทั้งกลุ่มงานบนหน้าวันนี้ · แพทย์ประจำบ้านเห็นผลลงกองรายข้อ ไม่ใช่ id ดิบ ---------- */
+    const vis = await page.evaluate(() => {
+      showView("today"); renderToday();
+      const adminStat = /ผลประเมินลงกองค้าง/.test(document.querySelector("#todayBody").textContent);
+      const ev = (store.data.rotationEvals || []).find(x => Object.keys(x.scores || {}).length && x.answers?.outcome);
+      if (!ev) return { adminStat, noEval: true };
+      selectedResident = ev.residentId; showView("residents"); renderResidents();
+      const box = document.querySelector("#residentDetail");
+      const sec = box.textContent;
+      const label = rotationOutcomeLabel(ev);
+      return { adminStat, hasSection: /ผลประเมินลงกอง \(\d+ รอบ\)/.test(sec), hasLabel: !!label && sec.includes(label),
+               rawId: /\b(pass|advice|watch)\b/.test(sec), tags: box.querySelectorAll(".tag[title]").length > 0 };
+    });
+    t.check("หน้าวันนี้ของผู้จัดหลักสูตรมีตัวเลขผลประเมินลงกองค้างทั้งกลุ่มงาน", vis.adminStat);
+    if (!vis.noEval) {
+      t.check("หน้าแพทย์ประจำบ้านมีตารางผลประเมินลงกอง พร้อมป้ายผลโดยรวม (ไม่ใช่ pass/advice/watch ดิบ) และคะแนนรายข้อ",
+              vis.hasSection && vis.hasLabel && !vis.rawId && vis.tags, JSON.stringify(vis));
+    }
+
     /* ---------- ยืนยันด้วยกล่องของแอป ไม่ใช่ popup ของเบราว์เซอร์ ---------- */
     const cd = await page.evaluate(async () => {
       showView("settings");

@@ -601,8 +601,9 @@ export default async function run() {
         openRotationEval(target.id);
         await new Promise(res => setTimeout(res, 120));
         const opened = !!document.querySelector("#dlgBody [name=\"sc_knowledge\"]");
-        document.querySelector("#dlgBody [name=\"sc_knowledge\"]").value = "4";
-        document.querySelector("#dlgBody [name=\"sc_plan\"]").value = "3";
+        /* ข้อให้คะแนนเป็นปุ่ม radio แล้ว — ติ๊กตัวที่มี value ตรง ไม่ใช่ตั้ง .value ของ select */
+        document.querySelector("#dlgBody [name=\"sc_knowledge\"][value=\"4\"]").checked = true;
+        document.querySelector("#dlgBody [name=\"sc_plan\"][value=\"3\"]").checked = true;
         document.querySelector("#dlgBody [name=\"entrust\"]").value = "3";
         document.querySelector("#dlgBody [name=\"comment\"]").value = "ทดสอบข้อเสนอแนะ";
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
@@ -690,6 +691,12 @@ export default async function run() {
           bad, version: f.version,
           /* หน้ามาตรฐาน WFME ต้องอ้างหลักฐานได้ทุกหมวดที่ฟอร์มบอกว่าตัวเองเป็นหลักฐานให้ */
           uncited: cited.filter(w => !(ev[w]?.sources || []).some(sc => /แบบประเมินการทำงานในสาย/.test(sc.label))),
+          /* แบบประเมินการนำเสนอก็ต้องถูกอ้างในหน้ามาตรฐานครบทุกหมวดที่ข้อของมันระบุ
+             (รวมข้อเฉพาะประเภท — เฉพาะประเภทที่มีกิจกรรมถูกให้คะแนนแล้ว ตามเงื่อนไขของ wfmeEvidence) */
+          talkUncited: [...new Set([...new Set(store.data.activities.filter(a => a.assessment?.scores && Object.keys(a.assessment.scores).length).map(a => a.type))]
+              .flatMap(t => talkEvalItemsFor(t)).flatMap(x => x.wfme || []))]
+            .filter(w => !(ev[w]?.sources || []).some(sc => /แบบประเมินการนำเสนอ/.test(sc.label))),
+          talkBadWfme: ACTIVITY_TYPES.flatMap(t => talkEvalItemsFor(t.id)).flatMap(x => x.wfme || []).filter(w => !WFME_BY_ID[w]),
           /* ข้อมูลสาธิตต้องไม่มีคำตอบไร้ข้อถามเลย */
           orphans: (store.data.rotationEvals || []).reduce((n, x) => n + rotationOrphanAnswers(x).length, 0)
         };
@@ -701,6 +708,8 @@ export default async function run() {
               /section/.test(def.kinds) && /entrust/.test(def.kinds) && /choice/.test(def.kinds)
               && def.kinds.split(",").filter(k => k === "paragraph").length === 2, def.kinds);
       t.eq("หน้ามาตรฐาน WFME อ้างหลักฐานครบทุกหมวดที่ฟอร์มระบุ", def.uncited, []);
+      t.eq("หน้ามาตรฐาน WFME อ้างแบบประเมินการนำเสนอครบทุกหมวดที่ข้อของมันระบุ", def.talkUncited, []);
+      t.eq("รหัส WFME ในแบบประเมินการนำเสนอมีอยู่จริงทุกตัว", def.talkBadWfme, []);
       t.eq("ข้อมูลสาธิตสร้างจากนิยามของฟอร์ม ไม่มีคำตอบไร้ข้อถาม", def.orphans, 0);
 
       /* ---------- รหัสข้อที่ชนกันหลังตัดที่ 40 ตัวอักษร ต้องไม่วนซ้ำไม่รู้จบ ----------
@@ -760,10 +769,23 @@ export default async function run() {
         const ev = { scores: { [scaleItem.id]: 3.5 }, answers: {}, entrust: "", comment: "" };
         const html = rotationFormBodyHtml(ev);
         const escId = scaleItem.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const hasOption = new RegExp('name="sc_' + escId + '"[\\s\\S]*?value="3\\.5"[^>]*selected').test(html);
+        const hasOption = new RegExp('name="sc_' + escId + '"[\\s\\S]*?value="3\\.5"[^>]*checked').test(html);
         return { hasOption };
       });
-      t.check("select ของข้อให้คะแนนมีตัวเลือกสำหรับคะแนนทศนิยมเดิม ไม่เด้งไปที่ว่าง", c5.hasOption);
+      t.check("ปุ่มคะแนนมีปุ่ม 'ค่าเดิม' ที่ติ๊กอยู่สำหรับคะแนนทศนิยมเดิม ไม่เด้งไปที่ว่าง", c5.hasOption);
+
+      /* ---------- C5b: เปิดผลลงกองสาธิตที่คะแนนเป็นทศนิยม แล้วบันทึกซ้ำโดยไม่แตะอะไร คะแนนต้องเท่าเดิมทุกตัว ---------- */
+      const c5b = await page.evaluate(async () => {
+        const ev = (store.data.rotationEvals || []).find(e => Object.values(e.scores || {}).some(v => !Number.isInteger(v)));
+        if (!ev) return null;
+        const before = JSON.stringify(ev.scores);
+        openRotationEval(ev.rotationId);
+        await new Promise(r => setTimeout(r, 120));
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
+        await new Promise(r => setTimeout(r, 200));
+        return { before, after: JSON.stringify(rotationEvalFor(ev.rotationId).scores), open: document.querySelector("#dlg").open };
+      });
+      if (c5b) t.check("บันทึกซ้ำโดยไม่แตะ คะแนนทศนิยมเดิมยังอยู่ครบทุกข้อ", c5b.before === c5b.after && !c5b.open, c5b.before + " → " + c5b.after);
 
       /* ---------- C6: choice ที่ scored:true แต่ option value ไม่ใช่ตัวเลข ต้องไม่ทำให้ค่าเฉลี่ยกลายเป็น NaN ---------- */
       const c6 = await page.evaluate(() => {
@@ -863,7 +885,7 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 120));
         out.newField = !!document.querySelector('#dlgBody [name="an_nextplan"]');
         document.querySelector('#dlgBody [name="an_nextplan"]').value = "ฝึกอ่านฟิล์มเพิ่ม";
-        document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
+        document.querySelector('#dlgBody [name="sc_knowledge"][value="4"]').checked = true;
         [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึก/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         let ev = rotationEvalFor(rot.id);
@@ -957,15 +979,16 @@ export default async function run() {
                || visibleActivities().find(x => !x.assessment);
         openActivity(a.id);
         await new Promise(r => setTimeout(r, 150));
-        const sels = [...document.querySelectorAll('#dlgBody select[name^="tv_"]')];
+        const sels = [...document.querySelectorAll('#dlgBody .scale-pick[data-field^="tv_"]')];
         const expected = talkEvalItemsFor(a.type).length;
         /* ให้คะแนนแค่สองข้อ เพื่อพิสูจน์ว่าค่าเฉลี่ยคิดจากข้อที่กรอกเท่านั้น ไม่นับข้อว่างเป็นศูนย์ */
-        sels[0].value = "5"; sels[1].value = "3";
+        sels[0].querySelector('input[value="5"]').checked = true;
+        sels[1].querySelector('input[value="3"]').checked = true;
         document.querySelector('#dlgBody [name="tvOutcome"]').value = "advice";
         document.querySelector('#dlgBody [name="assessBy"]').value = "อ.ทดสอบ";
         document.querySelector('#dlgBody [name="tvGood"]').value = "เตรียมตัวมาดี";
         document.querySelector('#dlgBody [name="assessComment"]').value = "คุมเวลาให้ดีขึ้น";
-        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /^บันทึก(ผลประเมิน|การแก้ไข)$/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id).assessment;
         /* ข้อเฉพาะประเภทต้องเปลี่ยนตามชนิดของงานนำเสนอ ไม่ใช่ชุดเดียวใช้ทุกแบบ */
@@ -989,6 +1012,103 @@ export default async function run() {
            [talk.saved?.strengths, talk.saved?.comment], ["เตรียมตัวมาดี", "คุมเวลาให้ดีขึ้น"]);
       t.check("CSV กิจกรรมมีคะแนนรายด้านและผลการประเมิน", talk.csvHasItem && !!talk.csvOutcome, talk.csvOutcome);
 
+      /* ---------- ขั้นตอนของอาจารย์: รับรองฟอร์มว่างไม่ได้ · ค่าเฉลี่ยสดแนะนำผลโดยรวม · แก้ทับได้ ---------- */
+      const flow = await page.evaluate(async () => {
+        const a = visibleActivities().find(x => !x.assessment && !x.verified);
+        if (!a) return null;
+        const out = { id: a.id };
+        openActivity(a.id);
+        await new Promise(r => setTimeout(r, 150));
+        /* แบบประเมินต้องมาก่อนช่องแก้ชื่อเรื่อง (ช่องยังอยู่ แต่พับไว้) */
+        const body = document.querySelector("#dlgBody");
+        out.rubricFirst = body.innerHTML.indexOf("data-talkform") < body.innerHTML.indexOf('name="title"');
+        out.metaCollapsed = !!body.querySelector("details:not([open]) [name=\"title\"]");
+        /* กดรับรองทั้งที่ยังไม่ให้คะแนน → ต้องไม่ผ่าน กล่องยังเปิด และช่องผลโดยรวมถูกทำเครื่องหมาย */
+        [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "อาจารย์รับรอง")?.click();
+        await new Promise(r => setTimeout(r, 100));
+        out.stillOpen = document.querySelector("#dlg").open;
+        out.notVerified = !store.data.activities.find(x => x.id === a.id).verified;
+        out.outcomeInvalid = document.querySelector('#dlgBody [name="tvOutcome"]').classList.contains("invalid");
+        /* ติ๊กสองข้อ 5 กับ 3 ผ่านเหตุการณ์ change จริง → เฉลี่ย 4 → แนะนำ "ผ่าน" */
+        const picks = [...document.querySelectorAll('#dlgBody .scale-pick[data-field^="tv_"]')];
+        const tick = (i, v) => { const el = picks[i].querySelector('input[value="' + v + '"]'); el.checked = true; el.dispatchEvent(new Event("change", { bubbles: true })); };
+        tick(0, 5); tick(1, 3);
+        out.meanText = document.querySelector("#dlgBody [data-talk-mean]").textContent;
+        out.suggested = document.querySelector('#dlgBody [name="tvOutcome"]').value;
+        tick(0, 1); tick(1, 2);
+        out.suggestedLow = document.querySelector('#dlgBody [name="tvOutcome"]').value;
+        /* อาจารย์เลือกเองแล้ว ระบบต้องเลิกเติมทับ */
+        const sel = document.querySelector('#dlgBody [name="tvOutcome"]');
+        sel.value = "advice"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+        tick(0, 5); tick(1, 5);
+        out.keptManual = sel.value;
+        document.querySelector("#dlg").close();
+        return out;
+      });
+      if (flow) {
+        t.check("แบบประเมินอยู่ก่อนช่องแก้รายละเอียด และช่องรายละเอียดพับไว้ (ยังอยู่ครบ)", flow.rubricFirst && flow.metaCollapsed);
+        t.check("รับรองฟอร์มว่างไม่ได้: กล่องยังเปิด ยังไม่รับรอง และช่องผลโดยรวมถูกทำเครื่องหมาย",
+                flow.stillOpen && flow.notVerified && flow.outcomeInvalid);
+        t.check("ให้คะแนน 5 กับ 3 → โชว์ค่าเฉลี่ย 4 และแนะนำ 'ผ่าน'", /เฉลี่ย 4\//.test(flow.meanText) && flow.suggested === "pass", flow.meanText);
+        t.eq("ให้คะแนน 1 กับ 2 → แนะนำ 'ต้องนำเสนอซ้ำ'", flow.suggestedLow, "redo");
+        t.eq("อาจารย์เลือกผลเองแล้ว ระบบไม่เติมทับอีก", flow.keptManual, "advice");
+      }
+
+      /* ---------- ลงกอง: บันทึกแล้วเปิดคนถัดไป · ลบแล้วเลิกทำได้ ---------- */
+      const nextFlow = await page.evaluate(async () => {
+        const month = lastClosedMonth();
+        const pend = rotationsToAssess(month).filter(x => !rotationEvalFor(x.id));
+        if (pend.length < 2) return null;
+        const first = pend[0];
+        /* เปิดผ่านปุ่มในตารางจริง เพื่อให้ได้ opts.next เหมือนผู้ใช้กด */
+        assessView.page = "month"; assessView.month = month; renderAssess();
+        document.querySelector('#assessBody [data-rotev="' + first.id + '"]').click();
+        await new Promise(r => setTimeout(r, 150));
+        const out = { title1: document.querySelector("#dlgTitle").textContent };
+        const nextBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => /แล้วเปิดคนถัดไป/.test(b.textContent));
+        out.hasNext = !!nextBtn;
+        out.context = /ท้ายเซสชันในรอบนี้/.test(document.querySelector("#dlgBody").textContent) && /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
+        const sc = document.querySelector('#dlgBody .scale-pick[data-field^="sc_"] input[value="4"]');
+        sc.checked = true; sc.dispatchEvent(new Event("change", { bubbles: true }));
+        out.meanShown = /เฉลี่ย 4\//.test(document.querySelector("#dlgBody [data-rot-mean]").textContent);
+        nextBtn?.click();
+        await new Promise(r => setTimeout(r, 150));
+        out.savedFirst = !!rotationEvalFor(first.id);
+        out.openAgain = document.querySelector("#dlg").open;
+        out.title2 = document.querySelector("#dlgTitle").textContent;
+        document.querySelector("#dlg").close();
+        return out;
+      });
+      if (nextFlow) {
+        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (ท้ายเซสชัน/รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
+        t.check("ติ๊กคะแนนแล้วค่าเฉลี่ยขึ้นทันที", nextFlow.meanShown);
+        t.check("กดแล้วบันทึกคนแรก และเปิดกล่องของคนถัดไปโดยอัตโนมัติ",
+                nextFlow.savedFirst && nextFlow.openAgain && nextFlow.title1 !== nextFlow.title2, nextFlow.title1 + " → " + nextFlow.title2);
+      }
+
+      /* ---------- งานลงกองที่ค้าง ต้องขึ้นหน้า "วันนี้" ของอาจารย์ ข้ามทุกเดือนที่ปิดแล้ว และกดแล้วพาไปเดือนนั้น ---------- */
+      const backlog = await page.evaluate(async () => {
+        showView("today"); renderToday();
+        const text = document.querySelector("#todayBody").textContent;
+        const n = rotationBacklogFor(myStaffId()).length;
+        const m = text.match(/ประเมินลงกองที่ค้าง\s*(\d+) รอบ/);
+        const out = { shown: !!m, n, count: m ? +m[1] : null, hasBtn: !!document.querySelector("#todayBody [data-tgo-rot]") };
+        const btn = document.querySelector("#todayBody [data-tgo-rot]");
+        if (btn) {
+          btn.click();
+          await new Promise(r => setTimeout(r, 100));
+          out.view = currentViewName(); out.page = assessView.page; out.month = assessView.month; out.btnMonth = btn.dataset.tgoRot;
+          out.optionHasCount = [...document.querySelectorAll("#assessMonth option")].some(o => /ค้าง \d+/.test(o.textContent));
+        }
+        return out;
+      });
+      t.check("หน้าวันนี้ของอาจารย์มีการ์ดประเมินลงกองที่ค้าง และตัวเลขตรงกับ rotationBacklogFor()", backlog.shown && backlog.count === backlog.n, backlog.count + " / " + backlog.n);
+      if (backlog.n > 0) {
+        t.check("กดแถวที่ค้างแล้วไปหน้าประเมิน แท็บลงกอง เดือนของรอบนั้น",
+                backlog.hasBtn && backlog.view === "assess" && backlog.page === "month" && backlog.month === backlog.btnMonth, JSON.stringify(backlog));
+        t.check("ตัวเลือกเดือนบอกจำนวนที่ค้างต่อเดือน", backlog.optionHasCount);
+      }
+
       /* ---------- C11: เปลี่ยนประเภทกิจกรรมพร้อมให้คะแนนในการบันทึกครั้งเดียวกัน
          คะแนนข้อเฉพาะประเภทเดิม (ที่พิมพ์ไว้ตอนกล่องยังวาดตามประเภทเดิม) ต้องไม่หาย ---------- */
       const c11 = await page.evaluate(async () => {
@@ -999,11 +1119,11 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 150));
         const items = talkEvalItemsFor(originalType);
         const extraItem = items[items.length - 1];
-        const sel = document.querySelector('#dlgBody [name="tv_' + extraItem.id + '"]');
-        if (sel) sel.value = "5";
+        const sel = document.querySelector('#dlgBody [name="tv_' + extraItem.id + '"][value="5"]');
+        if (sel) sel.checked = true;
         const typeSel = document.querySelector('#dlgBody [name="type"]');
         typeSel.value = otherType;
-        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /^บันทึก(ผลประเมิน|การแก้ไข)$/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id);
         return { originalType, otherType, extraId: extraItem.id, hadSel: !!sel,

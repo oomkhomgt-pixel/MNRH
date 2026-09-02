@@ -74,7 +74,8 @@ main{max-width:1180px;margin:0 auto;padding:1rem 1rem 4rem}
 /* ลูกของกริดมี min-width:auto ตามค่าเริ่มต้น ข้อความยาว ๆ ที่ตัดคำไม่ได้จึงดันช่องให้กว้างเกินจอ
    แล้วทั้งหน้าปัดข้างได้ — เจอบนหน้าตารางที่การ์ด "ตอนนี้ใครอยู่หน่วยไหน" มีชื่อคาบยาว */
 .grid>*{min-width:0}
-@media(min-width:780px){.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}}
+@media(min-width:780px){.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .scale-row{grid-template-columns:minmax(0,1fr) auto;align-items:center}}
 .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
 .between{display:flex;gap:.75rem;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
 hr{border:0;border-top:1px solid var(--line);margin:.9rem 0}
@@ -173,6 +174,7 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
   .sess { min-height: 44px; padding: .45rem .5rem }
   .mcell { min-height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center }
   .seg button { min-height: 44px }
+  .scale-pick label { min-height: 44px }
   label.tag { min-height: 36px; align-items: center }
   label.tag input[type=checkbox] { width: 20px; height: 20px }
   td .btn-sm + .btn-sm { margin-top: .3rem }
@@ -197,6 +199,9 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; align-items: stretch }
   .filters > select { max-width: 100%; min-width: 0 }
   .filters > input, .filters > button, .filters > label { grid-column: 1 / -1 }
+  /* ปุ่มคะแนนบนจอแคบ: เหลือแค่ตัวเลข (ป้ายเต็มอยู่ใน title และ "ความหมายของคะแนน") ให้ 6 ปุ่มอยู่บรรทัดเดียว */
+  .scale-pick .lbl { display: none }
+  .scale-pick label { min-width: 46px; justify-content: center; padding-inline: .6rem }
   /* ตารางกว้างบนมือถือ: บอกตรง ๆ ว่าเลื่อนได้ */
   .tbl-wrap.can-scroll:not(.at-end)::before { content: "เลื่อนดูตารางได้ →"; display: block; font-size: .74rem; color: var(--muted); text-align: right; padding: 0 .3rem .2rem }
 }
@@ -206,6 +211,20 @@ details>summary{cursor:pointer;font-size:.88rem;color:var(--brand-ink)}
 .seg{gap:.3rem;margin-bottom:1rem}
 .seg button{border-radius:999px;padding:.4rem .9rem;font-size:.88rem}
 .seg button[aria-current="true"]{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+/* ปุ่มคะแนนแบบแตะครั้งเดียว (แบบประเมินการนำเสนอ / ลงกอง) — radio จริงซ่อนอยู่ในป้าย จึงใช้คีย์บอร์ดได้
+   และ dlgVal อ่านตัวที่ติ๊กอยู่ · ไม่ใช้ display:none กับ input ไม่งั้นหลุดจากลำดับ Tab */
+.scale-row{display:grid;gap:.3rem .8rem;margin-bottom:.6rem}
+.scale-row>.q{font-size:.88rem;color:var(--ink-2)}
+.scale-pick{display:flex;flex-wrap:wrap;gap:.3rem}
+.scale-pick label{position:relative;display:inline-flex;align-items:center;gap:.25rem;border:1px solid var(--line-2);border-radius:999px;
+  padding:.3rem .7rem;font-size:.85rem;cursor:pointer;background:#fff;user-select:none;white-space:nowrap}
+.scale-pick input{position:absolute;opacity:0;width:0;height:0;margin:0}
+.scale-pick label:has(input:checked){background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.scale-pick label:has(input:focus-visible){outline:2px solid var(--brand);outline-offset:2px}
+.scale-pick label:has(input:disabled){opacity:.6;cursor:default}
+.scale-pick label.clear{color:var(--muted)}
+.scale-pick label.legacy{border-style:dashed}
+.scale-pick.invalid{outline:2px solid var(--bad);outline-offset:3px;border-radius:12px}
 table.month{border-collapse:separate;border-spacing:2px;font-size:.78rem;width:100%}
 table.month th{font-size:.75rem;color:var(--ink-2);font-weight:600;padding:.2rem .3rem;white-space:nowrap;text-align:center}
 table.month th.who{text-align:left;min-width:145px}
@@ -1068,7 +1087,6 @@ const WFME_BY_ID = Object.fromEntries(WFME_SUBS.map(s => [s.id, s]));
 
 /* หลักฐานอื่นในระบบที่ไม่ได้มาจากกิจกรรมโดยตรง ผูกกับหมวด WFME ไว้ล่วงหน้า */
 const WFME_SOURCES = [
-  { key:"assessment", label:"แบบประเมินหลังการนำเสนอ (ผู้ประเมิน คะแนน ข้อเสนอแนะ)", subs:["3.1","3.2","7.2"] },
   { key:"coverage",   label:"ตารางความครอบคลุมอนุสาขาและรายการหัวข้อที่นำเสนอ",       subs:["2.3","2.4","7.1"] },
   { key:"gaps",       label:"รายการส่วนขาดเทียบเกณฑ์ต่อชั้นปี",                       subs:["7.1","9.0"] },
   { key:"research",   label:"ทะเบียนโครงการวิจัยและขั้นความก้าวหน้า",                  subs:["2.2","6.5"] },
@@ -1112,7 +1130,7 @@ function demoTalkEval(type, mean, by, at, seed) {
   const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
   return {
     scores, items: items.map(x => x.id), by, at,
-    outcome: avg >= 3.5 ? "pass" : avg >= 2.5 ? "advice" : "redo",
+    outcome: talkOutcomeFor(avg),
     score: avg,
     strengths: ["เตรียมข้อมูลผู้ป่วยมาครบและลำดับการนำเสนอชัดเจน",
                 "อ้างอิงหลักฐานเชิงประจักษ์ได้ตรงประเด็น",
@@ -1212,24 +1230,24 @@ const ENTRUST_LEVELS = [
    แบ่งเป็นสามด้าน เพราะข้อเสนอแนะที่ใช้ได้จริงต้องบอกได้ว่าอ่อนด้านไหน
    ไม่ใช่ได้คะแนนรวมมาก้อนเดียวแล้วเดาเอง */
 const TALK_EVAL_ITEMS = [
-  { id:"accuracy", group:"เนื้อหา",   th:"ความถูกต้องและทันสมัยของเนื้อหาวิชาการ" },
-  { id:"complete", group:"เนื้อหา",   th:"ความครบถ้วนและตรงประเด็นกับหัวข้อ" },
-  { id:"evidence", group:"เนื้อหา",   th:"การอ้างอิงหลักฐานเชิงประจักษ์และคุณภาพของแหล่งอ้างอิง" },
-  { id:"apply",    group:"เนื้อหา",   th:"การประยุกต์กับผู้ป่วยและบริบทของกลุ่มงาน" },
+  { id:"accuracy", group:"เนื้อหา",   th:"ความถูกต้องและทันสมัยของเนื้อหาวิชาการ", wfme:["2.3"] },
+  { id:"complete", group:"เนื้อหา",   th:"ความครบถ้วนและตรงประเด็นกับหัวข้อ", wfme:["2.3"] },
+  { id:"evidence", group:"เนื้อหา",   th:"การอ้างอิงหลักฐานเชิงประจักษ์และคุณภาพของแหล่งอ้างอิง", wfme:["2.2","6.5"] },
+  { id:"apply",    group:"เนื้อหา",   th:"การประยุกต์กับผู้ป่วยและบริบทของกลุ่มงาน", wfme:["2.6"] },
   { id:"organise", group:"การนำเสนอ", th:"ลำดับการนำเสนอและการคุมเวลา" },
   { id:"slides",   group:"การนำเสนอ", th:"สไลด์และสื่อประกอบ อ่านง่าย ชัดเจน" },
   { id:"delivery", group:"การนำเสนอ", th:"การใช้ภาษา น้ำเสียง และการสื่อสารกับผู้ฟัง" },
-  { id:"qa",       group:"การอภิปรายและความเป็นมืออาชีพ", th:"การตอบคำถามและการร่วมอภิปราย" },
-  { id:"prof",     group:"การอภิปรายและความเป็นมืออาชีพ", th:"ความเป็นมืออาชีพ — การเตรียมตัว ตรงเวลา รับฟังความเห็น" }
+  { id:"qa",       group:"การอภิปรายและความเป็นมืออาชีพ", th:"การตอบคำถามและการร่วมอภิปราย", wfme:["3.1"] },
+  { id:"prof",     group:"การอภิปรายและความเป็นมืออาชีพ", th:"ความเป็นมืออาชีพ — การเตรียมตัว ตรงเวลา รับฟังความเห็น", wfme:["1.2"] }
 ];
 /* ข้อเพิ่มเฉพาะประเภท — conference แต่ละชนิดมีสิ่งที่ต้องดูไม่เหมือนกัน
    ให้หนึ่งข้อต่อประเภท ฟอร์มจะได้ไม่ยาวจนไม่มีใครกรอก */
 const TALK_EVAL_EXTRA = {
-  topic:      { id:"depth",     th:"ความลึกของการทบทวนวรรณกรรมและการสังเคราะห์ข้อสรุป" },
-  preop:      { id:"plan",      th:"ความสมเหตุสมผลของแผนผ่าตัด และการวิเคราะห์ผลกับภาวะแทรกซ้อนที่เกิดขึ้นจริง" },
-  traumafilm: { id:"imaging",   th:"การอ่านและแปลผลภาพรังสี พร้อมการจำแนกชนิดกระดูกหัก" },
-  journal:    { id:"appraisal", th:"การวิจารณ์ระเบียบวิธีวิจัยและความน่าเชื่อถือของงานวิจัย" },
-  research:   { id:"progress",  th:"ความก้าวหน้าเทียบแผน และความเป็นไปได้ของงานในเวลาที่เหลือ" }
+  topic:      { id:"depth",     th:"ความลึกของการทบทวนวรรณกรรมและการสังเคราะห์ข้อสรุป", wfme:["2.2","6.5"] },
+  preop:      { id:"plan",      th:"ความสมเหตุสมผลของแผนผ่าตัด และการวิเคราะห์ผลกับภาวะแทรกซ้อนที่เกิดขึ้นจริง", wfme:["2.5","2.6"] },
+  traumafilm: { id:"imaging",   th:"การอ่านและแปลผลภาพรังสี พร้อมการจำแนกชนิดกระดูกหัก", wfme:["2.3","6.2"] },
+  journal:    { id:"appraisal", th:"การวิจารณ์ระเบียบวิธีวิจัยและความน่าเชื่อถือของงานวิจัย", wfme:["2.2"] },
+  research:   { id:"progress",  th:"ความก้าวหน้าเทียบแผน และความเป็นไปได้ของงานในเวลาที่เหลือ", wfme:["2.2","7.1"] }
 };
 const TALK_SCALE = [
   { v:5, th:"ดีมาก — เกินระดับที่คาดหวังของชั้นปี" },
@@ -1244,6 +1262,10 @@ const TALK_OUTCOMES = [
   { id:"redo",   th:"ต้องนำเสนอซ้ำ" }
 ];
 const TALK_OUTCOME_BY_ID = Object.fromEntries(TALK_OUTCOMES.map(x => [x.id, x]));
+/* ผลโดยรวมที่ระบบ "แนะนำ" จากค่าเฉลี่ย — อาจารย์แก้ทับได้เสมอ กติกาคงที่: ≥3.5 ผ่าน · ≥2.5 ผ่านโดยมีข้อแนะนำ · ต่ำกว่านั้นนำเสนอซ้ำ */
+const talkOutcomeFor = (avg) => avg == null ? "" : avg >= 3.5 ? "pass" : avg >= 2.5 ? "advice" : "redo";
+/* แบบประเมินลงกองใช้เกณฑ์เดียวกันแต่เข้มกว่าเล็กน้อย เพราะเป็นภาพรวมทั้งเดือน: ≥3.6 ผ่าน · ≥2.8 ผ่านโดยมีข้อแนะนำ · ต่ำกว่านั้นต้องติดตามเป็นพิเศษ */
+const rotationOutcomeFor = (avg) => avg == null ? "" : avg >= 3.6 ? "pass" : avg >= 2.8 ? "advice" : "watch";
 const talkEvalItemsFor = (type) =>
   TALK_EVAL_ITEMS.concat(TALK_EVAL_EXTRA[type] ? [{ ...TALK_EVAL_EXTRA[type], group:"เฉพาะประเภทนี้" }] : []);
 
@@ -1285,7 +1307,7 @@ const ROTATION_FORM_DEFAULT = {
     { id:"knowledge",   kind:"scale", th:"ความรู้พื้นฐานและความรู้ของอนุสาขาที่วนอยู่ เพียงพอต่อการตัดสินใจ", wfme:["2.3"] },
     { id:"work", kind:"section", th:"ด้านการเรียนรู้ การสื่อสาร และความเป็นมืออาชีพ" },
     { id:"feedback",    kind:"scale", th:"รับข้อเสนอแนะแล้วนำไปปรับการทำงานจริงภายในรอบนี้",              wfme:["3.2","7.2"] },
-    { id:"handover",    kind:"scale", th:"ส่งเวรและปรึกษาข้ามทีมครบถ้วน ตรงเวลา ไม่ตกหล่น",              wfme:["2.6","6.4"] },
+    { id:"handover",    kind:"scale", th:"ส่งเวรและปรึกษา/ส่งต่อข้ามทีมอย่างเหมาะสมเมื่อเกินขอบเขตของตนเอง ครบถ้วน ตรงเวลา ไม่ตกหล่น", wfme:["2.6","6.4"] },
     { id:"responsible", kind:"scale", th:"ตรงต่อเวลา และรับผิดชอบงานที่ได้รับมอบหมายจนจบ",               wfme:["1.2","4.5"] },
     { id:"respect",     kind:"scale", th:"เคารพผู้ป่วย ญาติ และทุกวิชาชีพในทีม",                        wfme:["1.2","6.4"] },
     { id:"teamwork",    kind:"scale", th:"ทำงานร่วมกับพยาบาล กายภาพ และสหวิชาชีพได้ราบรื่น",             wfme:["6.4"] },
@@ -1397,15 +1419,34 @@ const toastUndo = (msg, undo) => toast(msg, 6000, { undo });
 function fieldError(name, msg) {
   const el = $('#dlgBody [name="' + name + '"]');
   if (!el) { toast(msg); return false; }
-  el.classList.add("invalid"); el.setAttribute("aria-invalid", "true");
-  let err = el.parentElement?.querySelector(".err");
-  if (!err) { err = document.createElement("small"); err.className = "err"; el.insertAdjacentElement("afterend", err); }
+  /* กลุ่ม radio (ปุ่มคะแนน): ทำเครื่องหมายที่กล่องทั้งกลุ่ม ไม่ใช่ radio ตัวแรกที่ซ่อนอยู่ — change ของ radio ทุกตัวลอยขึ้นมาถึงกล่อง */
+  const box = el.type === "radio" ? (el.closest(".scale-pick") || el) : el;
+  box.classList.add("invalid"); box.setAttribute("aria-invalid", "true");
+  let err = box.parentElement?.querySelector(".err");
+  if (!err) { err = document.createElement("small"); err.className = "err"; box.insertAdjacentElement("afterend", err); }
   err.textContent = msg;
-  const clear = () => { el.classList.remove("invalid"); el.removeAttribute("aria-invalid"); err.remove(); };
-  el.addEventListener("input", clear, { once: true });
-  el.addEventListener("change", clear, { once: true });
-  if (!document.activeElement?.classList?.contains("invalid")) el.focus();
+  const clear = () => { box.classList.remove("invalid"); box.removeAttribute("aria-invalid"); err.remove(); };
+  box.addEventListener("input", clear, { once: true });
+  box.addEventListener("change", clear, { once: true });
+  if (!document.activeElement?.classList?.contains("invalid") && !document.activeElement?.closest?.(".invalid")) el.focus();
   return false;
+}
+
+/* ปุ่มคะแนนแบบแตะครั้งเดียว — points = [{ v, short, long }] เรียงจากน้อยไปมาก
+   มีปุ่ม "—" (value ว่าง = ไม่ได้สังเกต) เสมอ และถ้าค่าที่บันทึกไว้เดิมไม่ตรงกับตัวเลือกใด (เช่น ทศนิยม
+   หรือสเกลถูกแก้ขอบเขตภายหลัง) ให้แสดงเป็นปุ่ม "ค่าเดิม" ที่ติ๊กอยู่ — บันทึกซ้ำโดยไม่แตะจะได้ไม่ลบค่านั้นทิ้ง
+   ใส่ value ก่อน checked เสมอ (เทสต์ C5 อ่านลำดับนี้) */
+function scaleFieldHtml(name, current, points, { disabled = false } = {}) {
+  const cur = current == null ? "" : String(current);
+  const dis = disabled ? " disabled" : "";
+  const pill = (v, inner, title, cls) =>
+    `<label class="${cls || ""}" title="${esc(title || "")}"><input type="radio" name="${esc(name)}" value="${esc(v)}"${String(v) === cur && cur !== "" ? " checked" : ""}${dis} /><span>${inner}</span></label>`;
+  const known = points.some(p => String(p.v) === cur);
+  return `<div class="scale-pick" role="radiogroup" data-field="${esc(name)}">
+    ${pill("", "—", "ไม่ได้สังเกต / เว้นว่าง", "clear")}
+    ${points.map(p => pill(p.v, `<b>${esc(String(p.v))}</b>${p.short ? `<span class="lbl"> ${esc(p.short)}</span>` : ""}`, p.long || p.short || String(p.v))).join("")}
+    ${cur !== "" && !known ? pill(cur, `<b>${esc(cur)}</b><span class="lbl"> ค่าเดิม</span>`, "ค่าที่บันทึกไว้เดิม นอกช่วงตัวเลือกปกติ", "legacy") : ""}
+  </div>`;
 }
 
 /* ยืนยันก่อนทำ — ใช้กล่องโต้ตอบของแอปแทน window.confirm (ซึ่งเป็น popup ของเบราว์เซอร์ จัดรูปแบบไม่ได้
@@ -3767,6 +3808,11 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  /* ไปหน้าประเมินลงกองของเดือนที่ระบุ — ต้อง renderAssess() ก่อน เพราะ showView ไม่วาดใหม่ */
+  $$("#todayBody [data-tgo-rot]").forEach(b => b.addEventListener("click", () => {
+    assessView.page = "month"; assessView.month = b.dataset.tgoRot; assessView.mineOnly = true;
+    renderAssess(); showView("assess");
+  }));
   $$("#todayBody [data-visitok]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitok, true)));
   $$("#todayBody [data-visitno]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitno, false)));
   $$("#todayBody [data-tvisit]").forEach(b => b.addEventListener("click", () => openVisit(myResidentId(), b.dataset.tvisit)));
@@ -3973,6 +4019,22 @@ function todayForStaff(iso, all) {
       <button class="btn-sm" data-tgo="assess">งานประเมินที่ค้าง</button>
     </div>
   </div>`);
+
+  /* ประเมินลงกองที่ค้าง — เดิมเห็นได้แค่ในหน้าประเมินทีละเดือน รอบที่ค้างจากสามเดือนก่อนจึงหายเงียบ
+     กดแถวไหนจะพาไปหน้าประเมินของเดือนนั้นเลย */
+  const rotBacklog = rotationBacklogFor(sid);
+  out.push(`<div class="card">
+    <h2>ประเมินลงกองที่ค้าง <span class="tag ${rotBacklog.length ? "warn" : "ok"}">${rotBacklog.length} รอบ</span></h2>
+    <p class="small muted" style="margin:.2rem 0 .5rem">รอบหมุนเวียนที่จบไปแล้ว (ทุกเดือนที่ปิดแล้ว) และยังไม่มีผลประเมินลงกอง
+      — นับรอบที่คุณเป็นอาจารย์ผู้กำกับ รวมรอบที่ยังไม่มีผู้กำกับ</p>
+    ${rotBacklog.length ? rotBacklog.slice(0, 6).map(rot => {
+      const r = store.resident(rot.residentId);
+      return `<button class="sess due" data-tgo-rot="${esc(rot.end.slice(0, 7))}" style="border-left-color:${serviceColour(rot.serviceId)}">
+        <span class="pill">${esc(ymLabel(rot.end.slice(0, 7)))}</span><b>${esc(r?.name || "—")}</b>
+        <span class="who">${esc(serviceById(rot.serviceId)?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
+    }).join("") : `<p class="empty">ไม่มีรอบค้างประเมิน</p>`}
+    ${rotBacklog.length > 6 ? `<p class="small muted">และอีก ${rotBacklog.length - 6} รอบ</p>` : ""}
+  </div>`);
   return out;
 }
 
@@ -4010,6 +4072,7 @@ function todayForAdmin(iso, all) {
       <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
       <div class="stat"><b>${(store.data.visits || []).filter(v => v.status === "pending").length}</b><span>คำขอไปเข้าคาบสายอื่นรออนุมัติ</span></div>
       <div class="stat"><b>${(store.data.swaps || []).filter(v => v.status === "pending").length}</b><span>คำขอแลกวันรอตอบรับ</span></div>
+      <div class="stat"><b>${rotationBacklogFor("").length}</b><span>ผลประเมินลงกองค้าง (ทุกเดือนที่ปิดแล้ว)</span></div>
     </div>
     ${idle.length ? `<p class="small muted" style="margin-top:.7rem">ไม่มีคาบวันนี้:
       ${idle.slice(0, 12).map(r => esc(r.name) + " (ปี " + r.year + ")").join(" · ")}
@@ -5641,12 +5704,24 @@ function renderResidentDetail() {
     ${(() => {
       const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => b.date.localeCompare(a.date));
       const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
-      if (!evs.length && !rots.length) return "";
-      return `<h3 style="margin-top:1rem">การหมุนเวียนและการประเมินท้ายเซสชัน</h3>
+      const revs = (store.data.rotationEvals || []).filter(x => x.residentId === r.id)
+        .sort((a, b) => String(b.end || "").localeCompare(String(a.end || "")));
+      if (!evs.length && !rots.length && !revs.length) return "";
+      return `<h3 style="margin-top:1rem">การหมุนเวียน ผลประเมินลงกอง และการประเมินท้ายเซสชัน</h3>
       ${rots.length ? `<div class="row" style="margin-bottom:.5rem">${rots.slice(0, 6).map(rot => {
         const svc = serviceById(rot.serviceId);
         return `<span class="tag" title="${esc(staffName(rot.supervisorId))}">${esc(svc?.name || "—")} · ${fmtDate(rot.start)}–${fmtDate(rot.end)}</span>`;
       }).join("")}</div>` : ""}
+      ${revs.length ? `<h4 style="margin:.6rem 0 .3rem">ผลประเมินลงกอง (${revs.length} รอบ)</h4>
+        <div class="tbl-wrap"><table>
+        <thead><tr><th>เดือน / สาย</th><th>เฉลี่ย</th><th>ผลโดยรวม</th><th>คะแนนรายข้อ</th><th>สิ่งที่ทำได้ดี</th><th>ควรพัฒนา</th></tr></thead>
+        <tbody>${revs.slice(0, 12).map(ev => `<tr>
+          <td class="small">${esc(ymLabel(ev.month || String(ev.end || "").slice(0, 7)))}<br /><span class="muted">${esc(serviceById(ev.serviceId)?.name || "")} · ${esc(staffName(ev.staffId))}</span></td>
+          <td class="small">${esc(rotationEvalLabel(ev))}</td>
+          <td class="small">${esc(rotationOutcomeLabel(ev) || "—")}</td>
+          <td class="small">${rotationScoreTags(ev) || "—"}</td>
+          <td class="small">${rotationTextAnswers(ev).map(x => esc(x.v)).join("<br />") || "—"}</td>
+          <td class="small">${esc(ev.comment || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${evs.length ? `<div class="tbl-wrap"><table>
         <thead><tr><th>วันที่</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>เฉลี่ย</th><th>entrustment</th><th>ข้อเสนอแนะ</th></tr></thead>
         <tbody>${evs.slice(0, 12).map(ev => `<tr>
@@ -5694,7 +5769,9 @@ function renderResidentDetail() {
           ${a.source === "slides" ? `<span class="tag">จากสไลด์</span>` : `<span class="tag">บันทึกด้วยมือ</span>`}
         </div>
         <div>${esc(a.title)}</div>
-        ${a.assessment ? `<div class="small muted">ประเมิน ${a.assessment.score}/5 โดย ${esc(a.assessment.by)} — ${esc(a.assessment.comment || "")}</div>` : ""}
+        ${a.assessment ? `<div class="small muted">ประเมิน ${a.assessment.score ?? "—"}/5${a.assessment.outcome ? " · " + esc(TALK_OUTCOME_BY_ID[a.assessment.outcome]?.th || "") : ""} โดย ${esc(a.assessment.by || "—")}${
+          a.assessment.strengths ? "<br />ทำได้ดี: " + esc(a.assessment.strengths) : ""}${
+          a.assessment.comment ? "<br />ควรปรับปรุง: " + esc(a.assessment.comment) : ""}</div>` : ""}
         <div class="no-print row small" style="margin-top:.2rem">
           <button class="btn-sm btn-ghost" data-act-open="${a.id}">รายละเอียด / ประเมิน</button>
         </div>
@@ -5783,7 +5860,10 @@ function renderActivityTable() {
     }).join("")}</tbody></table></div>
     <p class="small muted" style="margin-top:.5rem">แสดง ${rows.length} รายการ จากทั้งหมด ${store.data.activities.length} รายการ</p>`
     : `<p class="empty">ไม่พบรายการตามเงื่อนไขที่เลือก</p>`;
-  $$("#activityTable [data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+  /* เปิดจากคิวของหน้าประเมิน — ส่งตัวหาคนถัดไปที่ยังไม่ประเมิน/ยังไม่รับรอง ตามตัวกรองที่เห็นอยู่ */
+  $$("#activityTable [data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen, {
+    next: (cur) => filterActivities().find(x => x.id !== cur && (!x.assessment || !x.verified))?.id
+  })));
 }
 
 function activityCsvRows(list) {
@@ -5852,6 +5932,27 @@ function rotationEvalLabel(ev) {
   const first = rotationAskItems().map(it => ev.answers?.[it.id]).find(v => String(v ?? "").trim());
   return "ประเมินแล้ว" + (first ? " · " + String(first).slice(0, 30) : "");
 }
+/* ป้ายของข้อ "เลือกหนึ่งข้อ" ที่ไม่นับคะแนน (เช่น ผลโดยรวม) — คำตอบเก็บเป็นค่า (pass/advice/watch)
+   ต้องแปลงเป็นข้อความผ่านตัวเลือกของฟอร์มก่อนแสดง ไม่งั้นแพทย์ประจำบ้านเห็นคำว่า "pass" ดิบ ๆ */
+function rotationOutcomeLabel(ev) {
+  if (!ev) return "";
+  return rotationFormItems().filter(it => it.kind === "choice" && !rotationScored(it))
+    .map(it => { const v = ev.answers?.[it.id]; if (v == null || v === "") return "";
+                 return rotationOptions(it).find(o => o.v === String(v))?.th || String(v); })
+    .filter(Boolean).join(" · ");
+}
+/* คะแนนรายข้อของผลลงกองเป็นแท็กสั้น ๆ — แพทย์ประจำบ้านต้องเห็นว่าอ่อนข้อไหน ไม่ใช่ค่าเฉลี่ยก้อนเดียว
+   ใช้ทั้งหน้าแพทย์ประจำบ้านและรายงานพิมพ์ */
+function rotationScoreTags(ev) {
+  return rotationFormItems().filter(it => it.kind === "scale" && ev?.scores?.[it.id] != null)
+    .map(it => { const th = String(it.th || it.id);
+      return `<span class="tag" title="${esc(th)}">${esc(th.slice(0, 22))}${th.length > 22 ? "…" : ""} <b>${esc(String(ev.scores[it.id]))}</b></span>`; }).join(" ");
+}
+/* คำตอบข้อความของข้อที่ไม่ใช่คะแนน (ไม่รวมผลโดยรวมและช่องข้อเสนอแนะ ซึ่งแสดงแยกต่างหาก) */
+function rotationTextAnswers(ev) {
+  return rotationFormItems().filter(it => (it.kind === "paragraph" || it.kind === "text") && it.role !== "comment")
+    .map(it => { const v = ev?.answers?.[it.id]; return v ? { th: it.th || it.id, v: String(v) } : null; }).filter(Boolean);
+}
 
 /* เดือนที่จบไปแล้ว เรียงใหม่สุดก่อน — ประเมินลงกองทำหลังจบเดือน ไม่ใช่ระหว่างเดือน */
 function assessMonths() {
@@ -5871,6 +5972,16 @@ const rotationOutside = (rot) => {
   const svc = serviceById(rot.serviceId);
   return !!(svc?.external || svc?.elective);
 };
+/* งานประเมินลงกองที่ค้าง ข้ามทุกเดือนที่ปิดแล้ว — ไม่ใช่แค่เดือนที่เลือกอยู่ในหน้าประเมิน
+   ระบุอาจารย์ = รอบที่คนนั้นเป็นผู้กำกับ บวกรอบที่ยังไม่มีผู้กำกับ (ไม่งั้นรอบพวกนั้นไม่มีใครเห็นเลย) · ไม่ระบุ = ทั้งกลุ่มงาน */
+function rotationBacklogFor(staffId) {
+  const thisMonth = todayISO().slice(0, 7);
+  return (store.data.rotations || [])
+    .filter(rot => rot.end && rot.end.slice(0, 7) < thisMonth && canSeeResident(rot.residentId))
+    .filter(rot => !rotationOutside(rot) && !rotationEvalFor(rot.id))
+    .filter(rot => !staffId || rot.supervisorId === staffId || !rot.supervisorId)
+    .sort((a, b) => a.end.localeCompare(b.end));
+}
 function rotationsToAssess(month) {
   return (store.data.rotations || [])
     .filter(rot => (rot.end || "").slice(0, 7) === month && canSeeResident(rot.residentId))
@@ -5932,7 +6043,8 @@ function renderAssess() {
         · ประเมินหลังจบเดือน ไม่ใช่ระหว่างเดือน · คนละชั้นกับประเมินท้ายเซสชันซึ่งเป็นรายคาบ</p>
       <div class="row no-print" style="margin-bottom:.6rem">
         <select id="assessMonth">${months.map(m =>
-          `<option value="${m}" ${assessView.month === m ? "selected" : ""}>เดือน ${esc(m)}</option>`).join("")}</select>
+          `<option value="${m}" ${assessView.month === m ? "selected" : ""}>เดือน ${esc(m)}${
+            (n => n ? " · ค้าง " + n : "")(rotationsToAssess(m).filter(r => !rotationEvalFor(r.id)).length)}</option>`).join("")}</select>
         <label class="row small" style="gap:.3rem;align-items:center">
           <input type="checkbox" id="assessMine" ${assessView.mineOnly ? "checked" : ""} />
           เฉพาะรอบที่ฉันเป็นอาจารย์ผู้กำกับ</label>
@@ -5969,13 +6081,16 @@ function renderAssess() {
     $("#assessMine").addEventListener("change", (e) => { assessView.mineOnly = e.target.checked; renderAssess(); });
     $("#btnRotEvalCsv").addEventListener("click", () =>
       download("rotation-evaluations.csv", toCsv(rotationEvalCsvRows()), "text/csv;charset=utf-8"));
-    $$("#assessBody [data-rotev]").forEach(b => b.addEventListener("click", () => openRotationEval(b.dataset.rotev)));
+    $$("#assessBody [data-rotev]").forEach(b => b.addEventListener("click", () => openRotationEval(b.dataset.rotev, {
+      next: (cur) => rotationsToAssess(assessView.month).find(x => x.id !== cur && !rotationEvalFor(x.id))?.id
+    })));
     applyPermissions();
   }
 }
 
 /* ---- วาดแบบประเมินลงกองจากนิยามที่ผู้จัดหลักสูตรตั้งไว้ ----
-   ใช้ <select> ทุกกรณี ไม่ใช้ radio เพราะ dlgVal คืนค่าของอิลิเมนต์แรกที่แมตช์ ไม่สนว่าติ๊กอันไหน */
+   ข้อให้คะแนนเป็นกลุ่ม radio แบบปุ่ม (scaleFieldHtml) — dlgVal รู้จัก radio แล้ว คืนค่าของตัวที่ติ๊ก
+   ข้ออื่น (entrust/เลือกหนึ่งข้อ/ข้อความ) ยังเป็น <select>/<textarea> เพราะป้ายยาวและมีจำนวนไม่แน่นอน */
 function rotationFormBodyHtml(ev) {
   const items = rotationFormItems();
   if (!rotationAskItems().length) {
@@ -5989,18 +6104,16 @@ function rotationFormBodyHtml(ev) {
               : rotationScored(it) ? (ev?.scores?.[it.id] ?? "")
               : (ev?.answers?.[it.id] ?? "");
     if (it.kind === "scale") {
-      const opts = [];
+      /* ปุ่มคะแนน 1 ปุ่มต่อค่า — ปลายสองข้างใช้ป้ายจากสเกล ตรงกลาง (เมื่อเป็น 1–5) บอกว่า "ตามระดับชั้นปี"
+         คะแนนเดิมที่เป็นทศนิยม/นอกช่วง (นำเข้ามา หรือสเกลเคยถูกแก้ขอบเขต) scaleFieldHtml จะทำปุ่ม "ค่าเดิม" ให้เอง
+         บันทึกซ้ำโดยไม่แตะจึงไม่ลบค่านั้นทิ้ง */
+      const points = [];
       for (let v = min; v <= max; v++) {
-        const tail = v === min && sc.minLabel ? " — " + sc.minLabel : v === max && sc.maxLabel ? " — " + sc.maxLabel : "";
-        opts.push(`<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${v}${esc(tail)}</option>`);
+        const short = v === min ? (sc.minLabel || "") : v === max ? (sc.maxLabel || "")
+                    : (max - min === 4 && v === min + 2 ? "ตามระดับชั้นปี" : "");
+        points.push({ v, short, long: v + (short ? " — " + short : "") });
       }
-      /* ตัวเลือกสร้างจากช่วงจำนวนเต็มเท่านั้น — ถ้าคะแนนเดิมเป็นทศนิยมหรืออยู่นอกช่วง (เช่น
-         นำเข้าจากที่อื่น หรือสเกลเคยถูกแก้ขอบเขต) จะไม่ตรงกับตัวเลือกไหนเลย select จะเด้งไปที่ "—"
-         แล้วบันทึกซ้ำจะลบคะแนนเดิมทิ้งโดยไม่ตั้งใจ ต้องเติมตัวเลือกสำหรับค่าเดิมไว้ด้วยเสมอ */
-      if (cur !== "" && !(Number.isInteger(+cur) && +cur >= min && +cur <= max)) {
-        opts.push(`<option value="${esc(cur)}" selected>${esc(cur)} (ค่าที่บันทึกไว้เดิม นอกช่วงตัวเลือกปกติ)</option>`);
-      }
-      return `<select name="sc_${esc(it.id)}"><option value="">—</option>${opts.join("")}</select>`;
+      return scaleFieldHtml("sc_" + it.id, cur, points);
     }
     if (it.kind === "entrust") {
       return `<select name="entrust"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
@@ -6019,21 +6132,22 @@ function rotationFormBodyHtml(ev) {
     return `<input name="an_${esc(it.id)}" value="${esc(String(cur || ""))}" placeholder="${esc(it.placeholder || "")}" />`;
   };
 
-  /* ข้อแบบมาตราส่วนที่อยู่ติดกันจับกลุ่มเป็นสามคอลัมน์ ให้ฟอร์มยาว ๆ ยังพออ่านไหว */
-  let out = "", run = [];
-  const flush = () => { if (run.length) { out += `<div class="grid g3">${run.join("")}</div>`; run = []; } };
+  /* คำอธิบายสเกลครั้งเดียวที่ต้นฟอร์ม (ข้อมูล help ของหัวข้อคั่นอันแรกอาจพูดซ้ำ — ไม่แก้ข้อมูลของกลุ่มงาน) */
+  const mid = max - min === 4 ? ` · ${min + 2} = ทำได้ตามระดับชั้นปี` : "";
+  let out = `<p class="small muted" style="margin:.2rem 0 .5rem">แตะคะแนน ${min}–${max}${sc.minLabel ? ` · ${min} = ${esc(sc.minLabel)}` : ""}${mid}${sc.maxLabel ? ` · ${max} = ${esc(sc.maxLabel)}` : ""} · ข้อที่ไม่ได้เห็นให้เว้นว่าง (—)</p>`;
+  /* หนึ่งข้อต่อแถวเสมอ: คำถามซ้าย ปุ่มคะแนนขวา (จอแคบเรียงลงมา) — ข้อคะแนนห้ามห่อด้วย <label>
+     เพราะคลิกที่ไหนในป้ายจะไปติ๊ก radio ตัวแรกแทน */
   items.forEach(it => {
     if (it.kind === "section") {
-      flush();
       out += `<h4>${esc(it.th || "")}${it.help ? ` <span class="small muted">${esc(it.help)}</span>` : ""}</h4>`;
       return;
     }
-    const field = `<label class="f"><span>${esc(it.th || it.id)}${req(it)}</span>${cell(it)}</label>`;
-    if (it.kind === "scale") { run.push(field); if (run.length === 3) flush(); return; }
-    flush();
-    out += field;
+    if (it.kind === "scale") {
+      out += `<div class="scale-row"><div class="q">${esc(it.th || it.id)}${req(it)}</div>${cell(it)}</div>`;
+      return;
+    }
+    out += `<label class="f"><span>${esc(it.th || it.id)}${req(it)}</span>${cell(it)}</label>`;
   });
-  flush();
 
   /* คำตอบที่ข้อถามถูกลบไปจากฟอร์มแล้ว — แสดงไว้ ไม่ลบ และไม่ทำเป็นช่องกรอก */
   const orphan = rotationOrphanAnswers(ev);
@@ -6086,56 +6200,102 @@ function readRotationForm(ev) {
 
 /* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ — ใช้เกณฑ์ชุดเดียวกับประเมินท้ายเซสชัน
    จะได้เทียบกันได้ และอาจารย์ไม่ต้องจำสองสเกล */
-function openRotationEval(rotationId) {
+/* opts.next(currentRotationId) → รอบถัดไปที่ยังไม่ประเมินในเดือนเดียวกัน (ส่งมาเฉพาะจากหน้าประเมิน) */
+function openRotationEval(rotationId, opts = {}) {
   const rot = (store.data.rotations || []).find(x => x.id === rotationId);
   if (!rot) return;
   if (!canSeeResident(rot.residentId)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
   const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
   const ev = rotationEvalFor(rot.id);
   const month = (rot.end || "").slice(0, 7);
+  /* ข้อมูลประกอบ (อ่านอย่างเดียว) — ให้อาจารย์เห็นว่าเดือนนี้เคยประเมินคนนี้รายคาบไปแล้วกี่ครั้ง ได้เท่าไร
+     และรอบก่อนหน้าเป็นอย่างไร จะได้ให้คะแนนบนหลักฐาน ไม่ใช่ความจำ */
+  const avg = (arr) => arr.length ? Math.round(arr.reduce((x, y) => x + y, 0) / arr.length * 10) / 10 : null;
+  const inWin = (store.data.sessionEvals || []).filter(e => e.residentId === rot.residentId && e.date >= rot.start && e.date <= rot.end);
+  const sessMeans = inWin.map(evalMean).filter(v => v != null);
+  const sessEntr = inWin.map(e => e.entrust).filter(v => typeof v === "number");
+  const sessLine = inWin.length
+    ? `${inWin.length} ครั้ง${sessMeans.length ? " · เฉลี่ย " + avg(sessMeans) + "/5" : ""}${sessEntr.length ? " · entrust เฉลี่ย " + avg(sessEntr) : ""}`
+    : "ยังไม่มีผลประเมินท้ายเซสชันในรอบนี้";
+  const prev = (store.data.rotationEvals || []).filter(x => x.residentId === rot.residentId && x.end && x.end < rot.start)
+    .sort((x, y) => String(y.end).localeCompare(String(x.end)))[0];
+  const prevLine = prev
+    ? `${ymLabel(prev.month || String(prev.end).slice(0, 7))} · ${esc(serviceById(prev.serviceId)?.name || "—")} · ${esc(rotationEvalLabel(prev))}${rotationOutcomeLabel(prev) ? " · " + esc(rotationOutcomeLabel(prev)) : ""}`
+    : "— (ยังไม่มีรอบก่อนหน้าที่ประเมินไว้)";
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
       <dt>สาย / หน่วยที่วน</dt><dd>${esc(svc?.name || "—")} · ${esc(svc ? serviceSubLabel(svc) : "—")}</dd>
       <dt>ช่วง</dt><dd>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</dd>
+      <dt>ท้ายเซสชันในรอบนี้</dt><dd class="small">${sessLine}</dd>
+      <dt>รอบก่อนหน้า</dt><dd class="small">${prevLine}</dd>
     </div>
     <label class="f"><span>อาจารย์ผู้ประเมิน</span>
       <select name="staffId">${(store.data.staff || []).map(x =>
         `<option value="${x.id}" ${(ev?.staffId || myStaffId() || rot.supervisorId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
-    ${rotationFormBodyHtml(ev)}
+    <div data-rotform>${rotationFormBodyHtml(ev)}</div>
+    <p class="small muted" data-rot-mean style="margin:.2rem 0 .6rem"></p>
     ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? fmtDateTime(ev.createdAt) : "—"} โดย ${esc(ev.by || "—")}</p>` : ""}`;
 
   if (!canAssess()) {
     showDialog("ผลประเมินลงกอง", body + `<p class="notice warn small">บัญชีนี้ประเมินไม่ได้ — ผลประเมินลงกองบันทึกโดยอาจารย์</p>`, []);
     return;
   }
-  const buttons = [{
-    label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
-      const got = readRotationForm(ev);
-      if (got.missing.length) {
-        /* ทำเครื่องหมายทุกข้อที่ขาด ไม่ใช่แค่ 3 ข้อแรกใน toast — fieldError โฟกัสข้อแรกให้เอง */
-        got.missingFields.forEach(f => fieldError(f, "ข้อบังคับ — ยังไม่ได้ตอบ"));
-        return false;
-      }
-      if (!Object.keys(got.scores).length && !Object.keys(got.answers).length && !got.comment && !got.entrust) {
-        toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false;
-      }
-      const rec = { rotationId: rot.id, residentId: rot.residentId, serviceId: rot.serviceId, month,
-                    start: rot.start, end: rot.end, staffId: dlgVal("staffId") || rot.supervisorId,
-                    scores: got.scores, answers: got.answers, entrust: got.entrust, comment: got.comment,
-                    scaleMax: rotationScaleMax(),
-                    createdAt: new Date().toISOString(), by: currentUser()?.displayName || "" };
-      if (ev) Object.assign(ev, rec); else (store.data.rotationEvals ||= []).push({ id: uid("rev"), ...rec });
-      audit("ประเมินลงกองสิ้นเดือน", (r?.name || "") + " · " + (svc?.name || "") + " · " + month);
-      store.save(); renderAll(); toast("บันทึกผลประเมินลงกองแล้ว");
+  /* บันทึก คืน false เมื่อยังไม่ผ่านการตรวจ (กล่องจะยังเปิดอยู่) — ปุ่ม "แล้วเปิดคนถัดไป" ใช้ตัวเดียวกัน */
+  const save = () => {
+    const got = readRotationForm(ev);
+    if (got.missing.length) {
+      /* ทำเครื่องหมายทุกข้อที่ขาด ไม่ใช่แค่ 3 ข้อแรกใน toast — fieldError โฟกัสข้อแรกให้เอง */
+      got.missingFields.forEach(f => fieldError(f, "ข้อบังคับ — ยังไม่ได้ตอบ"));
+      return false;
     }
-  }];
+    if (!Object.keys(got.scores).length && !Object.keys(got.answers).length && !got.comment && !got.entrust) {
+      toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false;
+    }
+    const rec = { rotationId: rot.id, residentId: rot.residentId, serviceId: rot.serviceId, month,
+                  start: rot.start, end: rot.end, staffId: dlgVal("staffId") || rot.supervisorId,
+                  scores: got.scores, answers: got.answers, entrust: got.entrust, comment: got.comment,
+                  scaleMax: rotationScaleMax(),
+                  createdAt: new Date().toISOString(), by: currentUser()?.displayName || "" };
+    if (ev) Object.assign(ev, rec); else (store.data.rotationEvals ||= []).push({ id: uid("rev"), ...rec });
+    audit("ประเมินลงกองสิ้นเดือน", (r?.name || "") + " · " + (svc?.name || "") + " · " + month);
+    store.save(); renderAll(); toast("บันทึกผลประเมินลงกองแล้ว");
+    return true;
+  };
+  const buttons = [{ label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: save }];
+  if (opts.next) buttons.push({ label:"บันทึก แล้วเปิดคนถัดไป", onClick: () => {
+    if (save() === false) return false;
+    const n = opts.next(rot.id);
+    if (n) setTimeout(() => openRotationEval(n, opts), 0); else toast("ครบแล้ว — ไม่มีรอบค้างประเมินในเดือนนี้");
+  }});
   if (ev && canManage()) buttons.push({ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
-    store.data.rotationEvals = store.data.rotationEvals.filter(x => x.id !== ev.id);
     audit("ลบผลประเมินลงกอง", (r?.name || "") + " · " + month);
-    store.save(); renderAll(); toast("ลบแล้ว");
+    removeWithUndo("ลบผลประเมินลงกองแล้ว", [{ list:"rotationEvals", keep: x => x.id !== ev.id }]);
   }});
   showDialog(ev ? "แก้ไขผลประเมินลงกอง" : "ประเมินลงกอง — " + (r?.name || ""), body, buttons);
+
+  /* ค่าเฉลี่ยสด + ผลโดยรวมที่แนะนำ — แนะนำเฉพาะเมื่อฟอร์มมีข้อ "ผลโดยรวม" ที่มีตัวเลือกค่านั้นจริง
+     (ฟอร์มเป็นของกลุ่มงาน แก้ได้) และสเกลเป็น 1–5 · เติมให้เฉพาะช่องที่ยังว่างและอาจารย์ยังไม่ได้แตะ */
+  const form = $("#dlgBody [data-rotform]");
+  const scaleItems = rotationFormItems().filter(it => it.kind === "scale");
+  const outcomeItem = rotationFormItems().find(it => it.kind === "choice" && !rotationScored(it) &&
+    rotationOptions(it).some(o => o.v === "pass"));
+  const outSel = outcomeItem ? $('#dlgBody [name="an_' + outcomeItem.id + '"]') : null;
+  let touched = !!(outcomeItem && ev?.answers?.[outcomeItem.id]);
+  outSel?.addEventListener("change", () => { touched = true; });
+  const canSuggest = !!outSel && rotationScaleMax() - rotationScaleMin() === 4;
+  const recompute = () => {
+    const vals = scaleItems.map(it => dlgVal("sc_" + it.id)).filter(v => v !== "").map(Number).filter(Number.isFinite);
+    const mean = avg(vals);
+    const sug = canSuggest ? rotationOutcomeFor(mean) : "";
+    const ok = sug && rotationOptions(outcomeItem).some(o => o.v === sug);
+    const box = $("#dlgBody [data-rot-mean]");
+    if (box) box.textContent = mean == null ? "" :
+      `เฉลี่ย ${mean}/${rotationScaleMax()} จาก ${vals.length} ข้อ` + (ok ? ` · แนะนำผลโดยรวม: ${rotationOptions(outcomeItem).find(o => o.v === sug).th}` : "");
+    if (!touched && outSel && (ok || mean == null)) outSel.value = ok ? sug : "";
+  };
+  form?.addEventListener("change", (e) => { if (/^sc_/.test(e.target?.name || "")) recompute(); });
+  recompute();
 }
 
 function rotationEvalCsvRows() {
@@ -7752,6 +7912,25 @@ function wfmeEvidence() {
             (qs.length ? " — ข้อที่เกี่ยวข้อง: " + qs.join(" · ") : "")
     }));
   }
+  /* เช่นเดียวกับแบบประเมินลงกอง — อ่านรหัส WFME จากข้อจริงของแบบประเมินการนำเสนอ (รวมข้อเฉพาะประเภท)
+     แทนป้ายคงที่เดิม จะได้ไม่อ้างหลักฐานที่ฟอร์มไม่ได้ถามอีกต่อไปถ้ามีคนแก้ TALK_EVAL_ITEMS ในอนาคต */
+  const talkAssessN = (store.data.activities || []).filter(a => a.assessment?.scores && Object.keys(a.assessment.scores).length).length;
+  if (talkAssessN) {
+    const byTalkWfme = {}, seenTalkItem = new Set();
+    (store.data.activities || []).forEach(a => {
+      if (!a.assessment?.scores || !Object.keys(a.assessment.scores).length) return;   /* เงื่อนไขเดียวกับตัวนับข้างบน */
+      talkEvalItemsFor(a.type).forEach(it => {
+        if (seenTalkItem.has(it.id)) return;
+        seenTalkItem.add(it.id);
+        (it.wfme || []).forEach(w => (byTalkWfme[w] ||= []).push(it.th));
+      });
+    });
+    ["3.1","3.2","7.2"].forEach(w => byTalkWfme[w] ||= []);   /* ตัวการประเมินเองเป็นหลักฐานของสามหมวดนี้เสมอ */
+    Object.entries(byTalkWfme).forEach(([w, qs]) => map[w]?.sources.push({
+      label:"แบบประเมินการนำเสนอ " + talkAssessN + " ครั้ง" +
+            (qs.length ? " — ข้อที่เกี่ยวข้อง: " + qs.join(" · ") : "")
+    }));
+  }
   const rotN = (store.data.rotations || []).length, svcN = (store.data.services || []).length;
   if (rotN) ["2.4","2.5","2.6","6.2"].forEach(id =>
     map[id]?.sources.push({ label:"ตารางหมุนเวียน " + rotN + " ช่วง ใน " + svcN + " หน่วย พร้อมตารางเซสชันประจำสัปดาห์" }));
@@ -7984,21 +8163,27 @@ function showDialog(title, bodyHtml, buttons) {
     || $("#dlgFoot .btn-primary");
   first?.focus();
 }
-const dlgVal = (name) => { const el = $('#dlgBody [name="' + name + '"]'); return el ? el.value.trim() : ""; };
+const dlgVal = (name) => {
+  const el = $('#dlgBody [name="' + name + '"]');
+  if (!el) return "";
+  /* กลุ่ม radio: ตัวแรกที่แมตช์ไม่ใช่ตัวที่ติ๊ก ต้องหาตัวที่ :checked */
+  if (el.type === "radio") { const c = $('#dlgBody [name="' + name + '"]:checked'); return c ? c.value.trim() : ""; }
+  return el.value.trim();
+};
 /* ปิดกล่องปัจจุบันก่อนเปิดกล่องใหม่ — showModal ซ้อนกันไม่ได้ */
 const closeDialog = () => $("#dlg")?.close();
 
-function openActivity(id) {
+/* opts.next(currentId) → id ของงานถัดไปในคิว (ส่งมาเฉพาะเมื่อเปิดจากหน้าประเมิน) ทำให้มีปุ่ม "รับรอง แล้วเปิดถัดไป"
+   ผู้เรียกอื่น (หน้าวันนี้ หน้าแพทย์ประจำบ้าน รายการล่าสุด) ไม่ส่ง จึงไม่มีปุ่มนั้น */
+function openActivity(id, opts = {}) {
   const a = store.data.activities.find(x => x.id === id); if (!a) return;
   if (!canSeeResident(a.residentId)) { toast("ไม่มีสิทธิ์เปิดกิจกรรมของแพทย์ประจำบ้านคนอื่น"); return; }
   const canEdit = canEditResidentData(a.residentId);
   const r = store.resident(a.residentId), e = a.evidence || {};
-  const body = `
-    <div class="kv" style="margin-bottom:.8rem">
-      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
-      <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? fmtDateTime(a.createdAt) : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
-      <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
-    </div>
+  /* คนที่มาให้คะแนนต้องเจอแบบประเมินก่อน ไม่ใช่ช่องแก้ชื่อเรื่อง — ช่องรายละเอียดยังอยู่ครบ แค่พับไว้
+     คนที่ประเมินไม่ได้ (เจ้าของกิจกรรม) และยังไม่มีผลประเมิน ให้เห็นช่องรายละเอียดก่อนตามเดิม */
+  const evalFirst = canAssess() || !!a.assessment;
+  const metaHtml = `
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" value="${esc(a.title)}" /></label>
     <div class="grid g2">
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}" ${a.type === t.id ? "selected" : ""}>${esc(t.th)}</option>`).join("")}</select></label>
@@ -8007,9 +8192,21 @@ function openActivity(id) {
       <label class="f"><span>ผู้นำเสนอ</span>${canManage()
         ? `<select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`
         : `<input value="${esc(r?.name || "—")}" disabled />`}</label>
+    </div>`;
+  const metaBlock = evalFirst
+    ? `<details class="small" style="margin:.8rem 0"><summary>แก้ไขรายละเอียดกิจกรรม (ชื่อเรื่อง ประเภท อนุสาขา วันที่ ผู้นำเสนอ)</summary>
+         <div style="margin-top:.5rem">${metaHtml}</div></details>`
+    : metaHtml + `<hr />`;
+  const body = `
+    <div class="kv" style="margin-bottom:.8rem">
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>เรื่อง</dt><dd><b>${esc(a.title)}</b> · ${esc(TYPE_BY_ID[a.type]?.th || a.type)} · ${fmtDate(a.date)}</dd>
+      <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? fmtDateTime(a.createdAt) : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
+      <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
     </div>
-    <hr />
-    ${talkEvalFormHtml(a)}
+    ${evalFirst ? "" : metaBlock}
+    <div data-talkform>${talkEvalFormHtml(a)}</div>
+    ${evalFirst ? metaBlock : ""}
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note">${esc(a.note || "")}</textarea></label>
     ${e.fileName ? `<hr /><h4>หลักฐานจากไฟล์</h4>
       <div class="kv">
@@ -8021,15 +8218,29 @@ function openActivity(id) {
       </div>
       <div class="excerpt" style="margin-top:.5rem">${esc(e.excerpt || "—")}</div>` : ""}`;
 
+  /* การรับรอง = บอกว่างานนี้ผ่านสายตาอาจารย์แล้ว จึงต้องมีผลประเมินอย่างน้อยหนึ่งอย่าง (คะแนนหรือผลโดยรวม)
+     ฟอร์มว่างเปล่ารับรองไม่ได้ — ไม่งั้นคิวงานประเมินหายไปโดยไม่มีใครประเมินจริง (ยกเลิกการรับรองไม่ต้องเช็ค) */
+  const verify = () => {
+    if (!a.verified) {
+      const got = readTalkEval({ ...a });
+      if (!got || (!Object.keys(got.scores).length && !got.outcome))
+        return fieldError("tvOutcome", "ยังไม่มีผลประเมิน — ให้คะแนนหรือเลือกผลโดยรวมก่อนรับรอง");
+    }
+    a.verified = !a.verified;
+    a.verifiedBy = a.verified ? (dlgVal("assessBy") || currentUser()?.displayName || "อาจารย์ผู้รับรอง") : "";
+    audit(a.verified ? "รับรองกิจกรรม" : "ยกเลิกการรับรอง", a.title);
+    a.verifiedAt = a.verified ? new Date().toISOString() : "";
+    applyActivityEdits(a); store.save(); renderAll(); toast(a.verified ? "รับรองแล้ว" : "ยกเลิกการรับรองแล้ว");
+    return true;
+  };
   const buttons = [
-    { label: a.verified ? "ยกเลิกการรับรอง" : "อาจารย์รับรอง", cls: a.verified ? "" : "btn-primary", staffOnly: true, onClick: () => {
-        a.verified = !a.verified;
-        a.verifiedBy = a.verified ? (dlgVal("assessBy") || currentUser()?.displayName || "อาจารย์ผู้รับรอง") : "";
-        audit(a.verified ? "รับรองกิจกรรม" : "ยกเลิกการรับรอง", a.title);
-        a.verifiedAt = a.verified ? new Date().toISOString() : "";
-        applyActivityEdits(a); store.save(); renderAll(); toast(a.verified ? "รับรองแล้ว" : "ยกเลิกการรับรองแล้ว");
-      }},
-    { label:"บันทึกการแก้ไข", cls:"btn-primary", ownerOnly: true,
+    { label: a.verified ? "ยกเลิกการรับรอง" : "อาจารย์รับรอง", cls: a.verified ? "" : "btn-primary", staffOnly: true, onClick: verify },
+    ...(opts.next && !a.verified && canAssess() ? [{ label:"รับรอง แล้วเปิดถัดไป", staffOnly: true, onClick: () => {
+        if (verify() === false) return false;
+        const n = opts.next(a.id);
+        if (n) setTimeout(() => openActivity(n, opts), 0); else toast("ครบแล้ว — ไม่มีงานนำเสนอค้างถัดไป");
+      }}] : []),
+    { label: canAssess() ? "บันทึกผลประเมิน" : "บันทึกการแก้ไข", cls:"btn-primary", ownerOnly: true,
       onClick: () => { applyActivityEdits(a); audit("แก้ไขกิจกรรม", a.title); store.save(); renderAll(); toast("บันทึกแล้ว"); } },
     { label:"ลบรายการ", cls:"btn-danger", ownerOnly: true, onClick: () => {
         audit("ลบกิจกรรม", a.title);
@@ -8038,6 +8249,24 @@ function openActivity(id) {
   ];
   showDialog("รายละเอียดกิจกรรม", body,
     buttons.filter(b => (!b.staffOnly || canAssess()) && (!b.ownerOnly || canEdit)));
+
+  /* ค่าเฉลี่ยสด + ผลโดยรวมที่แนะนำ — เติมให้เฉพาะตอนที่อาจารย์ยังไม่ได้เลือกเอง (แตะช่องผลโดยรวมเมื่อไรเลิกเติม)
+     listener ผูกกับกล่องฟอร์มที่ถูกวาดใหม่ทุกครั้ง ไม่ผูกกับ #dlgBody ไม่งั้นค้างข้ามกล่อง */
+  if (canAssess()) {
+    const form = $("#dlgBody [data-talkform]"), sel = $('#dlgBody [name="tvOutcome"]');
+    let touched = !!a.assessment?.outcome;
+    sel?.addEventListener("change", () => { touched = true; });
+    const recompute = () => {
+      const vals = talkEvalItemsFor(a.type).map(it => dlgVal("tv_" + it.id)).filter(v => v !== "").map(Number).filter(Number.isFinite);
+      const mean = vals.length ? Math.round(vals.reduce((x, y) => x + y, 0) / vals.length * 10) / 10 : null;
+      const sug = talkOutcomeFor(mean);
+      const box = $("#dlgBody [data-talk-mean]");
+      if (box) box.textContent = mean == null ? "" : `· เฉลี่ย ${mean}/5 (${vals.length} ข้อ) · แนะนำ: ${TALK_OUTCOME_BY_ID[sug]?.th || ""}`;
+      if (!touched && sel) sel.value = sug;
+    };
+    form?.addEventListener("change", (ev) => { if (/^tv_/.test(ev.target?.name || "")) recompute(); });
+    recompute();
+  }
 }
 
 /* ---- ฟอร์มประเมินงานนำเสนอ ----
@@ -8049,24 +8278,24 @@ function talkEvalFormHtml(a) {
   const items = talkEvalItemsFor(a.type);
   const ro = canAssess() ? "" : "disabled";
   const groups = [...new Set(items.map(x => x.group))];
-  const row = (it) => `<tr>
-    <td style="padding:.25rem .4rem">${esc(it.th)}</td>
-    <td style="padding:.25rem .4rem;width:190px">
-      <select name="tv_${it.id}" ${ro} style="width:100%">
-        <option value="">—</option>
-        ${TALK_SCALE.map(sc => `<option value="${sc.v}" ${String(ev.scores?.[it.id] ?? "") === String(sc.v) ? "selected" : ""}>${sc.v} · ${esc(sc.th.split(" — ")[0])}</option>`).join("")}
-      </select></td></tr>`;
+  /* เรียง 1→5 ตอนวาด (ค่าคงที่ TALK_SCALE ยังเป็น 5→1 — CSV และตัวอ่านอื่นไม่กระทบ) ป้ายสั้นบนปุ่ม ประโยคเต็มใน title */
+  const points = [...TALK_SCALE].sort((x, y) => x.v - y.v).map(sc => ({ v: sc.v, short: sc.th.split(" — ")[0], long: sc.th }));
+  let n = 0;
+  const row = (it) => `<div class="scale-row">
+    <div class="q">${++n}. ${esc(it.th)}</div>
+    ${scaleFieldHtml("tv_" + it.id, ev.scores?.[it.id] ?? "", points, { disabled: !canAssess() })}
+  </div>`;
   return `<h4>แบบประเมินการนำเสนอ <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 7.2)</span></h4>
-    <p class="small muted" style="margin:.1rem 0 .5rem">ให้คะแนน 1–5 ต่อข้อ · 3 = ผ่านตามระดับชั้นปี ·
-      ข้อที่ประเมินไม่ได้ให้เว้นว่างไว้ ระบบจะไม่นำมาคิดค่าเฉลี่ย
+    <p class="small muted" style="margin:.1rem 0 .3rem">แตะคะแนน 1–5 ต่อข้อ · 3 = ผ่านตามระดับชั้นปี ·
+      ข้อที่ประเมินไม่ได้ให้เว้นว่าง (—) ระบบจะไม่นำมาคิดค่าเฉลี่ย
       · ${esc(TYPE_BY_ID[a.type]?.th || "")}${TYPE_BY_ID[a.type]?.desc ? " (" + esc(TYPE_BY_ID[a.type].desc) + ")" : ""}
-      มีข้อเฉพาะประเภทเพิ่มให้ท้ายตาราง</p>
-    <div class="tbl-wrap"><table>
-      ${groups.map(g => `<tr><th colspan="2" style="padding-top:.5rem">${esc(g)}</th></tr>
-        ${items.filter(x => x.group === g).map(row).join("")}`).join("")}
-    </table></div>
+      มีข้อเฉพาะประเภทเพิ่มให้ท้ายสุด</p>
+    <details class="small" style="margin-bottom:.5rem"><summary>ความหมายของคะแนน 1–5</summary>
+      <ul class="clean" style="margin-top:.3rem">${points.map(p => `<li><b>${p.v}</b> ${esc(p.long)}</li>`).join("")}</ul></details>
+    ${groups.map(g => `<h4 style="margin:.6rem 0 .3rem;font-size:.9rem">${esc(g)}</h4>
+      ${items.filter(x => x.group === g).map(row).join("")}`).join("")}
     <div class="grid g2" style="margin-top:.6rem">
-      <label class="f"><span>ผลการประเมินโดยรวม</span>
+      <label class="f"><span>ผลการประเมินโดยรวม <span class="muted" style="font-weight:400" data-talk-mean></span></span>
         <select name="tvOutcome" ${ro}>
           <option value="">—</option>
           ${TALK_OUTCOMES.map(o => `<option value="${o.id}" ${ev.outcome === o.id ? "selected" : ""}>${esc(o.th)}</option>`).join("")}
@@ -8293,9 +8522,10 @@ function printPortfolio(residentId) {
           <td>${esc(staffName(rot.supervisorId))}</td>
           <td class="small">${rev
             ? esc(rotationEvalLabel(rev))
-              + rotationAskItems().filter(it => it.kind !== "entrust" && it.role !== "comment")
-                  .map(it => { const v = rev.answers?.[it.id]; return v ? "<br /><b>" + esc(it.th || it.id) + ":</b> " + esc(String(v)) : ""; }).join("")
-              + (rev.comment ? "<br /><span class='muted'>" + esc(rev.comment) + "</span>" : "")
+              + (rotationOutcomeLabel(rev) ? " · <b>" + esc(rotationOutcomeLabel(rev)) + "</b>" : "")
+              + (rotationScoreTags(rev) ? "<br />" + rotationScoreTags(rev) : "")
+              + rotationTextAnswers(rev).map(x => "<br /><b>" + esc(x.th) + ":</b> " + esc(x.v)).join("")
+              + (rev.comment ? "<br /><b>ควรพัฒนา:</b> " + esc(rev.comment) : "")
             : (rotationOutside(rot) ? "ไปวนนอกกลุ่มงาน" : "—")}</td></tr>`; }).join("")}</tbody></table>` : ""}
       ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
         <table><thead><tr><th>Service</th><th>จำนวนครั้ง</th><th>คะแนนเฉลี่ย</th><th>entrustment เฉลี่ย</th></tr></thead>
