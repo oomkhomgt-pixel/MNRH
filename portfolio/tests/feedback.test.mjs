@@ -102,7 +102,7 @@ export default async function run() {
       const adminStat = /ผลประเมินลงกองค้าง/.test(document.querySelector("#todayBody").textContent);
       const ev = (store.data.rotationEvals || []).find(x => Object.keys(x.scores || {}).length && x.answers?.outcome);
       if (!ev) return { adminStat, noEval: true };
-      selectedResident = ev.residentId; showView("residents"); renderResidents();
+      selectedResident = ev.residentId; renderResidentDetail(); showView("resident");
       const box = document.querySelector("#residentDetail");
       const sec = box.textContent;
       const label = rotationOutcomeLabel(ev);
@@ -142,6 +142,170 @@ export default async function run() {
     t.eq("การ์ดที่ใช้บ่อยอยู่บนสุด", st.firstCards, ["เตรียมปีการศึกษา", "บัญชีผู้ใช้", "สำรองข้อมูล"]);
     t.eq("checklist เตรียมปีมี 8 ข้อ", st.checklist, 8);
     t.eq("ปุ่มลบข้อมูลทั้งหมดอยู่ในโซนอันตราย", st.wipeInDanger, "โซนอันตราย");
+
+    /* ---------- การ์ดพับได้ (data-fold) และ "แสดงเพิ่ม" (data-more) — ซ่อนบนจอเท่านั้น ไม่มีอะไรหายจาก DOM ---------- */
+    const fold = await page.evaluate(async () => {
+      const r = {};
+      showView("settings");
+      const cards = [...document.querySelectorAll("#view-settings .card[data-fold]")];
+      r.foldable = cards.length;
+      r.foldedByDefault = cards.filter(c => c.classList.contains("folded")).length;
+      r.checklistOpen = !document.querySelector('[data-fold="set-เตรียมปีการศึกษา"]').classList.contains("folded");
+      /* ปุ่มข้างในการ์ดที่พับอยู่ยังอยู่ครบ แค่มองไม่เห็น */
+      const users = document.querySelector('[data-fold="set-บัญชีผู้ใช้"]');
+      r.hiddenButtons = users.querySelectorAll("#userTable button").length;
+      r.hiddenNotVisible = !users.querySelector("#userTable").offsetParent;
+      r.sumTag = users.querySelector("h2 .fold-sum")?.textContent || "";
+      r.aria = users.querySelector("h2").getAttribute("aria-expanded");
+      /* กดหัวข้อ → ขยาย และจำไว้ */
+      users.querySelector("h2").click();
+      r.openedByClick = !users.classList.contains("folded") && !!users.querySelector("#userTable").offsetParent;
+      r.stored = JSON.parse(localStorage.getItem("ortho-folds") || "{}")["set-บัญชีผู้ใช้"];
+      /* render ใหม่ทั้งแอป (innerHTML แทนที่) สถานะต้องกลับมาเหมือนเดิม */
+      renderAll(); await new Promise(res => requestAnimationFrame(() => setTimeout(res, 30)));
+      r.survivesRender = !document.querySelector('[data-fold="set-บัญชีผู้ใช้"]').classList.contains("folded")
+        && document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* ปุ่มบนดัชนีเปิดการ์ดที่พับอยู่ให้ */
+      const staffIdx = [...document.querySelectorAll("#settingsNav [data-goto]")].find(b => b.textContent === "อาจารย์");
+      staffIdx.click();
+      r.navOpens = !document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* คีย์บอร์ด: Enter บนหัวข้อ */
+      const h = document.querySelector('[data-fold="set-อาจารย์"] h2');
+      h.focus(); h.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      r.keyboardFolds = document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* กดปุ่มในบล็อกหัว (เช่น + เพิ่มบัญชี) ต้องไม่พับ/ขยาย */
+      const before = users.classList.contains("folded");
+      users.querySelector("#btnAddUser").click(); document.querySelector("#dlg").close();
+      r.buttonNoToggle = users.classList.contains("folded") === before;
+      return r;
+    });
+    /* พิมพ์ = เห็นครบ — จำลอง media print แล้ววัดว่าตารางในการ์ดที่พับอยู่กลับมามองเห็น */
+    await page.emulateMedia({ media: "print" });
+    fold.printExpands = await page.evaluate(() => {
+      const c = document.querySelector('[data-fold="set-อาจารย์"]');
+      const hints = [...document.querySelectorAll("[data-fold] > details.hint")];
+      return c.classList.contains("folded") && getComputedStyle(c.querySelector("#staffTable")).display !== "none"
+        && hints.length > 0 && hints.every(h => getComputedStyle(h).display === "none");   /* คำอธิบาย ⓘ ไม่พิมพ์ ไม่ว่าการ์ดพับหรือกาง */
+    });
+    await page.emulateMedia({ media: "screen" });
+    t.check("หน้าตั้งค่า: การ์ดทุกใบพับได้ พับไว้ก่อนยกเว้น checklist เตรียมปี", fold.foldable >= 15 && fold.foldedByDefault === fold.foldable - 1 && fold.checklistOpen, JSON.stringify(fold));
+    t.check("การ์ดที่พับอยู่ยังมีปุ่มครบใน DOM แค่มองไม่เห็น และมีป้ายจำนวนกับ aria-expanded=false",
+            fold.hiddenButtons > 0 && fold.hiddenNotVisible && /รายการ/.test(fold.sumTag) && fold.aria === "false", JSON.stringify(fold));
+    t.check("กดหัวข้อแล้วขยาย จำสถานะไว้ในเครื่อง และรอดจากการ render ใหม่", fold.openedByClick && fold.stored === "open" && fold.survivesRender);
+    t.check("ปุ่มดัชนีเปิดการ์ดที่พับอยู่ · Enter บนหัวข้อพับได้ · ปุ่มในบล็อกหัวไม่ไปสลับการพับ", fold.navOpens && fold.keyboardFolds && fold.buttonNoToggle);
+    t.check("ตอนพิมพ์ ทุกส่วนที่พับถูกขยายด้วย CSS", fold.printExpands);
+
+    const more = await page.evaluate(async () => {
+      showView("rotation");
+      const r = {};
+      const card = document.querySelector('[data-fold="rot-all"]');
+      r.folded = card.classList.contains("folded");
+      r.sumIsTotal = card.querySelector("h2 .fold-sum")?.textContent === store.data.rotations.length + " ช่วง";
+      foldOpen(card);
+      const total = store.data.rotations.length;
+      r.total = total;
+      r.first = document.querySelectorAll("#rotationTable tbody tr").length;
+      document.querySelector('#rotationTable [data-more][data-step="25"]')?.click();
+      r.afterMore = document.querySelectorAll("#rotationTable tbody tr").length;
+      document.querySelector('#rotationTable [data-more][data-step="all"]')?.click();
+      r.afterAll = document.querySelectorAll("#rotationTable tbody tr").length;
+      r.editButtons = document.querySelectorAll("#rotationTable [data-rot]").length;
+      showView("logbook");
+      r.cases = document.querySelectorAll("#caseTable tbody tr").length;
+      r.caseTotal = filterCases().length;
+      return r;
+    });
+    t.check("ช่วงหมุนเวียนทั้งหมด: พับไว้ก่อน ป้ายบอกจำนวนจริง เปิดแล้วแสดง 25 แถวแรก", more.folded && more.sumIsTotal && more.first === Math.min(25, more.total), JSON.stringify(more));
+    t.check("แสดงเพิ่มอีก 25 → 50 แถว · แสดงทั้งหมด → ครบทุกช่วง พร้อมปุ่มแก้ไขทุกแถว",
+            more.afterMore === Math.min(50, more.total) && more.afterAll === more.total && more.editButtons === more.total, JSON.stringify(more));
+    t.check("เคสทั้งหมดใน logbook เริ่มที่ 30 แถว", more.cases === Math.min(30, more.caseTotal), JSON.stringify(more));
+
+    /* ---------- รายชื่อกับแฟ้มรายบุคคลเป็นคนละหน้า ---------- */
+    const split = await page.evaluate(async () => {
+      const r = {};
+      showView("residents");
+      r.listHasNoDetail = !document.querySelector("#view-residents #residentDetail") && !/ความก้าวหน้าตามเกณฑ์/.test(document.querySelector("#view-residents").textContent);
+      r.rows = document.querySelectorAll("#residentList tbody tr").length;
+      const second = document.querySelectorAll("#residentList [data-res]")[1];
+      second.click();
+      r.viewAfterOpen = currentViewName(); r.hash = location.hash;
+      r.detailName = document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(second.dataset.res).name);
+      const pick = document.querySelector("#resPick");
+      r.pickShown = !pick.hidden && pick.options.length === visibleResidents().length && pick.value === second.dataset.res;
+      pick.value = pick.options[0].value; pick.dispatchEvent(new Event("change", { bubbles: true }));
+      r.pickSwitches = document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(pick.options[0].value).name);
+      document.querySelector("#btnResidentBack").click();
+      r.backToList = currentViewName() === "residents";
+      r.printBtnOnDetail = !!document.querySelector("#view-resident #btnPrintPortfolio");
+      return r;
+    });
+    t.check("หน้ารายชื่อมีแต่ตาราง ไม่ต่อท้ายด้วยแฟ้มของใคร", split.listHasNoDetail && split.rows > 1, JSON.stringify(split));
+    t.check("กด 'เปิดแฟ้ม' แล้วไปหน้า 'แฟ้มรายบุคคล' ของคนนั้น (hash ตาม) มีตัวเลือกคนไว้สลับ และปุ่มกลับ",
+            split.viewAfterOpen === "resident" && split.hash === "#resident" && split.detailName && split.pickShown && split.pickSwitches && split.backToList && split.printBtnOnDetail, JSON.stringify(split));
+
+    /* ---------- อาจารย์: อนุสาขาหลายสายเห็นและแก้ได้ · ข้อมูลสาธิตเก่าในเครื่องถูกแก้คำนำหน้า ---------- */
+    const staff = await page.evaluate(() => {
+      const r = {};
+      const row = [...document.querySelectorAll("#staffTable tbody tr")].find(tr => /นฤพล/.test(tr.textContent));
+      r.traumaTag = !!row && [...row.querySelectorAll(".tag")].some(t => /Trauma/.test(t.textContent)) && [...row.querySelectorAll(".tag")].some(t => /Arthroplasty/.test(t.textContent));
+      /* แก้ไขอาจารย์คนหนึ่งให้มีสองสาย */
+      const st = store.data.staff.find(x => x.id === "st_1");
+      editStaff(st.id);
+      const boxes = [...document.querySelectorAll('#dlgBody input[type="checkbox"][name^="sub_"]')];
+      r.checkboxes = boxes.length;
+      boxes.forEach(b => b.checked = false);
+      document.querySelector('#dlgBody [name="sub_spine"]').checked = true;
+      document.querySelector('#dlgBody [name="sub_hand"]').checked = true;
+      document.querySelector("#dlgFoot .btn-primary").click();
+      r.saved = JSON.stringify([st.subspecialty, st.subspecialties]);
+      /* ไม่ติ๊กเลย → error ที่ช่อง กล่องไม่ปิด */
+      editStaff(st.id);
+      [...document.querySelectorAll('#dlgBody input[type="checkbox"][name^="sub_"]')].forEach(b => b.checked = false);
+      document.querySelector("#dlgFoot .btn-primary").click();
+      r.emptyRefused = document.querySelector("#dlg").open && !!document.querySelector("#dlgBody .err");
+      document.querySelector("#dlg").close();
+      /* migration: จำลองข้อมูลสาธิตเก่าที่ยังเป็น นพ. และไม่มี trauma */
+      const d = store.data;
+      d.staff.find(x => x.id === "st_1").name = "นพ. มานิตา";
+      d.users.filter(u => u.staffId === "st_1").forEach(u => u.displayName = "นพ. มานิตา");
+      d.cases[0].primarySurgeon = "นพ. มานิตา";
+      const s12 = d.staff.find(x => x.id === "st_12"); delete s12.subspecialties; s12.subspecialty = "arthroplasty";
+      store.migrate();
+      r.migrated = d.staff.find(x => x.id === "st_1").name === "พญ. มานิตา"
+        && d.users.filter(u => u.staffId === "st_1").every(u => u.displayName === "พญ. มานิตา")
+        && d.cases[0].primarySurgeon === "พญ. มานิตา"
+        && JSON.stringify(s12.subspecialties) === JSON.stringify(["arthroplasty", "trauma"]);
+      /* ชื่อที่ผู้ใช้แก้เองไม่ถูกแตะ */
+      d.staff.find(x => x.id === "st_19").name = "นพ. สมชาย"; store.migrate();
+      r.customKept = d.staff.find(x => x.id === "st_19").name === "นพ. สมชาย";
+      return r;
+    });
+    t.check("ตารางอาจารย์แสดงทุกอนุสาขา (นพ. นฤพล มีทั้ง Arthroplasty และ Trauma)", staff.traumaTag);
+
+    /* ---------- ภาพรวมก่อน แล้วค่อยเลือกคน (อาจารย์/ผู้จัดหลักสูตร) ---------- */
+    const overview = await page.evaluate(() => {
+      const r = {};
+      showView("epa");
+      const cards = [...document.querySelectorAll("#view-epa > .card")].filter(c => !c.hidden);
+      r.epaOrder = cards.map(c => c.dataset.fold);
+      r.epaMatrixOpen = !cards[0].classList.contains("folded") && !!document.querySelector("#epaMatrix table");
+      r.epaPersonFolded = cards[1].classList.contains("folded");
+      const sel = document.querySelector("#epaResident"); sel.value = sel.options[1].value; sel.dispatchEvent(new Event("change"));
+      r.epaPersonOpensOnPick = !cards[1].classList.contains("folded") && epaResidentId === sel.options[1].value;
+      showView("calendar");
+      r.calNoOneChosen = calResidentId === "" && !!document.querySelector("#calGrid .empty") && document.querySelector("#calResidentPick").value === "";
+      document.querySelector("#calGrid [data-goto-roster]").click();
+      r.calGotoRoster = currentViewName() === "rotation" && !document.querySelector('[data-segview="week"]').hidden;
+      return r;
+    });
+    t.check("EPA ของอาจารย์: ภาพรวมทั้งกลุ่มงานมาก่อนและเปิดอยู่ · รายบุคคลพับไว้จนกว่าจะเลือกคน",
+            overview.epaOrder[0] === "epa-matrix" && overview.epaMatrixOpen && overview.epaPersonFolded && overview.epaPersonOpensOnPick, JSON.stringify(overview));
+    t.check("ปฏิทินของอาจารย์: ยังไม่เดาเอาคนแรก ต้องเลือกก่อน และมีทางไปตารางเวรรายสัปดาห์ของทุกคน",
+            overview.calNoOneChosen && overview.calGotoRoster, JSON.stringify(overview));
+    t.check("กล่องแก้ไขอาจารย์ติ๊กได้หลายสาย บันทึกเป็น subspecialties และสายแรกเป็น subspecialty · ไม่ติ๊กเลยถูกปฏิเสธที่ช่อง",
+            staff.checkboxes > 3 && staff.saved === JSON.stringify(["spine", ["spine", "hand"]]) && staff.emptyRefused, JSON.stringify(staff));
+    t.check("ข้อมูลสาธิตเก่าในเครื่อง: นพ. มานิตา → พญ. (รวมบัญชีและศัลยแพทย์หลักในเคส) · นพ. นฤพล ได้ Trauma · ชื่อที่แก้เองไม่ถูกแตะ",
+            staff.migrated && staff.customKept, JSON.stringify(staff));
 
     const ck = await page.evaluate(() => {
       const keep = store.data.rotations;
