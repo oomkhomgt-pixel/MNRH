@@ -1,27 +1,31 @@
-/* หน้าปฏิทิน — ตอนนี้เป็นปฏิทินการนำเสนอเท่านั้น (Trauma film, Pre/post-op conference, Topic conference,
-   Journal club) รวมมาจากตารางนำเสนอเดิม ตรวจว่าช่วงวันที่ถูกต้อง (จันทร์เริ่มสัปดาห์ เดือนมีวันขอบเดือนด้วย),
-   สิทธิ์การดู (resident เห็นแค่ตัวเอง ไม่มีตัวเลือกตารางรวม · staff/admin เปิดมาเป็นตารางรวมก่อน สลับไปรายคนได้),
-   และผู้นิเทศ Topic conference โผล่เฉพาะคาบ topic/journal เท่านั้น ไม่ติดคาบอื่นในวันเดียวกัน */
+/* หน้าปฏิทิน — ปฏิทินรวมการนำเสนอ (Trauma film, Pre/post-op conference, Topic conference, Journal club)
+   ไม่มีโหมดรายคน: ทุกคนเห็นชุดเดียวกัน แพทย์ประจำบ้านเห็นเฉพาะของตัวเองผ่านตัวกรองสิทธิ์
+   chip ในช่องวันเป็นตัวย่อประเภท + ชื่อสั้น สีตามประเภท — รายละเอียดเต็ม (รวมผู้นิเทศวันพฤหัสฯ) อยู่ในกล่องตอนกด */
 import { chromium } from "playwright";
 import { serve, launchOptions, openAs, suite } from "./lib.mjs";
 
+const RESIDENT_OF = `(b) => {
+  const i = b.dataset.pres.indexOf(":");
+  const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
+  const list = kind === "schedule" ? store.data.schedule : store.data.activities;
+  return list.find(x => x.id === id);
+}`;
+
 export default async function run() {
-  const t = suite("ปฏิทินการนำเสนอ");
+  const t = suite("ปฏิทินรวมการนำเสนอ");
   const srv = await serve();
   const browser = await chromium.launch(launchOptions());
   try {
-    /* ---------- resident: ตัวเลือกตารางรวม/รายคนถูกซ่อน, chip ตรงกับ presentationsForDate ที่กรองแล้วเป๊ะ ---------- */
+    /* ---------- resident: ไม่มีตัวเลือกเปลี่ยนคน/สลับโหมด · chip ทั้งหมดเป็นของตัวเองตรงกับ presentationsForDate ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "resident");
       const r = await page.evaluate(() => {
         showView("calendar");
-        const scopeHidden = document.querySelector("#calScopeAll").closest("[data-perm]").hidden;
-        const pickerHidden = document.querySelector("#calResidentPick").hidden;
+        const noControls = !document.querySelector("#calScopeAll") && !document.querySelector("#calResidentPick");
         const rid = myResidentId();
-        /* หาเดือนที่มีของฉันแน่ ๆ จากข้อมูลสาธิต (17 สัปดาห์ วนผู้นำเสนอทุกคน) แทนที่จะหวังเดือนปัจจุบันเฉย ๆ */
         const anyOfMine = store.data.schedule.find(x => x.residentId === rid) ||
           store.data.activities.find(x => x.residentId === rid);
-        if (!anyOfMine) return { none: true, scopeHidden, pickerHidden };
+        if (!anyOfMine) return { none: true, noControls };
         calMonth = anyOfMine.date.slice(0, 7);
         renderCalendar();
         const cells = [...document.querySelectorAll("#calGrid .gcal-cell")];
@@ -29,20 +33,19 @@ export default async function run() {
         const leadDays = (new Date(first + "T00:00:00").getDay() + 6) % 7;
         const gridStart = addDaysISO(first, -leadDays);
         const isos = Array.from({ length: 42 }, (_, i) => addDaysISO(gridStart, i));
-        const want = new Set(isos.flatMap(iso =>
-          presentationsForDate(iso).filter(p => p.residentId === rid).map(p => p.kind + ":" + p.id)));
+        /* presentationsForDate กรองด้วย canSeeResident อยู่แล้ว — สำหรับ resident จึงมีแต่ของตัวเอง */
+        const want = new Set(isos.flatMap(iso => presentationsForDate(iso).map(p => p.kind + ":" + p.id)));
         const got = new Set([...document.querySelectorAll("#calGrid [data-pres]")].map(b => b.dataset.pres));
-        const extra = [...got].filter(k => !want.has(k));
-        const missing = [...want].filter(k => !got.has(k));
-        return { none: false, scopeHidden, pickerHidden, cellCount: cells.length, extra, missing, wantSize: want.size };
+        const wantAllMine = isos.flatMap(iso => presentationsForDate(iso)).every(p => p.residentId === rid);
+        return { none: false, noControls, cellCount: cells.length, wantSize: want.size, wantAllMine,
+                 extra: [...got].filter(k => !want.has(k)), missing: [...want].filter(k => !got.has(k)) };
       });
-      t.check("resident: ตัวเลือกตารางรวม/รายคนถูกซ่อน", r.scopeHidden);
-      t.check("resident: ตัวเลือกเปลี่ยนคนถูกซ่อน", r.pickerHidden);
+      t.check("resident: ไม่มีตัวเลือกสลับตารางรวม/รายคน และไม่มีตัวเลือกเปลี่ยนคน", r.noControls);
       if (r.none) {
         t.check("resident: ข้ามชุดนี้ — ข้อมูลสาธิตไม่มีการนำเสนอของบัญชีนี้เลย", false);
       } else {
         t.check("resident: กริดเดือนมี 42 ช่อง (6 สัปดาห์ x 7 วัน)", r.cellCount === 42, r.cellCount);
-        t.check("resident: มีรายการให้ตรวจจริง (ไม่ใช่ทดสอบว่าง)", r.wantSize > 0, r.wantSize);
+        t.check("resident: มีรายการให้ตรวจจริง และทุกรายการที่ระบบคืนมาเป็นของตัวเอง", r.wantSize > 0 && r.wantAllMine, r.wantSize);
         t.eq("resident: ไม่มี chip เกินมาที่ไม่ใช่ของฉัน", r.extra, []);
         t.eq("resident: ไม่มี chip ของฉันตกหล่นไปจากกริด", r.missing, []);
       }
@@ -50,97 +53,83 @@ export default async function run() {
       await page.close();
     }
 
-    /* ---------- staff/admin: เปิดมาเป็น "ตารางรวม" ก่อน เห็นของหลายคนพร้อมกัน ไม่ต้องเลือกใคร
-       สลับไป "รายคน" แล้วยังไม่เดาเอาคนแรก ต้องเลือกก่อนเหมือนเดิม ---------- */
+    /* ---------- staff/admin: ปฏิทินรวมเห็นหลายคน · chip ย่อ+สี · กดแล้วเห็นตัวเต็ม ปุ่มตามสิทธิ์ ---------- */
     for (const role of ["staff", "admin"]) {
       const { page, errors } = await openAs(browser, srv.url, role);
-      const r = await page.evaluate(() => {
-        const residentIdOf = (b) => {
-          const i = b.dataset.pres.indexOf(":");
-          const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
-          const list = kind === "schedule" ? store.data.schedule : store.data.activities;
-          return list.find(x => x.id === id)?.residentId;
-        };
+      const r = await page.evaluate(async (recOfSrc) => {
+        const recOf = new Function("return " + recOfSrc)();
         showView("calendar");
-        const scopeAllCurrent = document.querySelector("#calScopeAll").getAttribute("aria-current") === "true";
-        const pickerHiddenOnAll = document.querySelector("#calResidentPick").hidden;
-        const residentIds = new Set([...document.querySelectorAll("#calGrid [data-pres]")].map(residentIdOf).filter(Boolean));
+        const chips = [...document.querySelectorAll("#calGrid [data-pres]")];
+        const residentIds = new Set(chips.map(b => recOf(b)?.residentId).filter(Boolean));
+        const abbrOk = chips.every(b => {
+          const rec = recOf(b);
+          const abbr = b.querySelector(".abbr")?.textContent.trim();
+          return rec && abbr === TYPE_BY_ID[rec.type].icon && b.classList.contains("pres-" + rec.type);
+        });
+        const compact = chips.every(b => !b.querySelector(".tc-info") && !b.querySelector(".tag") &&
+          b.textContent.trim().length < 40);
+        const noneClickableDivs = !document.querySelector("#calGrid div[data-pres]");
 
-        document.querySelector("#calScopeMine").click();
-        const pickerShownOnMine = !document.querySelector("#calResidentPick").hidden;
-        const emptyBeforePick = !!document.querySelector("#calGrid .empty");
-
-        const other = store.data.residents[0];
-        const sel = document.querySelector("#calResidentPick");
-        sel.value = other.id; sel.dispatchEvent(new Event("change", { bubbles: true }));
-        const afterPickResident = calResidentId;
-        const chipsMatchPicked = [...document.querySelectorAll("#calGrid [data-pres]")].every(b => residentIdOf(b) === other.id);
-        return {
-          scopeAllCurrent, pickerHiddenOnAll, residentCount: residentIds.size,
-          pickerShownOnMine, emptyBeforePick, afterPickResident, wantAfter: other.id, chipsMatchPicked
-        };
-      });
-      t.check(role + ": เปิดหน้ามาเป็นตารางรวมก่อน (ไม่ต้องเลือกใคร)", r.scopeAllCurrent);
-      t.check(role + ": โหมดตารางรวมซ่อนตัวเลือกคน", r.pickerHiddenOnAll);
-      t.check(role + ": ตารางรวมเห็นของหลายคนพร้อมกันในเดือนเดียว", r.residentCount > 1, r.residentCount);
-      t.check(role + ": สลับมารายคนแล้วโชว์ตัวเลือกคน", r.pickerShownOnMine);
-      t.check(role + ": รายคนที่ยังไม่เลือกใครขึ้นว่างไว้ก่อน ไม่เดาเอาคนแรก", r.emptyBeforePick);
-      t.eq(role + ": เลือกแพทย์ประจำบ้านคนอื่นแล้วกริดตามค่าที่เลือกจริง", r.afterPickResident, r.wantAfter);
-      t.check(role + ": ทุก chip ที่เห็นเป็นของคนที่เลือกเท่านั้น", r.chipsMatchPicked);
+        /* กด chip ของ topic conference → กล่องรายละเอียดมีชื่อเต็ม หัวข้อ และบรรทัดผู้นิเทศ */
+        const topicChip = chips.find(b => recOf(b)?.type === "topic");
+        let topic = null;
+        if (topicChip) {
+          const rec = recOf(topicChip);
+          topicChip.click();
+          await new Promise(res => setTimeout(res, 50));
+          const body = document.querySelector("#dlgBody")?.textContent || "";
+          const foot = [...document.querySelectorAll("#dlgFoot button")].map(x => x.textContent);
+          topic = { open: document.querySelector("#dlg")?.open === true, title: document.querySelector("#dlgTitle")?.textContent,
+                    fullName: body.includes(store.resident(rec.residentId).name), hasTitle: body.includes(rec.title),
+                    tcLine: !!document.querySelector("#dlgBody .tc-info"), foot };
+          document.querySelector("#dlg").close();
+        }
+        /* กด chip ของ trauma film → ไม่มีบรรทัดผู้นิเทศ */
+        const filmChip = chips.find(b => recOf(b)?.type === "traumafilm");
+        let film = null;
+        if (filmChip) {
+          filmChip.click();
+          await new Promise(res => setTimeout(res, 50));
+          film = { open: document.querySelector("#dlg")?.open === true, tcLine: !!document.querySelector("#dlgBody .tc-info") };
+          document.querySelector("#dlg").close();
+        }
+        return { chips: chips.length, residentCount: residentIds.size, abbrOk, compact, noneClickableDivs, topic, film };
+      }, RESIDENT_OF);
+      t.check(role + ": ปฏิทินรวมเห็นของหลายคนพร้อมกันในเดือนเดียว", r.residentCount > 1, r.residentCount);
+      t.check(role + ": chip ทุกอันมีตัวย่อ T/P/F/J ตรงประเภท และ class pres-{type}", r.chips > 0 && r.abbrOk, r.chips);
+      t.check(role + ": chip กระชับ — ไม่มีป้ายสถานะ/บรรทัดผู้นิเทศ/หัวข้อยัดลงช่องวัน", r.compact);
+      t.check(role + ": chip ทุกอันกดได้ (ไม่มี <div> ที่กดไม่ได้อีกแล้ว)", r.noneClickableDivs);
+      if (r.topic) {
+        t.check(role + ": กด chip Topic conference เปิดกล่องรายละเอียดที่มีชื่อเต็ม หัวข้อ และผู้นิเทศวันพฤหัสฯ",
+                r.topic.open && r.topic.title === "รายละเอียดการนำเสนอ" && r.topic.fullName && r.topic.hasTitle && r.topic.tcLine,
+                JSON.stringify(r.topic));
+        t.check(role + (role === "admin" ? ": ผู้จัดหลักสูตรเห็นปุ่ม 'แก้ไขรายการ'" : ": อาจารย์ทั่วไปไม่เห็นปุ่ม 'แก้ไขรายการ'"),
+                r.topic.foot.includes("แก้ไขรายการ") === (role === "admin"), r.topic.foot.join(" / "));
+      } else t.check(role + ": ไม่มีคาบ Topic conference ในเดือนนี้ให้ทดสอบ", false);
+      if (r.film) t.check(role + ": กล่องของ Trauma film ไม่มีบรรทัดผู้นิเทศ", r.film.open && !r.film.tcLine);
       t.check(role + ": ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
-    /* ---------- Topic conference: chip มีบรรทัดผู้นิเทศ+หัวหน้าสาย เฉพาะ topic/journal คาบอื่นไม่มี ---------- */
+    /* ---------- ผู้นิเทศที่กำหนดไว้จริงโผล่ในกล่องของวันนั้น ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
-      const r = await page.evaluate(() => {
+      const r = await page.evaluate(async () => {
         showView("calendar");
         const tcEntry = store.data.schedule.find(x => x.type === "topic");
         if (!tcEntry) return { none: true };
         store.data.topicConf = [{ id: "tc_cal_test", date: tcEntry.date, staffId: store.data.staff[0].id, teamServiceId: "" }];
-        calMonth = tcEntry.date.slice(0, 7); calScope = "all";
+        calMonth = tcEntry.date.slice(0, 7);
         renderCalendar();
-        const chips = [...document.querySelectorAll("#calGrid .gcal-chip")];
-        const tcChip = chips.find(b => b.dataset.pres === "schedule:" + tcEntry.id);
-        const otherChips = chips.filter(b => {
-          if (b === tcChip) return false;
-          const i = b.dataset.pres.indexOf(":");
-          const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
-          if (kind !== "schedule") return true;
-          const rec = store.data.schedule.find(x => x.id === id);
-          return rec && rec.type !== "topic" && rec.type !== "journal";
-        });
+        document.querySelector(`#calGrid [data-pres="schedule:${tcEntry.id}"]`).click();
+        await new Promise(res => setTimeout(res, 50));
+        const line = document.querySelector("#dlgBody .tc-info")?.textContent || "";
+        document.querySelector("#dlg").close();
         store.data.topicConf = [];
-        return {
-          none: false,
-          hasTcInfo: !!tcChip?.querySelector(".tc-info"), tcText: tcChip?.querySelector(".tc-info")?.textContent || "",
-          otherHasNoInfo: otherChips.every(b => !b.querySelector(".tc-info")),
-          otherCount: otherChips.length
-        };
+        return { none: false, line, staff: store.data.staff[0].name };
       });
-      if (r.none) {
-        t.check("ข้ามชุดนี้ — ข้อมูลสาธิตไม่มีคาบ topic conference เลย", false);
-      } else {
-        t.check("มีคาบ Topic conference ในกริด และมีบรรทัดผู้นิเทศ/หัวหน้าสาย", r.hasTcInfo, r.tcText);
-        t.check("บรรทัดผู้นิเทศพูดถึงอาจารย์ที่กำหนดไว้", r.tcText.includes("ผู้นิเทศ"), r.tcText);
-        t.check("คาบ trauma film/pre-post-op ในเดือนเดียวกันไม่มีบรรทัดผู้นิเทศติดไปด้วย",
-          r.otherHasNoInfo && r.otherCount > 0, r.otherCount + " คาบอื่น");
-      }
-
-      /* คลิก chip ที่มาจากตารางที่ลงล่วงหน้า (schedule) เปิด editTalk() */
-      const click = await page.evaluate(() => {
-        const b = document.querySelector('#calGrid button[data-pres^="schedule:"]');
-        if (!b) return { none: true };
-        b.click();
-        const open = !!document.querySelector("#dlg")?.open;
-        const title = document.querySelector("#dlgTitle")?.textContent || "";
-        if (open) document.querySelector("#dlg").close();
-        return { none: false, open, title };
-      });
-      t.check("คลิก chip ที่มาจากตารางนำเสนอเปิดกล่องแก้ไขรายการได้",
-        click.none || (click.open && click.title.includes("ตารางนำเสนอ")), JSON.stringify(click));
-
+      if (r.none) t.check("ข้ามชุดนี้ — ข้อมูลสาธิตไม่มีคาบ topic conference เลย", false);
+      else t.check("กำหนดผู้นิเทศแล้ว กล่องของวันนั้นบอกชื่ออาจารย์ที่กำหนด", r.line.includes(r.staff), r.line);
       t.check("Topic conference: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

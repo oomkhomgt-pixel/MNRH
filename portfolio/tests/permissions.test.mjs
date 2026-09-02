@@ -181,30 +181,33 @@ export default async function run() {
       t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
               !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
 
-      /* ปฏิทิน: picker ต้องซ่อน และต่อให้แก้ calResidentId ตรง ๆ ทาง console แล้วสั่ง render ใหม่
-         ก็ต้องดีดกลับมาเป็นตัวเองเสมอ — ไม่มีทางเห็นปฏิทินของคนอื่นได้ */
-      const calScope = await page.evaluate(() => {
+      /* ปฏิทินรวม: ไม่มีตัวเลือกเปลี่ยนคนให้แก้เลย และทุก chip ที่วาดออกมาต้องเป็นของตัวเอง —
+         ตัวกรองอยู่ที่ presentationsForDate (canSeeResident) ไม่ใช่ที่ UI ต่อให้เรียก render ใหม่เองก็ไม่มีของคนอื่นโผล่ */
+      const calMine = await page.evaluate(() => {
         showView("calendar");
-        const pickerHidden = document.querySelector("#calResidentPick").hidden;
-        const other = store.data.residents.find(r => r.id !== myResidentId());
-        calResidentId = other?.id || "__hijack__";
-        renderCalendar();
-        return { pickerHidden, resetToMine: calResidentId === myResidentId(), attempted: other?.id || "__hijack__" };
+        const me = myResidentId();
+        const anyOfMine = store.data.schedule.find(x => x.residentId === me);
+        if (anyOfMine) { calMonth = anyOfMine.date.slice(0, 7); renderCalendar(); }
+        const owners = [...document.querySelectorAll("#calGrid [data-pres]")].map(b => {
+          const i = b.dataset.pres.indexOf(":");
+          const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
+          return (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id)?.residentId;
+        });
+        return { noControls: !document.querySelector("#calResidentPick") && !document.querySelector("#calScopeAll"),
+                 n: owners.length, allMine: owners.every(x => x === me) };
       });
-      t.check("แพทย์ประจำบ้าน: ตัวเลือกเปลี่ยนคนในหน้าปฏิทินถูกซ่อน", calScope.pickerHidden);
+      t.check("แพทย์ประจำบ้าน: ปฏิทินไม่มีตัวเลือกเปลี่ยนคน และทุกรายการที่เห็นเป็นของตัวเอง",
+              calMine.noControls && calMine.n > 0 && calMine.allMine, JSON.stringify(calMine));
       const own = await page.evaluate(() => {
         showView("residents");
         const epaFirst = [...document.querySelectorAll("#view-epa > .card")].filter(c => !c.hidden)[0];
         return { landsOnOwn: currentViewName() === "resident", listTabHidden: document.querySelector('#subtabs [data-view="residents"]').hidden,
                  backHidden: document.querySelector("#btnResidentBack").hidden,
                  ownName: document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(myResidentId()).name),
-                 epaOwnFirst: epaFirst?.dataset.fold === "epa-person" && !epaFirst.classList.contains("folded"),
-                 calOwn: (showView("calendar"), calResidentId === myResidentId()) };
+                 epaOwnFirst: epaFirst?.dataset.fold === "epa-person" && !epaFirst.classList.contains("folded") };
       });
-      t.check("resident: กลุ่มแพทย์ประจำบ้านเปิดแฟ้มของตัวเองทันที ไม่มีแท็บรายชื่อ/ปุ่มกลับ · EPA และปฏิทินเป็นของตัวเองก่อน",
-              own.landsOnOwn && own.listTabHidden && own.backHidden && own.ownName && own.epaOwnFirst && own.calOwn, JSON.stringify(own));
-      t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
-              calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
+      t.check("resident: กลุ่มแพทย์ประจำบ้านเปิดแฟ้มของตัวเองทันที ไม่มีแท็บรายชื่อ/ปุ่มกลับ · EPA เป็นของตัวเองก่อน",
+              own.landsOnOwn && own.listTabHidden && own.backHidden && own.ownName && own.epaOwnFirst, JSON.stringify(own));
 
       /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
          แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้

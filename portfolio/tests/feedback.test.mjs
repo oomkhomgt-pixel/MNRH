@@ -284,17 +284,12 @@ export default async function run() {
       const sel = document.querySelector("#epaResident"); sel.value = sel.options[1].value; sel.dispatchEvent(new Event("change"));
       r.epaPersonOpensOnPick = !cards[1].classList.contains("folded") && epaResidentId === sel.options[1].value;
       showView("calendar");
-      r.calOverviewFirst = calScope === "all" && document.querySelector("#calResidentPick").hidden;
-      document.querySelector("#calScopeMine").click();
-      r.calNoOneChosen = calResidentId === "" && !!document.querySelector("#calGrid .empty") && document.querySelector("#calResidentPick").value === "";
-      document.querySelector("#calGrid [data-goto-scope-all]").click();
-      r.calGotoScopeAll = calScope === "all";
+      r.calGridShown = !!document.querySelector("#calGrid .gcal-grid") && !document.querySelector("#calResidentPick");
       return r;
     });
     t.check("EPA ของอาจารย์: ภาพรวมทั้งกลุ่มงานมาก่อนและเปิดอยู่ · รายบุคคลพับไว้จนกว่าจะเลือกคน",
             overview.epaOrder[0] === "epa-matrix" && overview.epaMatrixOpen && overview.epaPersonFolded && overview.epaPersonOpensOnPick, JSON.stringify(overview));
-    t.check("ปฏิทินของอาจารย์: เปิดมาเป็นตารางรวมก่อนเหมือนกัน · สลับรายคนแล้วไม่เดาเอาคนแรก ต้องเลือกก่อน และมีทางกลับไปตารางรวม",
-            overview.calOverviewFirst && overview.calNoOneChosen && overview.calGotoScopeAll, JSON.stringify(overview));
+    t.check("ปฏิทินของอาจารย์: เปิดมาเห็นกริดรวมทันที ไม่มีขั้นเลือกคน", overview.calGridShown, JSON.stringify(overview));
     t.check("กล่องแก้ไขอาจารย์ติ๊กได้หลายสาย บันทึกเป็น subspecialties และสายแรกเป็น subspecialty · ไม่ติ๊กเลยถูกปฏิเสธที่ช่อง",
             staff.checkboxes > 3 && staff.saved === JSON.stringify(["spine", ["spine", "hand"]]) && staff.emptyRefused, JSON.stringify(staff));
     t.check("ข้อมูลสาธิตเก่าในเครื่อง: นพ. มานิตา → พญ. (รวมบัญชีและศัลยแพทย์หลักในเคส) · นพ. นฤพล ได้ Trauma · ชื่อที่แก้เองไม่ถูกแตะ",
