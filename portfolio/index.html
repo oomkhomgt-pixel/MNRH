@@ -70,6 +70,25 @@ main{max-width:1180px;margin:0 auto;padding:1rem 1rem 4rem}
 /* ---------- primitives ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:1rem;margin-bottom:1rem}
 .card>h2,.card>h3{margin-top:0}
+/* การ์ด/ส่วนที่พับได้ — ใส่ data-fold="รหัส" ให้กล่องที่ลูกคนแรกเป็นหัวข้อ (h2/h3 หรือ .between ที่มีหัวข้อ)
+   กดหัวข้อเพื่อพับ/ขยาย พับแล้วซ่อนทุกอย่างยกเว้นบล็อกหัวด้วย CSS ล้วน — ปุ่ม ช่อง และตารางข้างในยังอยู่ใน DOM ครบ
+   data-fold-closed = พับไว้ก่อนจนกว่าผู้ใช้จะเปิดเอง · สถานะที่ผู้ใช้เลือกจำไว้ในเครื่อง (localStorage) */
+[data-fold]>:first-child h1,[data-fold]>:first-child h2,[data-fold]>:first-child h3,[data-fold]>h1,[data-fold]>h2,[data-fold]>h3{cursor:pointer;user-select:none;position:relative;padding-left:1.1rem}
+[data-fold]>:first-child h1::before,[data-fold]>:first-child h2::before,[data-fold]>:first-child h3::before,[data-fold]>h1::before,[data-fold]>h2::before,[data-fold]>h3::before{
+  content:"";position:absolute;left:.15rem;top:.55em;width:.42em;height:.42em;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:rotate(45deg);transition:transform .15s}
+[data-fold].folded>:first-child h1::before,[data-fold].folded>:first-child h2::before,[data-fold].folded>:first-child h3::before,[data-fold].folded>h1::before,[data-fold].folded>h2::before,[data-fold].folded>h3::before{transform:rotate(-45deg)}
+[data-fold] [role="button"]:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:4px}
+[data-fold].folded>:not(:first-child){display:none!important}
+[data-fold].folded{margin-bottom:.5rem}
+.card[data-fold].folded{padding-top:.7rem;padding-bottom:.7rem}
+.card[data-fold].folded>:first-child,.card[data-fold].folded>:first-child h2,.card[data-fold].folded>:first-child h3{margin-bottom:0}
+.fold-sum{margin-left:.4rem;font-weight:500;vertical-align:middle}
+/* คำอธิบายยาว ๆ ใต้หัวข้อ — พับไว้เป็นบรรทัดเดียว กดอ่านเมื่อต้องการ */
+details.hint{margin:0 0 .6rem}
+details.hint>summary{font-size:.84rem;color:var(--muted)}
+details.hint>summary::before{content:"ⓘ ";}
+details.hint>p{margin:.35rem 0 0}
 .grid{display:grid;gap:1rem}
 /* ลูกของกริดมี min-width:auto ตามค่าเริ่มต้น ข้อความยาว ๆ ที่ตัดคำไม่ได้จึงดันช่องให้กว้างเกินจอ
    แล้วทั้งหน้าปัดข้างได้ — เจอบนหน้าตารางที่การ์ด "ตอนนี้ใครอยู่หน่วยไหน" มีชื่อคาบยาว */
@@ -258,6 +277,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .sess .pill{font-size:.68rem;border-radius:4px;padding:0 .25rem;background:#eef1f4;color:var(--ink-2)}
 .nowcard{border:1px solid var(--line);border-radius:var(--r);padding:.7rem .8rem;background:#fff}
 .nowcard .svc{font-weight:650}
+.nowcard details.now-sess>summary{font-size:.84rem;color:var(--brand-ink);margin-bottom:.3rem}
 .timeline{border-left:2px solid var(--line);padding-left:.9rem;margin-left:.35rem}
 .timeline .ev{position:relative;padding-bottom:.8rem}
 .timeline .ev::before{content:"";position:absolute;left:-1.24rem;top:.35rem;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff}
@@ -281,6 +301,10 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   main{max-width:none;padding:0}
   .card{box-shadow:none;border-color:#ccc;break-inside:avoid;page-break-inside:avoid}
   .view{display:none!important} .view.on{display:block!important}
+  /* พิมพ์ = เห็นครบทุกส่วนเสมอ ไม่ว่าจะพับอะไรไว้บนจอ */
+  [data-fold].folded>:not(:first-child){display:revert!important}
+  .fold-sum,[data-fold] h2::before,[data-fold] h3::before{display:none!important}
+  details.hint{display:none}
 }
 </style>
 </head>
@@ -478,7 +502,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="monthGrid"></div>
         <div id="teamComposition" style="margin-top:1.2rem"></div>
       </div>
-      <div class="card">
+      <div class="card" data-fold="rot-all" data-fold-closed>
         <h2>ช่วงหมุนเวียนทั้งหมด</h2>
         <div id="rotationTable"></div>
       </div>
@@ -510,7 +534,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="weekGrid"></div>
       </div>
 
-      <div class="card">
+      <div class="card" data-fold="rot-duty" data-fold-closed data-fold-sum="">
         <div class="between">
           <h2>ตารางเวรรายเดือน</h2>
           <div class="row no-print">
@@ -521,16 +545,16 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
             <button class="btn-sm btn-danger" id="dutyClear" data-perm="admin">ล้างเดือนนี้</button>
           </div>
         </div>
-        <p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
+        <details class="hint"><summary>ตารางเวรรายเดือนใช้ทำอะไร และกติกา ER</summary><p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
           อาจารย์ที่ออกตรวจ OPD วันพฤหัสบดี และวันหยุดราชการ
           · ช่องว่าง = ใช้ตามตารางประจำสัปดาห์ · ติ๊กวันหยุดแล้วคาบทั้งวันจะหายไปจากปฏิทิน
           · ER ในเวลาราชการเป็นความรับผิดชอบของทั้งสาย คนที่ชั้นปีน้อยที่สุดเป็นหน้างาน (คนแรกที่เจอเคส + consult นอกแผนก)
           โดยมีอาจารย์ผู้รับผิดชอบเป็นผู้ตัดสินใจ ทุกคนยังเข้า OR emergency ตามตารางสายได้ตามปกติ
-          · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p>
+          · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p></details>
         <div id="dutyTable"></div>
       </div>
 
-      <div class="card">
+      <div class="card" data-fold="rot-tc" data-fold-closed data-fold-sum="">
         <div class="between">
           <h2>ผู้นิเทศ Topic conference รายสัปดาห์</h2>
           <div class="row no-print">
@@ -539,19 +563,19 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
             <button class="btn-sm" id="tcNext">เดือนถัดไป ›</button>
           </div>
         </div>
-        <p class="muted small">กำหนดอาจารย์ผู้นิเทศและสายที่อยู่เวรของคาบ Topic conference / Journal club / Staff lecture
+        <details class="hint"><summary>คำอธิบายและวิธีใช้</summary><p class="muted small">กำหนดอาจารย์ผู้นิเทศและสายที่อยู่เวรของคาบ Topic conference / Journal club / Staff lecture
           วันพฤหัสบดีแต่ละสัปดาห์ (09:00–12:00) — ผู้จัดหลักสูตรตั้งเองรายสัปดาห์ ไม่หมุนอัตโนมัติ
           · หัวหน้าสายคำนวณสดจากสายที่เลือก (ปี 3 ที่ไม่มีปี 4 ร่วมสายในเดือนนั้น) ไม่มีให้เลือกเอง
-          · ยังไม่ได้กำหนด = แสดง “ยังไม่ได้กำหนด” ในปฏิทินและข้อความแจ้งเตือน LINE</p>
+          · ยังไม่ได้กำหนด = แสดง “ยังไม่ได้กำหนด” ในปฏิทินและข้อความแจ้งเตือน LINE</p></details>
         <div id="tcTable"></div>
       </div>
 
-      <div class="card">
+      <div class="card" data-fold="rot-swap" data-fold-closed>
         <div class="between">
           <h2>การแลกวัน OR ของอาจารย์</h2>
           <button class="btn-sm no-print" id="btnAddSwap" data-perm="staff">+ ขอแลกวัน</button>
         </div>
-        <p class="muted small">การแลกวันเป็น <b>คำขอที่ต้องได้รับการตอบรับ</b> — อาจารย์ฝ่ายหนึ่งขอ อีกฝ่ายตอบรับ
+        <details class="hint"><summary>กติกาการแลกวัน</summary><p class="muted small">การแลกวันเป็น <b>คำขอที่ต้องได้รับการตอบรับ</b> — อาจารย์ฝ่ายหนึ่งขอ อีกฝ่ายตอบรับ
           ระหว่างรอตอบ ตารางยังเป็นชื่อเดิม เพราะยังไม่มีใครตกลงว่าจะมาแทน
           · เก็บเป็น <b>ข้อยกเว้นของวันนั้น</b> ไม่ใช่การแก้ตารางประจำสัปดาห์ — ถ้าไปแก้ตารางประจำสัปดาห์
           สัปดาห์อื่นทั้งปีจะเปลี่ยนตามและประวัติที่ผ่านมาจะผิดย้อนหลัง
@@ -559,26 +583,26 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           · ใส่วันที่แลกกลับไว้ อีกฝั่งจะถูกสร้างตอนที่อีกฝ่ายตอบรับ จึงเป็นการแลก ไม่ใช่การฝาก
           · ผลประเมินที่ทำไปแล้วไม่ถูกย้าย เพราะการแลกเปลี่ยนแค่ชื่อผู้รับผิดชอบ ไม่ได้เปลี่ยนตัวคาบ
           · <b>แพทย์ประจำบ้านไม่ย้ายตาม</b> — อยู่กับสายของตัวเองเสมอ
-          · ขอได้เฉพาะคาบของตัวเอง ตอบรับได้เฉพาะฝ่ายที่ถูกขอ ผู้จัดหลักสูตรทำแทนได้ทั้งสองอย่าง</p>
+          · ขอได้เฉพาะคาบของตัวเอง ตอบรับได้เฉพาะฝ่ายที่ถูกขอ ผู้จัดหลักสูตรทำแทนได้ทั้งสองอย่าง</p></details>
         <div id="swapTable"></div>
       </div>
 
-      <div class="card">
+      <div class="card" data-fold="rot-visit" data-fold-closed>
         <div class="between">
           <h2>ขอไปเข้าคาบของสายอื่น</h2>
           <button class="btn-sm no-print" id="btnAddVisit">+ ขอไปเข้าคาบของสายอื่น</button>
         </div>
-        <p class="muted small"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติจากอาจารย์ผู้กำกับเสมอ</b>
+        <details class="hint"><summary>กติกาการขอไปเข้าคาบของสายอื่น — ต้องได้รับอนุมัติเสมอ</summary><p class="muted small"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติจากอาจารย์ผู้กำกับเสมอ</b>
           ไม่ว่าจะด้วยเหตุผลใด — เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก ตามเก็บหัตถการที่ยังขาดตามเกณฑ์
           หรือวันที่คนในสายไม่พอแล้ว<b>หัวหน้าสายมอบหมายหน้างาน</b>
           · หัวหน้าสายเป็นคนตัดสินหน้างานว่าวันไหนคนไม่พอ ไม่ได้กำหนดล่วงหน้า แต่คำสั่งของหัวหน้าสาย
           <b>ไม่ใช่การอนุมัติ</b> จึงต้องมีคำขอเข้ามาให้อาจารย์อนุมัติอยู่ดี ขอย้อนหลังได้และระบบจะกำกับไว้
           · ก่อนอนุมัติ คาบนั้นไม่ขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต
-          · อนุมัติแล้วคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น แต่กิจกรรมวิชาการยังมาก่อนอยู่ดี</p>
+          · อนุมัติแล้วคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น แต่กิจกรรมวิชาการยังมาก่อนอยู่ดี</p></details>
         <div id="visitTable"></div>
       </div>
 
-      <div class="card">
+      <div class="card" data-fold="rot-evals" data-fold-closed>
         <div class="between">
           <h2>การประเมินท้ายเซสชันล่าสุด</h2>
           <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
@@ -706,7 +730,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div id="unassignedList"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-fold="log-summary">
       <h2>สรุป logbook รายบุคคล</h2>
       <div id="logbookSummary"></div>
     </div>
@@ -738,7 +762,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <div class="notice warn small" id="epaCaveat" data-perm="admin"></div>
       <div id="epaBoard"></div>
     </div>
-    <div class="card" data-perm="staff">
+    <div class="card" data-perm="staff" data-fold="epa-matrix" data-fold-closed data-fold-sum="">
       <h2>ภาพรวมทั้งกลุ่มงาน</h2>
       <p class="muted small">ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · <b>✓</b> ถึงเป้าหมายของชั้นปีแล้ว ·
         <b>↑</b> ยังไม่ถึงเป้าหมาย · <b>—</b> ยังไม่เคยประเมิน</p>
@@ -795,29 +819,29 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   <section class="view" id="view-settings">
     <div class="card no-print">
       <h1>ตั้งค่า &amp; ข้อมูล</h1>
-      <p class="muted small">เรียงจากที่ใช้บ่อยไปหาที่ตั้งครั้งเดียว — กดปุ่มเพื่อกระโดดไปการ์ดนั้น</p>
+      <p class="muted small">เรียงจากที่ใช้บ่อยไปหาที่ตั้งครั้งเดียว — กดปุ่มเพื่อเปิดการ์ดนั้น · การ์ดพับอยู่ กดที่หัวข้อเพื่อขยายหรือพับ ระบบจำไว้ให้ในเครื่องนี้</p>
       <div class="row seg" id="settingsNav" style="margin-bottom:0"></div>
     </div>
-    <div class="card" data-anchor="เตรียมปีการศึกษา">
+    <div class="card" data-anchor="เตรียมปีการศึกษา" data-fold="set-เตรียมปีการศึกษา">
       <h2>เตรียมปีการศึกษา — สิ่งที่ต้องตั้งให้ครบ</h2>
       <p class="muted small">รายการนี้คำนวณสดจากข้อมูลจริง ไม่ต้องติ๊กเอง — ข้อไหนยังไม่ครบ กดปุ่มไปทำได้เลย
         (ลำดับที่ควรทำ: อาจารย์ → หน่วย → แพทย์ประจำบ้าน → บัญชี → แผนหมุนเวียน → ตารางเวร/ผู้นิเทศรายเดือน → เกณฑ์)</p>
       <div id="yearChecklist"></div>
     </div>
-    <div class="card" data-anchor="บัญชีผู้ใช้">
+    <div class="card" data-anchor="บัญชีผู้ใช้" data-fold="set-บัญชีผู้ใช้" data-fold-closed>
       <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
         <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
       <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะข้อมูลของตนเอง · อาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมินและรับรอง
         · ผู้จัดหลักสูตรดูแลทะเบียน ตาราง เกณฑ์ และการเชื่อมต่อ · เพิ่มแพทย์ประจำบ้านใหม่ที่หน้ารายชื่อจะได้บัญชีผูกให้ทันที</p>
       <div id="userTable"></div>
     </div>
-    <div class="card" data-anchor="สำรองข้อมูล">
+    <div class="card" data-anchor="สำรองข้อมูล" data-fold="set-สำรองข้อมูล" data-fold-closed>
       <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
       <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
         ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
       <div id="backupPanel"></div>
     </div>
-    <div class="card" data-anchor="ข้อมูลในเครื่อง">
+    <div class="card" data-anchor="ข้อมูลในเครื่อง" data-fold="set-ข้อมูลในเครื่อง" data-fold-closed>
       <h2>ข้อมูลในเครื่องนี้</h2>
       <p class="small muted" id="storageInfo"></p>
       <div class="row">
@@ -827,38 +851,38 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       </div>
       <input type="file" id="importPick" accept="application/json,.json" hidden />
     </div>
-    <div class="card" data-anchor="อาจารย์">
+    <div class="card" data-anchor="อาจารย์" data-fold="set-อาจารย์" data-fold-closed>
       <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
         <button class="btn-sm no-print" id="btnAddStaff">+ เพิ่มอาจารย์</button></div>
       <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชันและผู้ประเมินท้ายเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
       <div id="staffTable"></div>
     </div>
-    <div class="card" data-anchor="หน่วย">
+    <div class="card" data-anchor="หน่วย" data-fold="set-หน่วย" data-fold-closed>
       <div class="between"><h2>หน่วยที่หมุนเวียนและตารางประจำสัปดาห์</h2>
         <button class="btn-sm no-print" id="btnAddService">+ เพิ่มหน่วย</button></div>
       <p class="muted small">แต่ละหน่วยมีตารางกิจกรรมประจำสัปดาห์ ระบบใช้ตารางนี้ร่วมกับช่วงหมุนเวียนเพื่อสร้างเซสชันในปฏิทินโดยอัตโนมัติ
         ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษทั้งหมด</p>
       <div id="serviceTable"></div>
     </div>
-    <div class="card" data-anchor="เกณฑ์">
+    <div class="card" data-anchor="เกณฑ์" data-fold="set-เกณฑ์" data-fold-closed>
       <h2>เกณฑ์จำนวนกิจกรรมต่อชั้นปี</h2>
       <p class="muted small">ค่าเหล่านี้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ยังไม่ใช่เกณฑ์ทางการของหลักสูตร
         กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
       <div class="tbl-wrap"><div id="requirementEditor"></div></div>
     </div>
-    <div class="card" data-anchor="EPA">
+    <div class="card" data-anchor="EPA" data-fold="set-EPA" data-fold-closed>
       <div class="between"><h2>หัวข้อ EPA และเป้าหมายรายชั้นปี</h2>
         <div class="row no-print">
           <button class="btn-sm" id="btnEpaAdd">+ เพิ่มหัวข้อ</button>
           <button class="btn-sm" id="btnEpaImport">นำเข้าไฟล์</button>
           <button class="btn-sm" id="btnEpaExport">ส่งออก CSV</button>
         </div></div>
-      <p class="muted small">หัวข้อที่ใส่มาให้เป็น <b>ตัวอย่างสำหรับวางโครงเท่านั้น</b> — นำเข้ารายการจริงของกลุ่มงานได้ทั้งไฟล์ CSV
-        (คอลัมน์ <span class="mono">code, title, subspecialty, year1..year4</span>) หรือ JSON แล้วรายการเดิมจะถูกแทนที่</p>
+      <details class="hint"><summary>คำอธิบายและวิธีใช้</summary><p class="muted small">หัวข้อที่ใส่มาให้เป็น <b>ตัวอย่างสำหรับวางโครงเท่านั้น</b> — นำเข้ารายการจริงของกลุ่มงานได้ทั้งไฟล์ CSV
+        (คอลัมน์ <span class="mono">code, title, subspecialty, year1..year4</span>) หรือ JSON แล้วรายการเดิมจะถูกแทนที่</p></details>
       <input type="file" id="epaPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="epaEditor"></div>
     </div>
-    <div class="card" data-perm="admin" data-anchor="แบบประเมินลงกอง">
+    <div class="card" data-perm="admin" data-anchor="แบบประเมินลงกอง" data-fold="set-แบบประเมินลงกอง" data-fold-closed>
       <div class="between"><h2>แบบประเมินลงกองสิ้นเดือน</h2>
         <div class="row no-print">
           <button class="btn-sm" id="btnRformAdd">+ เพิ่มข้อ</button>
@@ -866,58 +890,59 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <button class="btn-sm" id="btnRformExport">ส่งออก CSV</button>
           <button class="btn-sm" id="btnRformReset">คืนค่าตั้งต้น</button>
         </div></div>
+      <details class="hint"><summary>คำอธิบายและวิธีใช้ — นำเข้า/ส่งออก และผลต่อใบประเมินเดิม</summary>
       <p class="muted small">ข้อที่ใส่มาให้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ไม่ใช่แบบประเมินทางการของกลุ่มงาน
         — พิมพ์ฟอร์มจริงลงที่นี่ได้เลย หรือนำเข้าเป็นไฟล์ CSV
         (คอลัมน์ <span class="mono">order, id, kind, question, options, minLabel, maxLabel, required, scored</span>)
         หรือ JSON</p>
       <p class="muted small">แก้ฟอร์มแล้วมีผลกับใบประเมินที่กรอกครั้งต่อไป
-        <b>ผลประเมินที่บันทึกไว้แล้วไม่ถูกลบ</b> คำตอบของข้อที่ถูกลบจะยังอยู่ในผลเดิมและยังส่งออกใน CSV</p>
+        <b>ผลประเมินที่บันทึกไว้แล้วไม่ถูกลบ</b> คำตอบของข้อที่ถูกลบจะยังอยู่ในผลเดิมและยังส่งออกใน CSV</p></details>
       <input type="file" id="rformPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="rotationFormEditor"></div>
     </div>
-    <div class="card" data-anchor="ร่องรอย">
+    <div class="card" data-anchor="ร่องรอย" data-fold="set-ร่องรอย" data-fold-closed>
       <h2>ร่องรอยการใช้งานล่าสุด</h2>
       <p class="muted small">บันทึกไว้ในเครื่องนี้ 500 รายการล่าสุด เพื่อให้ตรวจย้อนได้ว่าใครแก้อะไร (หลักฐาน WFME 8.4)</p>
       <div id="auditLog"></div>
     </div>
-    <div class="card" data-anchor="ข้อมูลหลักสูตร">
+    <div class="card" data-anchor="ข้อมูลหลักสูตร" data-fold="set-ข้อมูลหลักสูตร" data-fold-closed>
       <h2>ข้อมูลหลักสูตร</h2>
       <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
         ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
       <div id="programmeEditor"></div>
     </div>
-    <div class="card" data-anchor="ทะเบียนเอกสาร">
+    <div class="card" data-anchor="ทะเบียนเอกสาร" data-fold="set-ทะเบียนเอกสาร" data-fold-closed>
       <div class="between"><h2>ทะเบียนเอกสารหลักสูตร</h2>
         <button class="btn-sm no-print" id="btnAddDoc">+ เพิ่มเอกสาร</button></div>
       <p class="muted small">บันทึกว่ามีเอกสารอะไร เก็บไว้ที่ใด ทบทวนล่าสุดเมื่อไร และใช้เป็นหลักฐานของมาตรฐานข้อใด
         (ตัวเอกสารไม่ได้ถูกอัปโหลดเข้าหน้านี้)</p>
       <div id="docRegister"></div>
     </div>
-    <div class="card" data-perm="admin" data-anchor="ลำดับความสำคัญ">
+    <div class="card" data-perm="admin" data-anchor="ลำดับความสำคัญ" data-fold="set-ลำดับความสำคัญ" data-fold-closed>
       <h2>ลำดับความสำคัญเมื่อคาบชนกัน</h2>
-      <p class="muted small">คนหนึ่งอาจมีคาบซ้อนกันได้ เช่น วนหน่วยอนุสาขาแต่ยังสังกัดสาย หรือมีกิจกรรมส่วนกลางของภาควิชา
+      <details class="hint"><summary>กติกาเมื่อคาบชนกัน</summary><p class="muted small">คนหนึ่งอาจมีคาบซ้อนกันได้ เช่น วนหน่วยอนุสาขาแต่ยังสังกัดสาย หรือมีกิจกรรมส่วนกลางของภาควิชา
         ตัวเลขมากกว่าได้สิทธิ์ก่อน คาบที่แพ้ยังแสดงอยู่ในปฏิทินโดยทำเครื่องหมายไว้ และไม่ถูกนับเป็นงานค้างประเมิน
-        ถ้าเท่ากัน ระบบจะไม่ตัดสินให้ แต่จะบอกว่าชนกันเพื่อให้เลือกเอง</p>
+        ถ้าเท่ากัน ระบบจะไม่ตัดสินให้ แต่จะบอกว่าชนกันเพื่อให้เลือกเอง</p></details>
       <div id="priorityEditor"></div>
     </div>
-    <div class="card" data-anchor="คำสำคัญ">
+    <div class="card" data-anchor="คำสำคัญ" data-fold="set-คำสำคัญ" data-fold-closed>
       <h2>คำสำคัญที่ใช้จัดกลุ่มอนุสาขา</h2>
       <p class="muted small">ระบบเดาอนุสาขาจากคำที่พบในสไลด์ เพิ่มคำของกลุ่มงานเองได้ (คั่นด้วยจุลภาค) เพื่อให้เดาแม่นขึ้น</p>
       <div id="keywordEditor"></div>
     </div>
-    <div class="card" data-anchor="ชนตอนซิงก์">
+    <div class="card" data-anchor="ชนตอนซิงก์" data-fold="set-ชนตอนซิงก์" data-fold-closed>
       <div class="between"><h2>รายการที่ชนกันตอนซิงก์</h2>
         <button class="btn-sm no-print" id="btnClearConflicts">ล้างรายการ</button></div>
       <p class="muted small">เมื่อมีคนแก้พร้อมกัน ระบบจะรวมข้อมูลให้อัตโนมัติ — รายการที่แก้คนละที่จะรวมกันได้เลย
         ส่วนรายการเดียวกันที่ถูกแก้ทั้งสองฝั่งจะถูกบันทึกไว้ตรงนี้ให้ตรวจย้อน</p>
       <div id="conflictList"></div>
     </div>
-    <div class="card" data-anchor="ติดตั้งแอป">
+    <div class="card" data-anchor="ติดตั้งแอป" data-fold="set-ติดตั้งแอป" data-fold-closed>
       <div class="between"><h2>การติดตั้งเป็นแอป และการเชื่อมกับระบบคิว</h2>
         <button class="btn-sm no-print" id="btnDiagnose">ตรวจการเชื่อมต่อ</button></div>
       <div id="appDiagnostics"></div>
     </div>
-    <div class="card">
+    <div class="card" data-fold="set-ข้อจำกัด" data-fold-closed data-fold-sum="">
       <h2>ข้อจำกัดของหน้าสาธิตนี้</h2>
       <ul class="clean small">
         <li>ข้อมูลเก็บอยู่ใน <b>เบราว์เซอร์ของเครื่องนี้เท่านั้น</b> (localStorage) ไม่มีเซิร์ฟเวอร์ ไม่มีการรับส่งข้อมูลออกนอกเครื่อง เปิดคนละเครื่องจะไม่เห็นข้อมูลกัน</li>
@@ -926,7 +951,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <li>ข้อมูลตัวอย่างทั้งหมดเป็นข้อมูลสมมติ ไม่มีข้อมูลผู้ป่วยจริง</li>
       </ul>
     </div>
-    <div class="card" data-anchor="โซนอันตราย" style="border-color:var(--bad)">
+    <div class="card" data-anchor="โซนอันตราย" data-fold="set-โซนอันตราย" data-fold-closed data-fold-sum="" style="border-color:var(--bad)">
       <h2>โซนอันตราย</h2>
       <p class="muted small">สองปุ่มนี้แทนที่หรือลบข้อมูลทั้งเครื่อง — ระบบจะถามยืนยันก่อนทุกครั้ง และควรสำรองข้อมูลเป็นไฟล์ JSON ไว้ก่อนเสมอ</p>
       <div class="row">
@@ -1367,6 +1392,88 @@ function demoPin(username) {
    ===================================================================== */
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+/* ---------- ส่วนที่พับได้ (data-fold) และรายการที่ค่อย ๆ แสดงเพิ่ม (data-more) ----------
+   ทั้งสองอย่างเป็นการซ่อน/ตัดตอน "บนหน้าจอ" เท่านั้น — ข้อมูลและปุ่มทุกอย่างยังอยู่และทำงานเหมือนเดิม
+   สถานะพับ/ขยายจำไว้ในเครื่องต่อรหัส ไม่ใช่ข้อมูลของแฟ้ม จึงไม่ซิงก์และไม่ติดไปกับไฟล์สำรอง */
+const FOLD_KEY = "ortho-folds";
+let foldPrefs = null;
+function foldLoad() {
+  if (foldPrefs) return foldPrefs;
+  try { foldPrefs = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch { foldPrefs = {}; }
+  return foldPrefs;
+}
+function foldSave() { try { localStorage.setItem(FOLD_KEY, JSON.stringify(foldLoad())); } catch {} }
+const foldIsClosed = (el) => {
+  const p = foldLoad()[el.dataset.fold];
+  return p == null ? el.hasAttribute("data-fold-closed") : p === "closed";
+};
+const foldHeading = (el) => {
+  const first = el.firstElementChild; if (!first) return null;
+  return first.matches("h1,h2,h3,h4") ? first : first.querySelector("h1,h2,h3,h4");
+};
+/* ป้ายสรุปตอนพับ — นับจากสิ่งที่ซ่อนอยู่ (แถวตาราง/รายการ) ถ้าไม่ได้ระบุ data-fold-sum มาเอง */
+function foldSummary(el) {
+  if ("foldSum" in el.dataset) return el.dataset.foldSum;
+  const inBody = (sel) => $$(":scope > :not(:first-child) " + sel, el).length;
+  const n = inBody("tbody tr") || inBody("ul.clean > li") || inBody(".nowcard") || inBody(".sess") || inBody(".ev");
+  return n ? n + " รายการ" : "";
+}
+function foldApply(el) {
+  const h = foldHeading(el); if (!h) return;
+  const closed = foldIsClosed(el);
+  el.classList.toggle("folded", closed);
+  h.setAttribute("role", "button"); h.tabIndex = 0; h.setAttribute("aria-expanded", String(!closed));
+  if (!h.title) h.title = "กดเพื่อพับ/ขยาย";
+  let sum = h.querySelector(".fold-sum");
+  const text = closed ? foldSummary(el) : "";
+  if (!text) { sum?.remove(); return; }
+  if (!sum) { sum = document.createElement("span"); sum.className = "tag fold-sum"; h.appendChild(sum); }
+  if (sum.textContent !== text) sum.textContent = text;   /* เขียนเฉพาะเมื่อเปลี่ยน — กัน MutationObserver วนซ้ำ */
+}
+function foldSet(el, closed) { foldLoad()[el.dataset.fold] = closed ? "closed" : "open"; foldSave(); foldApply(el); }
+/* เปิดกล่องที่พับอยู่ (ใช้ก่อน scrollIntoView / ก่อน focus ของข้างใน) */
+function foldOpen(el) { if (el?.dataset?.fold && el.classList.contains("folded")) foldSet(el, false); }
+const applyFolds = (root = document) => $$("[data-fold]", root).forEach(foldApply);
+let foldRaf = 0;
+function watchFolds() {
+  const main = $("main"); if (!main) return;
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("button,a,input,select,textarea,label,summary")) return;
+    const el = e.target.closest("[data-fold]"); if (!el) return;
+    const h = foldHeading(el); if (!h || !h.contains(e.target)) return;
+    foldSet(el, !el.classList.contains("folded"));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const h = e.target; const el = h.closest?.("[data-fold]");
+    if (!el || foldHeading(el) !== h) return;
+    e.preventDefault(); foldSet(el, !el.classList.contains("folded"));
+  });
+  /* ทุกหน้า render ใหม่ด้วย innerHTML บ่อย — ให้สถานะพับกลับมาเองโดยไม่ต้องไล่แก้ทุก render */
+  new MutationObserver(() => {
+    if (foldRaf) return;
+    foldRaf = requestAnimationFrame(() => { foldRaf = 0; applyFolds(main); });
+  }).observe(main, { childList: true, subtree: true });
+  applyFolds(main);
+}
+
+/* รายการยาว: แสดงชุดแรกก่อน แล้วกด "แสดงเพิ่ม" — จำนวนที่เปิดดูแล้วจำไว้ต่อรหัสจนกว่าจะโหลดหน้าใหม่ */
+const moreShown = {}, moreRender = {};
+const moreLimit = (key, step) => moreShown[key] || step;
+function moreHtml(key, shown, total, step, unit, rerender) {
+  moreRender[key] = rerender;
+  if (total <= shown) return total > step ? `<p class="small muted" style="margin-top:.5rem">แสดงทั้งหมด ${total} ${unit}</p>` : "";
+  return `<p class="small muted row" style="margin-top:.5rem">แสดง ${shown} จาก ${total} ${unit}
+    <button type="button" class="btn-sm" data-more="${esc(key)}" data-step="${step}">แสดงเพิ่มอีก ${Math.min(step, total - shown)}</button>
+    <button type="button" class="btn-sm" data-more="${esc(key)}" data-step="all">แสดงทั้งหมด</button></p>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-more]"); if (!b) return;
+  const key = b.dataset.more, step = b.dataset.step;
+  moreShown[key] = step === "all" ? Infinity : moreLimit(key, +step) + (+step || 0);
+  moreRender[key]?.();
+});
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const uid = (p = "id") => p + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 /* แปลง Date เป็น "YYYY-MM-DD" จากส่วนประกอบวันที่ตามเวลาท้องถิ่นของเครื่อง (ไม่ใช่ UTC)
@@ -4567,7 +4674,8 @@ function renderRotation() {
       </div>
       ${rot ? barFor(pct(gone, span)) : ""}
       <div style="margin-top:.5rem">
-        ${mine.length ? mine.map(ses => sessionChip(ses, true)).join("")
+        ${mine.length ? `<details class="now-sess"><summary>วันนี้ ${mine.length} เซสชัน · ${esc(mine[0].name)}${mine.length > 1 ? " …" : ""}</summary>
+            ${mine.map(ses => sessionChip(ses, true)).join("")}</details>`
           : `<p class="small muted" style="margin:0">วันนี้ไม่มีเซสชันตามตารางของหน่วย</p>`}
       </div>
     </div>`;
@@ -4619,10 +4727,21 @@ function renderRotation() {
     openSessionBatch(b.dataset.batch.split(",").map(sessionByKey))));
 
   /* --- ช่วงหมุนเวียนทั้งหมด --- */
+  renderRotationTable();
+
+  renderMonthGrid();
+  renderTalks();
+  renderEvalList();
+}
+
+/* ตารางช่วงหมุนเวียนทั้งหมด — แยกออกมาให้ปุ่ม "แสดงเพิ่ม" วาดใหม่เฉพาะส่วนนี้ ไม่ต้อง renderAll ทั้งแอป */
+function renderRotationTable() {
+  const today = todayISO();
   const rots = (store.data.rotations || []).slice().sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  const shown = rots.slice(0, moreLimit("rotations", 25));
   $("#rotationTable").innerHTML = rots.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>ช่วงวันที่</th><th>แพทย์ประจำบ้าน</th><th>Service</th><th>Subspecialty</th><th>สถานที่</th><th>อาจารย์ผู้กำกับ</th><th>สถานะ</th><th></th></tr></thead>
-    <tbody>${rots.map(rot => {
+    <tbody>${shown.map(rot => {
       const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
       const state = today < rot.start ? ["", "จะเริ่ม " + fmtDate(rot.start)] : today > rot.end ? ["", "ผ่านไปแล้ว"] : ["ok", "กำลังหมุนเวียนอยู่"];
       return `<tr>
@@ -4636,12 +4755,12 @@ function renderRotation() {
         <td><span class="tag ${state[0]}">${state[1]}</span></td>
         <td class="no-print"><button class="btn-sm" data-rot="${rot.id}">แก้ไข</button></td>
       </tr>`;
-    }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่ได้กำหนดช่วงหมุนเวียน</p>`;
+    }).join("")}</tbody></table></div>${moreHtml("rotations", shown.length, rots.length, 25, "ช่วง", renderRotationTable)}`
+    : `<p class="empty">ยังไม่ได้กำหนดช่วงหมุนเวียน</p>`;
   $$("#rotationTable [data-rot]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rot)));
+}
 
-  renderMonthGrid();
-  renderTalks();
-
+function renderEvalList() {
   /* --- ผลประเมินท้ายเซสชันล่าสุด --- */
   /* ผลประเมินเป็นข้อมูลรายบุคคล เหมือน visibleActivities()/visibleResidents() —
      แพทย์ประจำบ้านต้องเห็นเฉพาะของตัวเอง ไม่งั้นเห็นคะแนน/ข้อเสนอแนะของเพื่อนร่วมสายทั้งหมด */
@@ -5699,7 +5818,8 @@ function renderResidentDetail() {
       <ul class="clean">${gaps.map(g => `<li><span class="tag ${g.level}">${g.level === "bad" ? "ต้องตาม" : "เฝ้าระวัง"}</span> ${esc(g.text)}</li>`).join("")}</ul>`
       : `<p class="notice" style="margin-top:1rem">ครบตามเกณฑ์ที่ตั้งไว้ทุกข้อในปีการศึกษานี้</p>`}
 
-    ${projects.length ? `<h3 style="margin-top:1rem">งานวิจัย</h3>${projects.map(pj => researchBlock(pj, true)).join("")}` : ""}
+    ${projects.length ? `<section data-fold="res-research" data-fold-closed data-fold-sum="${projects.length} โครงการ">
+      <h3 style="margin-top:1rem">งานวิจัย</h3>${projects.map(pj => researchBlock(pj, true)).join("")}</section>` : ""}
 
     ${(() => {
       const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => b.date.localeCompare(a.date));
@@ -5707,7 +5827,8 @@ function renderResidentDetail() {
       const revs = (store.data.rotationEvals || []).filter(x => x.residentId === r.id)
         .sort((a, b) => String(b.end || "").localeCompare(String(a.end || "")));
       if (!evs.length && !rots.length && !revs.length) return "";
-      return `<h3 style="margin-top:1rem">การหมุนเวียน ผลประเมินลงกอง และการประเมินท้ายเซสชัน</h3>
+      return `<section data-fold="res-rotations" data-fold-closed data-fold-sum="ลงกอง ${revs.length} · ท้ายเซสชัน ${evs.length}">
+      <h3 style="margin-top:1rem">การหมุนเวียน ผลประเมินลงกอง และการประเมินท้ายเซสชัน</h3>
       ${rots.length ? `<div class="row" style="margin-bottom:.5rem">${rots.slice(0, 6).map(rot => {
         const svc = serviceById(rot.serviceId);
         return `<span class="tag" title="${esc(staffName(rot.supervisorId))}">${esc(svc?.name || "—")} · ${fmtDate(rot.start)}–${fmtDate(rot.end)}</span>`;
@@ -5730,7 +5851,7 @@ function renderResidentDetail() {
           <td class="small">${esc(staffName(ev.staffId))}</td>
           <td>${evalMean(ev) ?? "—"}</td><td>${ev.entrust ?? "—"}</td>
           <td class="small">${esc((ev.comment || "").slice(0, 80))}</td></tr>`).join("")}</tbody></table></div>
-        ${evs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${evs.length} ครั้ง</p>` : ""}` : ""}`;
+        ${evs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${evs.length} ครั้ง</p>` : ""}` : ""}</section>`;
     })()}
 
     ${(() => {
@@ -5738,7 +5859,8 @@ function renderResidentDetail() {
       if (!mine.length) return "";
       const bySub = {};
       mine.forEach(c => bySub[c.subspecialty] = (bySub[c.subspecialty] || 0) + 1);
-      return `<h3 style="margin-top:1rem">Logbook เคสผ่าตัด (${mine.length} เคส)</h3>
+      return `<section data-fold="res-logbook" data-fold-closed data-fold-sum="">
+      <h3 style="margin-top:1rem">Logbook เคสผ่าตัด (${mine.length} เคส)</h3>
       <div class="row" style="margin-bottom:.4rem">
         ${CASE_ROLES.map(x => `<span class="tag">${esc(x.th)} ${mine.filter(c => roleOf(c, r.id) === x.id).length}</span>`).join("")}
         <button class="btn-sm no-print" data-printlog="${r.id}">พิมพ์ logbook</button>
@@ -5755,9 +5877,10 @@ function renderResidentDetail() {
             <td class="small">${esc(c.primarySurgeon || "—")}</td>
             <td>${pp?.verified ? `<span class="tag ok">รับรองแล้ว</span>` : `<span class="tag warn">รอรับรอง</span>`}</td></tr>`;
         }).join("")}</tbody></table></div>
-      ${mine.length > 10 ? `<p class="small muted">แสดง 10 จาก ${mine.length} เคส · ดูทั้งหมดที่หน้า Logbook</p>` : ""}`;
+      ${mine.length > 10 ? `<p class="small muted">แสดง 10 จาก ${mine.length} เคส · ดูทั้งหมดที่หน้า Logbook</p>` : ""}</section>`;
     })()}
 
+    <section data-fold="res-activities" data-fold-sum="">
     <h3 style="margin-top:1rem">บันทึกกิจกรรม (${acts.length} รายการ)</h3>
     <div class="timeline">${acts.map(a => `
       <div class="ev">
@@ -5776,6 +5899,7 @@ function renderResidentDetail() {
           <button class="btn-sm btn-ghost" data-act-open="${a.id}">รายละเอียด / ประเมิน</button>
         </div>
       </div>`).join("") || `<p class="empty">ยังไม่มีบันทึก</p>`}</div>
+    </section>
   </div>`;
 
   box.querySelectorAll("[data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
@@ -7019,27 +7143,9 @@ function renderLogbook() {
     store.save(); renderAll(); toast("ทำเครื่องหมายแล้ว " + list.length + " เคส");
   });
 
-  const rows = filterCases();
-  $("#caseTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>HN</th><th>Diagnosis / Operation</th><th>Subspecialty</th><th>ศัลยแพทย์</th>
-      <th>แพทย์ประจำบ้าน &amp; บทบาท</th><th></th></tr></thead>
-    <tbody>${rows.slice(0, 300).map(c => `<tr>
-      <td class="small">${fmtDate(c.date)}<br /><span class="muted">${esc(c.room || "")}${c.caseClass === "emergency" ? " · ฉุกเฉิน" : ""}</span></td>
-      <td class="small mono">${esc(maskHn(c.hn))}</td>
-      <td class="small"><b>${esc(c.operation || "—")}</b><br /><span class="muted">${esc(c.diagnosis || "")}
-        ${c.side ? " · " + esc(c.side) : ""}${c.anaesthesia ? " · " + esc(c.anaesthesia) : ""}${c.asa ? " · ASA " + esc(String(c.asa)) : ""}</span></td>
-      <td class="small">${esc(SUB_BY_ID[c.subspecialty]?.en || "")}</td>
-      <td class="small">${esc(c.primarySurgeon || "—")}</td>
-      <td class="small">${(c.participants || []).map(pp => {
-        const r = store.resident(pp.residentId);
-        return `<span class="tag ${pp.verified ? "ok" : ""}">${esc(r?.name || "?")} · ${esc(ROLE_BY_ID[pp.role]?.th || pp.role)}</span>`;
-      }).join(" ") || `<span class="tag warn">ยังไม่ระบุ</span>`}</td>
-      <td class="no-print"><button class="btn-sm" data-editcase="${c.id}">แก้ไข</button></td>
-    </tr>`).join("")}</tbody></table></div>
-    <p class="small muted" style="margin-top:.5rem">แสดง ${Math.min(rows.length, 300)} จาก ${rows.length} เคส (ทั้งหมด ${cases.length} เคส)</p>`
-    : `<p class="empty">ยังไม่มีเคสตามเงื่อนไขที่เลือก</p>`;
+  renderCaseTable(cases);
 
-  $$("#unassignedList [data-editcase], #caseTable [data-editcase]").forEach(b =>
+  $$("#unassignedList [data-editcase]").forEach(b =>
     b.addEventListener("click", () => editCaseParticipants(b.dataset.editcase)));
   $$("#unassignedList [data-sugcase]").forEach(b => b.addEventListener("click", () => {
     const c = (store.data.cases || []).find(x => x.id === b.dataset.sugcase); if (!c) return;
@@ -7068,6 +7174,32 @@ function renderLogbook() {
     store.save(); renderAll();
     toast("เติมให้ " + bulk.length + " เคสแล้ว — โปรดตรวจบทบาทก่อนให้อาจารย์รับรอง");
   };
+}
+
+/* ตารางเคสทั้งหมด — แสดง 30 เคสแรกตามตัวกรอง แล้วกด "แสดงเพิ่ม" (เดิมตัดที่ 300 โดยไม่มีทางดูที่เหลือ) */
+function renderCaseTable(cases = store.data.cases || []) {
+  const rows = filterCases();
+  const shown = rows.slice(0, moreLimit("cases", 30));
+  $("#caseTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+    <thead><tr><th>วันที่</th><th>HN</th><th>Diagnosis / Operation</th><th>Subspecialty</th><th>ศัลยแพทย์</th>
+      <th>แพทย์ประจำบ้าน &amp; บทบาท</th><th></th></tr></thead>
+    <tbody>${shown.map(c => `<tr>
+      <td class="small">${fmtDate(c.date)}<br /><span class="muted">${esc(c.room || "")}${c.caseClass === "emergency" ? " · ฉุกเฉิน" : ""}</span></td>
+      <td class="small mono">${esc(maskHn(c.hn))}</td>
+      <td class="small"><b>${esc(c.operation || "—")}</b><br /><span class="muted">${esc(c.diagnosis || "")}
+        ${c.side ? " · " + esc(c.side) : ""}${c.anaesthesia ? " · " + esc(c.anaesthesia) : ""}${c.asa ? " · ASA " + esc(String(c.asa)) : ""}</span></td>
+      <td class="small">${esc(SUB_BY_ID[c.subspecialty]?.en || "")}</td>
+      <td class="small">${esc(c.primarySurgeon || "—")}</td>
+      <td class="small">${(c.participants || []).map(pp => {
+        const r = store.resident(pp.residentId);
+        return `<span class="tag ${pp.verified ? "ok" : ""}">${esc(r?.name || "?")} · ${esc(ROLE_BY_ID[pp.role]?.th || pp.role)}</span>`;
+      }).join(" ") || `<span class="tag warn">ยังไม่ระบุ</span>`}</td>
+      <td class="no-print"><button class="btn-sm" data-editcase="${c.id}">แก้ไข</button></td>
+    </tr>`).join("")}</tbody></table></div>
+    ${moreHtml("cases", shown.length, rows.length, 30, "เคส (ทั้งหมด " + cases.length + " เคส)", () => renderCaseTable(cases))}`
+    : `<p class="empty">ยังไม่มีเคสตามเงื่อนไขที่เลือก</p>`;
+  $$("#caseTable [data-editcase]").forEach(b =>
+    b.addEventListener("click", () => editCaseParticipants(b.dataset.editcase)));
 }
 
 function filterCases() {
@@ -7972,9 +8104,12 @@ function renderWfme() {
       </tr>`;
     }).join("");
     const total = area.subs.reduce((n, s) => n + ev[s.id].activities.length + ev[s.id].docs.length + ev[s.id].sources.length, 0);
-    return `<div class="card">
+    const ok = area.subs.filter(s => ev[s.id].activities.length).length,
+          none = area.subs.filter(s => !ev[s.id].activities.length && !ev[s.id].sources.length && !ev[s.id].docs.length).length;
+    return `<div class="card" data-fold="wfme-${area.n}" data-fold-closed data-fold-sum="">
       <div class="between"><h2>หมวดที่ ${area.n} · ${esc(area.th)} <span class="small muted">${esc(area.en)}</span></h2>
-        <span class="tag ${total ? "ok" : "warn"}">${total} รายการหลักฐาน</span></div>
+        <span class="row" style="gap:.3rem"><span class="tag ${total ? "ok" : "warn"}">${total} รายการหลักฐาน</span>
+          <span class="tag ${none ? "bad" : ok === area.subs.length ? "ok" : ""}">${ok}/${area.subs.length} ข้อมีกิจกรรม${none ? " · ยังไม่มีหลักฐาน " + none : ""}</span></span></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>ข้อ</th><th>หัวข้อ</th><th>กิจกรรมที่ผูกไว้</th><th>หลักฐานอื่นในระบบ</th><th>สถานะ</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
@@ -9293,7 +9428,7 @@ function renderAll() {
   renderYearChecklist();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
-  markScrollable(); syncHeader(); annotateDates();
+  markScrollable(); syncHeader(); annotateDates(); applyFolds();
 }
 
 /* ตารางไหนกว้างกว่ากล่อง → ใส่ .can-scroll ให้เงา/ข้อความบอกว่าเลื่อนได้ · .at-end เมื่อเลื่อนสุดแล้ว
@@ -9332,13 +9467,16 @@ function setupCompactHeader() {
 const settingsCards = () => $$("#view-settings .card[data-anchor]");
 const gotoAnchor = (label) => {
   showView("settings");
-  settingsCards().find(c => c.dataset.anchor.includes(label))?.scrollIntoView({ block: "start" });
+  const card = settingsCards().find(c => c.dataset.anchor.includes(label));
+  if (card) { foldOpen(card); card.scrollIntoView({ block: "start" }); }
 };
 function renderSettingsNav() {
   const nav = $("#settingsNav"); if (!nav) return;
   const cards = settingsCards();
   nav.innerHTML = cards.map((c, i) => `<button type="button" data-goto="${i}">${esc(c.dataset.anchor)}</button>`).join("");
-  $$("#settingsNav [data-goto]").forEach(b => b.addEventListener("click", () => cards[+b.dataset.goto].scrollIntoView({ block: "start" })));
+  $$("#settingsNav [data-goto]").forEach(b => b.addEventListener("click", () => {
+    const card = cards[+b.dataset.goto]; foldOpen(card); card.scrollIntoView({ block: "start" });
+  }));
 }
 /* checklist คำนวณสดจาก store.data ทุกครั้ง — ไม่เก็บสถานะ ติ๊กเองไม่ได้ ครบคือครบจริง */
 function renderYearChecklist() {
@@ -9647,6 +9785,7 @@ function editUser(id, preset = {}) {
 function init() {
   store.load();
   setupIngest();
+  watchFolds();
 
   /* ปุ่มกลุ่มและปุ่มหน้าย่อยเข้า showView() ทางเดียวกัน — ปุ่มกลุ่มถือ data-view ของหน้าย่อยตัวแรกอยู่แล้ว */
   [$("#tabs"), $("#subtabs")].forEach(nav => nav.addEventListener("click", (e) => {

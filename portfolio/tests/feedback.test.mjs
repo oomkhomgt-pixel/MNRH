@@ -143,6 +143,80 @@ export default async function run() {
     t.eq("checklist เตรียมปีมี 8 ข้อ", st.checklist, 8);
     t.eq("ปุ่มลบข้อมูลทั้งหมดอยู่ในโซนอันตราย", st.wipeInDanger, "โซนอันตราย");
 
+    /* ---------- การ์ดพับได้ (data-fold) และ "แสดงเพิ่ม" (data-more) — ซ่อนบนจอเท่านั้น ไม่มีอะไรหายจาก DOM ---------- */
+    const fold = await page.evaluate(async () => {
+      const r = {};
+      showView("settings");
+      const cards = [...document.querySelectorAll("#view-settings .card[data-fold]")];
+      r.foldable = cards.length;
+      r.foldedByDefault = cards.filter(c => c.classList.contains("folded")).length;
+      r.checklistOpen = !document.querySelector('[data-fold="set-เตรียมปีการศึกษา"]').classList.contains("folded");
+      /* ปุ่มข้างในการ์ดที่พับอยู่ยังอยู่ครบ แค่มองไม่เห็น */
+      const users = document.querySelector('[data-fold="set-บัญชีผู้ใช้"]');
+      r.hiddenButtons = users.querySelectorAll("#userTable button").length;
+      r.hiddenNotVisible = !users.querySelector("#userTable").offsetParent;
+      r.sumTag = users.querySelector("h2 .fold-sum")?.textContent || "";
+      r.aria = users.querySelector("h2").getAttribute("aria-expanded");
+      /* กดหัวข้อ → ขยาย และจำไว้ */
+      users.querySelector("h2").click();
+      r.openedByClick = !users.classList.contains("folded") && !!users.querySelector("#userTable").offsetParent;
+      r.stored = JSON.parse(localStorage.getItem("ortho-folds") || "{}")["set-บัญชีผู้ใช้"];
+      /* render ใหม่ทั้งแอป (innerHTML แทนที่) สถานะต้องกลับมาเหมือนเดิม */
+      renderAll(); await new Promise(res => requestAnimationFrame(() => setTimeout(res, 30)));
+      r.survivesRender = !document.querySelector('[data-fold="set-บัญชีผู้ใช้"]').classList.contains("folded")
+        && document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* ปุ่มบนดัชนีเปิดการ์ดที่พับอยู่ให้ */
+      const staffIdx = [...document.querySelectorAll("#settingsNav [data-goto]")].find(b => b.textContent === "อาจารย์");
+      staffIdx.click();
+      r.navOpens = !document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* คีย์บอร์ด: Enter บนหัวข้อ */
+      const h = document.querySelector('[data-fold="set-อาจารย์"] h2');
+      h.focus(); h.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      r.keyboardFolds = document.querySelector('[data-fold="set-อาจารย์"]').classList.contains("folded");
+      /* กดปุ่มในบล็อกหัว (เช่น + เพิ่มบัญชี) ต้องไม่พับ/ขยาย */
+      const before = users.classList.contains("folded");
+      users.querySelector("#btnAddUser").click(); document.querySelector("#dlg").close();
+      r.buttonNoToggle = users.classList.contains("folded") === before;
+      return r;
+    });
+    /* พิมพ์ = เห็นครบ — จำลอง media print แล้ววัดว่าตารางในการ์ดที่พับอยู่กลับมามองเห็น */
+    await page.emulateMedia({ media: "print" });
+    fold.printExpands = await page.evaluate(() => {
+      const c = document.querySelector('[data-fold="set-อาจารย์"]');
+      return c.classList.contains("folded") && getComputedStyle(c.querySelector("#staffTable")).display !== "none";
+    });
+    await page.emulateMedia({ media: "screen" });
+    t.check("หน้าตั้งค่า: การ์ดทุกใบพับได้ พับไว้ก่อนยกเว้น checklist เตรียมปี", fold.foldable >= 15 && fold.foldedByDefault === fold.foldable - 1 && fold.checklistOpen, JSON.stringify(fold));
+    t.check("การ์ดที่พับอยู่ยังมีปุ่มครบใน DOM แค่มองไม่เห็น และมีป้ายจำนวนกับ aria-expanded=false",
+            fold.hiddenButtons > 0 && fold.hiddenNotVisible && /รายการ/.test(fold.sumTag) && fold.aria === "false", JSON.stringify(fold));
+    t.check("กดหัวข้อแล้วขยาย จำสถานะไว้ในเครื่อง และรอดจากการ render ใหม่", fold.openedByClick && fold.stored === "open" && fold.survivesRender);
+    t.check("ปุ่มดัชนีเปิดการ์ดที่พับอยู่ · Enter บนหัวข้อพับได้ · ปุ่มในบล็อกหัวไม่ไปสลับการพับ", fold.navOpens && fold.keyboardFolds && fold.buttonNoToggle);
+    t.check("ตอนพิมพ์ ทุกส่วนที่พับถูกขยายด้วย CSS", fold.printExpands);
+
+    const more = await page.evaluate(async () => {
+      showView("rotation");
+      const r = {};
+      const card = document.querySelector('[data-fold="rot-all"]');
+      r.folded = card.classList.contains("folded");
+      foldOpen(card);
+      const total = store.data.rotations.length;
+      r.total = total;
+      r.first = document.querySelectorAll("#rotationTable tbody tr").length;
+      document.querySelector('#rotationTable [data-more][data-step="25"]')?.click();
+      r.afterMore = document.querySelectorAll("#rotationTable tbody tr").length;
+      document.querySelector('#rotationTable [data-more][data-step="all"]')?.click();
+      r.afterAll = document.querySelectorAll("#rotationTable tbody tr").length;
+      r.editButtons = document.querySelectorAll("#rotationTable [data-rot]").length;
+      showView("logbook");
+      r.cases = document.querySelectorAll("#caseTable tbody tr").length;
+      r.caseTotal = filterCases().length;
+      return r;
+    });
+    t.check("ช่วงหมุนเวียนทั้งหมด: พับไว้ก่อน เปิดแล้วแสดง 25 แถวแรก", more.folded && more.first === Math.min(25, more.total), JSON.stringify(more));
+    t.check("แสดงเพิ่มอีก 25 → 50 แถว · แสดงทั้งหมด → ครบทุกช่วง พร้อมปุ่มแก้ไขทุกแถว",
+            more.afterMore === Math.min(50, more.total) && more.afterAll === more.total && more.editButtons === more.total, JSON.stringify(more));
+    t.check("เคสทั้งหมดใน logbook เริ่มที่ 30 แถว", more.cases === Math.min(30, more.caseTotal), JSON.stringify(more));
+
     const ck = await page.evaluate(() => {
       const keep = store.data.rotations;
       store.data.rotations = []; renderYearChecklist();
