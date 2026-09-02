@@ -10,7 +10,7 @@ import { serve, launchOptions, openAs, suite } from "./lib.mjs";
 const REC_OF = `(b) => {
   const i = b.dataset.pres.indexOf(":");
   const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
-  if (kind === "slot") return { kind, type: id.slice(0, id.indexOf(":")), date: id.slice(id.indexOf(":") + 1), residentId: "" };
+  if (kind === "slot" || kind === "info") return { kind, type: id.slice(0, id.indexOf(":")), date: id.slice(id.indexOf(":") + 1), residentId: "" };
   const rec = (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id);
   return rec ? { kind, ...rec } : null;
 }`;
@@ -46,6 +46,10 @@ export default async function run() {
         let thu = addDaysISO(todayISO(), 1);
         while (new Date(thu + "T00:00:00").getDay() !== 4) thu = addDaysISO(thu, 1);
         const thuSlots = presentationsForDate(thu).filter(p => p.kind === "slot").length;
+        /* บ่ายพฤหัสฯ มี Inter-hospital conference แสดงเฉย ๆ (kind "info") ไม่มีผู้นำเสนอ */
+        const thuInfo = presentationsForDate(thu).filter(p => p.kind === "info");
+        const infoOk = thuInfo.length === 1 && thuInfo[0].type === "interhospital" && thuInfo[0].start === "13:00" && !thuInfo[0].residentId;
+        const infoOnlyThu = presentationsForDate(iso).every(p => p.kind !== "info");
 
         /* chip บนกริดเดือนปัจจุบัน */
         calMonth = todayISO().slice(0, 7); renderCalendar();
@@ -53,7 +57,7 @@ export default async function run() {
         const noToggle = document.querySelector("#calScopeWrap").hidden === true;
         const abbrOk = chips.every(b => {
           const rec = recOf(b);
-          return rec && b.querySelector(".abbr")?.textContent.trim() === TYPE_BY_ID[rec.type].icon && b.classList.contains("pres-" + rec.type);
+          return rec && b.querySelector(".abbr")?.textContent.trim() === presTypeOf(rec.type).icon && b.classList.contains("pres-" + rec.type);
         });
         const compact = chips.every(b => !b.querySelector(".tag") && !b.querySelector(".tc-info"));
         const named = chips.filter(b => recOf(b)?.residentId);
@@ -87,7 +91,16 @@ export default async function run() {
                     foot: [...document.querySelectorAll("#dlgFoot button")].map(x => x.textContent) };
           document.querySelector("#dlg").close();
         }
-        return { slotTypes, orderOk, onHoliday, hasFilmAct: !!filmAct, noDupFilm, thuSlots, chips: chips.length, noToggle,
+        /* กด I → กล่องบอกว่าแสดงเฉย ๆ ไม่มีปุ่มอะไรนอกจากปิด */
+        const infoChip = chips.find(b => recOf(b)?.kind === "info");
+        let info = null;
+        if (infoChip) {
+          infoChip.click(); await new Promise(res => setTimeout(res, 50));
+          info = { title: document.querySelector("#dlgTitle")?.textContent, noEval: /ไม่มีการประเมิน/.test(document.querySelector("#dlgBody")?.textContent || ""),
+                   foot: [...document.querySelectorAll("#dlgFoot button")].map(x => x.textContent) };
+          document.querySelector("#dlg").close();
+        }
+        return { slotTypes, orderOk, onHoliday, hasFilmAct: !!filmAct, noDupFilm, thuSlots, infoOk, infoOnlyThu, info, chips: chips.length, noToggle,
                  abbrOk, compact, fullName, titled, slotLabelOk, residentCount: residentIds.size, slot, topic };
       }, REC_OF);
       t.eq("วันราชการข้างหน้าที่ยังไม่มีอะไรลง มีช่องประจำ F แล้ว P เรียงตามเวลา", r.slotTypes, ["traumafilm", "preop"]);
@@ -95,6 +108,9 @@ export default async function run() {
       t.eq("วันหยุดราชการไม่มีช่องประจำ", r.onHoliday, 0);
       t.check("วันที่มีกิจกรรม Trauma film จากสไลด์ ไม่มีช่องประจำ F ซ้ำ", r.hasFilmAct && r.noDupFilm);
       t.eq("วันพฤหัสบดีไม่มีช่อง F/P (เป็น Topic/Journal ที่ลงตารางล่วงหน้า)", r.thuSlots, 0);
+      t.check("บ่ายพฤหัสฯ มี Inter-hospital conference แสดงเฉย ๆ 13:00 ไม่มีผู้นำเสนอ และไม่โผล่วันอื่น", r.infoOk && r.infoOnlyThu);
+      t.check("กด I: กล่องบอกว่าแสดงเฉย ๆ ไม่มีการประเมิน และไม่มีปุ่มทำอะไร",
+        !!r.info && r.info.title === "กิจกรรมประจำ" && r.info.noEval && r.info.foot.length === 1, JSON.stringify(r.info));
       t.check("admin ไม่มีปุ่มสลับ ทั้งกลุ่มงาน/ของฉัน", r.noToggle);
       t.check("admin: ตารางรวมเห็นของหลายคนในเดือนเดียว", r.residentCount > 1, r.residentCount);
       t.check("chip ทุกอันมีตัวย่อ T/P/F/J ตรงประเภท และ class pres-{type}", r.chips > 0 && r.abbrOk, r.chips);
