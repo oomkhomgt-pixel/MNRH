@@ -36,6 +36,22 @@ export default async function run() {
         return !open;
       }));
 
+      /* ผลประเมินท้ายเซสชันเป็นข้อมูลรายบุคคล เหมือนกิจกรรม — เห็นและดาวน์โหลดได้เฉพาะของตัวเอง
+         เดิม #evalList และ evalCsvRows() ไม่กรองเลย ทุกคนเห็นคะแนน/ข้อเสนอแนะของทุกคนในสาย */
+      const evalLeak = await page.evaluate(() => {
+        const me = myResidentId(), other = store.data.residents.find(r => r.id !== me).id;
+        store.data.sessionEvals.push({ id: "ev_leak_test", residentId: other, staffId: "",
+          date: todayISO(), part: "am", sessionName: "ทดสอบรั่ว", serviceId: "",
+          scores: {}, entrust: "3", comment: "ข้อความลับของคนอื่น ห้ามเห็น" });
+        renderRotation();
+        const inList = ($("#evalList").innerHTML || "").includes("ข้อความลับของคนอื่น");
+        const inCsv = evalCsvRows().some(row => row.some(cell => String(cell).includes("ข้อความลับของคนอื่น")));
+        store.data.sessionEvals = store.data.sessionEvals.filter(e => e.id !== "ev_leak_test");
+        return { inList, inCsv };
+      });
+      t.check("ไม่เห็นผลประเมินท้ายเซสชันของคนอื่นในตารางสัปดาห์", !evalLeak.inList);
+      t.check("ดาวน์โหลด CSV ผลประเมินไม่หลุดของคนอื่นมาด้วย", !evalLeak.inCsv);
+
       /* logbook เป็นของรายบุคคล — ไม่ระบุเจ้าของต้องไม่ส่งอะไรเลย
          เดิมช่องว่างแปลว่า "ทุกเคสในเครื่อง" ซึ่งส่งเคสของคนอื่นออกไปได้ */
       const sync = await page.evaluate(() => {
@@ -46,6 +62,18 @@ export default async function run() {
       t.eq("logbook ที่ไม่ระบุเจ้าของ ส่งรายการเปล่า", sync.leaked, 0);
       t.eq("บังคับกลับมาที่โหมดเฉพาะ logbook แม้ตั้งค่าเป็นข้อมูลทั้งชุด", sync.mode, "logbook");
 
+      /* หน้าตั้งค่าสัญญาไว้ว่าโหมด logbook ส่งแค่ วันที่/diagnosis/operation เท่านั้น ไม่มีตัวระบุอื่น
+         เดิมแอบส่ง ref (เลขอ้างอิงเคสภายใน) ติดไปด้วยทุกรายการ ทั้งที่ไม่เคยบอกผู้ใช้ */
+      const payloadFields = await page.evaluate(() => {
+        const cfg = syncCfg();
+        cfg.mode = "logbook"; cfg.residentId = myResidentId(); cfg.withRole = false;
+        const items = syncPayloadItems();
+        return { keys: [...new Set(items.flatMap(Object.keys))], count: items.length };
+      });
+      t.check("ส่งข้อมูล logbook มีรายการให้ตรวจจริง", payloadFields.count > 0, payloadFields.count + " รายการ");
+      t.eq("ฟิลด์ที่ส่งจริงตรงกับที่สัญญาไว้ในหน้าตั้งค่า — วันที่/diagnosis/operation เท่านั้น ไม่มีตัวระบุอื่น",
+           payloadFields.keys.sort(), ["date", "diagnosis", "operation"]);
+
       /* ส่งข้อมูลทั้งชุดออกนอกเครื่องต้องถูกปฏิเสธก่อนถึงขั้นเรียก fetch */
       t.check("ส่งข้อมูลทั้งชุดขึ้นคลาวด์ไม่ได้", await page.evaluate(async () => {
         let called = false;
@@ -55,6 +83,48 @@ export default async function run() {
         window.fetch = real;
         return !called;
       }));
+
+      /* ---------- C3: ฟังก์ชันพิมพ์รายงานที่อ้างอิง residentId ต้องมี guard ภายในด้วย ----------
+         ไม่ใช่พึ่งแค่ว่าจุดเข้าถึงจริงในหน้าจอกรองไว้แล้ว — เรียกตรงผ่าน console ด้วย id ของคนอื่นต้องไม่ทำงาน */
+      const printGuard = await page.evaluate(() => {
+        const other = store.data.residents.find(x => x.id !== myResidentId()).id;
+        window.print = () => {};
+        const before = document.querySelector("#reportBody")?.innerHTML || "";
+        printLogbook(other);
+        const afterLogbook = document.querySelector("#reportBody")?.innerHTML || "";
+        printPortfolio(other);
+        const afterPortfolio = document.querySelector("#reportBody")?.innerHTML || "";
+        printRcostWorksheet(other);
+        const afterRcost = document.querySelector("#reportBody")?.innerHTML || "";
+        return { before, afterLogbook, afterPortfolio, afterRcost };
+      });
+      t.eq("printLogbook ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterLogbook, printGuard.before);
+      t.eq("printPortfolio ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterPortfolio, printGuard.before);
+      t.eq("printRcostWorksheet ของคนอื่นไม่เปิดรายงานออกมา", printGuard.afterRcost, printGuard.before);
+
+      /* ---------- A9: ดาวน์โหลดข้อมูลทั้งชุด/กิจกรรมทั้งภาควิชา ต้องมี guard ภายในด้วย ---------- */
+      const exportGuard = await page.evaluate(() => {
+        let called = false;
+        const realDownload = window.download; window.download = () => { called = true; };
+        backupToDownload();
+        const backupCalled = called; called = false;
+        document.querySelector("#btnCsvAll")?.click();
+        const csvAllCalled = called;
+        window.download = realDownload;
+        return { backupCalled, csvAllCalled };
+      });
+      t.check("backupToDownload() เรียกตรง ๆ โดยแพทย์ประจำบ้านไม่ทำงาน", !exportGuard.backupCalled);
+      t.check("ปุ่มดาวน์โหลดกิจกรรมทั้งภาควิชา (CSV) กดตรง ๆ โดยแพทย์ประจำบ้านไม่ทำงาน", !exportGuard.csvAllCalled);
+
+      /* ---------- D3: ปุ่ม "แก้ไขข้อมูล" ต้องถูกซ่อนหลังเลือกดูรายละเอียดคนใดคนหนึ่งด้วย ----------
+         เดิม renderResidentDetail() ไม่เรียก applyPermissions() ซ้ำ ปุ่มที่วาดใหม่จึงโผล่ให้เห็น
+         (ยังกดไม่ได้จริงเพราะ editResident() กันไว้อีกชั้น แต่ทำให้สับสน) */
+      const d3 = await page.evaluate(() => {
+        selectedResident = store.data.residents[0].id;
+        renderResidentDetail();
+        return { hidden: document.querySelector("[data-edit-res]")?.hidden };
+      });
+      t.check("ปุ่มแก้ไขข้อมูลถูกซ่อนให้ถูกต้องหลังเลือกดูรายละเอียดแพทย์ประจำบ้าน", d3.hidden === true);
 
       /* หน้าตั้งค่าซิงก์ต้องเป็นแบบอ่านอย่างเดียว ไม่มีช่องให้แก้ปลายทาง */
       const dlg = await page.evaluate(() => {
@@ -102,8 +172,16 @@ export default async function run() {
 
       /* บันทึกได้ว่าตัวเองเข้าคาบไหนในวันนั้น แต่บันทึกแทนคนอื่นไม่ได้ */
       const pickPerm = await page.evaluate(() => {
+        /* ตารางมีเฉพาะจันทร์–ศุกร์ — เดินย้อนไปหาวันทำการที่มีคาบจริง */
+        const sessionFor = (rid) => {
+          for (let i = 0; i < 14; i++) {
+            const hit = sessionsForDate(addDaysISO(todayISO(), -i)).find(s => s.residentId === rid);
+            if (hit) return hit;
+          }
+          return null;
+        };
         const btns = (rid) => {
-          const ses = sessionsForDate(todayISO()).find(s => s.residentId === rid);
+          const ses = sessionFor(rid);
           if (!ses) return null;
           openSession(ses.key);
           const labels = [...document.querySelectorAll("#dlgFoot button")].map(b => b.textContent);
@@ -118,6 +196,78 @@ export default async function run() {
               pickPerm.mine?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.mine || []).join(" / "));
       t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
               !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
+
+      /* ปฏิทิน: picker ต้องซ่อน และต่อให้แก้ calResidentId ตรง ๆ ทาง console แล้วสั่ง render ใหม่
+         ก็ต้องดีดกลับมาเป็นตัวเองเสมอ — ไม่มีทางเห็นปฏิทินของคนอื่นได้ */
+      const calScope = await page.evaluate(() => {
+        showView("calendar");
+        const pickerHidden = document.querySelector("#calResidentPick").hidden;
+        const other = store.data.residents.find(r => r.id !== myResidentId());
+        calResidentId = other?.id || "__hijack__";
+        renderCalendar();
+        return { pickerHidden, resetToMine: calResidentId === myResidentId(), attempted: other?.id || "__hijack__" };
+      });
+      t.check("แพทย์ประจำบ้าน: ตัวเลือกเปลี่ยนคนในหน้าปฏิทินถูกซ่อน", calScope.pickerHidden);
+      t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
+              calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
+
+      /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
+         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้ */
+      const talk = await page.evaluate(() => {
+        const me = myResidentId();
+        const other = store.data.schedule.find(x => x.residentId !== me);
+        const mine = store.data.schedule.find(x => x.residentId === me && !x.activityId);
+        const n0 = store.data.activities.length;
+        editTalk(other.id);
+        const editOpened = !!document.querySelector("#dlg")?.open;
+        if (editOpened) document.querySelector("#dlg").close();
+        recordFromTalk(other.id);
+        const afterOther = store.data.activities.length;
+        let ownRecorded = null;
+        if (mine) { recordFromTalk(mine.id); ownRecorded = store.data.activities.length === afterOther + 1 && !!mine.activityId; }
+        showView("rotation");
+        const editBtnVisible = [...document.querySelectorAll("#talkTable [data-talk]")].some(b => !b.hidden);
+        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, editBtnVisible };
+      });
+      t.check("แก้ตารางนำเสนอของคนอื่นไม่ได้ (กล่องไม่เปิด)", !talk.editOpened);
+      t.check("บันทึกเข้าแฟ้มของคนอื่นจากตารางนำเสนอไม่ได้", !talk.otherGrew);
+      t.check("บันทึกแถวของตัวเองจากตารางนำเสนอได้", talk.ownRecorded !== false, talk.ownRecorded === null ? "ไม่มีแถวของตัวเองในข้อมูลสาธิต" : "");
+      t.check("ปุ่มแก้ไขในตารางนำเสนอถูกซ่อนสำหรับแพทย์ประจำบ้าน", !talk.editBtnVisible);
+
+      /* หน้า logbook/EPA ต้องพูดความจริงกับแพทย์ประจำบ้าน — ตัวเลขของตัวเอง ไม่ใช่ทั้งแผนก
+         และไม่มีคำสั่ง/คำเตือนที่เขาทำอะไรไม่ได้ */
+      const lb = await page.evaluate(() => {
+        showView("logbook");
+        const me = myResidentId();
+        const mine = store.data.cases.filter(c => (c.participants || []).some(p => p.residentId === me)).length;
+        return {
+          firstStat: +document.querySelector("#logbookStats .stat b")?.textContent, mine,
+          importBanner: document.querySelector("#importStatus").innerHTML.trim(),
+          unassignedHidden: document.querySelector("#unassignedList").closest(".card").hidden,
+          epaCaveatHidden: document.querySelector("#epaCaveat").hidden
+        };
+      });
+      t.eq("logbook: ตัวเลขแรกคือเคสของตัวเอง ไม่ใช่ทั้งแผนก", lb.firstStat, lb.mine);
+      t.check("logbook: ไม่มีคำแนะนำ 'กดดึงจากระบบคิว' ที่ทำไม่ได้", lb.importBanner === "");
+      t.check("logbook: การ์ดเคสที่ยังไม่ระบุผู้ร่วมผ่าตัด (งานของอาจารย์) ถูกซ่อน", lb.unassignedHidden);
+      t.check("EPA: คำเตือนที่ชี้ไปหน้าตั้งค่าถูกซ่อน", lb.epaCaveatHidden);
+
+      /* กล่องขอไปเข้าคาบสายอื่น: เปลี่ยนวันแล้วรายการคาบต้องเป็นของวันใหม่ */
+      const visit = await page.evaluate(() => {
+        const me = myResidentId();
+        let d0 = todayISO();
+        /* หาวันทำการที่วันถัดไปก็เป็นวันทำการ จะได้เทียบสองวันที่มี option ต่างกันได้ */
+        for (let i = 0; i < 10; i++) { const dow = new Date(d0 + "T00:00:00").getDay(); if (dow >= 1 && dow <= 4) break; d0 = addDaysISO(d0, 1); }
+        const d1 = addDaysISO(d0, 1);
+        openVisit(me, d0);
+        const inp = document.querySelector('#dlgBody [name="date"]');
+        inp.value = d1; inp.dispatchEvent(new Event("change", { bubbles: true }));
+        const got = [...document.querySelectorAll('#dlgBody [name="target"] option')].map(o => o.value).filter(Boolean);
+        const want = visitOptions(me, d1).map(o => o.serviceId + "|" + o.index);
+        document.querySelector("#dlg").close();
+        return { got, want };
+      });
+      t.eq("เปลี่ยนวันในกล่องขอไปเข้าคาบ แล้วรายการคาบเป็นของวันใหม่", visit.got, visit.want);
 
       t.check("แพทย์ประจำบ้าน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
@@ -214,8 +364,23 @@ export default async function run() {
       t.check("ผู้จัดหลักสูตรแลกวันแทนใครก็ได้", adm.other && adm.openedOther);
 
       /* ตอบรับได้เฉพาะฝ่ายที่ถูกขอ — ผู้ขอกดตอบรับให้ตัวเองไม่ได้ */
+      {
+        /* อาจารย์กรอกแบบประเมินลงกองได้ แต่แก้ตัวแบบประเมินไม่ได้ */
+        const { page: sp } = await openAs(browser, srv.url, "staff");
+        const seen = await sp.evaluate(() => {
+          const card = document.querySelector("#rotationFormEditor")?.closest(".card");
+          return { hidden: card?.hidden, canManage: canManage(), canAssess: canAssess() };
+        });
+        t.check("อาจารย์แก้แบบประเมินลงกองไม่ได้ แต่ยังประเมินได้",
+                seen.hidden === true && !seen.canManage && seen.canAssess, JSON.stringify(seen));
+        await sp.close();
+      }
+
       const { page } = await openAs(browser, srv.url, "staff");
-      const decide = await page.evaluate(() => {
+      /* ถ้าวันนั้นอาจารย์มีคาบอื่นอยู่แล้ว แอปจะถามยืนยันก่อน (กล่องของแอป ไม่ใช่ window.confirm) —
+         ถ้าไม่ตอบ การตอบรับจะไม่เกิดและข้อทดสอบแดงโดยไม่เกี่ยวกับสิทธิ์ ตรงนี้จึง stub ให้ตอบ "ใช่" */
+      const decide = await page.evaluate(async () => {
+        confirmDialog = async () => true;
         const me = currentUser().staffId;
         const other = store.data.staff.find(x => x.id !== me).id;
         const third = store.data.staff.find(x => x.id !== me && x.id !== other).id;
@@ -224,10 +389,10 @@ export default async function run() {
         store.data.swaps = [mk(me, other), mk(other, me), mk(other, third)];
         const [iAsked, askedMe, notMine] = store.data.swaps;
         const before = store.data.swaps.map(x => x.status).join(",");
-        decideSwap(iAsked.id, true);        /* ของที่ฉันขอเอง — ต้องไม่ผ่าน */
-        decideSwap(notMine.id, true);       /* ของคนอื่นสองคน — ต้องไม่ผ่าน */
+        await decideSwap(iAsked.id, true);        /* ของที่ฉันขอเอง — ต้องไม่ผ่าน */
+        await decideSwap(notMine.id, true);       /* ของคนอื่นสองคน — ต้องไม่ผ่าน */
         const mid = store.data.swaps.map(x => x.status).join(",");
-        decideSwap(askedMe.id, true);       /* ที่ขอให้ฉันมาแทน — ต้องผ่าน */
+        await decideSwap(askedMe.id, true);       /* ที่ขอให้ฉันมาแทน — ต้องผ่าน */
         const after = store.data.swaps.map(x => x.status).join(",");
         store.data.swaps = [];
         return { before, mid, after };
@@ -302,9 +467,13 @@ export default async function run() {
     {
       const { page } = await openAs(browser, srv.url, "resident");
       const r = await page.evaluate(() => {
-        const me = myResidentId(), iso = todayISO();
+        const me = myResidentId();
         store.data.sessionPicks = [];
-        const ses = sessionsForDate(iso).find(x => x.residentId === me && !x.advisory);
+        let iso = todayISO(), ses = null;
+        for (let i = 0; i < 14 && !ses; i++) {
+          iso = addDaysISO(todayISO(), -i);
+          ses = sessionsForDate(iso).find(x => x.residentId === me && !x.advisory);
+        }
         if (!ses) return { none: true };
         const mine = new Set();
         sessionsForDate(iso).filter(x => x.residentId === me)
@@ -333,6 +502,92 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- แดชบอร์ดที่ส่งออก ต้องเคารพสิทธิ์เหมือนหน้าจอ ---------- */
+    {
+      const { page } = await openAs(browser, srv.url, "resident");
+      const r = await page.evaluate(() => {
+        const html = dashboardHtml();
+        const me = store.resident(myResidentId());
+        const others = store.data.residents.filter(x => x.id !== myResidentId());
+        return { len: html.length, mine: html.includes(me.name),
+                 leaked: others.filter(o => html.includes(o.name)).map(o => o.name),
+                 external: /(src|href)\s*=\s*["']https?:/i.test(html),
+                 script: /<script/i.test(html) };
+      });
+      t.check("แดชบอร์ดของแพทย์ประจำบ้านมีชื่อตัวเอง", r.mine, r.len + " ตัวอักษร");
+      t.check("แดชบอร์ดไม่หลุดชื่อแพทย์ประจำบ้านคนอื่น",
+              r.leaked.length === 0, r.leaked.join(", ") || "ไม่หลุด");
+      t.check("แดชบอร์ดไม่อ้าง asset จากภายนอก เปิดออฟไลน์ได้", !r.external);
+      t.check("แดชบอร์ดไม่มีสคริปต์ — เป็นภาพนิ่งล้วน", !r.script);
+      await page.close();
+
+      const { page: ap } = await openAs(browser, srv.url, "admin");
+      const a = await ap.evaluate(() => {
+        const html = dashboardHtml();
+        return { all: store.data.residents.every(x => html.includes(x.name)),
+                 hasHn: /MOCK-\d/.test(html) };
+      });
+      /* ตัวแก้แบบประเมินลงกองเป็นของผู้จัดหลักสูตร อาจารย์กรอกได้แต่แก้ฟอร์มไม่ได้ */
+      const rf = await ap.evaluate(() => {
+        const card = document.querySelector("#rotationFormEditor")?.closest(".card");
+        return { perm: card?.dataset.perm, hidden: card?.hidden };
+      });
+      t.eq("การ์ดแก้แบบประเมินลงกองจำกัดไว้ที่ผู้จัดหลักสูตร", rf.perm, "admin");
+      t.check("ผู้จัดหลักสูตรเห็นการ์ดนี้", rf.hidden === false);
+
+      t.check("แดชบอร์ดของผู้จัดหลักสูตรมีครบทุกคน", a.all);
+      t.check("แดชบอร์ดไม่มี HN หรือข้อมูลผู้ป่วยรายบุคคล", !a.hasHn);
+      await ap.close();
+    }
+
+    /* ---------- แดชบอร์ดรายบุคคล ที่แนบไปกับการส่งออกข้อมูลของคนคนเดียว ---------- */
+    {
+      const { page } = await openAs(browser, srv.url, "admin");
+      const a = await page.evaluate(() => {
+        const r = store.data.residents[0];
+        const html = residentDashboardFile(r.id);
+        const others = store.data.residents.filter(x => x.id !== r.id);
+        /* รายงานที่สั่งพิมพ์ต้องมีส่วนแดชบอร์ดอยู่หัวรายงานด้วย ไม่ใช่มีแต่ตาราง */
+        window.print = () => {};
+        printPortfolio(r.id);
+        const body = document.querySelector("#reportBody");
+        return { len: html.length, name: r.name, mine: html.includes(r.name),
+                 leaked: others.filter(o => html.includes(o.name)).map(o => o.name),
+                 external: /(src|href)\s*=\s*["']https?:/i.test(html),
+                 script: /<script/i.test(html),
+                 hasHn: /MOCK-\d/.test(html),
+                 inReport: body.querySelectorAll(".dash").length,
+                 reportBars: body.querySelectorAll(".dash svg").length };
+      });
+      t.check("แดชบอร์ดรายบุคคลมีชื่อเจ้าของ", a.mine, a.name + " · " + a.len + " ตัวอักษร");
+      t.check("แดชบอร์ดรายบุคคลไม่มีชื่อแพทย์ประจำบ้านคนอื่นปนมา",
+              a.leaked.length === 0, a.leaked.join(", ") || "ไม่มี");
+      t.check("แดชบอร์ดรายบุคคลไม่อ้าง asset ภายนอกและไม่มีสคริปต์", !a.external && !a.script);
+      t.check("แดชบอร์ดรายบุคคลไม่มี HN หรือข้อมูลผู้ป่วย", !a.hasHn);
+      t.eq("รายงานรายบุคคลที่สั่งพิมพ์มีส่วนแดชบอร์ดนำหน้าตาราง", a.inReport, 1);
+      t.check("แดชบอร์ดในรายงานมีกราฟจริง ไม่ใช่ตารางล้วน", a.reportBars > 0, a.reportBars + " รูป");
+      await page.close();
+
+      /* แพทย์ประจำบ้านต้องดึงแดชบอร์ดของคนอื่นไม่ได้ ทั้งทางไฟล์และทางปุ่ม */
+      const { page: rp } = await openAs(browser, srv.url, "resident");
+      const b2 = await rp.evaluate(() => {
+        const me = myResidentId();
+        const other = store.data.residents.find(x => x.id !== me);
+        const grabbed = [];
+        const real = window.download; window.download = (n) => grabbed.push(n);
+        /* กดของตัวเองก่อน เพื่อพิสูจน์ว่าดักการดาวน์โหลดได้จริง ไม่งั้นข้อถัดไปผ่านฟรี */
+        exportResidentDashboard(me);
+        const own = grabbed.length;
+        exportResidentDashboard(other.id);
+        window.download = real;
+        return { otherName: other.name, own, total: grabbed.length, files: grabbed };
+      });
+      t.check("ดักการดาวน์โหลดได้จริง — กดของตัวเองแล้วมีไฟล์ออกมา", b2.own === 1, b2.files.join(", "));
+      t.check("แพทย์ประจำบ้านกดส่งออกแดชบอร์ดของคนอื่นไม่ได้",
+              b2.total === b2.own, b2.files.join(", ") || "ไม่มีไฟล์ถูกสร้าง");
+      await rp.close();
+    }
+
     /* ---------- หน้าเข้าสู่ระบบ: รหัสสาธิตต้องคนละชุดต่อบทบาท และต้องกันรหัสผิดจริง ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, null);
@@ -341,6 +596,9 @@ export default async function run() {
         const users = { admin: pick("admin"), staff: pick("staff"), resident: pick("resident") };
         const attempt = async (u, pin) => {
           localStorage.removeItem("mnrh_ortho_portfolio_session_v1");
+          /* ล้าง session ในหน่วยความจำด้วย ไม่ใช่แค่ localStorage — ไม่งั้นความพยายามที่ควรถูกบล็อก
+             จะยังเห็น currentUser() เป็นค่าเดิมจากรอบก่อนที่ล็อกอินสำเร็จ ทำให้ทดสอบเพี้ยน */
+          session = null;
           document.querySelector("#loginUser").value = u.id;
           document.querySelector("#loginPin").value = pin;
           document.querySelector("#loginGo").click();
@@ -349,13 +607,26 @@ export default async function run() {
         const wrong = await attempt(users.admin, "1234");
         const crossRole = await attempt(users.admin, users.resident.pin);
         const right = await attempt(users.admin, users.admin.pin);
+
+        /* บัญชีที่ยังไม่ได้ตั้งรหัส (pin ว่าง) ต้องเข้าไม่ได้เลย — ทั้งเว้นว่างและใส่อะไรก็ตาม
+           เดิม u.pin && u.pin !== pin ปล่อยผ่านทั้งเงื่อนไขเมื่อ pin ว่าง เข้าได้โดยไม่ต้องรู้รหัสอะไรเลย */
+        const noPinUser = { id: "usr_no_pin_test", username: "nopintest", displayName: "ทดสอบไม่มีรหัส",
+          role: "staff", pin: "", active: true };
+        store.data.users.push(noPinUser);
+        /* renderLoginGate() ต้องรันใหม่ ไม่งั้น go() ยังอ้างรายชื่อผู้ใช้ชุดเก่าที่ไม่มีบัญชีนี้อยู่ */
+        renderLoginGate();
+        const noPinBlank = await attempt(noPinUser, "");
+        const noPinAnything = await attempt(noPinUser, "ใส่อะไรก็ได้");
+        store.data.users = store.data.users.filter(u => u.id !== noPinUser.id);
+        renderLoginGate();
+
         /* ปุ่มเติมรหัสต้องเติมได้ตรงกับรหัสที่บัญชีนั้นใช้จริง */
         document.querySelector("#loginUser").value = users.staff.id;
         document.querySelector("#loginPin").value = "";
         document.querySelector("#loginDemo").click();
         const filled = document.querySelector("#loginPin").value;
         return {
-          wrong, crossRole, right, filled, staffPin: users.staff.pin,
+          wrong, crossRole, right, noPinBlank, noPinAnything, filled, staffPin: users.staff.pin,
           pins: [users.admin.pin, users.staff.pin, users.resident.pin],
           distinct: new Set(store.data.users.map(u => u.pin)).size,
           total: store.data.users.length
@@ -364,6 +635,8 @@ export default async function run() {
       t.check("รหัสเดิม 1234 ใช้ไม่ได้แล้ว", r.wrong === false);
       t.check("รหัสของบทบาทอื่นใช้ข้ามบัญชีไม่ได้", r.crossRole === false);
       t.check("รหัสที่ถูกต้องเข้าได้", r.right === true, r.pins.join(" · "));
+      t.check("บัญชีที่ยังไม่ตั้งรหัส เข้าด้วยช่องว่างไม่ได้", r.noPinBlank === false);
+      t.check("บัญชีที่ยังไม่ตั้งรหัส เข้าด้วยรหัสอะไรก็ตามไม่ได้", r.noPinAnything === false);
       t.check("แต่ละบทบาทได้รหัสคนละชุด",
               new Set(r.pins.map(x => x[0])).size === 3, r.pins.join(" · "));
       t.check("ทุกบัญชีสาธิตมีรหัสไม่ซ้ำกัน", r.distinct === r.total,

@@ -95,8 +95,218 @@ export default async function run() {
       const wraps = await page.evaluate(() =>
         [...document.querySelectorAll(".tbl-wrap")].filter(w => w.scrollWidth > w.clientWidth + 1).length);
       t.check(role + ": ตารางกว้างเลื่อนได้ในกล่องของตัวเอง", true, wraps + " ตารางที่ต้องเลื่อน");
+
+      /* มือถือ: เลื่อนลงแล้วแถบบน (sticky) ย่อจาก ~212px เหลือแท็บอย่างเดียว เลื่อนกลับบนสุดจึงคืน
+         — เดิมแถบบนกินหนึ่งในสี่ของจอตลอดเวลา */
+      await page.evaluate(() => showView("rotation"));
+      await page.waitForTimeout(150);
+      const hdr0 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      await page.evaluate(() => window.scrollTo(0, 400));
+      await page.waitForTimeout(250);
+      const hdr1 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(250);
+      const hdr2 = await page.evaluate(() => document.querySelector("header.topbar").offsetHeight);
+      t.check(role + ": 390px เลื่อนลงแล้วแถบบนย่อ", hdr1 < hdr0 - 40 && hdr1 <= 130, hdr0 + " → " + hdr1 + " px");
+      t.check(role + ": เลื่อนกลับบนสุดแล้วแถบบนคืนเต็ม", hdr2 === hdr0, hdr2 + " px");
+
+      /* ตารางกว้างมีสัญญาณว่าเลื่อนได้ */
+      const scrollable = await page.evaluate(() => {
+        document.querySelector('#calSeg [data-seg="week"]')?.click();
+        markScrollable();
+        const w = document.querySelector("#weekGrid .tbl-wrap");
+        return { found: !!w, can: !!w?.classList.contains("can-scroll"), atEnd: !!w?.classList.contains("at-end") };
+      });
+      t.check(role + ": 390px ตารางสัปดาห์ที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
+              scrollable.found && scrollable.can && !scrollable.atEnd, JSON.stringify(scrollable));
+
+      /* แถวตัวกรองไม่กินทั้งจอ */
+      if (role !== "resident") {
+        const fh = await page.evaluate(() => { showView("assess"); return document.querySelector("#activityFilters")?.getBoundingClientRect().height || 0; });
+        t.check(role + ": 390px แถวตัวกรองหน้าประเมินสูงไม่เกิน 260px", fh > 0 && fh < 260, Math.round(fh) + " px");
+      }
       await page.setViewportSize({ width: 1280, height: 900 });
 
+      await page.close();
+    }
+
+    /* ---------- แถบนำทางสองชั้น: กลุ่ม 6 กลุ่ม + แถวหน้าย่อย ----------
+       ยุบแท็บ 12 อันเป็น 6 กลุ่ม — ทุก view เดิมต้องยังไปถึงได้ครบ (ผ่านแถวหน้าย่อยหรือ hash)
+       และสิทธิ์ต่อกลุ่มต้องเท่ากับสิทธิ์ต่อแท็บเดิมทุกประการ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const nav = await page.evaluate(() => {
+        const groups = [...document.querySelectorAll("#tabs button")];
+        showView("residents");
+        const subVisible = [...document.querySelectorAll("#subtabs [data-subgroup]:not([hidden]) button")].map(b => b.dataset.view);
+        const subBarShown = !document.querySelector("#subtabs").hidden;
+        document.querySelector('#subtabs [data-view="epa"]').click();
+        const epaOn = document.querySelector("#view-epa").classList.contains("on");
+        const groupCurrent = groups.find(b => b.getAttribute("aria-current") === "true")?.dataset.group;
+        const subCurrent = [...document.querySelectorAll("#subtabs button")].find(b => b.getAttribute("aria-current") === "true")?.dataset.view;
+        showView("settings");
+        const subBarGone = document.querySelector("#subtabs").hidden;
+        return { total: groups.length, visible: groups.filter(b => !b.hidden).length,
+                 subVisible, subBarShown, epaOn, groupCurrent, subCurrent, subBarGone };
+      });
+      t.eq("admin เห็นปุ่มกลุ่มครบ 6 กลุ่ม", [nav.total, nav.visible], [6, 6]);
+      t.eq("เปิดกลุ่มแพทย์ประจำบ้านแล้วแถวหน้าย่อยมี 4 หน้า", nav.subVisible, ["residents", "logbook", "epa", "research"]);
+      t.check("แถวหน้าย่อยโชว์อยู่จริง", nav.subBarShown);
+      t.check("คลิกหน้าย่อย EPA แล้ว view-epa เปิด", nav.epaOn);
+      t.eq("ไฮไลต์ย้ายถูกทั้งแถวกลุ่มและแถวหน้าย่อย", [nav.groupCurrent, nav.subCurrent], ["g2", "epa"]);
+      t.check("กลุ่มที่มีหน้าเดียว (ตั้งค่า) ไม่มีแถวหน้าย่อยค้าง", nav.subBarGone);
+
+      /* ลิงก์เจาะลึกด้วย hash ยังใช้ได้กับ view ที่ไม่มีปุ่มของตัวเองใน #tabs แล้ว */
+      await page.evaluate(() => { location.hash = "epa"; });
+      await page.reload();
+      await page.waitForFunction(() => typeof currentUser === "function" && !!currentUser());
+      await page.waitForTimeout(300);
+      const deep = await page.evaluate(() => ({
+        epaOn: document.querySelector("#view-epa").classList.contains("on"),
+        groupCurrent: [...document.querySelectorAll("#tabs button")].find(b => b.getAttribute("aria-current") === "true")?.dataset.group
+      }));
+      t.eq("hash #epa หลัง reload ยังเปิดหน้า EPA พร้อมไฮไลต์กลุ่มถูกต้อง", [deep.epaOn, deep.groupCurrent], [true, "g2"]);
+      t.check("แถบนำทางกลุ่ม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+
+      const { page: rp, errors: rerrors } = await openAs(browser, srv.url, "resident");
+      const rnav = await rp.evaluate(() =>
+        [...document.querySelectorAll("#tabs button")].filter(b => b.hidden).map(b => b.dataset.group).sort());
+      t.eq("resident ไม่เห็นกลุ่มประเมิน/มาตรฐาน/ตั้งค่า", rnav, ["g3", "g4", "g5"]);
+      t.check("แถบนำทาง (resident): ไม่มี error หลุดในคอนโซล", rerrors.length === 0, rerrors.join(" | "));
+      await rp.close();
+    }
+
+    /* ---------- อนุสาขาที่ถูกยุบ ต้องพาข้อมูลเก่าย้ายตามไปด้วย ----------
+       infection ถูกยุบเข้า trauma ถ้าไม่ย้าย ข้อมูลที่บันทึกไว้แล้วจะกลายเป็นอนุสาขาที่ไม่มีอยู่จริง
+       แล้วหายไปจากทุกตาราง โดยไม่มีอะไรบอก */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const d = store.data;
+        /* ปลอมข้อมูลเวอร์ชันเก่าลงไปตรง ๆ ทั้งช่องเดี่ยวและช่องที่เป็นอาเรย์ */
+        d.activities[0].subspecialty = "infection";
+        d.cases[0].subspecialty = "infection";
+        d.staff[0].subspecialties = ["infection", "trauma"];
+        d.services[0].template[0].subspecialties = ["infection"];
+        localStorage.setItem("mnrh_ortho_portfolio_v1", JSON.stringify(d));
+        const ids = { act: d.activities[0].id, cas: d.cases[0].id, st: d.staff[0].id, svc: d.services[0].id };
+        return ids;
+      });
+      await page.reload();
+      await page.waitForFunction(() => typeof store !== "undefined" && store.data?.activities?.length);
+      const after = await page.evaluate((ids) => ({
+        known: SUBSPECIALTIES.map(x => x.id),
+        act: store.data.activities.find(a => a.id === ids.act)?.subspecialty,
+        cas: store.data.cases.find(c => c.id === ids.cas)?.subspecialty,
+        st: store.data.staff.find(x => x.id === ids.st)?.subspecialties,
+        tmpl: store.data.services.find(x => x.id === ids.svc)?.template[0]?.subspecialties
+      }), r);
+      t.check("infection ไม่อยู่ในรายชื่ออนุสาขาแล้ว", !after.known.includes("infection"), after.known.join(", "));
+      t.eq("กิจกรรมเก่าที่เป็น infection ย้ายไปอยู่ trauma", after.act, "trauma");
+      t.eq("เคสผ่าตัดเก่าที่เป็น infection ย้ายไปอยู่ trauma", after.cas, "trauma");
+      t.eq("อนุสาขาของอาจารย์ย้ายตามและไม่เกิดตัวซ้ำ", after.st, ["trauma"]);
+      t.eq("คาบในตารางประจำสัปดาห์ย้ายตามด้วย", after.tmpl, ["trauma"]);
+      t.check("ย้ายข้อมูลเก่า: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- หน้าความครอบคลุม: ภาพรวม + หน้าของแต่ละประเภทงานนำเสนอ ----------
+       สิ่งที่ต้องกัน: ตัวเลขในตารางไม่ตรงกับข้อมูลจริง, ช่องศูนย์จางหายไปทั้งที่ศูนย์คือสิ่งที่ต้องเห็น,
+       เอายอดสะสมตลอดหลักสูตรไปเทียบกับเกณฑ์รายชั้นปี และตัวเลขบนจอเพี้ยนจากไฟล์ที่ส่งออก */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      await page.evaluate(() => showView("coverage"));
+      await page.waitForTimeout(300);
+
+      /* --- หน้าภาพรวม: ตารางไขว้ ประเภท × อนุสาขา --- */
+      const ov = await page.evaluate(() => {
+        const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+        /* ช่องแรกของแถวคือชื่อประเภท ช่องสุดท้ายคือผลรวม — ตัดทั้งสองข้างออกก่อนเทียบ */
+        const grid = [...document.querySelectorAll("#covTypeSub tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim()));
+        const got = grid.slice(0, ACTIVITY_TYPES.length)
+          .map(row => row.slice(1, subs.length + 1).map(v => v === "✕" ? 0 : Number(v)));
+        /* นับใหม่จากข้อมูลดิบ ไม่แตะฟังก์ชันที่วาดตาราง */
+        const want = ACTIVITY_TYPES.map(t => subs.map(sx =>
+          store.data.activities.filter(a => a.type === t.id && a.subspecialty === sx.id).length));
+        const bg = (pick) => {
+          const td = [...document.querySelectorAll("#covTypeSub tbody td")].find(pick);
+          return td ? getComputedStyle(td).backgroundColor : "";
+        };
+        return {
+          rows: grid.length, types: ACTIVITY_TYPES.length, cols: subs.length,
+          same: JSON.stringify(got) === JSON.stringify(want), got: JSON.stringify(got), want: JSON.stringify(want),
+          sum: got.flat().reduce((a, b) => a + b, 0),
+          zeroBg: bg(td => td.textContent.trim() === "✕"),
+          fillBg: bg(td => /^[1-9]/.test(td.textContent.trim())),
+          navs: [...document.querySelectorAll("#coverageNav [data-covpage]")].map(b => b.dataset.covpage)
+        };
+      });
+      t.eq("ตารางไขว้มีครบทุกประเภทงานนำเสนอ บวกแถวรวม", ov.rows, ov.types + 1);
+      t.check("ตัวเลขในตารางไขว้ตรงกับที่นับจากข้อมูลจริง", ov.same,
+              ov.same ? ov.sum + " กิจกรรม · " + ov.cols + " อนุสาขา" : "ได้ " + ov.got + " ควรเป็น " + ov.want);
+      t.check("ช่องศูนย์ใช้สีต่างหาก ไม่ใช่แค่จางลง",
+              !!ov.zeroBg && ov.zeroBg !== ov.fillBg, ov.zeroBg + " เทียบกับ " + ov.fillBg);
+      t.eq("มีปุ่มหน้าภาพรวม บวกหน้าของทุกประเภทงานนำเสนอ",
+           ov.navs.length, ov.types + 1);
+
+      /* --- หน้าของประเภทเดียว --- */
+      const one = await page.evaluate(async () => {
+        const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+        const t = ACTIVITY_TYPES[1];
+        document.querySelector(`#coverageNav [data-covpage="${t.id}"]`).click();
+        await new Promise(r => setTimeout(r, 150));
+        const rows = [...document.querySelectorAll("#coverageBody tbody tr")];
+        const rs = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+        const got = rows.slice(0, rs.length).map(tr =>
+          [...tr.querySelectorAll("td")].slice(0, subs.length).map(td =>
+            td.textContent.trim() === "✕" ? 0 : Number(td.textContent.trim())));
+        const want = rs.map(r => subs.map(sx => store.data.activities.filter(a =>
+          a.residentId === r.id && a.type === t.id && a.subspecialty === sx.id).length));
+        const heads = () => [...document.querySelectorAll("#coverageBody th")].map(x => x.textContent.trim());
+        const before = { need: heads().includes("เกณฑ์"), xtab: !!document.querySelector("#covTypeSub") };
+        /* เลือกปีการศึกษาแล้วคอลัมน์เกณฑ์ต้องโผล่ และต้องยังอยู่หน้าประเภทเดิม */
+        const sel = document.querySelector('#coverageFilters [data-cov="ay"]');
+        sel.value = sel.options[1].value;
+        sel.dispatchEvent(new Event("change"));
+        await new Promise(r => setTimeout(r, 150));
+        return { type: t.th, same: JSON.stringify(got) === JSON.stringify(want),
+                 got: JSON.stringify(got), want: JSON.stringify(want), ...before,
+                 needAfter: heads().includes("เกณฑ์"),
+                 stayed: document.querySelector(`#coverageNav [data-covpage="${t.id}"]`).getAttribute("aria-current") };
+      });
+      t.check("หน้าของประเภทเดียว: ตัวเลขรายคน × อนุสาขา ตรงกับที่นับจากข้อมูลจริง", one.same,
+              one.same ? one.type : "ได้ " + one.got + " ควรเป็น " + one.want);
+      t.check("ตารางไขว้อยู่เฉพาะหน้าภาพรวม ไม่ซ้ำในหน้าของแต่ละประเภท", !one.xtab);
+      t.check("ดูตลอดหลักสูตรจะไม่มีคอลัมน์เกณฑ์ เพราะเกณฑ์เป็นรายชั้นปี", !one.need);
+      t.check("เลือกปีการศึกษาแล้วคอลัมน์เกณฑ์โผล่ขึ้นมา", one.needAfter);
+      t.eq("เปลี่ยนปีการศึกษาแล้วยังอยู่หน้าประเภทเดิม", one.stayed, "true");
+
+      /* --- ตัวเลขบนจอกับตัวเลขในไฟล์ที่ส่งออกต้องมาจากฟังก์ชันเดียวกัน --- */
+      const drift = await page.evaluate(() => {
+        const ay = currentAY();
+        const acts = visibleActivities().filter(a => a.academicYear === ay);
+        const box = document.createElement("div"); box.innerHTML = dashboardHtml();
+        const cards = [...box.querySelectorAll(".card")];
+        const read = (el) => el ? [...el.querySelectorAll("tbody tr")].map(tr =>
+          [...tr.querySelectorAll("td")].map(td => td.textContent.trim())).join("|") : "";
+        const xcard = cards.find(c => c.querySelector("h2")?.textContent.includes("× อนุสาขา"));
+        const tmp = document.createElement("div"); tmp.innerHTML = typeSubTableHtml(acts);
+        const t0 = ACTIVITY_TYPES[0];
+        const tcard = box.querySelectorAll(".card.typepage")[0];
+        const tmp2 = document.createElement("div");
+        tmp2.innerHTML = covMatrixHtml(acts.filter(a => a.type === t0.id), t0.id, true);
+        return { xtab: !!xcard && read(xcard) === read(tmp),
+                 typePages: box.querySelectorAll(".card.typepage").length,
+                 nTypes: ACTIVITY_TYPES.length,
+                 typeSame: !!tcard && read(tcard) === read(tmp2) };
+      });
+      t.check("แดชบอร์ดที่ส่งออกมีตารางไขว้ และตัวเลขตรงกับบนจอ", drift.xtab);
+      t.eq("แดชบอร์ดที่ส่งออกมีหน้าแยกครบทุกประเภทงานนำเสนอ",
+           drift.typePages, drift.nTypes);
+      t.check("หน้าแยกในไฟล์ที่ส่งออกวาดจากฟังก์ชันเดียวกับบนจอ ไม่มีทางเพี้ยนกัน", drift.typeSame);
+      t.check("หน้าความครอบคลุม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
   } finally {

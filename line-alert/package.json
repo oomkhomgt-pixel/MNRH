@@ -1,0 +1,15 @@
+{
+  "name": "mnrh-line-alert",
+  "private": true,
+  "version": "1.0.0",
+  "description": "แจ้งเตือนสรุปกิจกรรมประจำวันของแฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์เข้ากลุ่ม LINE — ไม่ใช่ส่วนหนึ่งของ portfolio/ (แอปหลักไม่มีเซิร์ฟเวอร์และไม่ยิง network ออกนอกเครื่องตามหลักการเดิม ส่วนนี้จำเป็นต้องมีเพราะ LINE token ห้ามอยู่ในโค้ดฝั่งไคลเอนต์)",
+  "type": "module",
+  "scripts": {
+    "test": "node smoke.test.mjs",
+    "send": "node send-daily-alert.mjs",
+    "dry-run": "node send-daily-alert.mjs --dry-run"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}

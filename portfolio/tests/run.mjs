@@ -6,8 +6,15 @@ import smoke from "./smoke.test.mjs";
 import permissions from "./permissions.test.mjs";
 import schedule from "./schedule.test.mjs";
 import orqueue from "./orqueue.test.mjs";
+import sync from "./sync.test.mjs";
+import swjs from "./swjs.test.mjs";
+import topicconf from "./topicconf.test.mjs";
+import calendar from "./calendar.test.mjs";
+import dialogs from "./dialogs.test.mjs";
+import batcheval from "./batcheval.test.mjs";
+import feedback from "./feedback.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule, orqueue };
+const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, batcheval, feedback };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 
