@@ -484,6 +484,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
           <div class="row no-print">
             <select id="ayPick"></select>
             <button class="btn-sm btn-primary" id="btnGeneratePlan" data-perm="admin">สร้างแผนอัตโนมัติ</button>
+            <button class="btn-sm" id="btnPlanHistory" data-perm="admin">ประวัติแผนอัตโนมัติ</button>
             <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
             <button class="btn-sm" id="btnMonthCsv">CSV</button>
           </div>
@@ -1638,6 +1639,9 @@ const store = {
     d.epas ||= []; d.epaAssessments ||= [];
     d.backup ||= { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" };
     d.backupLog ||= []; d.syncConflicts ||= [];
+    /* สำรองช่วงหมุนเวียนที่ถูกแทนที่ทุกครั้งที่ "สร้างแผนอัตโนมัติ" หรือกู้คืนจากประวัติ — เฉพาะเครื่องนี้
+       ไม่ซิงก์ขึ้นคลาวด์ (เหมือน backupLog) กันเบาไว้เผื่อพลาดกดทับ ดูได้ที่ปุ่ม "ประวัติแผนอัตโนมัติ" */
+    d.rotationPlanBackups ||= [];
     d.sync.mode ||= "logbook";
     d.sync.cloudUrl ||= "";
     d.epaTargets ||= { 1:{}, 2:{}, 3:{}, 4:{} };
@@ -4582,6 +4586,9 @@ function renderMonthGrid() {
   const opts = ayOptions();
   if (!ayView || !opts.includes(ayView)) ayView = opts.includes(currentAY()) ? currentAY() : opts[opts.length - 1];
   $("#ayPick").innerHTML = opts.map(y => `<option value="${y}" ${y === ayView ? "selected" : ""}>ปีการศึกษา ${y}</option>`).join("");
+  const planBkCount = rotationPlanBackupsFor(ayView).length;
+  const planBkBtn = $("#btnPlanHistory");
+  if (planBkBtn) planBkBtn.textContent = "ประวัติแผนอัตโนมัติ" + (planBkCount ? ` (${planBkCount})` : "");
   const months = ayMonths(ayView);
   const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
@@ -4665,6 +4672,63 @@ function printMonthGrid() {
     <p class="small muted">สาย = ทีมผู้ป่วยทั่วไป (ฟ้า / ขาว / แดง / เหลือง), ELE = elective, ที่เหลือคือการหมุนเวียนตามอนุสาขา</p>
   </div>`;
   printReport(html);
+}
+
+/* แทนที่ช่วงหมุนเวียนของปีการศึกษาหนึ่งด้วยชุดใหม่ ("สร้างแผนอัตโนมัติ" และ "กู้คืนจากประวัติ" ใช้ทางเดียวกันนี้)
+   ก่อนเขียนทับ สำรองชุดเดิมที่กำลังจะหายไว้ใน rotationPlanBackups เสมอ (ถ้ามีอะไรให้สำรอง) เก็บไว้ 10 ชุดล่าสุด
+   — กู้คืนก็ผ่านฟังก์ชันนี้เหมือนกัน จึงสมมาตร: กู้คืนผิดก็ยังกู้คืนกลับไปอีกทีได้ ไม่ใช่ทางตัน */
+function applyRotationPlanForAY(ay, newRotations, source) {
+  const months = ayMonths(ay);
+  const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+  const prevRotations = store.data.rotations || [];
+  const inYear = prevRotations.filter(r => r.start >= from && r.start <= to);
+  if (inYear.length) {
+    (store.data.rotationPlanBackups ||= []).push({
+      id: uid("planbk"), at: new Date().toISOString(), ay, source,
+      by: currentUser()?.displayName || "—", rotations: structuredClone(inYear)
+    });
+    if (store.data.rotationPlanBackups.length > 10)
+      store.data.rotationPlanBackups.splice(0, store.data.rotationPlanBackups.length - 10);
+  }
+  store.data.rotations = prevRotations.filter(r => !(r.start >= from && r.start <= to)).concat(newRotations);
+  return { prevRotations };
+}
+
+/* รายการสำรองของปีการศึกษาที่กำลังดูอยู่ — ล่าสุดก่อน */
+const rotationPlanBackupsFor = (ay) =>
+  (store.data.rotationPlanBackups || []).filter(x => x.ay === ay).slice().reverse();
+
+function planHistoryDialog() {
+  const ay = ayView || currentAY();
+  const items = rotationPlanBackupsFor(ay);
+  const body = items.length ? `<div class="tbl-wrap"><table>
+      <thead><tr><th>เวลา</th><th>ทำโดย</th><th>ก่อนหน้านั้น</th><th></th></tr></thead>
+      <tbody>${items.map(x => `<tr>
+        <td class="small">${fmtDateTime(x.at)}</td>
+        <td class="small">${esc(x.by)}</td>
+        <td class="small">${x.rotations.length} บล็อก${x.source === "restore" ? " (สำรองไว้ตอนกู้คืนครั้งก่อน)" : ""}</td>
+        <td class="no-print"><button class="btn-sm" data-restore-plan="${x.id}">กู้คืนชุดนี้</button></td>
+      </tr>`).join("")}</tbody></table></div>
+      <p class="small muted" style="margin-top:.5rem">เก็บไว้สูงสุด 10 ชุดล่าสุดต่อปีการศึกษา อยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ซิงก์ขึ้นคลาวด์</p>`
+    : `<p class="empty">ยังไม่มีประวัติของปีการศึกษา ${esc(ay)} — ระบบจะบันทึกให้เองทุกครั้งก่อนสร้างแผนใหม่ทับของเดิม</p>`;
+  showDialog("ประวัติแผนหมุนเวียนอัตโนมัติ — ปีการศึกษา " + ay, body, []);
+  $$("#dlgBody [data-restore-plan]").forEach(b => b.addEventListener("click", () => restoreRotationPlanBackup(b.dataset.restorePlan)));
+}
+
+async function restoreRotationPlanBackup(id) {
+  const bk = (store.data.rotationPlanBackups || []).find(x => x.id === id); if (!bk) return;
+  /* confirmAny เพราะเรียกจากปุ่มระดับแถวในกล่อง "ประวัติแผน" ที่เปิดอยู่แล้ว — confirmDialog ธรรมดาจะ
+     showModal() ซ้อนบนกล่องเดิมไม่ได้ (ยังเป็น <dialog> ใบเดียวกัน) */
+  if (!(await confirmAny(
+    "กู้คืนแผนหมุนเวียนของปีการศึกษา " + bk.ay + " จากเมื่อ " + fmtDateTime(bk.at) + "?\n" +
+    "ช่วงหมุนเวียนปัจจุบันในปีนี้จะถูกแทนที่ด้วยชุดที่บันทึกไว้ตอนนั้น (ผลประเมินและ logbook ไม่ถูกลบ) — " +
+    "สถานะก่อนกู้คืนจะถูกบันทึกไว้เป็นประวัติเช่นกัน",
+    { okLabel: "กู้คืน" }))) return;
+  applyRotationPlanForAY(bk.ay, structuredClone(bk.rotations), "restore");
+  audit("กู้คืนแผนหมุนเวียนจากประวัติ", "ปีการศึกษา " + bk.ay + " · จากเมื่อ " + fmtDateTime(bk.at));
+  store.save(); renderAll();
+  $("#dlg")?.close();
+  toast("กู้คืนแผนหมุนเวียนของปีการศึกษา " + bk.ay + " แล้ว " + bk.rotations.length + " บล็อก");
 }
 
 /* --- ตารางนำเสนอ (วัน เวลา ผู้นำเสนอ หัวข้อ) — เนื้อหาของหน้าปฏิทิน --- */
@@ -9384,9 +9448,8 @@ function init() {
     if (!(await confirmDialog("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
                  "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
                  { title: "สร้างแผนอัตโนมัติ", okLabel: "สร้างแผน" }))) return;
-    const prevRotations = store.data.rotations || [];
     const plan = buildRotationPlan(ay, store.data.residents, store.data.services, store.data.staff);
-    store.data.rotations = prevRotations.filter(r => !(r.start >= from && r.start <= to)).concat(plan.rotations);
+    const { prevRotations } = applyRotationPlanForAY(ay, plan.rotations, "generate");
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
     store.save(); renderAll();
     toastUndo("สร้างแผนหมุนเวียนแล้ว " + plan.rotations.length + " บล็อก", () => {
@@ -9397,6 +9460,7 @@ function init() {
       ${plan.warnings.length ? "<br />ข้อควรตรวจ:<br />• " + plan.warnings.map(esc).join("<br />• ") : "· ไม่พบข้อขัดกติกา"}</div>`;
     toast("สร้างแผนหมุนเวียนแล้ว " + plan.rotations.length + " บล็อก");
   });
+  $("#btnPlanHistory").addEventListener("click", planHistoryDialog);
   $("#btnPrintMonth").addEventListener("click", printMonthGrid);
   $("#btnMonthCsv").addEventListener("click", () => download("rotation-by-month.csv", toCsv(monthCsvRows()), "text/csv;charset=utf-8"));
   $("#btnAddTalk").addEventListener("click", () => editTalk(null));

@@ -1131,6 +1131,96 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- สำรองแผนหมุนเวียนอัตโนมัติก่อนเขียนทับ + กู้คืนได้จากประวัติ ----------
+       เดิม "สร้างแผนอัตโนมัติ" มีแค่ confirm + toast เลิกทำ 6 วินาที ซึ่งเป็นแค่ตัวแปรใน memory
+       รีเฟรชหน้าแล้วหายทันที — เพิ่มสแนปช็อตที่เก็บลง store.data เอง จึงรอดรีเฟรชและกู้คืนทีหลังได้ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        showView("rotation");
+        const ay = ayView || currentAY();
+        const from = monthStartISO(ayMonths(ay)[0]), to = monthEndISO(ayMonths(ay)[11]);
+        const inYearCount = () => store.data.rotations.filter(x => x.start >= from && x.start <= to).length;
+
+        const before = inYearCount();
+        const beforeBk = (store.data.rotationPlanBackups || []).length;
+
+        document.querySelector("#btnGeneratePlan").click();
+        await new Promise(res => setTimeout(res, 100));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 100));
+
+        const backups = store.data.rotationPlanBackups || [];
+        const created = backups[backups.length - 1];
+        const genBkCreated = backups.length === beforeBk + 1 && created.source === "generate" && created.rotations.length === before;
+
+        /* สำเนาที่เก็บไว้ต้องเป็น deep copy จริง — แก้ store.data.rotations ต่อจากนั้นไม่ควรกระทบ */
+        const beforeMutateLen = created.rotations.length;
+        store.data.rotations.push({ id: "rot_planbk_mutate_test", residentId: store.data.residents[0].id,
+          serviceId: store.data.services[0].id, start: from, end: from, note: "" });
+        const isolatedFromMutation = created.rotations.length === beforeMutateLen;
+        store.data.rotations = store.data.rotations.filter(x => x.id !== "rot_planbk_mutate_test");
+
+        /* จำลอง "รีเฟรชหน้า" ด้วย save แล้วโหลดใหม่ — พิสูจน์ว่าไม่ใช่แค่ตัวแปรใน closure เหมือน toastUndo เดิม */
+        store.save();
+        store.load();
+        const survivedReload = (store.data.rotationPlanBackups || []).some(x => x.id === created.id);
+
+        /* เปิดกล่องประวัติ แล้วกู้คืนรายการที่เพิ่งสร้าง */
+        document.querySelector("#btnPlanHistory").click();
+        await new Promise(res => setTimeout(res, 100));
+        const dlgOpenAfterHistory = document.querySelector("#dlg")?.open === true;
+        const rowsShown = document.querySelectorAll("#dlgBody [data-restore-plan]").length;
+        document.querySelector("#dlgBody [data-restore-plan]").click();
+        await new Promise(res => setTimeout(res, 100));
+        /* confirmAny ต้องถามแทรกในกล่องเดิม (confirmInline) ไม่ใช่เปิด <dialog> ซ้อน — ไม่งั้น showModal() จะพัง */
+        const inlineConfirmShown = !!document.querySelector(".confirm-inline");
+        document.querySelector(".confirm-inline [data-ok]").click();
+        await new Promise(res => setTimeout(res, 150));
+
+        const afterRestoreCount = inYearCount();
+        const afterRestoreBk = store.data.rotationPlanBackups || [];
+        const restoreBkCreated = afterRestoreBk[afterRestoreBk.length - 1].source === "restore";
+        const dlgClosedAfterRestore = document.querySelector("#dlg")?.open !== true;
+
+        /* เก็บสำรองไว้ไม่เกิน 10 ชุดล่าสุดต่อปีการศึกษา */
+        store.data.rotationPlanBackups = [];
+        for (let i = 0; i < 12; i++)
+          applyRotationPlanForAY(ay, structuredClone(store.data.rotations.filter(x => x.start >= from && x.start <= to)), "generate");
+        const capped = store.data.rotationPlanBackups.length;
+
+        return {
+          before, genBkCreated, isolatedFromMutation, survivedReload,
+          dlgOpenAfterHistory, rowsShown, inlineConfirmShown,
+          afterRestoreCount, restoreBkCreated, dlgClosedAfterRestore, capped
+        };
+      });
+      t.check("สร้างแผนอัตโนมัติแล้วมีสำรองใหม่ตรงจำนวนช่วงหมุนเวียนเดิม", r.genBkCreated, JSON.stringify(r));
+      t.check("สำเนาที่เก็บไว้เป็น deep copy จริง ไม่กระทบเมื่อแก้ข้อมูลปัจจุบันต่อ", r.isolatedFromMutation);
+      t.check("สำรองรอดจากการจำลองรีเฟรชหน้า (save แล้วโหลดใหม่)", r.survivedReload);
+      t.check("เปิด 'ประวัติแผนอัตโนมัติ' เห็นรายการที่เพิ่งสร้าง", r.dlgOpenAfterHistory && r.rowsShown === 1, r.rowsShown);
+      t.check("กดกู้คืนถามยืนยันแทรกในกล่องเดิม ไม่พังเพราะซ้อน dialog", r.inlineConfirmShown);
+      t.eq("กู้คืนแล้วจำนวนช่วงหมุนเวียนกลับไปตรงกับก่อนสร้างแผน", r.afterRestoreCount, r.before);
+      t.check("กู้คืนก็ยังสร้างสำรองใหม่ไว้ (กู้คืนผิดก็กู้คืนกลับไปอีกทีได้)", r.restoreBkCreated);
+      t.check("กล่องประวัติปิดเองหลังกู้คืนเสร็จ", r.dlgClosedAfterRestore);
+      t.eq("เก็บสำรองไว้สูงสุด 10 ชุดล่าสุดต่อปีการศึกษา ตัดชุดเก่าสุดทิ้ง", r.capped, 10);
+
+      t.check("สำรองแผนอัตโนมัติ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- staff (ไม่ใช่ผู้จัดหลักสูตร) ไม่เห็นปุ่มประวัติแผน เหมือนปุ่มสร้างแผนอัตโนมัติ ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "staff");
+      const hidden = await page.evaluate(() => {
+        showView("rotation");
+        return document.querySelector("#btnPlanHistory")?.hidden;
+      });
+      t.check("staff ไม่เห็นปุ่ม 'ประวัติแผนอัตโนมัติ'", hidden === true);
+      t.check("สิทธิ์ประวัติแผน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     await srv.close();
