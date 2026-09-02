@@ -980,7 +980,7 @@ export default async function run() {
         document.querySelector('#dlgBody [name="assessBy"]').value = "อ.ทดสอบ";
         document.querySelector('#dlgBody [name="tvGood"]').value = "เตรียมตัวมาดี";
         document.querySelector('#dlgBody [name="assessComment"]').value = "คุมเวลาให้ดีขึ้น";
-        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /^บันทึก(ผลประเมิน|การแก้ไข)$/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id).assessment;
         /* ข้อเฉพาะประเภทต้องเปลี่ยนตามชนิดของงานนำเสนอ ไม่ใช่ชุดเดียวใช้ทุกแบบ */
@@ -1004,6 +1004,80 @@ export default async function run() {
            [talk.saved?.strengths, talk.saved?.comment], ["เตรียมตัวมาดี", "คุมเวลาให้ดีขึ้น"]);
       t.check("CSV กิจกรรมมีคะแนนรายด้านและผลการประเมิน", talk.csvHasItem && !!talk.csvOutcome, talk.csvOutcome);
 
+      /* ---------- ขั้นตอนของอาจารย์: รับรองฟอร์มว่างไม่ได้ · ค่าเฉลี่ยสดแนะนำผลโดยรวม · แก้ทับได้ ---------- */
+      const flow = await page.evaluate(async () => {
+        const a = visibleActivities().find(x => !x.assessment && !x.verified);
+        if (!a) return null;
+        const out = { id: a.id };
+        openActivity(a.id);
+        await new Promise(r => setTimeout(r, 150));
+        /* แบบประเมินต้องมาก่อนช่องแก้ชื่อเรื่อง (ช่องยังอยู่ แต่พับไว้) */
+        const body = document.querySelector("#dlgBody");
+        out.rubricFirst = body.innerHTML.indexOf("data-talkform") < body.innerHTML.indexOf('name="title"');
+        out.metaCollapsed = !!body.querySelector("details:not([open]) [name=\"title\"]");
+        /* กดรับรองทั้งที่ยังไม่ให้คะแนน → ต้องไม่ผ่าน กล่องยังเปิด และช่องผลโดยรวมถูกทำเครื่องหมาย */
+        [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "อาจารย์รับรอง")?.click();
+        await new Promise(r => setTimeout(r, 100));
+        out.stillOpen = document.querySelector("#dlg").open;
+        out.notVerified = !store.data.activities.find(x => x.id === a.id).verified;
+        out.outcomeInvalid = document.querySelector('#dlgBody [name="tvOutcome"]').classList.contains("invalid");
+        /* ติ๊กสองข้อ 5 กับ 3 ผ่านเหตุการณ์ change จริง → เฉลี่ย 4 → แนะนำ "ผ่าน" */
+        const picks = [...document.querySelectorAll('#dlgBody .scale-pick[data-field^="tv_"]')];
+        const tick = (i, v) => { const el = picks[i].querySelector('input[value="' + v + '"]'); el.checked = true; el.dispatchEvent(new Event("change", { bubbles: true })); };
+        tick(0, 5); tick(1, 3);
+        out.meanText = document.querySelector("#dlgBody [data-talk-mean]").textContent;
+        out.suggested = document.querySelector('#dlgBody [name="tvOutcome"]').value;
+        tick(0, 1); tick(1, 2);
+        out.suggestedLow = document.querySelector('#dlgBody [name="tvOutcome"]').value;
+        /* อาจารย์เลือกเองแล้ว ระบบต้องเลิกเติมทับ */
+        const sel = document.querySelector('#dlgBody [name="tvOutcome"]');
+        sel.value = "advice"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+        tick(0, 5); tick(1, 5);
+        out.keptManual = sel.value;
+        document.querySelector("#dlg").close();
+        return out;
+      });
+      if (flow) {
+        t.check("แบบประเมินอยู่ก่อนช่องแก้รายละเอียด และช่องรายละเอียดพับไว้ (ยังอยู่ครบ)", flow.rubricFirst && flow.metaCollapsed);
+        t.check("รับรองฟอร์มว่างไม่ได้: กล่องยังเปิด ยังไม่รับรอง และช่องผลโดยรวมถูกทำเครื่องหมาย",
+                flow.stillOpen && flow.notVerified && flow.outcomeInvalid);
+        t.check("ให้คะแนน 5 กับ 3 → โชว์ค่าเฉลี่ย 4 และแนะนำ 'ผ่าน'", /เฉลี่ย 4\//.test(flow.meanText) && flow.suggested === "pass", flow.meanText);
+        t.eq("ให้คะแนน 1 กับ 2 → แนะนำ 'ต้องนำเสนอซ้ำ'", flow.suggestedLow, "redo");
+        t.eq("อาจารย์เลือกผลเองแล้ว ระบบไม่เติมทับอีก", flow.keptManual, "advice");
+      }
+
+      /* ---------- ลงกอง: บันทึกแล้วเปิดคนถัดไป · ลบแล้วเลิกทำได้ ---------- */
+      const nextFlow = await page.evaluate(async () => {
+        const month = lastClosedMonth();
+        const pend = rotationsToAssess(month).filter(x => !rotationEvalFor(x.id));
+        if (pend.length < 2) return null;
+        const first = pend[0];
+        /* เปิดผ่านปุ่มในตารางจริง เพื่อให้ได้ opts.next เหมือนผู้ใช้กด */
+        assessView.page = "month"; assessView.month = month; renderAssess();
+        document.querySelector('#assessBody [data-rotev="' + first.id + '"]').click();
+        await new Promise(r => setTimeout(r, 150));
+        const out = { title1: document.querySelector("#dlgTitle").textContent };
+        const nextBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => /แล้วเปิดคนถัดไป/.test(b.textContent));
+        out.hasNext = !!nextBtn;
+        out.context = /ท้ายเซสชันในรอบนี้/.test(document.querySelector("#dlgBody").textContent) && /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
+        const sc = document.querySelector('#dlgBody .scale-pick[data-field^="sc_"] input[value="4"]');
+        sc.checked = true; sc.dispatchEvent(new Event("change", { bubbles: true }));
+        out.meanShown = /เฉลี่ย 4\//.test(document.querySelector("#dlgBody [data-rot-mean]").textContent);
+        nextBtn?.click();
+        await new Promise(r => setTimeout(r, 150));
+        out.savedFirst = !!rotationEvalFor(first.id);
+        out.openAgain = document.querySelector("#dlg").open;
+        out.title2 = document.querySelector("#dlgTitle").textContent;
+        document.querySelector("#dlg").close();
+        return out;
+      });
+      if (nextFlow) {
+        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (ท้ายเซสชัน/รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
+        t.check("ติ๊กคะแนนแล้วค่าเฉลี่ยขึ้นทันที", nextFlow.meanShown);
+        t.check("กดแล้วบันทึกคนแรก และเปิดกล่องของคนถัดไปโดยอัตโนมัติ",
+                nextFlow.savedFirst && nextFlow.openAgain && nextFlow.title1 !== nextFlow.title2, nextFlow.title1 + " → " + nextFlow.title2);
+      }
+
       /* ---------- C11: เปลี่ยนประเภทกิจกรรมพร้อมให้คะแนนในการบันทึกครั้งเดียวกัน
          คะแนนข้อเฉพาะประเภทเดิม (ที่พิมพ์ไว้ตอนกล่องยังวาดตามประเภทเดิม) ต้องไม่หาย ---------- */
       const c11 = await page.evaluate(async () => {
@@ -1018,7 +1092,7 @@ export default async function run() {
         if (sel) sel.checked = true;
         const typeSel = document.querySelector('#dlgBody [name="type"]');
         typeSel.value = otherType;
-        [...document.querySelectorAll("#dlgFoot button")].find(b => /บันทึกการแก้ไข/.test(b.textContent))?.click();
+        [...document.querySelectorAll("#dlgFoot button")].find(b => /^บันทึก(ผลประเมิน|การแก้ไข)$/.test(b.textContent))?.click();
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id);
         return { originalType, otherType, extraId: extraItem.id, hadSel: !!sel,
