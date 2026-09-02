@@ -377,10 +377,10 @@ export default async function run() {
       }
 
       const { page } = await openAs(browser, srv.url, "staff");
-      /* ถ้าวันนั้นอาจารย์มีคาบอื่นอยู่แล้ว แอปจะถามยืนยันก่อน — playwright ปิดกล่องให้เองโดยตอบ "ไม่"
-         ซึ่งทำให้การตอบรับไม่เกิดขึ้นและข้อทดสอบแดงโดยไม่เกี่ยวกับสิทธิ์ ตรงนี้จึงตอบ "ใช่" ให้ชัด */
-      page.on("dialog", d => d.accept());
-      const decide = await page.evaluate(() => {
+      /* ถ้าวันนั้นอาจารย์มีคาบอื่นอยู่แล้ว แอปจะถามยืนยันก่อน (กล่องของแอป ไม่ใช่ window.confirm) —
+         ถ้าไม่ตอบ การตอบรับจะไม่เกิดและข้อทดสอบแดงโดยไม่เกี่ยวกับสิทธิ์ ตรงนี้จึง stub ให้ตอบ "ใช่" */
+      const decide = await page.evaluate(async () => {
+        confirmDialog = async () => true;
         const me = currentUser().staffId;
         const other = store.data.staff.find(x => x.id !== me).id;
         const third = store.data.staff.find(x => x.id !== me && x.id !== other).id;
@@ -389,10 +389,10 @@ export default async function run() {
         store.data.swaps = [mk(me, other), mk(other, me), mk(other, third)];
         const [iAsked, askedMe, notMine] = store.data.swaps;
         const before = store.data.swaps.map(x => x.status).join(",");
-        decideSwap(iAsked.id, true);        /* ของที่ฉันขอเอง — ต้องไม่ผ่าน */
-        decideSwap(notMine.id, true);       /* ของคนอื่นสองคน — ต้องไม่ผ่าน */
+        await decideSwap(iAsked.id, true);        /* ของที่ฉันขอเอง — ต้องไม่ผ่าน */
+        await decideSwap(notMine.id, true);       /* ของคนอื่นสองคน — ต้องไม่ผ่าน */
         const mid = store.data.swaps.map(x => x.status).join(",");
-        decideSwap(askedMe.id, true);       /* ที่ขอให้ฉันมาแทน — ต้องผ่าน */
+        await decideSwap(askedMe.id, true);       /* ที่ขอให้ฉันมาแทน — ต้องผ่าน */
         const after = store.data.swaps.map(x => x.status).join(",");
         store.data.swaps = [];
         return { before, mid, after };

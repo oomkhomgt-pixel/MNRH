@@ -356,15 +356,18 @@ export default async function run() {
       store.data.swaps = [];
       const iso = todayISO(), back = addDaysISO(iso, 7);
       const a = store.data.staff[0].id, b = store.data.staff[1].id;
-      const realConfirm = window.confirm; window.confirm = () => true;
+      /* คำถามยืนยันเป็นกล่องของแอปแล้ว (ไม่ใช่ window.confirm) — stub ให้ตอบ "ตกลง" ทั้งแบบกล่องและแบบแทรกในกล่อง */
+      const realCD = confirmDialog, realCI = confirmInline;
+      confirmDialog = async () => true; confirmInline = async () => true;
       openSwap(iso, a, "", "");
       document.querySelector('#dlgBody [name="toStaffId"]').value = b;
       document.querySelector('#dlgBody [name="returnDate"]').value = back;
       [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("ส่งคำขอ")).click();
+      await new Promise(r => setTimeout(r, 30));   /* ปุ่มส่งคำขอเป็น async แล้ว */
       document.querySelector("#dlg").close();
       const afterRequest = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
-      decideSwap(store.data.swaps[0].id, true);
-      window.confirm = realConfirm;
+      await decideSwap(store.data.swaps[0].id, true);
+      confirmDialog = realCD; confirmInline = realCI;
       const afterAccept = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
       store.data.swaps = [];
       return { afterRequest, afterAccept,
@@ -378,16 +381,16 @@ export default async function run() {
     /* ---------- B3: แลกกลับวันเดียวกับที่ขอพอดี (returnDate === date) ก็ต้องสร้างขาคืนได้ ----------
        เดิม .some() หาการชนกันของ pairId+date รวม sw เองด้วย (เพราะ date กับ returnDate เท่ากัน)
        จึงคิดว่ามีขาคืนอยู่แล้ว ทั้งที่ยังไม่เคยสร้างเลย — ขาคืนไม่ถูกสร้างขึ้นมาเลยในกรณีนี้ */
-    const selfCollision = await page.evaluate(() => {
+    const selfCollision = await page.evaluate(async () => {
       store.data.swaps = [];
       const iso = todayISO();
       const a = store.data.staff[0].id, b = store.data.staff[1].id;
-      const realConfirm = window.confirm; window.confirm = () => true;
+      const realCD = confirmDialog; confirmDialog = async () => true;
       store.data.swaps.push({ id: "sw_self", pairId: "p_self", date: iso, part: "", serviceId: "",
         fromStaffId: a, toStaffId: b, note: "", returnDate: iso, status: "pending",
         requestedBy: "", requestedAt: "", decidedBy: "", decidedAt: "" });
-      decideSwap("sw_self", true);
-      window.confirm = realConfirm;
+      await decideSwap("sw_self", true);
+      confirmDialog = realCD;
       const legs = store.data.swaps.map(x => [x.date, x.fromStaffId, x.toStaffId, x.status].join(">"));
       store.data.swaps = [];
       return { legs };
@@ -396,19 +399,19 @@ export default async function run() {
 
     /* ---------- B3: ตอบรับการแลกที่มีวันแลกกลับ ต้องเช็คว่าวันแลกกลับชนคาบเดิมของผู้ขอด้วย ----------
        เดิมเช็ค staffBusyOn แค่วันของขาแรก (sw.date) วันแลกกลับไม่เคยถูกเช็คเลย */
-    const returnCheck = await page.evaluate(() => {
+    const returnCheck = await page.evaluate(async () => {
       store.data.swaps = [];
       const a = store.data.staff[0].id, b = store.data.staff[1].id;
       const iso = todayISO(), back = addDaysISO(iso, 7);
       const calls = [];
       const real = staffBusyOn;
       staffBusyOn = (...args) => { calls.push(args); return real(...args); };
-      const realConfirm = window.confirm; window.confirm = () => true;
+      const realCD = confirmDialog; confirmDialog = async () => true;
       store.data.swaps.push({ id: "sw_spy", pairId: "p_spy", date: iso, part: "", serviceId: "",
         fromStaffId: a, toStaffId: b, note: "", returnDate: back, status: "pending",
         requestedBy: "", requestedAt: "", decidedBy: "", decidedAt: "" });
-      decideSwap("sw_spy", true);
-      staffBusyOn = real; window.confirm = realConfirm;
+      await decideSwap("sw_spy", true);
+      staffBusyOn = real; confirmDialog = realCD;
       store.data.swaps = [];
       return { checkedDates: calls.map(c => c[1]), back };
     });
@@ -796,8 +799,8 @@ export default async function run() {
 
       /* ---------- C9: นำเข้าไฟล์ JSON ที่ตัวเลือกเป็น array ของสตริงล้วน ต้องไม่ได้ค่าว่างทุกตัวเลือก ---------- */
       {
-        page.once("dialog", (d) => d.accept());
         const c9 = await page.evaluate(async () => {
+          confirmDialog = async () => true;   /* คำถามยืนยันเป็นกล่องของแอปแล้ว — ตอบ "แทนที่ฟอร์ม" ให้ */
           const backup = JSON.parse(JSON.stringify(store.data.rotationForm));
           const data = { items: [
             { id: "c9item", kind: "choice", question: "ทดสอบตัวเลือกสตริงล้วน", options: ["ดี", "กลาง", "แย่"], scored: true }
@@ -904,8 +907,8 @@ export default async function run() {
               /ประเมินแล้ว/.test(noScore.label) && !noScore.any5, noScore.label);
 
       /* ---------- นำเข้าฟอร์มจากไฟล์ CSV ---------- */
-      page.on("dialog", d => d.accept());
       const imp = await page.evaluate(async () => {
+        confirmDialog = async () => true;   /* คำถามยืนยันเป็นกล่องของแอปแล้ว — ตอบ "แทนที่ฟอร์ม" ให้ */
         const before = store.data.rotationEvals.length;
         const csv = ["order,id,kind,question,options,minLabel,maxLabel,required,scored,wfme",
           "1,,section,ด้านการดูแลผู้ป่วย,,,,,",

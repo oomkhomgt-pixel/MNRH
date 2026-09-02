@@ -131,17 +131,20 @@ export default async function run() {
        (wipe()/reset() เองก็ล้างค่าซิงก์ทิ้งเป็นผลข้างเคียงอยู่แล้ว จึงพิสูจน์ผ่านปุ่มลบข้อมูลได้ตรง ๆ) */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
-      let dialogs = [];
-      page.on("dialog", async (d) => {
-        const accept = dialogs.shift();
-        if (accept) await d.accept(); else await d.dismiss();
-      });
       await page.evaluate(() => {
         syncCfg().url = "https://example.invalid/logbook"; syncCfg().auto = true;
         syncCfg().pending = false;
       });
-      dialogs = [true, false]; /* ยืนยันลบ → ปฏิเสธการดันขึ้นคลาวด์ */
+      /* คำถามยืนยันเป็นกล่องของแอปแล้ว: ยืนยันลบ (กดปุ่มหลัก) → ปฏิเสธการดันขึ้นคลาวด์ (ปิดกล่อง) */
       await page.evaluate(() => { document.querySelector("#btnWipe").click(); });
+      await page.waitForTimeout(60);
+      const firstTitle = await page.evaluate(() => document.querySelector("#dlgTitle").textContent);
+      await page.evaluate(() => document.querySelector("#dlgFoot .btn-danger, #dlgFoot .btn-primary").click());
+      await page.waitForTimeout(60);
+      const secondTitle = await page.evaluate(() => document.querySelector("#dlgTitle").textContent);
+      await page.evaluate(() => document.querySelector("#dlg").close());
+      await page.waitForTimeout(60);
+      t.eq("ถามสองชั้น: ยืนยันลบ แล้วถามเรื่องคลาวด์แยก", [firstTitle, secondTitle], ["ลบข้อมูลทั้งหมด", "ส่งขึ้นคลาวด์ด้วยหรือไม่"]);
       const afterDecline = await page.evaluate(() => ({
         residents: store.data.residents.length, pending: !!syncCfg().pending
       }));
@@ -156,30 +159,32 @@ export default async function run() {
        จึงไม่เห็นผลต่างของ pending หลัง save() — ต้องพิสูจน์ด้วยการกระทำที่ไม่ล้างเป้าหมายซิงก์ */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
-      let dialogAnswer = true;
-      page.on("dialog", async (d) => { if (dialogAnswer) await d.accept(); else await d.dismiss(); });
-
-      const noTarget = await page.evaluate(() => {
+      /* คำถามยืนยันเป็นกล่องของแอปแล้ว (confirmDialog) ไม่ใช่ window.confirm — stub คำตอบในหน้าเว็บตรง ๆ
+         และตัวกลไกกลายเป็น async ต้อง await */
+      const noTarget = await page.evaluate(async () => {
         syncCfg().url = ""; syncCfg().auto = true;
-        return confirmCloudPushGate(); /* ไม่มีเป้าหมาย → ผ่านเลยไม่ต้องถาม */
+        const realCD = confirmDialog; confirmDialog = async () => { throw new Error("ต้องไม่ถาม"); };
+        try { return await confirmCloudPushGate(); } finally { confirmDialog = realCD; } /* ไม่มีเป้าหมาย → ผ่านเลยไม่ต้องถาม */
       });
       t.check("ไม่มีเป้าหมายซิงก์ → ไม่มีคำถามซ้อน ผ่านทันที", noTarget === true);
 
-      dialogAnswer = false;
-      const declined = await page.evaluate(() => {
+      const declined = await page.evaluate(async () => {
         syncCfg().url = "https://example.invalid/logbook"; syncCfg().pending = false;
+        const realCD = confirmDialog; confirmDialog = async () => false;
         let ran = false;
-        runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test" }); store.save(); });
+        await runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test" }); store.save(); });
+        confirmDialog = realCD;
         return { ran, pending: !!syncCfg().pending, activities: store.data.activities.length };
       });
       t.check("ปฏิเสธคำถามที่สองแล้ว การกระทำยังรันจริง", declined.ran);
       t.check("ปฏิเสธคำถามที่สองแล้ว ไม่ตั้งคิวส่งขึ้นคลาวด์ (markDirty ถูกกด suppress)", declined.pending === false);
 
-      dialogAnswer = true;
-      const accepted = await page.evaluate(() => {
+      const accepted = await page.evaluate(async () => {
         syncCfg().pending = false;
+        const realCD = confirmDialog; confirmDialog = async () => true;
         let ran = false;
-        runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test2" }); store.save(); });
+        await runDestructiveDataOp(() => { ran = true; store.data.activities.push({ id:"a_gate_test2" }); store.save(); });
+        confirmDialog = realCD;
         return { ran, pending: !!syncCfg().pending };
       });
       t.check("ยอมรับคำถามที่สองแล้ว การกระทำรันจริง", accepted.ran);
@@ -225,6 +230,7 @@ export default async function run() {
         store.data.rotationForm = { title: "เดิม", scale: { min: 1, max: 5 },
           items: v1Ids.map(id => ({ id, kind: id === "entrust" ? "entrust" : "scale", th: id })) };
         const file = new File([csv], "form.csv", { type: "text/csv" });
+        confirmDialog = async () => true;   /* คำถามยืนยันเป็นกล่องของแอปแล้ว — ตอบ "แทนที่ฟอร์ม" ให้ */
         importRotationFormFile(file);
         await new Promise((res) => setTimeout(res, 150));
         const versionAfterImport = store.data.rotationForm.version;

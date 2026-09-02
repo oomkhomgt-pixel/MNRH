@@ -149,7 +149,12 @@ dialog::backdrop{background:rgba(15,23,32,.42)}
 .dlg-body{padding:1rem;max-height:min(70vh,640px);overflow:auto}
 .dlg-foot{padding:.75rem 1rem;border-top:1px solid var(--line);display:flex;gap:.5rem;justify-content:flex-end;background:#fafbfc;border-radius:0 0 14px 14px}
 
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.2rem;z-index:60;background:#12181f;color:#fff;padding:.6rem 1rem;border-radius:10px;box-shadow:var(--shadow);font-size:.9rem;max-width:90vw}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.2rem;z-index:60;background:#12181f;color:#fff;padding:.6rem 1rem;border-radius:10px;box-shadow:var(--shadow);font-size:.9rem;max-width:90vw;display:flex;gap:.7rem;align-items:center}
+.toast button{background:#fff;color:#12181f;border:0;font-weight:600;white-space:nowrap}
+/* error ที่ช่องกรอก (fieldError) และคำอ่านวันที่แบบไทยใต้ช่องวันที่ (annotateDates) */
+.invalid{border-color:var(--bad)!important;outline:2px solid var(--bad-soft,#fde4e4)}
+.err{display:block;color:var(--bad);font-size:.78rem;margin-top:.15rem}
+.date-be{display:block;font-size:.74rem;margin-top:.1rem}
 .notice{border-left:3px solid var(--brand);background:var(--brand-soft);padding:.6rem .8rem;border-radius:0 9px 9px 0;font-size:.87rem}
 .notice.warn{border-color:var(--warn);background:var(--warn-soft)}
 .empty{text-align:center;color:var(--muted);padding:1.6rem 1rem;font-size:.9rem}
@@ -766,14 +771,63 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   </section>
 
   <!-- ============ SETTINGS ============ -->
+  <!-- เรียงการ์ดจากที่ใช้บ่อย (บัญชี สำรองข้อมูล) ไปหาที่ตั้งครั้งเดียว · ดัชนี #settingsNav สร้างจาก data-anchor ของแต่ละการ์ด
+       · ปุ่มที่ทำลายข้อมูลทั้งเครื่องแยกไปไว้ "โซนอันตราย" ท้ายสุด ไม่ปนกับปุ่มสำรอง/ส่งออก -->
   <section class="view" id="view-settings">
-    <div class="card">
-      <h1>ข้อมูลหลักสูตร</h1>
-      <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
-        ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
-      <div id="programmeEditor"></div>
+    <div class="card no-print">
+      <h1>ตั้งค่า &amp; ข้อมูล</h1>
+      <p class="muted small">เรียงจากที่ใช้บ่อยไปหาที่ตั้งครั้งเดียว — กดปุ่มเพื่อกระโดดไปการ์ดนั้น</p>
+      <div class="row seg" id="settingsNav" style="margin-bottom:0"></div>
     </div>
-    <div class="card">
+    <div class="card" data-anchor="เตรียมปีการศึกษา">
+      <h2>เตรียมปีการศึกษา — สิ่งที่ต้องตั้งให้ครบ</h2>
+      <p class="muted small">รายการนี้คำนวณสดจากข้อมูลจริง ไม่ต้องติ๊กเอง — ข้อไหนยังไม่ครบ กดปุ่มไปทำได้เลย
+        (ลำดับที่ควรทำ: อาจารย์ → หน่วย → แพทย์ประจำบ้าน → บัญชี → แผนหมุนเวียน → ตารางเวร/ผู้นิเทศรายเดือน → เกณฑ์)</p>
+      <div id="yearChecklist"></div>
+    </div>
+    <div class="card" data-anchor="บัญชีผู้ใช้">
+      <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
+        <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
+      <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะข้อมูลของตนเอง · อาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมินและรับรอง
+        · ผู้จัดหลักสูตรดูแลทะเบียน ตาราง เกณฑ์ และการเชื่อมต่อ · เพิ่มแพทย์ประจำบ้านใหม่ที่หน้ารายชื่อจะได้บัญชีผูกให้ทันที</p>
+      <div id="userTable"></div>
+    </div>
+    <div class="card" data-anchor="สำรองข้อมูล">
+      <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
+      <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
+        ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
+      <div id="backupPanel"></div>
+    </div>
+    <div class="card" data-anchor="ข้อมูลในเครื่อง">
+      <h2>ข้อมูลในเครื่องนี้</h2>
+      <p class="small muted" id="storageInfo"></p>
+      <div class="row">
+        <button id="btnExport2">สำรองข้อมูลเป็นไฟล์ JSON</button>
+        <button id="btnImport2">นำเข้าไฟล์สำรอง</button>
+        <button id="btnCsvAll">ดาวน์โหลดกิจกรรมทั้งหมด (CSV)</button>
+      </div>
+      <input type="file" id="importPick" accept="application/json,.json" hidden />
+    </div>
+    <div class="card" data-anchor="อาจารย์">
+      <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
+        <button class="btn-sm no-print" id="btnAddStaff">+ เพิ่มอาจารย์</button></div>
+      <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชันและผู้ประเมินท้ายเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
+      <div id="staffTable"></div>
+    </div>
+    <div class="card" data-anchor="หน่วย">
+      <div class="between"><h2>หน่วยที่หมุนเวียนและตารางประจำสัปดาห์</h2>
+        <button class="btn-sm no-print" id="btnAddService">+ เพิ่มหน่วย</button></div>
+      <p class="muted small">แต่ละหน่วยมีตารางกิจกรรมประจำสัปดาห์ ระบบใช้ตารางนี้ร่วมกับช่วงหมุนเวียนเพื่อสร้างเซสชันในปฏิทินโดยอัตโนมัติ
+        ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษทั้งหมด</p>
+      <div id="serviceTable"></div>
+    </div>
+    <div class="card" data-anchor="เกณฑ์">
+      <h2>เกณฑ์จำนวนกิจกรรมต่อชั้นปี</h2>
+      <p class="muted small">ค่าเหล่านี้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ยังไม่ใช่เกณฑ์ทางการของหลักสูตร
+        กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
+      <div class="tbl-wrap"><div id="requirementEditor"></div></div>
+    </div>
+    <div class="card" data-anchor="EPA">
       <div class="between"><h2>หัวข้อ EPA และเป้าหมายรายชั้นปี</h2>
         <div class="row no-print">
           <button class="btn-sm" id="btnEpaAdd">+ เพิ่มหัวข้อ</button>
@@ -785,7 +839,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <input type="file" id="epaPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="epaEditor"></div>
     </div>
-    <div class="card" data-perm="admin">
+    <div class="card" data-perm="admin" data-anchor="แบบประเมินลงกอง">
       <div class="between"><h2>แบบประเมินลงกองสิ้นเดือน</h2>
         <div class="row no-print">
           <button class="btn-sm" id="btnRformAdd">+ เพิ่มข้อ</button>
@@ -802,82 +856,44 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <input type="file" id="rformPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="rotationFormEditor"></div>
     </div>
-    <div class="card">
-      <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
-        <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
-      <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะข้อมูลของตนเอง · อาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมินและรับรอง
-        · ผู้จัดหลักสูตรดูแลทะเบียน ตาราง เกณฑ์ และการเชื่อมต่อ</p>
-      <div id="userTable"></div>
-    </div>
-    <div class="card">
+    <div class="card" data-anchor="ร่องรอย">
       <h2>ร่องรอยการใช้งานล่าสุด</h2>
       <p class="muted small">บันทึกไว้ในเครื่องนี้ 500 รายการล่าสุด เพื่อให้ตรวจย้อนได้ว่าใครแก้อะไร (หลักฐาน WFME 8.4)</p>
       <div id="auditLog"></div>
     </div>
-    <div class="card">
-      <div class="between"><h2>อาจารย์ผู้รับผิดชอบ</h2>
-        <button class="btn-sm no-print" id="btnAddStaff">+ เพิ่มอาจารย์</button></div>
-      <p class="muted small">รายชื่อนี้ใช้กำหนดผู้รับผิดชอบแต่ละเซสชันและผู้ประเมินท้ายเซสชัน (หลักฐาน WFME 5.1, 5.2, 6.4)</p>
-      <div id="staffTable"></div>
+    <div class="card" data-anchor="ข้อมูลหลักสูตร">
+      <h2>ข้อมูลหลักสูตร</h2>
+      <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
+        ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
+      <div id="programmeEditor"></div>
     </div>
-    <div class="card">
-      <div class="between"><h2>หน่วยที่หมุนเวียนและตารางประจำสัปดาห์</h2>
-        <button class="btn-sm no-print" id="btnAddService">+ เพิ่มหน่วย</button></div>
-      <p class="muted small">แต่ละหน่วยมีตารางกิจกรรมประจำสัปดาห์ ระบบใช้ตารางนี้ร่วมกับช่วงหมุนเวียนเพื่อสร้างเซสชันในปฏิทินโดยอัตโนมัติ
-        ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษทั้งหมด</p>
-      <div id="serviceTable"></div>
-    </div>
-    <div class="card">
+    <div class="card" data-anchor="ทะเบียนเอกสาร">
       <div class="between"><h2>ทะเบียนเอกสารหลักสูตร</h2>
         <button class="btn-sm no-print" id="btnAddDoc">+ เพิ่มเอกสาร</button></div>
       <p class="muted small">บันทึกว่ามีเอกสารอะไร เก็บไว้ที่ใด ทบทวนล่าสุดเมื่อไร และใช้เป็นหลักฐานของมาตรฐานข้อใด
         (ตัวเอกสารไม่ได้ถูกอัปโหลดเข้าหน้านี้)</p>
       <div id="docRegister"></div>
     </div>
-    <div class="card">
-      <h1>เกณฑ์จำนวนกิจกรรมต่อชั้นปี</h1>
-      <p class="muted small">ค่าเหล่านี้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ยังไม่ใช่เกณฑ์ทางการของหลักสูตร
-        กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
-      <div class="tbl-wrap"><div id="requirementEditor"></div></div>
-    </div>
-    <div class="card" data-perm="admin">
+    <div class="card" data-perm="admin" data-anchor="ลำดับความสำคัญ">
       <h2>ลำดับความสำคัญเมื่อคาบชนกัน</h2>
       <p class="muted small">คนหนึ่งอาจมีคาบซ้อนกันได้ เช่น วนหน่วยอนุสาขาแต่ยังสังกัดสาย หรือมีกิจกรรมส่วนกลางของภาควิชา
         ตัวเลขมากกว่าได้สิทธิ์ก่อน คาบที่แพ้ยังแสดงอยู่ในปฏิทินโดยทำเครื่องหมายไว้ และไม่ถูกนับเป็นงานค้างประเมิน
         ถ้าเท่ากัน ระบบจะไม่ตัดสินให้ แต่จะบอกว่าชนกันเพื่อให้เลือกเอง</p>
       <div id="priorityEditor"></div>
     </div>
-    <div class="card">
+    <div class="card" data-anchor="คำสำคัญ">
       <h2>คำสำคัญที่ใช้จัดกลุ่มอนุสาขา</h2>
       <p class="muted small">ระบบเดาอนุสาขาจากคำที่พบในสไลด์ เพิ่มคำของกลุ่มงานเองได้ (คั่นด้วยจุลภาค) เพื่อให้เดาแม่นขึ้น</p>
       <div id="keywordEditor"></div>
     </div>
-    <div class="card">
+    <div class="card" data-anchor="ชนตอนซิงก์">
       <div class="between"><h2>รายการที่ชนกันตอนซิงก์</h2>
         <button class="btn-sm no-print" id="btnClearConflicts">ล้างรายการ</button></div>
       <p class="muted small">เมื่อมีคนแก้พร้อมกัน ระบบจะรวมข้อมูลให้อัตโนมัติ — รายการที่แก้คนละที่จะรวมกันได้เลย
         ส่วนรายการเดียวกันที่ถูกแก้ทั้งสองฝั่งจะถูกบันทึกไว้ตรงนี้ให้ตรวจย้อน</p>
       <div id="conflictList"></div>
     </div>
-    <div class="card">
-      <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
-      <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
-        ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
-      <div id="backupPanel"></div>
-    </div>
-    <div class="card">
-      <h2>ข้อมูลในเครื่องนี้</h2>
-      <p class="small muted" id="storageInfo"></p>
-      <div class="row">
-        <button id="btnExport2">สำรองข้อมูลเป็นไฟล์ JSON</button>
-        <button id="btnImport2">นำเข้าไฟล์สำรอง</button>
-        <button id="btnCsvAll">ดาวน์โหลดกิจกรรมทั้งหมด (CSV)</button>
-        <button id="btnSeed">โหลดข้อมูลสาธิตใหม่</button>
-        <button class="btn-danger" id="btnWipe">ลบข้อมูลทั้งหมดในเครื่องนี้</button>
-      </div>
-      <input type="file" id="importPick" accept="application/json,.json" hidden />
-    </div>
-    <div class="card">
+    <div class="card" data-anchor="ติดตั้งแอป">
       <div class="between"><h2>การติดตั้งเป็นแอป และการเชื่อมกับระบบคิว</h2>
         <button class="btn-sm no-print" id="btnDiagnose">ตรวจการเชื่อมต่อ</button></div>
       <div id="appDiagnostics"></div>
@@ -891,12 +907,21 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <li>ข้อมูลตัวอย่างทั้งหมดเป็นข้อมูลสมมติ ไม่มีข้อมูลผู้ป่วยจริง</li>
       </ul>
     </div>
+    <div class="card" data-anchor="โซนอันตราย" style="border-color:var(--bad)">
+      <h2>โซนอันตราย</h2>
+      <p class="muted small">สองปุ่มนี้แทนที่หรือลบข้อมูลทั้งเครื่อง — ระบบจะถามยืนยันก่อนทุกครั้ง และควรสำรองข้อมูลเป็นไฟล์ JSON ไว้ก่อนเสมอ</p>
+      <div class="row">
+        <button id="btnSeed">โหลดข้อมูลสาธิตใหม่</button>
+        <button class="btn-danger" id="btnWipe">ลบข้อมูลทั้งหมดในเครื่องนี้</button>
+      </div>
+    </div>
   </section>
 
   <!-- ============ PRINTABLE REPORT TARGET ============ -->
   <section class="view" id="view-report"><div id="reportBody"></div></section>
 </main>
 
+<div id="toasts" aria-live="polite"></div>
 <dialog id="dlg">
   <form method="dialog" id="dlgForm">
     <!-- ปุ่ม submit ตัวแรกของฟอร์มคือ "ปุ่มเริ่มต้น" ที่ Enter ในช่องกรอกจะกด — เดิมเป็นปุ่ม "ปิด" ในหัว
@@ -1346,12 +1371,105 @@ function academicYear(iso) {
   return String(y + 543);
 }
 function pct(a, b) { return b > 0 ? Math.min(100, Math.round((a / b) * 100)) : (a > 0 ? 100 : 0); }
-function toast(msg, ms = 2600) {
+/* toast อยู่ใน #toasts (aria-live) เพื่อให้ screen reader อ่านได้ · จัดตำแหน่งใหม่ทุกครั้งที่มีอันหายไป
+   (เดิมคำนวณครั้งเดียวตอนสร้าง อันหลังลอยค้างอยู่สูงทั้งที่อันล่างหายไปแล้ว)
+   opts.undo = ฟังก์ชันเลิกทำ → มีปุ่ม "เลิกทำ" ในตัว ใช้กับการลบแทนการถามยืนยันก่อน */
+function toast(msg, ms = 2600, opts = {}) {
+  const host = $("#toasts") || document.body;
   const t = document.createElement("div");
-  t.className = "toast"; t.textContent = msg;
-  t.style.bottom = (1.2 + document.querySelectorAll(".toast").length * 3.1) + "rem";
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), ms);
+  t.className = "toast";
+  const span = document.createElement("span"); span.textContent = msg; t.appendChild(span);
+  if (opts.undo) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "btn-sm"; b.textContent = opts.undoLabel || "เลิกทำ";
+    b.addEventListener("click", () => { t.remove(); place(); opts.undo(); });
+    t.appendChild(b);
+  }
+  const place = () => [...host.querySelectorAll(".toast")].forEach((x, i) => { x.style.bottom = (1.2 + i * 3.1) + "rem"; });
+  host.appendChild(t); place();
+  setTimeout(() => { t.remove(); place(); }, ms);
+  return t;
+}
+const toastUndo = (msg, undo) => toast(msg, 6000, { undo });
+
+/* error ที่ช่องกรอกในกล่องโต้ตอบ — เดิมเป็น toast ที่หายใน 2.6 วิ ไม่บอกว่าช่องไหน
+   คืน false เสมอ เพื่อให้ปุ่มในกล่องเขียน `return fieldError(...)` แล้วกล่องยังเปิดอยู่ */
+function fieldError(name, msg) {
+  const el = $('#dlgBody [name="' + name + '"]');
+  if (!el) { toast(msg); return false; }
+  el.classList.add("invalid"); el.setAttribute("aria-invalid", "true");
+  let err = el.parentElement?.querySelector(".err");
+  if (!err) { err = document.createElement("small"); err.className = "err"; el.insertAdjacentElement("afterend", err); }
+  err.textContent = msg;
+  const clear = () => { el.classList.remove("invalid"); el.removeAttribute("aria-invalid"); err.remove(); };
+  el.addEventListener("input", clear, { once: true });
+  el.addEventListener("change", clear, { once: true });
+  if (!document.activeElement?.classList?.contains("invalid")) el.focus();
+  return false;
+}
+
+/* ยืนยันก่อนทำ — ใช้กล่องโต้ตอบของแอปแทน window.confirm (ซึ่งเป็น popup ของเบราว์เซอร์ จัดรูปแบบไม่ได้
+   และซ้อนบนกล่องที่เปิดอยู่ไม่สวย) · ถ้ามีกล่องเปิดอยู่แล้ว ถามแทรกในกล่องนั้นแทน (showModal ซ้อนกันไม่ได้) */
+function confirmDialog(msg, { title = "ยืนยัน", okLabel = "ตกลง", danger = false } = {}) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    showDialog(title, `<p style="white-space:pre-line;margin:0">${esc(msg)}</p>`, [
+      { label: okLabel, cls: danger ? "btn-danger" : "btn-primary", onClick: () => finish(true) }
+    ]);
+    $("#dlg").addEventListener("close", () => finish(false), { once: true });
+  });
+}
+function confirmInline(msg, { okLabel = "ตกลง", danger = false } = {}) {
+  return new Promise(resolve => {
+    const body = $("#dlgBody");
+    body.querySelector(".confirm-inline")?.remove();
+    const box = document.createElement("div");
+    box.className = "notice warn small confirm-inline";
+    box.innerHTML = `<p style="margin:0 0 .5rem;white-space:pre-line">${esc(msg)}</p>
+      <div class="row"><button type="button" class="btn-sm ${danger ? "btn-danger" : "btn-primary"}" data-ok>${esc(okLabel)}</button>
+      <button type="button" class="btn-sm" data-no>ยกเลิก</button></div>`;
+    body.prepend(box);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; box.remove(); resolve(v); };
+    box.querySelector("[data-ok]").addEventListener("click", () => finish(true));
+    box.querySelector("[data-no]").addEventListener("click", () => finish(false));
+    $("#dlg").addEventListener("close", () => finish(false), { once: true });
+    box.querySelector("[data-ok]").focus();
+  });
+}
+const confirmAny = (msg, opts) => $("#dlg")?.open ? confirmInline(msg, opts) : confirmDialog(msg, opts);
+
+/* ลบแล้วเลิกทำได้ — ตัดออกจาก store.data[list] ทุกตัวที่ keep() เป็นเท็จ เก็บของที่หายไว้ให้กดเลิกทำภายใน 6 วิ
+   แล้วใส่กลับตำแหน่งเดิม (แทนการถาม confirm ก่อนลบ ซึ่งคนกดผ่านโดยไม่อ่านอยู่ดี) */
+function removeWithUndo(label, parts, after) {
+  const removed = parts.map(p => ({ list: p.list,
+    items: (store.data[p.list] || []).map((x, i) => ({ x, i })).filter(({ x }) => !p.keep(x)) }));
+  parts.forEach(p => { store.data[p.list] = (store.data[p.list] || []).filter(p.keep); });
+  store.save(); renderAll();
+  toastUndo(label, () => {
+    removed.forEach(r => {
+      const arr = store.data[r.list] || (store.data[r.list] = []);
+      r.items.forEach(({ x, i }) => arr.splice(Math.min(i, arr.length), 0, x));
+    });
+    after?.();
+    store.save(); renderAll(); toast("เลิกทำแล้ว — กู้คืนรายการแล้ว");
+  });
+}
+
+/* วันที่+เวลาแบบเดียวกับ fmtDate (BE 4 หลัก) — เดิมใช้ toLocaleString ได้ "2/9/2569 14:30:00" ปนกับ "2 ก.ย. 2569" */
+const fmtDateTime = (x) => {
+  const d = new Date(x);
+  if (!x || isNaN(d)) return "—";
+  return fmtDate(isoOfLocalDate(d)) + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+};
+/* ช่องวันที่ของเบราว์เซอร์แสดง ค.ศ. ตาม locale เครื่อง — เติมคำอ่านแบบไทย (พ.ศ.) ไว้ใต้ช่องเสมอ ค่าที่เก็บยังเป็น ISO เดิม */
+function annotateDates(root = document) {
+  root.querySelectorAll('input[type="date"]').forEach(inp => {
+    let hint = inp.nextElementSibling;
+    if (!hint?.classList?.contains("date-be")) { hint = document.createElement("small"); hint.className = "muted date-be"; inp.insertAdjacentElement("afterend", hint); }
+    hint.textContent = inp.value ? "= " + fmtDate(inp.value) : "";
+  });
 }
 function download(name, text, mime = "text/plain;charset=utf-8") {
   const blob = new Blob([text], { type: mime });
@@ -1890,7 +2008,7 @@ function ayMonths(ayBE) {
 const ayMonthIndex = (ayBE, calendarMonth) => ayMonths(ayBE).findIndex(x => x.m === calendarMonth);
 const monthStartISO = (mm) => mm.y + "-" + String(mm.m + 1).padStart(2, "0") + "-01";
 const monthEndISO   = (mm) => new Date(Date.UTC(mm.y, mm.m + 1, 0)).toISOString().slice(0, 10);
-const monthLabel    = (mm) => THAI_MONTHS[mm.m] + " " + String(mm.y + 543).slice(2);
+const monthLabel    = (mm) => THAI_MONTHS[mm.m] + " " + (mm.y + 543);   /* ปี พ.ศ. 4 หลัก เหมือน fmtDate */
 /* เลือกสีตัวอักษรให้อ่านออกบนพื้นสีที่กำหนด */
 function inkOn(hex) {
   const h = String(hex || "#ffffff").replace("#", "");
@@ -3929,20 +4047,20 @@ const pendingSwapsFor = (staffId) => (store.data.swaps || [])
 
 /* ตอบรับ = การแลกมีผลกับวันนั้นทันที และถ้าระบุวันแลกกลับไว้ อีกฝั่งถูกสร้างตอนนี้
    ไม่ใช่ตอนขอ — เพราะก่อนตอบรับยังไม่มีการแลกเกิดขึ้นจริง จึงยังไม่ควรมีอะไรไปแตะวันอื่น */
-function decideSwap(id, accept) {
+async function decideSwap(id, accept) {
   const sw = (store.data.swaps || []).find(x => x.id === id);
   if (!sw) return;
   if (!canDecideSwap(sw)) { toast("ตอบรับได้เฉพาะอาจารย์ที่ถูกขอให้มาแทน หรือผู้จัดหลักสูตร"); return; }
   if (accept) {
     const busy = staffBusyOn(sw.toStaffId, sw.date, sw.part, sw.serviceId);
-    if (busy.length && !confirm("วันนั้นคุณมีคาบอื่นอยู่แล้ว (" + busy.map(b => b.name).join(", ") +
-        ") ตอบรับต่อหรือไม่?")) return;
+    if (busy.length && !(await confirmDialog("วันนั้นคุณมีคาบอื่นอยู่แล้ว (" + busy.map(b => b.name).join(", ") +
+        ") ตอบรับต่อหรือไม่?", { okLabel: "ตอบรับต่อ" }))) return;
     /* ขาคืนก็ต้องเช็คว่าคนที่ต้องไปแทน (fromStaffId เดิม) ว่างวันแลกกลับจริงเหมือนกัน
        เดิมเช็คแค่วันของขาแรก วันคืนไม่เคยถูกเช็คเลย */
     if (sw.returnDate) {
       const busyReturn = staffBusyOn(sw.fromStaffId, sw.returnDate, sw.part, sw.serviceId);
-      if (busyReturn.length && !confirm(staffName(sw.fromStaffId) + " มีคาบอื่นในวันแลกกลับ (" + fmtDate(sw.returnDate) + ") อยู่แล้ว (" +
-          busyReturn.map(b => b.name).join(", ") + ") ตอบรับต่อหรือไม่?")) return;
+      if (busyReturn.length && !(await confirmDialog(staffName(sw.fromStaffId) + " มีคาบอื่นในวันแลกกลับ (" + fmtDate(sw.returnDate) + ") อยู่แล้ว (" +
+          busyReturn.map(b => b.name).join(", ") + ") ตอบรับต่อหรือไม่?", { okLabel: "ตอบรับต่อ" }))) return;
     }
   }
   sw.status = accept ? "accepted" : "declined";
@@ -4021,13 +4139,13 @@ function openSwap(iso, fromStaffId, part, serviceId) {
       · แพทย์ประจำบ้านไม่ย้ายตาม — ยังอยู่กับสายของตัวเองตามเดิม</p>
     <div id="swapWarn"></div>`;
   showDialog("ขอแลกวัน OR — " + fmtDate(iso), body, [
-    { label: existing ? "ส่งคำขอที่แก้แล้ว" : "ส่งคำขอ", cls:"btn-primary", onClick: () => {
+    { label: existing ? "ส่งคำขอที่แก้แล้ว" : "ส่งคำขอ", cls:"btn-primary", onClick: async () => {
         const toStaffId = dlgVal("toStaffId");
-        if (!toStaffId) { toast("เลือกอาจารย์ที่จะขอให้มาแทนก่อน"); return false; }
+        if (!toStaffId) return fieldError("toStaffId", "เลือกอาจารย์ที่จะขอให้มาแทนก่อน");
         const pt = dlgVal("part"), returnDate = dlgVal("returnDate"), note = dlgVal("note");
         const busy = staffBusyOn(toStaffId, iso, pt, serviceId);
-        if (busy.length && !confirm(staffName(toStaffId) + " มีคาบอื่นในวันนั้นอยู่แล้ว (" +
-            busy.map(b => b.name).join(", ") + ") ส่งคำขอต่อหรือไม่?")) return false;
+        if (busy.length && !(await confirmAny(staffName(toStaffId) + " มีคาบอื่นในวันนั้นอยู่แล้ว (" +
+            busy.map(b => b.name).join(", ") + ") ส่งคำขอต่อหรือไม่?", { okLabel: "ส่งคำขอต่อ" }))) return false;
         const pairId = existing?.pairId || uid("pair");
         store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== pairId);
         store.data.swaps.push({ id: uid("swap"), pairId, date: iso, part: pt, serviceId: serviceId || "",
@@ -4044,10 +4162,8 @@ function openSwap(iso, fromStaffId, part, serviceId) {
         store.save(); renderAll(); toast("ถอนคำขอแล้ว");
       }}] : []),
     ...(existing && existing.status === "accepted" && canManage() ? [{ label:"ยกเลิกการแลกที่ตอบรับแล้ว", cls:"btn-danger", onClick: () => {
-        if (!confirm("ยกเลิกการแลกที่ตอบรับไปแล้ว? ตารางของวันนั้นจะกลับเป็นชื่อเดิม")) return false;
-        store.data.swaps = (store.data.swaps || []).filter(x => x.pairId !== existing.pairId);
         audit("ยกเลิกการแลกวัน OR ที่ตอบรับแล้ว", staffName(fromStaffId) + " วันที่ " + iso);
-        store.save(); renderAll(); toast("ยกเลิกแล้ว");
+        removeWithUndo("ยกเลิกการแลกแล้ว — ตารางกลับเป็นชื่อเดิม", [{ list:"swaps", keep: x => x.pairId !== existing.pairId }]);
       }}] : [])
   ]);
   /* เตือนทันทีที่เลือกคน ไม่ต้องรอกดบันทึกแล้วค่อยรู้ว่าเขาติดอยู่ */
@@ -4175,11 +4291,11 @@ function openVisit(residentId, iso) {
   showDialog("ขอไปเข้าคาบของสายอื่น", body, [
     { label:"ส่งคำขอ", cls:"btn-primary", onClick: () => {
         const d = dlgVal("date"), target = dlgVal("target");
-        if (!d) { toast("เลือกวันที่ก่อน"); return false; }
-        if (!target) { toast("วันนั้นไม่มีคาบของสายอื่นให้ขอ"); return false; }
+        if (!d) return fieldError("date", "เลือกวันที่ก่อน");
+        if (!target) return fieldError("target", "วันนั้นไม่มีคาบของสายอื่นให้ขอ — เลือกวันอื่น");
         const [serviceId, index] = target.split("|");
         const reasonType = dlgVal("reasonType"), detail = dlgVal("reason");
-        if (reasonType === "other" && !detail) { toast("เหตุผล “อื่น ๆ” ต้องระบุรายละเอียด"); return false; }
+        if (reasonType === "other" && !detail) return fieldError("reason", "เหตุผล “อื่น ๆ” ต้องระบุรายละเอียด");
         const label = (VISIT_REASONS.find(x => x[0] === reasonType) || [])[1] || "";
         (store.data.visits ||= []).push({ id: uid("visit"), residentId, date: d, serviceId,
           index: +index, reasonType, reason: detail || label, status: "pending",
@@ -4704,8 +4820,8 @@ function editTalk(id) {
   showDialog(t ? "แก้ไขรายการในตารางนำเสนอ" : "ลงตารางนำเสนอ", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const date = dlgVal("date"), title = dlgVal("title");
-        if (!date) { toast("กรุณาเลือกวันที่"); return false; }
-        if (!title) { toast("กรุณาใส่หัวข้อ"); return false; }
+        if (!date) return fieldError("date", "กรุณาเลือกวันที่");
+        if (!title) return fieldError("title", "กรุณาใส่หัวข้อ");
         const rec = { date, start: dlgVal("start"), end: dlgVal("end"), slot: dlgVal("slot"), type: dlgVal("type"),
                       residentId: dlgVal("residentId"), title, subspecialty: dlgVal("subspecialty"),
                       location: dlgVal("location"), moderatorId: dlgVal("moderatorId") };
@@ -4713,9 +4829,7 @@ function editTalk(id) {
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(t ? [{ label:"ลบรายการ", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบรายการนี้ออกจากตารางนำเสนอ?")) return false;
-        store.data.schedule = store.data.schedule.filter(x => x.id !== t.id);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบรายการออกจากตารางนำเสนอแล้ว", [{ list:"schedule", keep: x => x.id !== t.id }]);
       }}] : [])
   ]);
 }
@@ -4867,7 +4981,7 @@ function openSession(key) {
     })()}
     <label class="f"><span>ข้อเสนอแนะให้แพทย์ประจำบ้าน (feedback ทันทีหลังเซสชัน)</span>
       <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
-    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"}</p>` : ""}`;
+    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? fmtDateTime(ev.createdAt) : "—"}</p>` : ""}`;
 
   /* ลำดับความสำคัญเป็นกติกาของทั้งปี ส่วนนี่คือความจริงของวันนั้น — วันไหนเข้าคาบไหน กับอาจารย์คนใด
      เจ้าของตารางบันทึกเองได้ ไม่ต้องรออาจารย์ */
@@ -4930,11 +5044,10 @@ function openSession(key) {
           : "บันทึกผลประเมินแล้ว");
       }},
     ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบผลประเมินของเซสชันนี้?")) return false;
-        store.data.sessionEvals = store.data.sessionEvals.filter(x => x.id !== ev.id);
-        /* ผล EPA ที่เกิดจากคาบนี้ต้องหายไปด้วย ไม่งั้นจะเหลือระดับที่ไม่มีที่มาแล้ว */
-        store.data.epaAssessments = (store.data.epaAssessments || []).filter(a => a.sessionKey !== ses.key);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        /* ผล EPA ที่เกิดจากคาบนี้ต้องหายไปด้วย ไม่งั้นจะเหลือระดับที่ไม่มีที่มาแล้ว — และกลับมาพร้อมกันตอนเลิกทำ */
+        removeWithUndo("ลบผลประเมินแล้ว", [
+          { list:"sessionEvals", keep: x => x.id !== ev.id },
+          { list:"epaAssessments", keep: a => a.sessionKey !== ses.key }]);
       }}] : [])
   ]);
 }
@@ -5047,7 +5160,7 @@ let dutyMonth = todayISO().slice(0, 7);
 /* monthLabel รับ {m,y} ส่วนตารางเวรใช้สตริง "YYYY-MM" จึงมีตัวแปลงของตัวเอง */
 const ymLabel = (ym) => {
   const [y, m] = ym.split("-").map(Number);
-  return THAI_MONTHS[m - 1] + " " + String(y + 543).slice(2);
+  return THAI_MONTHS[m - 1] + " " + (y + 543);   /* ปี พ.ศ. 4 หลัก เหมือน fmtDate — เดิม 2 หลัก ปนกันในหน้าเดียว */
 };
 const monthDays = (ym) => {
   const [y, m] = ym.split("-").map(Number);
@@ -5180,7 +5293,9 @@ function editRotation(id) {
   showDialog(rot ? "แก้ไขช่วงหมุนเวียน" : "กำหนดช่วงหมุนเวียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const start = dlgVal("start"), end = dlgVal("end");
-        if (!start || !end || end < start) { toast("ช่วงวันที่ไม่ถูกต้อง"); return false; }
+        if (!start) return fieldError("start", "เลือกวันเริ่ม");
+        if (!end) return fieldError("end", "เลือกวันสิ้นสุด");
+        if (end < start) return fieldError("end", "วันสิ้นสุดต้องไม่ก่อนวันเริ่ม");
         const rec = { residentId: dlgVal("residentId"), serviceId: dlgVal("serviceId"),
                       alsoServiceId: dlgVal("alsoServiceId"), start, end,
                       supervisorId: dlgVal("supervisorId"), note: dlgVal("note") };
@@ -5188,9 +5303,7 @@ function editRotation(id) {
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(rot ? [{ label:"ลบช่วงนี้", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบช่วงหมุนเวียนนี้? ผลประเมินที่บันทึกไว้แล้วจะยังอยู่ในระบบ")) return false;
-        store.data.rotations = store.data.rotations.filter(x => x.id !== rot.id);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบช่วงหมุนเวียนแล้ว (ผลประเมินที่บันทึกไว้ยังอยู่)", [{ list:"rotations", keep: x => x.id !== rot.id }]);
       }}] : [])
   ]);
   /* เลือกหน่วยใหม่แล้วช่วยเดาอาจารย์ผู้กำกับตามค่าเริ่มต้นของหน่วยนั้นให้ — เฉพาะตอนสร้างรอบใหม่และ
@@ -5229,15 +5342,13 @@ function editStaff(id) {
     </div>`;
   showDialog(x ? "แก้ไขข้อมูลอาจารย์" : "เพิ่มอาจารย์", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อ"); return false; }
+        const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อ");
         const rec = { name, role: dlgVal("role"), subspecialty: dlgVal("subspecialty") };
         if (x) Object.assign(x, rec); else store.data.staff.push({ id: uid("st"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(x ? [{ label:"ลบรายชื่อ", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบ " + x.name + " ออกจากทะเบียน? เซสชันที่ผูกไว้จะไม่มีผู้รับผิดชอบ")) return false;
-        store.data.staff = store.data.staff.filter(y => y.id !== x.id);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบ " + x.name + " ออกจากทะเบียนแล้ว — เซสชันที่ผูกไว้จะไม่มีผู้รับผิดชอบ", [{ list:"staff", keep: y => y.id !== x.id }]);
       }}] : [])
   ]);
 }
@@ -5347,7 +5458,7 @@ function editService(id) {
     <button type="button" class="btn-sm" id="btnTplAdd" style="margin-top:.5rem">+ เพิ่มเซสชัน</button>`;
   showDialog(svc ? "แก้ไขหน่วยที่หมุนเวียน" : "เพิ่มหน่วยที่หมุนเวียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อหน่วย"); return false; }
+        const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อหน่วย");
         const subs = $$('#dlgBody [data-sub]').filter(c => c.checked).map(c => c.dataset.sub);
         const kind = dlgVal("kind");
         const rec = { name, site: dlgVal("site"), abbr: dlgVal("abbr"), colour: dlgVal("colour"),
@@ -5362,10 +5473,9 @@ function editService(id) {
       }},
     ...(svc ? [{ label:"ลบหน่วยนี้", cls:"btn-danger", onClick: () => {
         const n = (store.data.rotations || []).filter(r => r.serviceId === svc.id).length;
-        if (!confirm("ลบ " + svc.name + " และช่วงหมุนเวียน " + n + " ช่วงที่ผูกไว้?")) return false;
-        store.data.services = store.data.services.filter(x => x.id !== svc.id);
-        store.data.rotations = store.data.rotations.filter(r => r.serviceId !== svc.id);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบ " + svc.name + " และช่วงหมุนเวียน " + n + " ช่วงแล้ว", [
+          { list:"services", keep: x => x.id !== svc.id },
+          { list:"rotations", keep: r => r.serviceId !== svc.id }]);
       }}] : [])
   ]);
   renderDraftTemplate();
@@ -5386,7 +5496,7 @@ function evalCsvRows() {
     return [ev.date, PART_BY_ID[ev.part]?.th || ev.part, r?.name || "", r?.year || "", svc?.name || "",
       SUB_BY_ID[svc?.subspecialty]?.en || "", ev.sessionName || "", ev.location || "", staffName(ev.staffId),
       ...EVAL_ITEMS.map(i => ev.scores?.[i.id] ?? ""), evalMean(ev) ?? "", ev.entrust ?? "", ev.comment || "",
-      ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : ""];
+      ev.createdAt ? fmtDateTime(ev.createdAt) : ""];
   }));
 }
 
@@ -5418,7 +5528,14 @@ let selectedResident = null;
 function renderResidents() {
   const list = $("#residentList");
   const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
-  if (!rs.length) { list.innerHTML = `<p class="empty">ไม่มีข้อมูลที่บัญชีนี้มีสิทธิ์เห็น</p>`; $("#residentDetail").innerHTML = ""; return; }
+  if (!rs.length) {
+    /* บัญชี resident ที่ไม่ได้ผูกกับใครเห็นหน้าว่าง — ต้องบอกสาเหตุ ไม่ใช่แค่ "ไม่มีสิทธิ์" */
+    list.innerHTML = `<p class="empty">${isResident() && !myResidentId()
+      ? "บัญชีนี้ยังไม่ได้ผูกกับแพทย์ประจำบ้านคนใด — แจ้งผู้จัดหลักสูตรให้ผูกบัญชีที่หน้าตั้งค่า (บัญชีผู้ใช้และสิทธิ์)"
+      : "ไม่มีข้อมูลที่บัญชีนี้มีสิทธิ์เห็น"}</p>`;
+    $("#residentDetail").innerHTML = ""; return;
+  }
+  const linked = new Set((store.data.users || []).filter(u => u.residentId).map(u => u.residentId));
   list.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th><th>ชั้นปี</th><th>อาจารย์ที่ปรึกษา</th><th style="min-width:150px">ความก้าวหน้าปีนี้</th><th>อนุสาขา</th><th>บันทึกล่าสุด</th><th>ส่วนขาด</th><th></th></tr></thead>
     <tbody>${rs.map(r => {
@@ -5432,10 +5549,16 @@ function renderResidents() {
         <td><span class="tag ${p.subsPct >= 100 ? "ok" : "warn"}">${p.subsDone.size}/${p.subsNeed || "—"}</span></td>
         <td class="small">${fmtDate(p.lastActivity)}</td>
         <td>${g.length ? `<span class="tag ${bad ? "bad" : "warn"}">${g.length} รายการ</span>` : `<span class="tag ok">ครบตามเกณฑ์</span>`}</td>
-        <td><button class="btn-sm" data-res="${r.id}">เปิดแฟ้ม</button></td>
+        <td><button class="btn-sm" data-res="${r.id}">เปิดแฟ้ม</button>
+          ${linked.has(r.id) ? "" : `<div style="margin-top:.3rem"><span class="tag warn">ยังไม่มีบัญชี</span>
+            <button class="btn-sm no-print" data-mkuser="${r.id}" data-perm="admin">สร้างบัญชี</button></div>`}</td>
       </tr>`;
     }).join("")}</tbody></table></div>`;
   list.querySelectorAll("[data-res]").forEach(b => b.addEventListener("click", () => { selectedResident = b.dataset.res; renderResidentDetail(); $("#residentDetail").scrollIntoView({ behavior:"smooth", block:"start" }); }));
+  list.querySelectorAll("[data-mkuser]").forEach(b => b.addEventListener("click", () => {
+    const r = store.resident(b.dataset.mkuser); if (!r) return;
+    editUser(null, { residentId: r.id, displayName: r.name, role: "resident", username: suggestUsername() });
+  }));
   if (!selectedResident || !store.resident(selectedResident)) selectedResident = rs[0].id;
   renderResidentDetail();
 }
@@ -5928,15 +6051,15 @@ function rotationFormBodyHtml(ev) {
 function readRotationForm(ev) {
   const scores = { ...(ev?.scores || {}) };
   const answers = { ...(ev?.answers || {}) };
-  const missing = [];
+  const missing = [], missingFields = [];   /* missingFields = ชื่อช่องในกล่อง ไว้ทำเครื่องหมายทุกข้อที่ขาด */
   /* เหมือน scores/answers — เริ่มจากค่าเดิม ถ้าฟอร์มปัจจุบันไม่มีข้อ entrust/ช่องข้อเสนอแนะแล้ว
      (ถูกลบออกจากฟอร์ม) ค่าที่เคยบันทึกไว้ต้องไม่หายไปตอนบันทึกซ้ำ เดิมเริ่มที่ "" เสมอจึงทับค่าเดิมทิ้ง */
   let entrust = ev?.entrust != null ? String(ev.entrust) : "", comment = ev?.comment || "";
   rotationAskItems().forEach(it => {
-    if (it.kind === "entrust") { entrust = dlgVal("entrust"); if (it.required && !entrust) missing.push(it.th); return; }
+    if (it.kind === "entrust") { entrust = dlgVal("entrust"); if (it.required && !entrust) { missing.push(it.th); missingFields.push("entrust"); } return; }
     if (it.role === "comment") {
       comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
-      if (it.required && !comment) missing.push(it.th);
+      if (it.required && !comment) { missing.push(it.th); missingFields.push("comment"); }
       return;
     }
     if (rotationScored(it)) {
@@ -5946,7 +6069,7 @@ function readRotationForm(ev) {
       if (v && Number.isFinite(+v)) scores[it.id] = +v; else delete scores[it.id];
       /* ข้อนี้เพิ่งเปลี่ยนชนิดมาเป็นข้อให้คะแนน — คำตอบข้อความเดิมของ id เดียวกัน (ถ้ามี) ต้องไม่ค้าง */
       delete answers[it.id];
-      if (it.required && !v) missing.push(it.th);
+      if (it.required && !v) { missing.push(it.th); missingFields.push("sc_" + it.id); }
       return;
     }
     const raw = it.kind === "paragraph"
@@ -5956,9 +6079,9 @@ function readRotationForm(ev) {
     /* กลับกัน — ข้อนี้ไม่ใช่ข้อให้คะแนนแล้ว คะแนนเดิมของ id เดียวกัน (ถ้ามี) ต้องไม่ค้างมาบังคำตอบใหม่
        ทั้งในค่าเฉลี่ย (evalMean รวมทุกตัวเลขใน scores) และในการส่งออก CSV ที่เลือก scores ก่อนเสมอ */
     delete scores[it.id];
-    if (it.required && !raw) missing.push(it.th);
+    if (it.required && !raw) { missing.push(it.th); missingFields.push("an_" + it.id); }
   });
-  return { scores, answers, entrust: entrust ? +entrust : null, comment, missing };
+  return { scores, answers, entrust: entrust ? +entrust : null, comment, missing, missingFields };
 }
 
 /* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ — ใช้เกณฑ์ชุดเดียวกับประเมินท้ายเซสชัน
@@ -5980,7 +6103,7 @@ function openRotationEval(rotationId) {
       <select name="staffId">${(store.data.staff || []).map(x =>
         `<option value="${x.id}" ${(ev?.staffId || myStaffId() || rot.supervisorId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     ${rotationFormBodyHtml(ev)}
-    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? new Date(ev.createdAt).toLocaleString("th-TH") : "—"} โดย ${esc(ev.by || "—")}</p>` : ""}`;
+    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? fmtDateTime(ev.createdAt) : "—"} โดย ${esc(ev.by || "—")}</p>` : ""}`;
 
   if (!canAssess()) {
     showDialog("ผลประเมินลงกอง", body + `<p class="notice warn small">บัญชีนี้ประเมินไม่ได้ — ผลประเมินลงกองบันทึกโดยอาจารย์</p>`, []);
@@ -5989,7 +6112,11 @@ function openRotationEval(rotationId) {
   const buttons = [{
     label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
       const got = readRotationForm(ev);
-      if (got.missing.length) { toast("ยังไม่ได้ตอบข้อที่บังคับ: " + got.missing.slice(0, 3).join(" · ")); return false; }
+      if (got.missing.length) {
+        /* ทำเครื่องหมายทุกข้อที่ขาด ไม่ใช่แค่ 3 ข้อแรกใน toast — fieldError โฟกัสข้อแรกให้เอง */
+        got.missingFields.forEach(f => fieldError(f, "ข้อบังคับ — ยังไม่ได้ตอบ"));
+        return false;
+      }
       if (!Object.keys(got.scores).length && !Object.keys(got.answers).length && !got.comment && !got.entrust) {
         toast("ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง"); return false;
       }
@@ -6067,12 +6194,13 @@ let syncTimer = null, syncing = false, suppressDirty = false;
 /* ล้างข้อมูล/โหลดสาธิต/นำเข้าไฟล์ ล้วนจบด้วย save() ซึ่งจะตั้งเวลาไปดันขึ้นคลาวด์ให้อัตโนมัติใน 5 วิ
    ถ้าตั้งซิงก์อัตโนมัติไว้ ต้องถามแยกก่อนว่าจะยอมให้การกระทำที่ทำลายข้อมูลเดิมนี้ไปทับของบนคลาวด์ด้วยหรือไม่
    ปฏิเสธแล้วยังแก้ข้อมูลในเครื่องได้ตามปกติ แค่ไม่ส่งขึ้นคลาวด์รอบนี้ */
-function confirmCloudPushGate() {
+async function confirmCloudPushGate() {
   if (!syncTarget() || !syncCfg().auto) return true;
-  return confirm("มีการตั้งซิงก์อัตโนมัติกับคลาวด์ไว้ การกระทำนี้จะถูกส่งขึ้นคลาวด์ภายในไม่กี่วินาทีถ้ากด OK\nกด Cancel เพื่อแก้ข้อมูลในเครื่องต่อไปโดยไม่ส่งขึ้นคลาวด์ตอนนี้");
+  return confirmAny("มีการตั้งซิงก์อัตโนมัติกับคลาวด์ไว้ การกระทำนี้จะถูกส่งขึ้นคลาวด์ภายในไม่กี่วินาทีถ้ายืนยัน\nกด “ยกเลิก” เพื่อแก้ข้อมูลในเครื่องต่อไปโดยไม่ส่งขึ้นคลาวด์ตอนนี้",
+    { title: "ส่งขึ้นคลาวด์ด้วยหรือไม่", okLabel: "ส่งขึ้นคลาวด์ด้วย" });
 }
-function runDestructiveDataOp(fn) {
-  if (confirmCloudPushGate()) { fn(); return; }
+async function runDestructiveDataOp(fn) {
+  if (await confirmCloudPushGate()) { fn(); return; }
   const prev = suppressDirty;
   suppressDirty = true;
   try { fn(); } finally { suppressDirty = prev; }
@@ -6133,7 +6261,7 @@ function paintSyncState() {
   el.hidden = false;
   el.className = "tag " + (syncing ? "b" : cfg.pending ? "warn" : "ok");
   el.textContent = syncing ? "กำลังซิงก์…" : cfg.pending ? "รอซิงก์" : "ซิงก์แล้ว";
-  el.title = (cfg.lastStatus || "") + (cfg.lastAt ? " · " + new Date(cfg.lastAt).toLocaleString("th-TH") : "");
+  el.title = (cfg.lastStatus || "") + (cfg.lastAt ? " · " + fmtDateTime(cfg.lastAt) : "");
 }
 
 function setupSync() {
@@ -6157,7 +6285,7 @@ function syncSettingsReadOnly() {
       <dt>โหมด</dt><dd>${cfg.mode === "full" ? "ฐานข้อมูลกลางของภาควิชา (ผู้ดูแลระบบเป็นผู้ส่ง)" : "เฉพาะ logbook — วันที่ / diagnosis / operation"}</dd>
       <dt>ปลายทาง</dt><dd class="mono small" style="word-break:break-all">${esc(cfg.url || "— ยังไม่ได้ตั้งค่า —")}</dd>
       <dt>ซิงก์อัตโนมัติ</dt><dd>${cfg.auto ? "เปิด" : "ปิด"}</dd>
-      <dt>ส่งครั้งล่าสุด</dt><dd class="small">${cfg.lastAt ? new Date(cfg.lastAt).toLocaleString("th-TH") : "—"} · ${esc(cfg.lastStatus || "—")}</dd>
+      <dt>ส่งครั้งล่าสุด</dt><dd class="small">${cfg.lastAt ? fmtDateTime(cfg.lastAt) : "—"} · ${esc(cfg.lastStatus || "—")}</dd>
     </div>
     <h4 style="margin-top:.9rem">รายการของคุณที่จะถูกส่ง (${items.length} รายการ)</h4>
     <div class="excerpt">${esc(JSON.stringify(items.slice(0, 3), null, 1) || "(ยังไม่มีรายการ)")}</div>
@@ -6407,10 +6535,10 @@ async function cloudPull() {
     const body = await res.json();
     if (!body.data) { toast("บนคลาวด์ยังไม่มีข้อมูล"); return; }
     const n = (body.data.residents || []).length, a = (body.data.activities || []).length;
-    if (!confirm("ดึงข้อมูลจากคลาวด์ (อัปเดตล่าสุด " + (body.updatedAt ? new Date(body.updatedAt).toLocaleString("th-TH") : "—") +
+    if (!(await confirmAny("ดึงข้อมูลจากคลาวด์ (อัปเดตล่าสุด " + (body.updatedAt ? fmtDateTime(body.updatedAt) : "—") +
                  " จากเครื่อง " + (body.device || "—") + ")\n" +
                  "จะแทนที่ข้อมูลในเครื่องนี้ด้วย แพทย์ประจำบ้าน " + n + " คน · กิจกรรม " + a + " รายการ\n" +
-                 "ควรสำรองลงดิสก์ก่อนถ้ายังไม่ได้ทำ")) return;
+                 "ควรสำรองลงดิสก์ก่อนถ้ายังไม่ได้ทำ", { okLabel: "แทนที่ข้อมูลในเครื่อง", danger: true }))) return;
     applyMerged(body.data);
     syncCfg().rev = body.rev ?? 0;
     writeBaseline(syncCfg().rev, fullPayload());
@@ -6551,7 +6679,7 @@ function renderConflictList() {
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>เวลา</th><th>ส่วนข้อมูล</th><th>รายการ</th><th>ผลที่ระบบเลือก</th></tr></thead>
-    <tbody>${rows.map(c => `<tr><td class="small">${new Date(c.at).toLocaleString("th-TH")}</td>
+    <tbody>${rows.map(c => `<tr><td class="small">${fmtDateTime(c.at)}</td>
       <td class="small">${esc(label[c.key] || c.key)}</td><td class="small mono">${esc(String(c.id).slice(0, 18))}</td>
       <td class="small">${esc(c.note)}</td></tr>`).join("")}</tbody></table></div>`
     : `<p class="empty">ยังไม่มีรายการที่ชนกัน</p>`;
@@ -6567,7 +6695,7 @@ function renderBackupPanel() {
   box.innerHTML = `
     <div class="notice ${overdue ? "warn" : ""} small">
       ${b.lastAt
-        ? "สำรองล่าสุด " + new Date(b.lastAt).toLocaleString("th-TH") + " (" + (days === 0 ? "วันนี้" : days + " วันก่อน") + ") ที่ " + esc(b.lastTarget || "—")
+        ? "สำรองล่าสุด " + fmtDateTime(b.lastAt) + " (" + (days === 0 ? "วันนี้" : days + " วันก่อน") + ") ที่ " + esc(b.lastTarget || "—")
         : "ยังไม่เคยสำรองข้อมูลจากเครื่องนี้"}
       ${overdue ? " · <b>ถึงกำหนดสำรองแล้ว</b>" : ""}
       ${b.folderName ? " · โฟลเดอร์ที่ตั้งไว้: " + esc(b.folderName) : ""}
@@ -6588,7 +6716,7 @@ function renderBackupPanel() {
       — ใช้ปุ่มดาวน์โหลดแล้วเก็บไฟล์ลงดิสก์ของภาควิชาเองแทน</p>` : ""}
     ${log.length ? `<h4 style="margin-top:.8rem">ประวัติการสำรอง</h4>
       <div class="tbl-wrap"><table><thead><tr><th>เวลา</th><th>ปลายทาง</th><th>ไฟล์</th><th>ขนาด</th><th>โดย</th></tr></thead>
-      <tbody>${log.map(x => `<tr><td class="small">${new Date(x.at).toLocaleString("th-TH")}</td>
+      <tbody>${log.map(x => `<tr><td class="small">${fmtDateTime(x.at)}</td>
         <td class="small">${esc(x.target)}</td><td class="small mono">${esc(x.name)}</td>
         <td class="small">${Math.round((x.bytes || 0) / 1024)} KB</td><td class="small">${esc(x.by || "")}</td></tr>`).join("")}
       </tbody></table></div>` : ""}`;
@@ -6619,7 +6747,7 @@ function renderLogbook() {
   const q = store.data.orQueue || {};
   /* คำแนะนำ "กดดึงจากหน้าระบบคิว" มีความหมายเฉพาะกับคนที่มีปุ่มนั้น (staff) — แพทย์ประจำบ้านเห็นแล้วทำอะไรไม่ได้ */
   $("#importStatus").innerHTML = !isStaff() ? "" : q.lastImport
-    ? `<p class="notice small">นำเข้าล่าสุด ${new Date(q.lastImport).toLocaleString("th-TH")} จาก ${esc(q.lastSource || "—")}
+    ? `<p class="notice small">นำเข้าล่าสุด ${fmtDateTime(q.lastImport)} จาก ${esc(q.lastSource || "—")}
         · เคสที่ซ้ำจะถูกอัปเดตทับ ไม่สร้างซ้ำ (จับคู่ด้วยเลขที่เคสของระบบคิว)</p>`
     : `<p class="notice small">ยังไม่เคยนำเข้าเคส — กด “ดึงจากหน้าระบบคิว” เพื่ออ่านเคสจากหน้าระบบคิวในที่เก็บเดียวกัน
         (ต้องเปิดผ่านเว็บเซิร์ฟเวอร์หรือ GitHub Pages เบราว์เซอร์จะไม่ยอมให้อ่านไฟล์ข้างเคียงเมื่อเปิดจาก file://)</p>`;
@@ -6721,9 +6849,9 @@ function renderLogbook() {
   });
   $("#hnToggle").addEventListener("change", (e) => { showHn = e.target.checked; renderLogbook(); });
   $("#btnCaseCsv").addEventListener("click", () => download("logbook-cases.csv", toCsv(caseCsvRows(filterCases())), "text/csv;charset=utf-8"));
-  $("#btnRcostMark")?.addEventListener("click", () => {
+  $("#btnRcostMark")?.addEventListener("click", async () => {
     const list = filterCases(), rid = caseFilter.residentId;
-    if (!confirm("ทำเครื่องหมายว่าได้ลงระบบราชวิทยาลัยแล้ว " + list.length + " เคส?")) return;
+    if (!(await confirmDialog("ทำเครื่องหมายว่าได้ลงระบบราชวิทยาลัยแล้ว " + list.length + " เคส?", { okLabel: "ทำเครื่องหมาย" }))) return;
     list.forEach(c => {
       const p = c.participants?.find(x => x.residentId === rid);
       if (p) p.rcost = { done: true, at: todayISO() };
@@ -6768,9 +6896,9 @@ function renderLogbook() {
   const bulkBtn = $("#btnBulkSuggest");
   bulkBtn.disabled = !bulk.length;
   bulkBtn.textContent = bulk.length ? "เติมข้อเสนอทั้งหมด (" + bulk.length + " เคส)" : "ไม่มีข้อเสนอให้เติม";
-  bulkBtn.onclick = () => {
-    if (!confirm("เติมผู้ร่วมผ่าตัดจากตารางหมุนเวียนให้ " + bulk.length + " เคส เป็น “ผู้ช่วยที่ 1” ทั้งหมด?\n" +
-                 "รายการที่เติมจะยังไม่ถือว่าอาจารย์รับรอง ต้องไล่ตรวจและแก้บทบาทอีกครั้ง")) return;
+  bulkBtn.onclick = async () => {
+    if (!(await confirmDialog("เติมผู้ร่วมผ่าตัดจากตารางหมุนเวียนให้ " + bulk.length + " เคส เป็น “ผู้ช่วยที่ 1” ทั้งหมด?\n" +
+                 "รายการที่เติมจะยังไม่ถือว่าอาจารย์รับรอง ต้องไล่ตรวจและแก้บทบาทอีกครั้ง", { okLabel: "เติมทั้งหมด" }))) return;
     bulk.forEach(({ c, sug }) => {
       c.participants = sug.slice(0, 2).map((x, i) => ({
         residentId: x.residentId, role: i === 0 ? "assist1" : "assist2",
@@ -6852,10 +6980,8 @@ function editCaseParticipants(id) {
         store.save(); renderAll(); toast("บันทึกผู้ร่วมผ่าตัดแล้ว");
       }},
     { label:"ลบเคสนี้", cls:"btn-danger", adminOnly: true, onClick: () => {
-        if (!confirm("ลบเคสนี้ออกจาก logbook? (นำเข้าใหม่ได้)")) return false;
-        store.data.cases = store.data.cases.filter(x => x.id !== c.id);
         audit("ลบเคสออกจาก logbook", (c.operation || "") + " · " + fmtDate(c.date));
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบเคสออกจาก logbook แล้ว", [{ list:"cases", keep: x => x.id !== c.id }]);
       }}
   ];
   showDialog("ระบุผู้ร่วมผ่าตัด", body, buttons.filter(b => !b.adminOnly || canManage()));
@@ -7229,7 +7355,7 @@ function editRotationItem(id) {
     <p class="small muted">ชนิด “มาตราส่วน” นับเป็นคะแนนเสมอ · ชนิด “เลือกหนึ่งข้อ” นับได้ถ้าค่าของตัวเลือกเป็นตัวเลข</p>`;
   const buttons = [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
       const th = dlgVal("th"), kind = dlgVal("kind");
-      if (!th && kind !== "section") { toast("กรุณาใส่คำถาม"); return false; }
+      if (!th && kind !== "section") return fieldError("th", "กรุณาใส่คำถาม");
       /* พิมพ์ "=ป้าย" (ไม่มีค่าก่อนเครื่องหมาย =) ต้องได้ค่าลำดับแทนค่าว่าง — ค่าว่างชนกับ
          placeholder "—" ของ select ทำให้เลือกตัวเลือกนี้แล้วเหมือนไม่เลือก คำตอบไม่ถูกบันทึก */
       const opts = ($('#dlgBody [name="options"]')?.value || "").split("\n").map(x => x.trim()).filter(Boolean)
@@ -7248,12 +7374,15 @@ function editRotationItem(id) {
       store.save(); renderAll(); toast("บันทึกแล้ว");
     }}];
   if (it) buttons.push({ label:"ลบข้อนี้", cls:"btn-danger", onClick: () => {
-      if (!confirm("ลบข้อ “" + (it.th || it.id) + "” ออกจากแบบประเมิน?\n" +
-                   (used ? "ผลประเมิน " + used + " รายการมีคำตอบของข้อนี้อยู่ — คำตอบจะยังถูกเก็บไว้และยังส่งออกใน CSV แต่จะไม่มีช่องให้แก้อีก"
-                         : "ยังไม่มีผลประเมินใดตอบข้อนี้"))) return false;
+      const idx = f.items.findIndex(x => x.id === it.id);
       f.items = f.items.filter(x => x.id !== it.id);
       audit("ลบข้อในแบบประเมินลงกอง", it.th || it.id);
-      store.save(); renderAll(); toast("ลบแล้ว");
+      store.save(); renderAll();
+      toastUndo("ลบข้อ “" + (it.th || it.id) + "” แล้ว" +
+        (used ? " — คำตอบเดิม " + used + " รายการยังถูกเก็บไว้และส่งออกใน CSV" : ""), () => {
+        f.items.splice(Math.min(idx, f.items.length), 0, it);
+        store.save(); renderAll(); toast("เลิกทำแล้ว — ข้อกลับมาแล้ว");
+      });
     }});
   showDialog(it ? "แก้ไขข้อในแบบประเมินลงกอง" : "เพิ่มข้อในแบบประเมินลงกอง", body, buttons);
 }
@@ -7282,7 +7411,7 @@ const ROTATION_KIND_ALIAS = {
 
 function importRotationFormFile(file) {
   const fr = new FileReader();
-  fr.onload = () => {
+  fr.onload = async () => {
     try {
       const txt = String(fr.result);
       let rows = [];
@@ -7347,9 +7476,9 @@ function importRotationFormFile(file) {
       const keep = new Set(items.map(x => x.id));
       const orphan = (store.data.rotationEvals || []).reduce((n, ev) =>
         n + Object.keys({ ...(ev.scores || {}), ...(ev.answers || {}) }).filter(k => !keep.has(k)).length, 0);
-      if (!confirm("แทนที่แบบประเมินลงกองด้วย " + items.length + " ข้อจากไฟล์นี้?\n" +
+      if (!(await confirmDialog("แทนที่แบบประเมินลงกองด้วย " + items.length + " ข้อจากไฟล์นี้?\n" +
                    (orphan ? "คำตอบที่บันทึกไว้ " + orphan + " ช่องจะไม่มีข้อถามรองรับ — ระบบยังเก็บไว้และยังส่งออกใน CSV"
-                           : "ผลประเมินที่บันทึกไว้ไม่ได้รับผลกระทบ"))) return;
+                           : "ผลประเมินที่บันทึกไว้ไม่ได้รับผลกระทบ"), { title: "นำเข้าแบบประเมินลงกอง", okLabel: "แทนที่ฟอร์ม" }))) return;
 
       f.items = items;
       if (scaleMinLabel) f.scale.minLabel = scaleMinLabel;
@@ -7369,10 +7498,13 @@ function importRotationFormFile(file) {
 }
 
 function resetRotationForm() {
-  if (!confirm("คืนแบบประเมินลงกองกลับเป็นค่าตั้งต้น? ข้อที่ตั้งไว้เองจะหายไป (ผลประเมินที่บันทึกไว้ไม่ถูกลบ)")) return;
+  const prev = store.data.rotationForm;
   store.data.rotationForm = structuredClone(ROTATION_FORM_DEFAULT);
   audit("คืนค่าตั้งต้นแบบประเมินลงกอง", "");
-  store.save(); renderAll(); toast("คืนค่าตั้งต้นแล้ว");
+  store.save(); renderAll();
+  toastUndo("คืนค่าตั้งต้นแล้ว (ผลประเมินที่บันทึกไว้ไม่ถูกลบ)", () => {
+    store.data.rotationForm = prev; store.save(); renderAll(); toast("เลิกทำแล้ว — ฟอร์มเดิมกลับมาแล้ว");
+  });
 }
 
 function editEpa(id) {
@@ -7396,12 +7528,13 @@ function editEpa(id) {
       }},
     ...(e ? [{ label:"ลบหัวข้อ", cls:"btn-danger", onClick: () => {
         const n = (store.data.epaAssessments || []).filter(a => a.epaId === e.id).length;
-        if (!confirm("ลบ " + e.code + " และผลประเมิน " + n + " รายการที่ผูกไว้?")) return false;
-        store.data.epas = store.data.epas.filter(x => x.id !== e.id);
-        store.data.epaAssessments = store.data.epaAssessments.filter(a => a.epaId !== e.id);
+        const targets = Object.fromEntries([1,2,3,4].map(y => [y, store.data.epaTargets[y]?.[e.id]]));
         [1,2,3,4].forEach(y => delete store.data.epaTargets[y]?.[e.id]);
         audit("ลบหัวข้อ EPA", e.code);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบ " + e.code + " และผลประเมิน " + n + " รายการแล้ว", [
+          { list:"epas", keep: x => x.id !== e.id },
+          { list:"epaAssessments", keep: a => a.epaId !== e.id }],
+          () => [1,2,3,4].forEach(y => { if (targets[y] != null) (store.data.epaTargets[y] ||= {})[e.id] = targets[y]; }));
       }}] : [])
   ]);
 }
@@ -7746,7 +7879,7 @@ function renderSettings() {
   $("#storageInfo").textContent =
     "แพทย์ประจำบ้าน " + store.data.residents.length + " คน · กิจกรรม " + store.data.activities.length + " รายการ · โครงการวิจัย " +
     store.data.research.length + " โครงการ · ขนาดข้อมูลในเครื่องประมาณ " + Math.round(raw.length / 1024) + " KB" +
-    (store.data.meta?.updated ? " · แก้ไขล่าสุด " + new Date(store.data.meta.updated).toLocaleString("th-TH") : "");
+    (store.data.meta?.updated ? " · แก้ไขล่าสุด " + fmtDateTime(store.data.meta.updated) : "");
 }
 
 /* --- ข้อมูลหลักสูตร: พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสาร --- */
@@ -7798,16 +7931,20 @@ function editDoc(id) {
     </div>`;
   showDialog(d ? "แก้ไขเอกสาร" : "เพิ่มเอกสารเข้าทะเบียน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อเอกสาร"); return false; }
+        const title = dlgVal("title"); if (!title) return fieldError("title", "กรุณาใส่ชื่อเอกสาร");
         const subs = $$('#dlgBody [data-sub]').filter(c => c.checked).map(c => c.dataset.sub);
         const rec = { title, location: dlgVal("location"), updated: dlgVal("updated"), subs };
         if (d) Object.assign(d, rec); else pg.documents.push({ id: uid("doc"), ...rec });
         store.save(); renderProgramme(); renderWfme(); toast("บันทึกแล้ว");
       }},
     ...(d ? [{ label:"ลบเอกสาร", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบเอกสารนี้ออกจากทะเบียน?")) return false;
+        const idx = pg.documents.findIndex(x => x.id === d.id);
         pg.documents = pg.documents.filter(x => x.id !== d.id);
-        store.save(); renderProgramme(); renderWfme(); toast("ลบแล้ว");
+        store.save(); renderProgramme(); renderWfme();
+        toastUndo("ลบเอกสารออกจากทะเบียนแล้ว", () => {
+          pg.documents.splice(Math.min(idx, pg.documents.length), 0, d);
+          store.save(); renderProgramme(); renderWfme(); toast("เลิกทำแล้ว — เอกสารกลับมาแล้ว");
+        });
       }}] : [])
   ]);
 }
@@ -7840,6 +7977,7 @@ function showDialog(title, bodyHtml, buttons) {
   close.type = "button"; close.textContent = "ปิด";
   close.addEventListener("click", () => $("#dlg").close());
   foot.appendChild(close);
+  annotateDates($("#dlgBody"));
   $("#dlg").showModal();
   /* focus ช่องกรอกแรก ไม่ใช่ปุ่ม "ปิด" ในหัว (ซึ่ง showModal จะเลือกให้เพราะเป็นตัวแรกใน DOM) */
   const first = $("#dlgBody input:not([type=hidden]):not([disabled]), #dlgBody select:not([disabled]), #dlgBody textarea:not([disabled])")
@@ -7858,7 +7996,7 @@ function openActivity(id) {
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
-      <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? new Date(a.createdAt).toLocaleString("th-TH") : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
+      <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? fmtDateTime(a.createdAt) : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
       <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
     </div>
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" value="${esc(a.title)}" /></label>
@@ -7894,10 +8032,8 @@ function openActivity(id) {
     { label:"บันทึกการแก้ไข", cls:"btn-primary", ownerOnly: true,
       onClick: () => { applyActivityEdits(a); audit("แก้ไขกิจกรรม", a.title); store.save(); renderAll(); toast("บันทึกแล้ว"); } },
     { label:"ลบรายการ", cls:"btn-danger", ownerOnly: true, onClick: () => {
-        if (!confirm("ลบกิจกรรมนี้ออกจากแฟ้ม? การลบย้อนกลับไม่ได้")) return false;
-        store.data.activities = store.data.activities.filter(x => x.id !== a.id);
         audit("ลบกิจกรรม", a.title);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบกิจกรรมออกจากแฟ้มแล้ว", [{ list:"activities", keep: x => x.id !== a.id }]);
       }}
   ];
   showDialog("รายละเอียดกิจกรรม", body,
@@ -7998,7 +8134,7 @@ function manualAdd() {
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" placeholder="เช่น Pre-op conference: distal radius fracture" /></label>
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note"></textarea></label>`;
   showDialog("บันทึกกิจกรรมด้วยมือ", body, [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
-    const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อเรื่อง"); return false; }
+    const title = dlgVal("title"); if (!title) return fieldError("title", "กรุณาใส่ชื่อเรื่อง");
     const date = dlgVal("date") || todayISO(), type = dlgVal("type");
     store.data.activities.push({
       id: uid("act"), residentId: dlgVal("residentId"), type, subspecialty: dlgVal("subspecialty"),
@@ -8020,23 +8156,49 @@ function editResident(id) {
       <label class="f"><span>ชั้นปี</span><select name="year">${[1,2,3,4].map(y => `<option value="${y}" ${r?.year === y ? "selected" : ""}>ชั้นปีที่ ${y}</option>`).join("")}</select></label>
       <label class="f"><span>รุ่น (ปีที่เข้าฝึกอบรม)</span><input name="cohort" value="${esc(r?.cohort || "")}" placeholder="เช่น 2567" /></label>
       <label class="f"><span>อาจารย์ที่ปรึกษา</span><input name="advisor" value="${esc(r?.advisor || "")}" /></label>
-    </div>`;
+    </div>
+    ${r ? (() => {
+        const lu = (store.data.users || []).find(u => u.residentId === r.id);
+        return lu ? `<p class="small muted">บัญชีผู้ใช้ที่ผูกไว้: <span class="mono">${esc(lu.username)}</span></p>`
+                  : `<p class="notice warn small">ยังไม่มีบัญชีผู้ใช้ผูกกับคนนี้ — เขาจะล็อกอินไม่ได้ กด “สร้างบัญชี” ในตารางรายชื่อ</p>`;
+      })()
+      /* เพิ่มคนใหม่ = สร้างบัญชีให้ทันทีในกล่องเดียวกัน (เดิมต้องไปสร้างและผูกเองอีกที่หนึ่ง ลืมแล้วเขาล็อกอินไม่ได้) */
+      : `<div class="notice small" style="margin-top:.4rem">
+          <label class="tag" style="cursor:pointer"><input type="checkbox" name="mkUser" checked /> สร้างบัญชีผู้ใช้ให้ด้วย (บทบาทแพทย์ประจำบ้าน ผูกกับคนนี้)</label>
+          <div class="grid g2" style="margin-top:.4rem">
+            <label class="f"><span>ชื่อผู้ใช้</span><input name="username" value="${esc(suggestUsername())}" /></label>
+            <label class="f"><span>รหัสผ่าน</span><input name="pin" placeholder="เช่น ตัวเลข 4 หลัก" inputmode="numeric" /></label>
+          </div></div>`}`;
   showDialog(r ? "แก้ไขข้อมูลแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const name = dlgVal("name"); if (!name) { toast("กรุณาใส่ชื่อ"); return false; }
+        const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อ");
         const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort: dlgVal("cohort"), advisor: dlgVal("advisor") };
-        if (r) Object.assign(r, rec); else { const nr = { id: uid("res"), ...rec }; store.data.residents.push(nr); selectedResident = nr.id; }
-        audit(r ? "แก้ไขทะเบียนแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", name);
-        store.save(); renderAll(); toast("บันทึกแล้ว");
+        /* ตรวจบัญชีให้ผ่านก่อนค่อยสร้างคน — ไม่งั้นจะได้คนครึ่งเดียวค้างไว้ตอน return false */
+        let mkUser = null;
+        if (!r && $('#dlgBody [name="mkUser"]')?.checked) {
+          const username = dlgVal("username"), pin = dlgVal("pin");
+          if (!username) return fieldError("username", "กรุณาใส่ชื่อผู้ใช้");
+          if ((store.data.users || []).some(x => x.username === username)) return fieldError("username", "ชื่อผู้ใช้นี้มีอยู่แล้ว");
+          if (!pin) return fieldError("pin", "กรุณาตั้งรหัสผ่าน ไม่งั้นเขาจะล็อกอินไม่ได้");
+          mkUser = { username, pin };
+        }
+        if (r) Object.assign(r, rec);
+        else {
+          const nr = { id: uid("res"), ...rec }; store.data.residents.push(nr); selectedResident = nr.id;
+          if (mkUser) (store.data.users ||= []).push({ id: uid("usr"), username: mkUser.username, displayName: name, role: "resident",
+            pin: mkUser.pin, residentId: nr.id, staffId: "", active: true });
+        }
+        audit(r ? "แก้ไขทะเบียนแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", name + (mkUser ? " · พร้อมบัญชี " + mkUser.username : ""));
+        store.save(); renderAll(); toast(mkUser ? "บันทึกแล้ว · สร้างบัญชี " + mkUser.username + " ให้แล้ว" : "บันทึกแล้ว");
       }},
     ...(r ? [{ label:"ลบรายชื่อนี้", cls:"btn-danger", onClick: () => {
         const n = store.activitiesOf(r.id).length;
-        if (!confirm("ลบ " + r.name + " และกิจกรรม " + n + " รายการที่ผูกไว้? การลบย้อนกลับไม่ได้")) return false;
-        store.data.residents = store.data.residents.filter(x => x.id !== r.id);
-        store.data.activities = store.data.activities.filter(a => a.residentId !== r.id);
-        store.data.research = store.data.research.filter(p => p.residentId !== r.id);
         audit("ลบแพทย์ประจำบ้าน", r.name + " · พร้อมกิจกรรม " + n + " รายการ");
-        selectedResident = null; store.save(); renderAll(); toast("ลบแล้ว");
+        selectedResident = null;
+        removeWithUndo("ลบ " + r.name + " และกิจกรรม " + n + " รายการแล้ว", [
+          { list:"residents", keep: x => x.id !== r.id },
+          { list:"activities", keep: a => a.residentId !== r.id },
+          { list:"research", keep: p => p.residentId !== r.id }], () => { selectedResident = r.id; });
       }}] : [])
   ]);
 }
@@ -8059,7 +8221,7 @@ function editResearch(id) {
     </tbody></table></div>`;
   showDialog(pj ? "แก้ไขโครงการวิจัย" : "เพิ่มโครงการวิจัย", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const title = dlgVal("title"); if (!title) { toast("กรุณาใส่ชื่อโครงการ"); return false; }
+        const title = dlgVal("title"); if (!title) return fieldError("title", "กรุณาใส่ชื่อโครงการ");
         const stages = {};
         RESEARCH_STAGES.forEach(s => {
           const done = dlgVal("done_" + s.id), due = dlgVal("due_" + s.id);
@@ -8071,9 +8233,7 @@ function editResearch(id) {
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(pj ? [{ label:"ลบโครงการ", cls:"btn-danger", onClick: () => {
-        if (!confirm("ลบโครงการวิจัยนี้?")) return false;
-        store.data.research = store.data.research.filter(x => x.id !== pj.id);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบโครงการวิจัยแล้ว", [{ list:"research", keep: x => x.id !== pj.id }]);
       }}] : [])
   ]);
 }
@@ -8094,7 +8254,7 @@ window.addEventListener("afterprint", () => { if ($("#view-report").classList.co
 function reportHead(title, sub) {
   return `<div class="card">
     <h1 style="margin-bottom:.1rem">${esc(title)}</h1>
-    <p class="small muted" style="margin:0">กลุ่มงานออร์โธปิดิกส์ โรงพยาบาลมหาราชนครราชสีมา · ${esc(sub)} · พิมพ์เมื่อ ${new Date().toLocaleString("th-TH")}</p>
+    <p class="small muted" style="margin:0">กลุ่มงานออร์โธปิดิกส์ โรงพยาบาลมหาราชนครราชสีมา · ${esc(sub)} · พิมพ์เมื่อ ${fmtDateTime(new Date())}</p>
     <p class="small muted" style="margin:.3rem 0 0">เอกสารนี้สร้างจากหน้าสาธิต ข้อมูลตัวอย่างเป็นข้อมูลสมมติ</p>
   </div>`;
 }
@@ -8788,12 +8948,12 @@ function exportDashboard() {
   toast("ดาวน์โหลดแดชบอร์ดแล้ว — เปิดในเบราว์เซอร์หรือสั่งพิมพ์เป็น PDF ได้");
 }
 
-function exportJson() {
+async function exportJson() {
   /* ไฟล์นี้คือฐานข้อมูลทั้งก้อน รวมข้อมูลผู้ป่วยและรหัสผ่านของบัญชี
      จึงต้องเก็บในที่ที่ปลอดภัยเท่ากับเวชระเบียน ไม่ใช่ไฟล์ที่ส่งต่อกันได้ */
   if (!canManage()) { toast("การส่งออกข้อมูลทั้งชุดเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
-  if (!confirm("ไฟล์สำรองมีข้อมูลของแพทย์ประจำบ้านทุกคน ข้อมูลผู้ป่วยใน logbook และรหัสผ่านของบัญชีทั้งหมด\n" +
-               "เก็บไว้ในเครื่องหรือดิสก์ของภาควิชาเท่านั้น ไม่ส่งต่อทางอีเมลหรือแชท\n\nดาวน์โหลดต่อ?")) return;
+  if (!(await confirmDialog("ไฟล์สำรองมีข้อมูลของแพทย์ประจำบ้านทุกคน ข้อมูลผู้ป่วยใน logbook และรหัสผ่านของบัญชีทั้งหมด\n" +
+               "เก็บไว้ในเครื่องหรือดิสก์ของภาควิชาเท่านั้น ไม่ส่งต่อทางอีเมลหรือแชท", { title: "ดาวน์โหลดไฟล์สำรอง", okLabel: "ดาวน์โหลด" }))) return;
   download("ortho-portfolio-" + todayISO() + ".json", JSON.stringify(store.data, null, 2), "application/json");
   audit("ส่งออกข้อมูลทั้งชุดเป็นไฟล์", "ortho-portfolio-" + todayISO() + ".json");
   toast("ดาวน์โหลดไฟล์สำรองแล้ว");
@@ -8801,14 +8961,15 @@ function exportJson() {
 function importJson(file) {
   if (!canManage()) { toast("การนำเข้าข้อมูลทั้งชุดเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const fr = new FileReader();
-  fr.onload = () => {
+  fr.onload = async () => {
     try {
       const data = JSON.parse(fr.result);
       if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
-      if (!confirm("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม) ดำเนินการต่อ?")) return;
+      if (!(await confirmDialog("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม)",
+            { title: "นำเข้าไฟล์สำรอง", okLabel: "แทนที่ข้อมูลในเครื่อง", danger: true }))) return;
       /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset() */
       try { localStorage.removeItem(BASELINE_KEY); } catch {}
-      runDestructiveDataOp(() => { store.data = data; store.migrate(); store.save(); });
+      await runDestructiveDataOp(() => { store.data = data; store.migrate(); store.save(); });
       selectedResident = null; renderAll();
       audit("นำเข้าข้อมูลทั้งชุดจากไฟล์", data.residents.length + " คน · " + data.activities.length + " กิจกรรม");
       toast("นำเข้าข้อมูลแล้ว");
@@ -8898,9 +9059,11 @@ function renderAll() {
   renderSwapTable();
   renderVisitTable();
   renderSettings();
+  renderSettingsNav();
+  renderYearChecklist();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
-  markScrollable(); syncHeader();
+  markScrollable(); syncHeader(); annotateDates();
 }
 
 /* ตารางไหนกว้างกว่ากล่อง → ใส่ .can-scroll ให้เงา/ข้อความบอกว่าเลื่อนได้ · .at-end เมื่อเลื่อนสุดแล้ว
@@ -8933,6 +9096,57 @@ function setupCompactHeader() {
   }, { passive: true });
   window.addEventListener("resize", () => { if (!isPhone()) apply(false); syncHeader(); markScrollable(); });
   syncHeader();
+}
+
+/* --- หน้าตั้งค่า: ดัชนีกระโดดไปการ์ด และ checklist เตรียมปีการศึกษา --- */
+const settingsCards = () => $$("#view-settings .card[data-anchor]");
+const gotoAnchor = (label) => {
+  showView("settings");
+  settingsCards().find(c => c.dataset.anchor.includes(label))?.scrollIntoView({ block: "start" });
+};
+function renderSettingsNav() {
+  const nav = $("#settingsNav"); if (!nav) return;
+  const cards = settingsCards();
+  nav.innerHTML = cards.map((c, i) => `<button type="button" data-goto="${i}">${esc(c.dataset.anchor)}</button>`).join("");
+  $$("#settingsNav [data-goto]").forEach(b => b.addEventListener("click", () => cards[+b.dataset.goto].scrollIntoView({ block: "start" })));
+}
+/* checklist คำนวณสดจาก store.data ทุกครั้ง — ไม่เก็บสถานะ ติ๊กเองไม่ได้ ครบคือครบจริง */
+function renderYearChecklist() {
+  const box = $("#yearChecklist"); if (!box) return;
+  const d = store.data, ay = currentAY(), months = ayMonths(ay);
+  const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+  const ym = todayISO().slice(0, 7);
+  const linked = new Set((d.users || []).filter(u => u.residentId).map(u => u.residentId));
+  const noAcct = (d.residents || []).filter(r => !linked.has(r.id));
+  const noRot = (d.residents || []).filter(r => !(d.rotations || []).some(x => x.residentId === r.id && x.start >= from && x.start <= to));
+  const weekPane = (sel) => { showView("rotation"); $('#calSeg [data-seg="week"]')?.click(); $(sel)?.scrollIntoView({ block: "start" }); };
+  const items = [
+    { ok: (d.staff || []).length > 0, th: "รายชื่ออาจารย์", detail: (d.staff || []).length + " คน", go: () => gotoAnchor("อาจารย์") },
+    { ok: (d.services || []).some(s => (s.template || []).length), th: "หน่วยและตารางประจำสัปดาห์",
+      detail: (d.services || []).filter(s => (s.template || []).length).length + " หน่วยมีตาราง", go: () => gotoAnchor("หน่วย") },
+    { ok: (d.residents || []).length > 0, th: "รายชื่อแพทย์ประจำบ้าน", detail: (d.residents || []).length + " คน", go: () => showView("residents") },
+    { ok: !noAcct.length, th: "บัญชีผู้ใช้ของแพทย์ประจำบ้านทุกคน",
+      detail: noAcct.length ? "ยังไม่มีบัญชี " + noAcct.length + " คน" : "ครบ", go: () => noAcct.length ? showView("residents") : gotoAnchor("บัญชี") },
+    { ok: (d.residents || []).length > 0 && !noRot.length, th: "ช่วงหมุนเวียนปีการศึกษา " + ay,
+      detail: noRot.length ? "ยังไม่มี " + noRot.length + " คน" : "ครบทุกคน", go: () => showView("rotation") },
+    { ok: (d.duty || []).some(x => x.date.startsWith(ym) && (x.opdServiceId || x.erServiceId || (x.erStaffIds || []).length)),
+      th: "ตารางเวรเดือน " + ymLabel(ym), go: () => weekPane("#dutyTable") },
+    { ok: (d.topicConf || []).some(x => x.date.startsWith(ym) && x.staffId),
+      th: "ผู้นิเทศ Topic conference เดือน " + ymLabel(ym), go: () => weekPane("#tcTable") },
+    { ok: Object.values(d.requirements || {}).some(req => Object.values(req || {}).some(v => +v > 0)),
+      th: "เกณฑ์จำนวนกิจกรรมต่อชั้นปี", go: () => gotoAnchor("เกณฑ์") }
+  ];
+  box.innerHTML = `<ul class="clean">${items.map((it, i) => `<li class="row" style="justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--line)">
+      <span><span class="tag ${it.ok ? "ok" : "warn"}">${it.ok ? "✓ ครบ" : "ยังไม่ครบ"}</span> ${esc(it.th)}${it.detail ? ` <span class="small muted">· ${esc(it.detail)}</span>` : ""}</span>
+      <button type="button" class="btn-sm no-print" data-ycl="${i}">${it.ok ? "ดู" : "ไปทำ"}</button></li>`).join("")}</ul>`;
+  $$("#yearChecklist [data-ycl]").forEach(b => b.addEventListener("click", () => items[+b.dataset.ycl].go()));
+}
+/* ชื่อผู้ใช้ตั้งต้นสำหรับบัญชีแพทย์ประจำบ้านใหม่ — resident<เลขถัดไป> ที่ยังไม่ซ้ำ */
+function suggestUsername() {
+  const users = store.data.users || [];
+  let i = users.filter(u => u.role === "resident").length + 1, name;
+  do { name = "resident" + i++; } while (users.some(u => u.username === name));
+  return name;
 }
 
 /* =====================================================================
@@ -9133,7 +9347,7 @@ function renderAuditLog() {
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>บทบาท</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead>
     <tbody>${rows.map(a => `<tr>
-      <td class="small">${new Date(a.at).toLocaleString("th-TH")}</td>
+      <td class="small">${fmtDateTime(a.at)}</td>
       <td class="small">${esc(a.by)}</td>
       <td class="small">${esc(ROLE_BY_KEY[a.role]?.th || a.role || "—")}</td>
       <td class="small">${esc(a.action)}</td>
@@ -9157,18 +9371,21 @@ function renderUserTable() {
   $$("#userTable [data-user]").forEach(b => b.addEventListener("click", () => editUser(b.dataset.user)));
 }
 
-function editUser(id) {
+/* preset = ค่าตั้งต้นตอนสร้างบัญชีใหม่จากที่อื่น เช่นปุ่ม "สร้างบัญชี" ในรายชื่อแพทย์ประจำบ้าน (ผูก residentId ให้เลย) */
+function editUser(id, preset = {}) {
   if (!canManage()) { toast("การจัดการบัญชีผู้ใช้เป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const u = id ? store.data.users.find(x => x.id === id) : null;
+  const p = { username: u?.username || preset.username || "", displayName: u?.displayName || preset.displayName || "",
+              role: u?.role || preset.role || "", residentId: u?.residentId || preset.residentId || "" };
   const body = `
     <div class="grid g2">
-      <label class="f"><span>ชื่อผู้ใช้</span><input name="username" value="${esc(u?.username || "")}" /></label>
-      <label class="f"><span>ชื่อที่แสดง</span><input name="displayName" value="${esc(u?.displayName || "")}" /></label>
+      <label class="f"><span>ชื่อผู้ใช้</span><input name="username" value="${esc(p.username)}" /></label>
+      <label class="f"><span>ชื่อที่แสดง</span><input name="displayName" value="${esc(p.displayName)}" /></label>
       <label class="f"><span>บทบาท</span><select name="role">${ROLES.map(r =>
-        `<option value="${r.id}" ${u?.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select></label>
+        `<option value="${r.id}" ${p.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select></label>
       <label class="f"><span>รหัสผ่าน</span><input name="pin" value="${esc(u?.pin || "")}" /></label>
       <label class="f"><span>ผูกกับแพทย์ประจำบ้าน</span><select name="residentId"><option value="">—</option>
-        ${store.data.residents.map(r => `<option value="${r.id}" ${u?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
+        ${store.data.residents.map(r => `<option value="${r.id}" ${p.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
       <label class="f"><span>ผูกกับอาจารย์</span><select name="staffId"><option value="">—</option>
         ${(store.data.staff || []).map(x => `<option value="${x.id}" ${u?.staffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
@@ -9177,7 +9394,8 @@ function editUser(id) {
       บัญชีอาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมิน และบัญชีผู้จัดหลักสูตรดูแลทะเบียนกับตารางทั้งหมด</p>`;
   showDialog(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const username = dlgVal("username"); if (!username) { toast("กรุณาใส่ชื่อผู้ใช้"); return false; }
+        const username = dlgVal("username"); if (!username) return fieldError("username", "กรุณาใส่ชื่อผู้ใช้");
+        if (store.data.users.some(x => x.username === username && x.id !== u?.id)) return fieldError("username", "ชื่อผู้ใช้นี้มีอยู่แล้ว");
         const rec = { username, displayName: dlgVal("displayName") || username, role: dlgVal("role"),
                       pin: dlgVal("pin"), residentId: dlgVal("residentId"), staffId: dlgVal("staffId"),
                       active: !!$('#dlgBody [name="active"]')?.checked };
@@ -9187,10 +9405,8 @@ function editUser(id) {
       }},
     ...(u ? [{ label:"ลบบัญชี", cls:"btn-danger", onClick: () => {
         if (u.id === session?.userId) { toast("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้"); return false; }
-        if (!confirm("ลบบัญชี " + u.username + "?")) return false;
-        store.data.users = store.data.users.filter(x => x.id !== u.id);
         audit("ลบบัญชีผู้ใช้", u.username);
-        store.save(); renderAll(); toast("ลบแล้ว");
+        removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }]);
       }}] : [])
   ]);
 }
@@ -9213,6 +9429,7 @@ function init() {
     $("#dlgFoot .btn-primary")?.click();
   });
   $("#dlgClose").addEventListener("click", () => $("#dlg").close());
+  document.addEventListener("input", (e) => { if (e.target?.type === "date") annotateDates(e.target.parentElement || document); });
   $("#btnManualAdd").addEventListener("click", manualAdd);
   $("#btnAddResident").addEventListener("click", () => editResident(null));
   $("#btnAddResearch").addEventListener("click", () => editResearch(null));
@@ -9249,18 +9466,23 @@ function init() {
     $$("[data-segview]").forEach(v => { v.hidden = v.dataset.segview !== b.dataset.seg; });
   });
   $("#ayPick").addEventListener("change", (e) => { ayView = e.target.value; renderMonthGrid(); });
-  $("#btnGeneratePlan").addEventListener("click", () => {
+  $("#btnGeneratePlan").addEventListener("click", async () => {
     const ay = ayView || currentAY();
     const months = ayMonths(ay);
     const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
     const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
     if (!store.data.residents.length) { toast("ยังไม่มีรายชื่อแพทย์ประจำบ้าน"); return; }
-    if (!confirm("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
-                 "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ)")) return;
+    if (!(await confirmDialog("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
+                 "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
+                 { title: "สร้างแผนอัตโนมัติ", okLabel: "สร้างแผน" }))) return;
+    const prevRotations = store.data.rotations || [];
     const plan = buildRotationPlan(ay, store.data.residents, store.data.services, store.data.staff);
-    store.data.rotations = (store.data.rotations || []).filter(r => !(r.start >= from && r.start <= to)).concat(plan.rotations);
+    store.data.rotations = prevRotations.filter(r => !(r.start >= from && r.start <= to)).concat(plan.rotations);
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
     store.save(); renderAll();
+    toastUndo("สร้างแผนหมุนเวียนแล้ว " + plan.rotations.length + " บล็อก", () => {
+      store.data.rotations = prevRotations; store.save(); renderAll(); toast("เลิกทำแล้ว — แผนเดิมกลับมาแล้ว");
+    });
     $("#planNotes").innerHTML = `<div class="notice ${plan.warnings.length ? "warn" : ""} small">
       สร้างแผนปีการศึกษา ${esc(ay)} แล้ว ${plan.rotations.length} บล็อก
       ${plan.warnings.length ? "<br />ข้อควรตรวจ:<br />• " + plan.warnings.map(esc).join("<br />• ") : "· ไม่พบข้อขัดกติกา"}</div>`;
@@ -9321,11 +9543,10 @@ function init() {
     toast("เติมให้ " + n + " วัน — วันพฤหัสบดีและอาจารย์เวรยังต้องกรอกเอง");
   });
   $("#dutyClear").addEventListener("click", () => {
-    if (!canManage()) return;
-    if (!confirm("ล้างตารางเวรของ " + ymLabel(dutyMonth) + " ทั้งเดือน?")) return;
-    store.data.duty = (store.data.duty || []).filter(d => !d.date.startsWith(dutyMonth));
-    audit("ล้างตารางเวรรายเดือน", ymLabel(dutyMonth));
-    store.save(); renderAll(); toast("ล้างแล้ว");
+    if (!canManage()) { toast("การแก้ตารางเวรเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
+    const month = dutyMonth;
+    audit("ล้างตารางเวรรายเดือน", ymLabel(month));
+    removeWithUndo("ล้างตารางเวรของ " + ymLabel(month) + " แล้ว", [{ list:"duty", keep: d => !d.date.startsWith(month) }]);
   });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
@@ -9369,14 +9590,14 @@ function init() {
   [$("#btnDashboard"), $("#btnDashboard2")].forEach(b => b?.addEventListener("click", exportDashboard));
   [$("#btnImport"), $("#btnImport2")].forEach(b => b.addEventListener("click", () => $("#importPick").click()));
   $("#importPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; });
-  $("#btnSeed").addEventListener("click", () => {
-    if (!confirm("โหลดข้อมูลสาธิตใหม่ ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่ทั้งหมด ดำเนินการต่อ?")) return;
-    runDestructiveDataOp(() => store.reset());
+  $("#btnSeed").addEventListener("click", async () => {
+    if (!(await confirmDialog("โหลดข้อมูลสาธิตใหม่ — ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่ทั้งหมด", { title: "โหลดข้อมูลสาธิตใหม่", okLabel: "แทนที่ด้วยข้อมูลสาธิต", danger: true }))) return;
+    await runDestructiveDataOp(() => store.reset());
     selectedResident = null; renderAll(); toast("โหลดข้อมูลสาธิตใหม่แล้ว");
   });
-  $("#btnWipe").addEventListener("click", () => {
-    if (!confirm("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน")) return;
-    runDestructiveDataOp(() => store.wipe());
+  $("#btnWipe").addEventListener("click", async () => {
+    if (!(await confirmDialog("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน", { title: "ลบข้อมูลทั้งหมด", okLabel: "ลบทั้งหมด", danger: true }))) return;
+    await runDestructiveDataOp(() => store.wipe());
     selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
   });
 
