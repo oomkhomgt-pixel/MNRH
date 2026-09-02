@@ -388,7 +388,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <button data-view="calendar">ปฏิทินรายคน</button>
     </div>
     <div class="row seg" data-subgroup="g2" hidden>
-      <button data-view="residents">รายชื่อ &amp; แฟ้ม</button>
+      <button data-view="residents">รายชื่อ</button>
+      <button data-view="resident">แฟ้มรายบุคคล</button>
       <button data-view="logbook">Logbook เคสผ่าตัด</button>
       <button data-view="epa">EPA</button>
       <button data-view="research">งานวิจัย</button>
@@ -450,7 +451,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 
   <!-- ============ ROTATION + PRESENTATION CALENDARS ============ -->
   <section class="view" id="view-rotation">
-    <div class="card">
+    <!-- การ์ดรายคนพับไว้ก่อน — หน้านี้เปิดมาให้เจอตารางรายเดือนเลย กดหัวข้อเมื่ออยากดูรายคน -->
+    <div class="card" data-fold="rot-now" data-fold-closed>
       <div class="between">
         <div>
           <h1>ตอนนี้ใครอยู่หน่วยไหน</h1>
@@ -637,17 +639,32 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   </section>
 
   <!-- ============ RESIDENTS ============ -->
+  <!-- รายชื่อ (ภาพรวม) กับแฟ้มรายบุคคลเป็นคนละหน้าย่อย — หน้ารายชื่อไม่ต่อท้ายด้วยรายละเอียดของใครอีก
+       ปุ่ม "เปิดแฟ้ม" พาไปหน้าแฟ้มของคนนั้น ส่วนหน้าแฟ้มมีตัวเลือกคนไว้สลับดูโดยไม่ต้องกลับ -->
   <section class="view" id="view-residents">
     <div class="card no-print">
       <div class="between">
         <h1>แพทย์ประจำบ้าน</h1>
         <div class="row">
           <button class="btn-sm" id="btnAddResident" data-perm="admin">+ เพิ่มแพทย์ประจำบ้าน</button>
+        </div>
+      </div>
+      <div id="residentList"></div>
+    </div>
+  </section>
+  <section class="view" id="view-resident">
+    <div class="card no-print">
+      <div class="between">
+        <div class="row">
+          <button class="btn-sm" id="btnResidentBack">‹ รายชื่อ</button>
+          <h1 style="margin:0">แฟ้มรายบุคคล</h1>
+          <select id="resPick" aria-label="เลือกแพทย์ประจำบ้าน" data-perm="staff" hidden></select>
+        </div>
+        <div class="row">
           <button class="btn-sm" id="btnPrintPortfolio">พิมพ์แฟ้มรายบุคคล</button>
           <button class="btn-sm" id="btnResidentDashboard">แดชบอร์ดรายบุคคล (HTML)</button>
         </div>
       </div>
-      <div id="residentList"></div>
     </div>
     <div id="residentDetail"></div>
   </section>
@@ -1779,6 +1796,21 @@ const store = {
     });
     Object.values(d.requirements || {}).forEach(req => {
       if (req && req.subspecialties > SUBSPECIALTIES.length - 1) req.subspecialties = SUBSPECIALTIES.length - 1;
+    });
+    /* ข้อมูลสาธิตชุดเก่าที่ค้างอยู่ในเครื่อง: คำนำหน้าอาจารย์หญิงสองท่าน และอนุสาขาที่สองของอาจารย์สาย arthroplasty/trauma
+       แก้เฉพาะระเบียนสาธิต (id + ค่าเดิมตรงตัว) — ชื่อที่ผู้ใช้แก้เองไม่ถูกแตะ · ชื่อที่ถูกคัดลอกไปเป็น string
+       (บัญชีผู้ใช้ และศัลยแพทย์หลักในเคส) ตามไปด้วย */
+    const DEMO_STAFF_FIX = { st_1: ["นพ. มานิตา", "พญ. มานิตา"], st_19: ["นพ. วรินธร", "พญ. วรินธร"] };
+    Object.entries(DEMO_STAFF_FIX).forEach(([id, [from, to]]) => {
+      const st = (d.staff || []).find(x => x.id === id && x.name === from); if (!st) return;
+      st.name = to;
+      (d.users || []).forEach(u => { if (u.staffId === id && u.displayName === from) u.displayName = to; });
+      (d.cases || []).forEach(c => { if (c.primarySurgeon === from) c.primarySurgeon = to; });
+    });
+    ["st_8", "st_12"].forEach(id => {
+      const st = (d.staff || []).find(x => x.id === id && x.subspecialty === "arthroplasty"); if (!st) return;
+      const subs = st.subspecialties?.length ? st.subspecialties : [st.subspecialty];
+      if (!subs.includes("trauma")) st.subspecialties = [...subs, "trauma"];
     });
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
@@ -4653,6 +4685,7 @@ function renderRotation() {
   /* --- ตอนนี้ใครอยู่หน่วยไหน --- */
   const todaySessions = sessionsForDate(today);
   const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const nowCard = $("#nowBoard").closest("[data-fold]"); if (nowCard) nowCard.dataset.foldSum = rs.length ? rs.length + " คน" : "";
   $("#nowBoard").innerHTML = rs.length ? `<div class="grid g2">${rs.map(r => {
     const rot = rotationOn(r.id, today);
     const svc = rot ? serviceById(rot.serviceId) : null;
@@ -5508,26 +5541,33 @@ function renderStaffTable() {
       const load = (store.data.services || []).reduce((n, svc) => n + (svc.template || []).filter(t => t.staffId === x.id).length, 0);
       const done = (store.data.sessionEvals || []).filter(e => e.staffId === x.id).length;
       return `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.role || "—")}</td>
-        <td class="small">${esc(SUB_BY_ID[x.subspecialty]?.en || "—")}</td>
+        <td class="small">${staffSubs(x).map(id => `<span class="tag">${esc(SUB_BY_ID[id]?.en || id)}</span>`).join(" ") || "—"}</td>
         <td>${load}</td><td>${done}</td>
         <td class="no-print"><button class="btn-sm" data-staff="${x.id}">แก้ไข</button></td></tr>`;
     }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีรายชื่ออาจารย์</p>`;
   $$("#staffTable [data-staff]").forEach(b => b.addEventListener("click", () => editStaff(b.dataset.staff)));
 }
 
+/* อนุสาขาของอาจารย์: อาเรย์ subspecialties ถ้ามี ไม่งั้นฟิลด์เดี่ยว (กติกาเดียวกับที่ตารางสายใช้) */
+const staffSubs = (st) => st?.subspecialties?.length ? st.subspecialties : [st?.subspecialty].filter(Boolean);
+
 function editStaff(id) {
   const x = id ? store.data.staff.find(y => y.id === id) : null;
+  const cur = new Set(staffSubs(x));
   const body = `
     <label class="f"><span>ชื่อ-สกุล</span><input name="name" value="${esc(x?.name || "")}" /></label>
-    <div class="grid g2">
-      <label class="f"><span>บทบาท</span><input name="role" value="${esc(x?.role || "")}" placeholder="เช่น อาจารย์แพทย์" /></label>
-      <label class="f"><span>Subspecialty</span><select name="subspecialty">
-        ${SUBSPECIALTIES.map(sp => `<option value="${sp.id}" ${x?.subspecialty === sp.id ? "selected" : ""}>${esc(sp.en)}</option>`).join("")}</select></label>
-    </div>`;
+    <label class="f"><span>บทบาท</span><input name="role" value="${esc(x?.role || "")}" placeholder="เช่น อาจารย์แพทย์" /></label>
+    <div class="f"><span>Subspecialty (ติ๊กได้หลายสาย — สายแรกที่ติ๊กเป็นสายหลัก)</span>
+      <div class="row" data-field="subs" style="gap:.35rem .7rem">
+        ${SUBSPECIALTIES.map(sp => `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
+          <input type="checkbox" name="sub_${sp.id}" ${cur.has(sp.id) ? "checked" : ""} /> ${esc(sp.en)}</label>`).join("")}
+      </div></div>`;
   showDialog(x ? "แก้ไขข้อมูลอาจารย์" : "เพิ่มอาจารย์", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อ");
-        const rec = { name, role: dlgVal("role"), subspecialty: dlgVal("subspecialty") };
+        const subs = SUBSPECIALTIES.map(sp => sp.id).filter(sid => $(`#dlgBody [name="sub_${sid}"]`)?.checked);
+        if (!subs.length) return fieldError("sub_" + SUBSPECIALTIES[0].id, "เลือกอนุสาขาอย่างน้อยหนึ่งสาย");
+        const rec = { name, role: dlgVal("role"), subspecialty: subs[0], subspecialties: subs };
         if (x) Object.assign(x, rec); else store.data.staff.push({ id: uid("st"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
@@ -5717,7 +5757,7 @@ function renderResidents() {
     list.innerHTML = `<p class="empty">${isResident() && !myResidentId()
       ? "บัญชีนี้ยังไม่ได้ผูกกับแพทย์ประจำบ้านคนใด — แจ้งผู้จัดหลักสูตรให้ผูกบัญชีที่หน้าตั้งค่า (บัญชีผู้ใช้และสิทธิ์)"
       : "ไม่มีข้อมูลที่บัญชีนี้มีสิทธิ์เห็น"}</p>`;
-    $("#residentDetail").innerHTML = ""; return;
+    return;
   }
   const linked = new Set((store.data.users || []).filter(u => u.residentId).map(u => u.residentId));
   list.innerHTML = `<div class="tbl-wrap"><table>
@@ -5738,19 +5778,30 @@ function renderResidents() {
             <button class="btn-sm no-print" data-mkuser="${r.id}" data-perm="admin">สร้างบัญชี</button></div>`}</td>
       </tr>`;
     }).join("")}</tbody></table></div>`;
-  list.querySelectorAll("[data-res]").forEach(b => b.addEventListener("click", () => { selectedResident = b.dataset.res; renderResidentDetail(); $("#residentDetail").scrollIntoView({ behavior:"smooth", block:"start" }); }));
+  list.querySelectorAll("[data-res]").forEach(b => b.addEventListener("click", () => openResident(b.dataset.res)));
   list.querySelectorAll("[data-mkuser]").forEach(b => b.addEventListener("click", () => {
     const r = store.resident(b.dataset.mkuser); if (!r) return;
     editUser(null, { residentId: r.id, displayName: r.name, role: "resident", username: suggestUsername() });
   }));
-  if (!selectedResident || !store.resident(selectedResident)) selectedResident = rs[0].id;
-  renderResidentDetail();
+}
+
+/* เปิดแฟ้มของคนนี้ในหน้าย่อย "แฟ้มรายบุคคล" */
+function openResident(id) {
+  selectedResident = id; renderResidentDetail(); showView("resident");
 }
 
 function renderResidentDetail() {
   const box = $("#residentDetail");
+  const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  if (!selectedResident || !rs.some(x => x.id === selectedResident)) selectedResident = rs[0]?.id || null;
+  /* ตัวเลือกคน — เฉพาะเมื่อเห็นได้มากกว่าหนึ่งคน (แพทย์ประจำบ้านเห็นแค่ตัวเอง ไม่มีอะไรให้เลือก) */
+  const pick = $("#resPick");
+  if (pick) {
+    pick.hidden = rs.length < 2;
+    pick.innerHTML = rs.map(x => `<option value="${x.id}" ${x.id === selectedResident ? "selected" : ""}>${esc(x.name)} · ปี ${x.year}</option>`).join("");
+  }
   const r = store.resident(selectedResident);
-  if (!r) { box.innerHTML = ""; return; }
+  if (!r) { box.innerHTML = `<p class="empty">${rs.length ? "" : "ไม่มีแฟ้มที่บัญชีนี้มีสิทธิ์เห็น"}</p>`; return; }
   const p = progressFor(r), gaps = gapsFor(r);
   const acts = store.activitiesOf(r.id).sort((a, b) => b.date.localeCompare(a.date));
   const projects = store.data.research.filter(x => x.residentId === r.id);
@@ -8551,6 +8602,7 @@ function editResident(id) {
         if (r) Object.assign(r, rec);
         else {
           const nr = { id: uid("res"), ...rec }; store.data.residents.push(nr); selectedResident = nr.id;
+          setTimeout(() => showView("resident"), 0);   /* บันทึกคนใหม่แล้วพาไปแฟ้มของเขาเลย (หลัง renderAll) */
           if (mkUser) (store.data.users ||= []).push({ id: uid("usr"), username: mkUser.username, displayName: name, role: "resident",
             pin: mkUser.pin, residentId: nr.id, staffId: "", active: true });
         }
@@ -9412,6 +9464,7 @@ function renderAll() {
   renderStaffTable();
   renderServiceTable();
   renderResidents();
+  renderResidentDetail();
   renderCalendar();
   renderAssess();
   renderLogbook();
@@ -9947,6 +10000,8 @@ function init() {
     if (isResident()) return;    /* กันไว้อีกชั้น แม้ picker จะถูกซ่อนสำหรับ resident อยู่แล้ว */
     calResidentId = e.target.value; renderCalendar();
   });
+  $("#btnResidentBack").addEventListener("click", () => showView("residents"));
+  $("#resPick").addEventListener("change", (e) => { selectedResident = e.target.value; renderResidentDetail(); window.scrollTo({ top: 0 }); });
   $("#btnPrintPortfolio").addEventListener("click", () => selectedResident ? printPortfolio(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnResidentDashboard").addEventListener("click", () => selectedResident ? exportResidentDashboard(selectedResident) : toast("เลือกแพทย์ประจำบ้านก่อน"));
   $("#btnWfmeReport").addEventListener("click", printWfmeReport);

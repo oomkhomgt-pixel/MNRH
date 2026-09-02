@@ -150,7 +150,7 @@ export default async function run() {
                  subVisible, subBarShown, epaOn, groupCurrent, subCurrent, subBarGone };
       });
       t.eq("admin เห็นปุ่มกลุ่มครบ 6 กลุ่ม", [nav.total, nav.visible], [6, 6]);
-      t.eq("เปิดกลุ่มแพทย์ประจำบ้านแล้วแถวหน้าย่อยมี 4 หน้า", nav.subVisible, ["residents", "logbook", "epa", "research"]);
+      t.eq("เปิดกลุ่มแพทย์ประจำบ้านแล้วแถวหน้าย่อยมี 5 หน้า (รายชื่อกับแฟ้มรายบุคคลแยกกัน)", nav.subVisible, ["residents", "resident", "logbook", "epa", "research"]);
       t.check("แถวหน้าย่อยโชว์อยู่จริง", nav.subBarShown);
       t.check("คลิกหน้าย่อย EPA แล้ว view-epa เปิด", nav.epaOn);
       t.eq("ไฮไลต์ย้ายถูกทั้งแถวกลุ่มและแถวหน้าย่อย", [nav.groupCurrent, nav.subCurrent], ["g2", "epa"]);

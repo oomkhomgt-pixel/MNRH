@@ -102,7 +102,7 @@ export default async function run() {
       const adminStat = /ผลประเมินลงกองค้าง/.test(document.querySelector("#todayBody").textContent);
       const ev = (store.data.rotationEvals || []).find(x => Object.keys(x.scores || {}).length && x.answers?.outcome);
       if (!ev) return { adminStat, noEval: true };
-      selectedResident = ev.residentId; showView("residents"); renderResidents();
+      selectedResident = ev.residentId; renderResidentDetail(); showView("resident");
       const box = document.querySelector("#residentDetail");
       const sec = box.textContent;
       const label = rotationOutcomeLabel(ev);
@@ -219,6 +219,72 @@ export default async function run() {
     t.check("แสดงเพิ่มอีก 25 → 50 แถว · แสดงทั้งหมด → ครบทุกช่วง พร้อมปุ่มแก้ไขทุกแถว",
             more.afterMore === Math.min(50, more.total) && more.afterAll === more.total && more.editButtons === more.total, JSON.stringify(more));
     t.check("เคสทั้งหมดใน logbook เริ่มที่ 30 แถว", more.cases === Math.min(30, more.caseTotal), JSON.stringify(more));
+
+    /* ---------- รายชื่อกับแฟ้มรายบุคคลเป็นคนละหน้า ---------- */
+    const split = await page.evaluate(async () => {
+      const r = {};
+      showView("residents");
+      r.listHasNoDetail = !document.querySelector("#view-residents #residentDetail") && !/ความก้าวหน้าตามเกณฑ์/.test(document.querySelector("#view-residents").textContent);
+      r.rows = document.querySelectorAll("#residentList tbody tr").length;
+      const second = document.querySelectorAll("#residentList [data-res]")[1];
+      second.click();
+      r.viewAfterOpen = currentViewName(); r.hash = location.hash;
+      r.detailName = document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(second.dataset.res).name);
+      const pick = document.querySelector("#resPick");
+      r.pickShown = !pick.hidden && pick.options.length === visibleResidents().length && pick.value === second.dataset.res;
+      pick.value = pick.options[0].value; pick.dispatchEvent(new Event("change", { bubbles: true }));
+      r.pickSwitches = document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(pick.options[0].value).name);
+      document.querySelector("#btnResidentBack").click();
+      r.backToList = currentViewName() === "residents";
+      r.printBtnOnDetail = !!document.querySelector("#view-resident #btnPrintPortfolio");
+      return r;
+    });
+    t.check("หน้ารายชื่อมีแต่ตาราง ไม่ต่อท้ายด้วยแฟ้มของใคร", split.listHasNoDetail && split.rows > 1, JSON.stringify(split));
+    t.check("กด 'เปิดแฟ้ม' แล้วไปหน้า 'แฟ้มรายบุคคล' ของคนนั้น (hash ตาม) มีตัวเลือกคนไว้สลับ และปุ่มกลับ",
+            split.viewAfterOpen === "resident" && split.hash === "#resident" && split.detailName && split.pickShown && split.pickSwitches && split.backToList && split.printBtnOnDetail, JSON.stringify(split));
+
+    /* ---------- อาจารย์: อนุสาขาหลายสายเห็นและแก้ได้ · ข้อมูลสาธิตเก่าในเครื่องถูกแก้คำนำหน้า ---------- */
+    const staff = await page.evaluate(() => {
+      const r = {};
+      const row = [...document.querySelectorAll("#staffTable tbody tr")].find(tr => /นฤพล/.test(tr.textContent));
+      r.traumaTag = !!row && [...row.querySelectorAll(".tag")].some(t => /Trauma/.test(t.textContent)) && [...row.querySelectorAll(".tag")].some(t => /Arthroplasty/.test(t.textContent));
+      /* แก้ไขอาจารย์คนหนึ่งให้มีสองสาย */
+      const st = store.data.staff.find(x => x.id === "st_1");
+      editStaff(st.id);
+      const boxes = [...document.querySelectorAll('#dlgBody input[type="checkbox"][name^="sub_"]')];
+      r.checkboxes = boxes.length;
+      boxes.forEach(b => b.checked = false);
+      document.querySelector('#dlgBody [name="sub_spine"]').checked = true;
+      document.querySelector('#dlgBody [name="sub_hand"]').checked = true;
+      document.querySelector("#dlgFoot .btn-primary").click();
+      r.saved = JSON.stringify([st.subspecialty, st.subspecialties]);
+      /* ไม่ติ๊กเลย → error ที่ช่อง กล่องไม่ปิด */
+      editStaff(st.id);
+      [...document.querySelectorAll('#dlgBody input[type="checkbox"][name^="sub_"]')].forEach(b => b.checked = false);
+      document.querySelector("#dlgFoot .btn-primary").click();
+      r.emptyRefused = document.querySelector("#dlg").open && !!document.querySelector("#dlgBody .err");
+      document.querySelector("#dlg").close();
+      /* migration: จำลองข้อมูลสาธิตเก่าที่ยังเป็น นพ. และไม่มี trauma */
+      const d = store.data;
+      d.staff.find(x => x.id === "st_1").name = "นพ. มานิตา";
+      d.users.filter(u => u.staffId === "st_1").forEach(u => u.displayName = "นพ. มานิตา");
+      d.cases[0].primarySurgeon = "นพ. มานิตา";
+      const s12 = d.staff.find(x => x.id === "st_12"); delete s12.subspecialties; s12.subspecialty = "arthroplasty";
+      store.migrate();
+      r.migrated = d.staff.find(x => x.id === "st_1").name === "พญ. มานิตา"
+        && d.users.filter(u => u.staffId === "st_1").every(u => u.displayName === "พญ. มานิตา")
+        && d.cases[0].primarySurgeon === "พญ. มานิตา"
+        && JSON.stringify(s12.subspecialties) === JSON.stringify(["arthroplasty", "trauma"]);
+      /* ชื่อที่ผู้ใช้แก้เองไม่ถูกแตะ */
+      d.staff.find(x => x.id === "st_19").name = "นพ. สมชาย"; store.migrate();
+      r.customKept = d.staff.find(x => x.id === "st_19").name === "นพ. สมชาย";
+      return r;
+    });
+    t.check("ตารางอาจารย์แสดงทุกอนุสาขา (นพ. นฤพล มีทั้ง Arthroplasty และ Trauma)", staff.traumaTag);
+    t.check("กล่องแก้ไขอาจารย์ติ๊กได้หลายสาย บันทึกเป็น subspecialties และสายแรกเป็น subspecialty · ไม่ติ๊กเลยถูกปฏิเสธที่ช่อง",
+            staff.checkboxes > 3 && staff.saved === JSON.stringify(["spine", ["spine", "hand"]]) && staff.emptyRefused, JSON.stringify(staff));
+    t.check("ข้อมูลสาธิตเก่าในเครื่อง: นพ. มานิตา → พญ. (รวมบัญชีและศัลยแพทย์หลักในเคส) · นพ. นฤพล ได้ Trauma · ชื่อที่แก้เองไม่ถูกแตะ",
+            staff.migrated && staff.customKept, JSON.stringify(staff));
 
     const ck = await page.evaluate(() => {
       const keep = store.data.rotations;
