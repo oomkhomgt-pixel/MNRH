@@ -516,15 +516,6 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <div data-segview="week" hidden>
       <div class="card">
         <div class="between">
-          <h2>เซสชันที่รอการประเมิน — แยกตามอาจารย์ผู้รับผิดชอบ</h2>
-          <span class="tag warn" id="pendingCount">—</span>
-        </div>
-        <p class="muted small">ย้อนหลัง 14 วัน · อาจารย์ผู้รับผิดชอบเซสชันเป็นผู้ประเมินเมื่อจบเซสชัน กดที่รายการเพื่อกรอกแบบประเมิน</p>
-        <div id="pendingBoard"></div>
-      </div>
-
-      <div class="card">
-        <div class="between">
           <h2>ตารางประจำสัปดาห์</h2>
           <div class="row no-print">
             <button class="btn-sm" id="weekPrev">‹ สัปดาห์ก่อน</button>
@@ -533,8 +524,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
             <button class="btn-sm" id="weekToday">สัปดาห์นี้</button>
           </div>
         </div>
-        <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อบันทึกการประเมินท้ายเซสชัน
-          · <span class="tag ok">ประเมินแล้ว</span> <span class="tag warn">รอประเมิน</span> <span class="tag">ยังไม่ถึงกำหนด</span></p>
+        <p class="muted small">แต่ละช่องคือหนึ่งเซสชัน พร้อมอาจารย์ผู้รับผิดชอบ กดที่ช่องเพื่อดูรายละเอียด บันทึกว่าเข้าคาบไหน หรือขอแลกวัน</p>
         <div id="weekGrid"></div>
       </div>
 
@@ -606,13 +596,6 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
         <div id="visitTable"></div>
       </div>
 
-      <div class="card" data-fold="rot-evals" data-fold-closed>
-        <div class="between">
-          <h2>การประเมินท้ายเซสชันล่าสุด</h2>
-          <button class="btn-sm no-print" id="btnEvalCsv">ดาวน์โหลด CSV</button>
-        </div>
-        <div id="evalList"></div>
-      </div>
     </div>
 
     <!-- ---- แบบที่ 2: ตารางนำเสนอ ---- -->
@@ -1189,10 +1172,10 @@ function demoTalkEval(type, mean, by, at, seed) {
 }
 
 const DEFAULT_REQUIREMENTS = {
-  1: { topic:4, preop:20, traumafilm:6,  journal:2, research:0, subspecialties:3, sessionEval:20, caseSurgeon:20,  caseAssist:60 },
-  2: { topic:6, preop:24, traumafilm:8,  journal:3, research:2, subspecialties:5, sessionEval:24, caseSurgeon:50,  caseAssist:80 },
-  3: { topic:6, preop:24, traumafilm:8,  journal:3, research:3, subspecialties:7, sessionEval:24, caseSurgeon:90,  caseAssist:80 },
-  4: { topic:4, preop:20, traumafilm:6,  journal:2, research:2, subspecialties:8, sessionEval:24, caseSurgeon:120, caseAssist:60 }
+  1: { topic:4, preop:20, traumafilm:6,  journal:2, research:0, subspecialties:3, caseSurgeon:20,  caseAssist:60 },
+  2: { topic:6, preop:24, traumafilm:8,  journal:3, research:2, subspecialties:5, caseSurgeon:50,  caseAssist:80 },
+  3: { topic:6, preop:24, traumafilm:8,  journal:3, research:3, subspecialties:7, caseSurgeon:90,  caseAssist:80 },
+  4: { topic:4, preop:20, traumafilm:6,  journal:2, research:2, subspecialties:8, caseSurgeon:120, caseAssist:60 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -1316,17 +1299,8 @@ const rotationOutcomeFor = (avg) => avg == null ? "" : avg >= 3.6 ? "pass" : avg
 const talkEvalItemsFor = (type) =>
   TALK_EVAL_ITEMS.concat(TALK_EVAL_EXTRA[type] ? [{ ...TALK_EVAL_EXTRA[type], group:"เฉพาะประเภทนี้" }] : []);
 
-const EVAL_ITEMS = [
-  { id:"knowledge",    th:"ความรู้และการตัดสินใจทางคลินิก" },
-  { id:"skill",        th:"ทักษะการตรวจและหัตถการ" },
-  { id:"professional", th:"ความเป็นมืออาชีพ การสื่อสาร และการทำงานเป็นทีม" }
-];
-
-/* แบบประเมินลงกองสิ้นเดือน — เดิมเป็นเกณฑ์ตายตัวสามข้อในโค้ด (EVAL_ITEMS ข้างบน ซึ่งใช้ร่วมกับ
-   แบบประเมินท้ายเซสชัน แก้ฝั่งหนึ่งแล้วอีกฝั่งเปลี่ยนตามโดยไม่ตั้งใจ)
-   ตอนนี้เป็น "ข้อมูล" ที่ผู้จัดหลักสูตรแก้เองได้ที่หน้าตั้งค่า เพราะฟอร์มจริงเป็นของกลุ่มงาน
-   ไม่ใช่ของโปรแกรม และถูกทบทวนทุกปี ชุดนี้เป็นค่าตั้งต้นเท่านั้น
-   ใช้ id เดิมสามตัว ผลประเมินที่บันทึกไว้แล้วจึงอ่านได้เหมือนเดิมโดยไม่ต้องย้ายข้อมูล */
+/* แบบประเมินลงกองสิ้นเดือน เป็น "ข้อมูล" ที่ผู้จัดหลักสูตรแก้เองได้ที่หน้าตั้งค่า เพราะฟอร์มจริงเป็นของกลุ่มงาน
+   ไม่ใช่ของโปรแกรม และถูกทบทวนทุกปี ชุดข้างล่างเป็นค่าตั้งต้นเท่านั้น */
 const ROTATION_ITEM_KINDS = [
   { id:"section",   th:"หัวข้อคั่น (ไม่ต้องตอบ)" },
   { id:"scale",     th:"มาตราส่วน — ให้คะแนน" },
@@ -1694,7 +1668,7 @@ const store = {
     d.residents ||= []; d.activities ||= []; d.research ||= [];
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
-    d.staff ||= []; d.services ||= []; d.rotations ||= []; d.sessionEvals ||= []; d.schedule ||= [];
+    d.staff ||= []; d.services ||= []; d.rotations ||= []; d.schedule ||= [];
     d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
     if (!d.orQueue.patientData) d.orQueue.patientData = d.orQueue.dropHn ? "nohn" : "full";
     d.sync ||= { url:"", token:"", user:"", residentId:"", auto:true, withRole:false, lastAt:"", lastStatus:"", pending:false };
@@ -2118,7 +2092,6 @@ const serviceById = (id) => (store.data.services || []).find(x => x.id === id);
 const rotatableServices = () => (store.data.services || []).filter(x => !x.central);
 const staffById   = (id) => (store.data.staff || []).find(x => x.id === id);
 const staffName   = (id) => staffById(id)?.name || "—";
-const evalForKey  = (key) => (store.data.sessionEvals || []).find(e => e.key === key);
 /* วันนั้นคนนี้เลือกเข้าคาบไหนในช่วงนั้น (ถ้ามีการบันทึกไว้) */
 const pickFor = (residentId, date, part) => (store.data.sessionPicks || [])
   .find(p => p.residentId === residentId && p.date === date && p.part === part);
@@ -2765,7 +2738,6 @@ function seedData() {
     delete rot.alsoServiceId;   /* ตารางจริงไม่ได้บอกว่าคนวน sub ยังสังกัดสาย */
   });
 
-  /* การประเมินท้ายเซสชันย้อนหลัง 3 สัปดาห์ — บางเซสชันจงใจปล่อยว่างไว้ให้เห็นงานค้าง */
   const remarks = [
     "เตรียมผู้ป่วยมาดี นำเสนอ film ได้ครบ ควรฝึกวางแผนทางเลือกสำรองเมื่อ implant ไม่พอดี",
     "ทำหัตถการได้คล่องขึ้นชัดเจน ครั้งหน้าลองเป็นผู้ผ่าตัดหลักภายใต้การกำกับ",
@@ -2773,25 +2745,6 @@ function seedData() {
     "ยังต้องทบทวน indication ของการผ่าตัด แนะนำอ่าน guideline ก่อนออกตรวจครั้งหน้า",
     "ตรวจร่างกายเป็นระบบดี ตัดสินใจส่ง investigation ได้เหมาะสม"
   ];
-  const r1 = (v) => Math.round(v * 10) / 10;
-  const sessionEvals = [];
-  for (let back = 21; back >= 1; back--) {
-    const iso = daysAgoISO(back);
-    computeSessions(iso, { rotations, services }).forEach((ses, i) => {
-      if ((back + i) % 3 === 0) return;
-      const res = residents.find(r => r.id === ses.residentId);
-      const base = Math.min(4.8, 2.5 + (res?.year || 1) * 0.4 + ((back + i) % 3) * 0.15);
-      sessionEvals.push({
-        id: uid("ev"), key: ses.key, date: iso, part: ses.part,
-        residentId: ses.residentId, serviceId: ses.serviceId, staffId: ses.staffId,
-        sessionName: ses.name, location: ses.location,
-        scores: { knowledge: r1(base), skill: r1(base - 0.2), professional: r1(Math.min(5, base + 0.3)) },
-        entrust: Math.max(1, Math.min(5, Math.round(base - 0.4))),
-        comment: remarks[(back + i) % remarks.length],
-        createdAt: iso + "T16:40:00"
-      });
-    });
-  }
 
   /* --- ผลประเมินลงกองเมื่อจบรอบหมุนเวียน: ทำไว้บางส่วนของเดือนที่ปิดไปแล้ว
          ที่เหลือปล่อยค้างไว้ เพื่อให้หน้าประเมินมีทั้งของที่ทำแล้วและของที่ยังค้าง --- */
@@ -3020,7 +2973,7 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
-    staff: staffRoster, services, rotations, sessionEvals, rotationEvals, schedule, cases, users, audit: [],
+    staff: staffRoster, services, rotations, rotationEvals, schedule, cases, users, audit: [],
     epas, epaTargets, epaAssessments,
     backup: { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" }, backupLog: [],
     sync: { url:"", cloudUrl:"", mode:"logbook", token:"", user:"", residentId:"", auto:true, withRole:false,
@@ -3767,18 +3720,14 @@ function progressFor(res, ay = currentAY()) {
   const myCases   = (store.data.cases || []).filter(c => c.participants?.some(x => x.residentId === res.id));
   const casesYear = ay ? myCases.filter(c => c.date && academicYear(c.date) === ay) : myCases;
   const roleCount = (list, role) => list.filter(c => c.participants.some(x => x.residentId === res.id && x.role === role)).length;
-  const evalsAll  = (store.data.sessionEvals || []).filter(e => e.residentId === res.id);
-  const evalsYear = ay ? evalsAll.filter(e => academicYear(e.date) === ay) : evalsAll;
-  const evalNeed  = +(req.sessionEval || 0);
-  const entrusts  = evalsAll.map(e => e.entrust).filter(v => typeof v === "number");
   const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
   const subsNeed = +(req.subspecialties || 0);
   const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
   const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0);
   const surgeonDone = roleCount(casesYear, "surgeon");
   const assistDone  = roleCount(casesYear, "assist1") + roleCount(casesYear, "assist2");
-  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + evalNeed + surgeonNeed + assistNeed;
-  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0) + Math.min(evalsYear.length, evalNeed)
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + surgeonNeed + assistNeed;
+  const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0)
     + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed);
   return {
     ay, lines, subsDone, subsNeed, missingSubs,
@@ -3789,11 +3738,6 @@ function progressFor(res, ay = currentAY()) {
       observer: roleCount(myCases, "observer"),
       verified: myCases.filter(c => c.participants.some(x => x.residentId === res.id && x.verified)).length,
       subs: new Set(myCases.filter(c => c.subspecialty !== "general").map(c => c.subspecialty))
-    },
-    sessionEval: {
-      done: evalsYear.length, need: evalNeed, pct: pct(evalsYear.length, evalNeed), total: evalsAll.length,
-      meanEntrust: entrusts.length ? Math.round((entrusts.reduce((a, b) => a + b, 0) / entrusts.length) * 10) / 10 : null,
-      pending: pendingEvaluations(14, res.id).length
     },
     overall: pct(doneTotal, requiredTotal),
     subsPct: pct(subsDone.size, subsNeed),
@@ -3820,14 +3764,6 @@ function gapsFor(res) {
   proj.forEach(pj => {
     const late = RESEARCH_STAGES.filter(s => { const st = pj.stages?.[s.id] || {}; return st.due && !st.done && st.due < todayISO(); });
     if (late.length) out.push({ level:"bad", text:"งานวิจัย “" + pj.title.slice(0, 40) + "…” เลยกำหนดขั้น " + late.map(s => s.th).join(", ") });
-  });
-  if (p.sessionEval.need && p.sessionEval.done < p.sessionEval.need) out.push({
-    level: p.sessionEval.done === 0 ? "bad" : "warn",
-    text: "การประเมินท้ายเซสชัน " + p.sessionEval.done + "/" + p.sessionEval.need + " ครั้งในปีการศึกษา " + p.ay
-  });
-  if (p.sessionEval.pending) out.push({
-    level:"warn",
-    text: "มีเซสชันใน 14 วันที่ผ่านมา " + p.sessionEval.pending + " เซสชันที่อาจารย์ผู้รับผิดชอบยังไม่ได้ประเมิน"
   });
   if (p.logbook.surgeon.need && p.logbook.surgeon.done < p.logbook.surgeon.need) out.push({
     level: p.logbook.surgeon.done === 0 ? "bad" : "warn",
@@ -3863,40 +3799,6 @@ const evalMean = (ev) => {
   const v = Object.values(ev.scores || {}).filter(x => typeof x === "number" && Number.isFinite(x));
   return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
 };
-/* เซสชันที่ผ่านไปแล้วแต่ยังไม่มีผลประเมิน = งานค้างของอาจารย์ผู้รับผิดชอบ */
-function sessionStatus(ses) {
-  if (evalForKey(ses.key)) return "done";
-  return ses.date < todayISO() ? "due" : (ses.date === todayISO() ? "today" : "future");
-}
-/* คาบนี้จบไปแล้วหรือยัง ณ เวลา now — คาบของวันก่อนจบแล้วเสมอ คาบของวันนี้ดูเวลาจบ (ไม่ระบุใช้ช่วงของ part)
-   คาบนอกเวลา 16:00–08:00 จบเช้าวันถัดไป ในวันเดียวกันจึงถือว่ายังไม่จบ */
-function sessionEnded(ses, now = new Date()) {
-  const today = isoOfLocalDate(now);
-  if (ses.date !== today) return ses.date < today;
-  const span = (PART_BY_ID[ses.part]?.time || "").split("–");
-  const toMin = (s) => { const [h, m] = String(s || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
-  const start = toMin(ses.start || span[0]), end = toMin(ses.end || span[1]);
-  if (end == null) return false;
-  if (start != null && end <= start) return false;
-  return now.getHours() * 60 + now.getMinutes() >= end;
-}
-/* now มีไว้ให้เทสต์กำหนดเวลาได้ — ผู้ใช้จริงไม่ส่ง */
-function pendingEvaluations(days = 14, residentId = null, now = new Date()) {
-  const out = [];
-  const today = isoOfLocalDate(now);
-  /* เริ่มที่ i = 0 (วันนี้) — เดิมเริ่มที่เมื่อวาน คาบเช้าที่จบไปแล้วจึงไม่โผล่เป็นงานค้างจนกว่าจะข้ามวัน
-     อาจารย์ที่จะประเมินตอนบ่ายต้องไปหาเองในการ์ด "คาบที่คุณรับผิดชอบวันนี้" */
-  for (let i = 0; i <= days; i++) {
-    sessionsForDate(addDaysISO(today, -i)).forEach(ses => {
-      if (residentId && ses.residentId !== residentId) return;
-      if (ses.superseded) return;   /* คาบที่แพ้การชนกัน ไม่ถือเป็นงานค้างของอาจารย์ */
-      if (i === 0 && !sessionEnded(ses, now)) return;
-      if (!evalForKey(ses.key)) out.push(ses);
-    });
-  }
-  return out;
-}
-
 /* ============ หน้า "วันนี้" ============
    หน้าอื่นทั้งหมดถามว่า "ภาพรวมเป็นอย่างไร" หน้านี้ถามแค่ "ตอนนี้ฉันต้องไปไหน มีอะไรค้าง"
    จึงตัดตารางใหญ่ออกหมด เหลือเฉพาะสิ่งที่กดได้จากมือถือขณะยืนอยู่หน้าห้องผ่าตัด
@@ -3947,8 +3849,6 @@ function renderToday() {
 
   box.innerHTML = parts.join("");
   $$("#todayBody .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
-  $$("#todayBody [data-batch]").forEach(b => b.addEventListener("click", () =>
-    openSessionBatch(b.dataset.batch.split(",").map(sessionByKey))));
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
@@ -4127,7 +4027,6 @@ function todayForStaff(iso, all) {
         ${swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid)
           ? `<p class="notice small" style="margin:.4rem 0 0">ส่งคำขอแลกวันไปแล้ว รออีกฝ่ายตอบรับ — ตารางยังเป็นชื่อคุณ</p>` : ""}
         <div class="row no-print" style="margin-top:.4rem">
-          ${list.length >= 2 ? `<button class="btn-sm btn-primary" data-batch="${esc(list.map(s => s.key).join(","))}">ประเมินทั้งคาบ (${list.length} คน)</button>` : ""}
           <button class="btn-sm" data-tswap="${esc(first.date)}|${esc(sid)}|${esc(first.part)}|${esc(first.serviceId)}">
             ${(first.subs || []).length ? "แก้การแลกวัน"
               : swapsOn(first.date).some(x => x.status === "pending" && x.fromStaffId === sid) ? "แก้คำขอแลกวัน"
@@ -4135,33 +4034,11 @@ function todayForStaff(iso, all) {
         </div>
         <div style="margin-top:.4rem">${list.map(ses => {
           const r = store.resident(ses.residentId);
-          return `<button class="sess ${evalForKey(ses.key) ? "done" : ""}" data-sess="${esc(ses.key)}"
+          return `<button class="sess" data-sess="${esc(ses.key)}"
             style="border-left-color:${serviceColour(ses.serviceId)}">
-            <b>${esc(r?.name || "—")}</b> <span class="pill">ปี ${r?.year || "—"}</span>
-            <span class="who">${evalForKey(ses.key) ? "✓ ประเมินแล้ว" : "กดเพื่อประเมินท้ายเซสชัน"}</span></button>`;
+            <b>${esc(r?.name || "—")}</b> <span class="pill">ปี ${r?.year || "—"}</span></button>`;
         }).join("")}</div></div>`;
     }).join("") : `<p class="empty">วันนี้ไม่มีคาบที่ระบุชื่อคุณไว้ในตาราง</p>`}
-  </div>`);
-
-  const pend = pendingEvaluations(14).filter(ses => ses.staffId === sid || (ses.staffIds || []).includes(sid));
-  const others = pendingEvaluations(14).length - pend.length;
-  out.push(`<div class="card">
-    <h2>ประเมินที่ค้าง <span class="tag ${pend.length ? "warn" : "ok"}">${pend.length} เซสชัน</span></h2>
-    ${batchButtonsHtml(pend)}
-    ${pend.length ? pend.slice(0, 10).map(ses => {
-      const r = store.resident(ses.residentId);
-      return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
-        <span class="pill">${fmtDate(ses.date)}</span><b>${esc(ses.name)}</b>
-        <span class="who">${esc(r?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
-    }).join("") : `<p class="empty">ไม่มีเซสชันของคุณค้างประเมินใน 14 วันที่ผ่านมา</p>`}
-    ${pend.length > 10 ? `<p class="small muted">และอีก ${pend.length - 10} เซสชัน</p>` : ""}
-    ${others > 0 ? `<p class="small muted" style="margin-top:.6rem">อีก ${others} เซสชันเป็นของอาจารย์ท่านอื่น —
-      ดูทั้งหมดได้ที่หน้าตาราง</p>` : ""}
-    <div class="row no-print" style="margin-top:.8rem">
-      <button class="btn-sm" data-tgo="rotation">ตารางทั้งสัปดาห์</button>
-      <!-- เดิมชี้ไป "activities" ซึ่งเป็นแท็บที่ถูกยุบเข้าหน้าประเมินไปแล้ว — กดแล้วทุก view ดับ -->
-      <button class="btn-sm" data-tgo="assess">งานประเมินที่ค้าง</button>
-    </div>
   </div>`);
 
   /* ประเมินลงกองที่ค้าง — เดิมเห็นได้แค่ในหน้าประเมินทีละเดือน รอบที่ค้างจากสามเดือนก่อนจึงหายเงียบ
@@ -4206,11 +4083,9 @@ function todayForAdmin(iso, all) {
     }).join("")}</div>
   </div>`);
 
-  const pend = pendingEvaluations(14);
   out.push(`<div class="card">
     <h2>สิ่งที่ต้องรู้วันนี้</h2>
     <div class="grid g4">
-      <div class="stat"><b>${pend.length}</b><span>เซสชันค้างประเมิน (14 วัน)</span></div>
       <div class="stat"><b>${(store.data.activities || []).filter(a => !a.verified).length}</b><span>กิจกรรมรอรับรอง</span></div>
       <div class="stat"><b>${idle.length}</b><span>วันนี้ไม่มีคาบเลย</span></div>
       <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
@@ -4693,7 +4568,7 @@ function renderRotation() {
   const today = todayISO();
   const dow = new Date(today + "T00:00:00").getDay();
   $("#nowStamp").textContent = "ข้อมูล ณ วัน" + DAY_NAMES[dow] + "ที่ " + fmtDate(today) +
-    " · เซสชันวันนี้ " + sessionsForDate(today).length + " เซสชัน · รอการประเมินย้อนหลัง 14 วัน " + pendingEvaluations().length + " เซสชัน";
+    " · เซสชันวันนี้ " + sessionsForDate(today).length + " เซสชัน";
 
   /* --- ตอนนี้ใครอยู่หน่วยไหน --- */
   const todaySessions = sessionsForDate(today);
@@ -4727,27 +4602,6 @@ function renderRotation() {
     </div>`;
   }).join("")}</div>` : `<p class="empty">ยังไม่มีรายชื่อแพทย์ประจำบ้าน</p>`;
 
-  /* --- งานประเมินที่ค้างอยู่ แยกตามอาจารย์ผู้รับผิดชอบ --- */
-  const pend = isStaff() ? pendingEvaluations(14) : [];
-  $("#pendingCount").textContent = pend.length + " เซสชัน";
-  const byStaff = {};
-  pend.forEach(ses => (byStaff[ses.staffId || "-"] ||= []).push(ses));
-  $("#pendingBoard").innerHTML = pend.length ? `<div class="grid g2">${Object.entries(byStaff)
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([sid, list]) => `<div class="nowcard">
-      <div class="between"><b>${esc(staffName(sid))}</b><span class="tag warn">${list.length} รอประเมิน</span></div>
-      ${batchButtonsHtml(list)}
-      <div style="margin-top:.4rem">${list.slice(0, 6).map(ses => {
-        const r = store.resident(ses.residentId);
-        return `<button class="sess due" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
-          <span class="pill">${fmtDate(ses.date)}</span> <span class="pill">${esc(PART_BY_ID[ses.part]?.th || "")}</span>
-          <b>${esc(ses.name)}</b>
-          <span class="who">${esc(r?.name || "—")} · ปี ${r?.year || "—"}</span></button>`;
-      }).join("")}
-      ${list.length > 6 ? `<p class="small muted" style="margin:.2rem 0 0">และอีก ${list.length - 6} เซสชัน</p>` : ""}</div>
-    </div>`).join("")}</div>`
-    : `<p class="empty">ไม่มีเซสชันค้างประเมินใน 14 วันที่ผ่านมา</p>`;
-
   /* --- ตารางประจำสัปดาห์ --- */
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   $("#weekLabel").textContent = fmtDate(days[0]) + " – " + fmtDate(days[6]);
@@ -4768,16 +4622,13 @@ function renderRotation() {
           `<span class="small muted" style="padding-left:.2rem">—</span>`}</td>`;
       }).join("")}
     </tr>`).join("")}</tbody></table></div>` : "";
-  $$("#weekGrid .sess, #nowBoard .sess, #pendingBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
-  $$("#pendingBoard [data-batch]").forEach(b => b.addEventListener("click", () =>
-    openSessionBatch(b.dataset.batch.split(",").map(sessionByKey))));
+  $$("#weekGrid .sess, #nowBoard .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
 
   /* --- ช่วงหมุนเวียนทั้งหมด --- */
   renderRotationTable();
 
   renderMonthGrid();
   renderTalks();
-  renderEvalList();
 }
 
 /* ตารางช่วงหมุนเวียนทั้งหมด — แยกออกมาให้ปุ่ม "แสดงเพิ่ม" วาดใหม่เฉพาะส่วนนี้ ไม่ต้อง renderAll ทั้งแอป */
@@ -4808,29 +4659,6 @@ function renderRotationTable() {
   $$("#rotationTable [data-rot]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rot)));
 }
 
-function renderEvalList() {
-  /* --- ผลประเมินท้ายเซสชันล่าสุด --- */
-  /* ผลประเมินเป็นข้อมูลรายบุคคล เหมือน visibleActivities()/visibleResidents() —
-     แพทย์ประจำบ้านต้องเห็นเฉพาะของตัวเอง ไม่งั้นเห็นคะแนน/ข้อเสนอแนะของเพื่อนร่วมสายทั้งหมด */
-  const visibleEvals = (store.data.sessionEvals || []).filter(ev => canSeeResident(ev.residentId));
-  const evs = visibleEvals.slice().sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 15);
-  $("#evalList").innerHTML = evs.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>แพทย์ประจำบ้าน</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>คะแนนเฉลี่ย</th><th>ระดับการทำได้เอง</th><th>ข้อเสนอแนะ</th></tr></thead>
-    <tbody>${evs.map(ev => {
-      const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
-      return `<tr>
-        <td class="small">${fmtDate(ev.date)}<br /><span class="muted">${esc(PART_BY_ID[ev.part]?.th || "")}</span></td>
-        <td class="small">${esc(r?.name || "—")}</td>
-        <td class="small">${esc(ev.sessionName || "")}<br /><span class="muted">${esc(svc?.name || "")}</span></td>
-        <td class="small">${esc(staffName(ev.staffId))}</td>
-        <td><b>${evalMean(ev) ?? "—"}</b>/5</td>
-        <td class="small">${ev.entrust ? "ระดับ " + ev.entrust : "—"}</td>
-        <td class="small">${esc((ev.comment || "").slice(0, 90))}</td>
-      </tr>`;
-    }).join("")}</tbody></table></div>
-    <p class="small muted" style="margin-top:.5rem">บันทึกไว้ทั้งหมด ${visibleEvals.length} ครั้ง</p>`
-    : `<p class="empty">ยังไม่มีการประเมินท้ายเซสชัน</p>`;
-}
 
 /* --- แบบที่ 1: ตารางหมุนเวียนรายเดือน --- */
 let ayView = null;
@@ -5119,10 +4947,7 @@ const sessionStaffLabel = (ses) => {
 const sessionTimeLabel = (ses) => ses.start && ses.end ? ses.start + "–" + ses.end : (PART_BY_ID[ses.part]?.time || "");
 
 function sessionChip(ses, withDate) {
-  const st = sessionStatus(ses);
-  const ev = evalForKey(ses.key);
-  const svc = serviceById(ses.serviceId);
-  const cls = (ses.superseded ? "muted-sess " : "") + (st === "done" ? "done" : st === "due" && !ses.superseded ? "due" : "");
+  const cls = ses.superseded ? "muted-sess" : "";
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
   const note = ses.visit ? `<span class="tag ok">ได้รับอนุมัติให้ไปเข้าคาบสายอื่น${ses.visitReason ? " — " + esc(ses.visitReason) : ""}</span>`
              : ses.advisory ? `<span class="tag">${ses.frontline ? "หน้างาน" : "ร่วมรับผิดชอบ"}</span>`
@@ -5131,6 +4956,7 @@ function sessionChip(ses, withDate) {
              : ses.superseded ? `<span class="tag warn">${ses.supersededByPick ? "วันนี้เลือกเข้า" : "ชน — ไปเข้า"} ${esc(ses.supersededBy)}</span>`
              : ses.clash ? `<span class="tag warn">ชนกับ ${esc(ses.clash)} — เลือกว่าเข้าคาบไหน</span>`
              : "";
+  const svc = serviceById(ses.serviceId);
   return `<button class="sess ${cls}" data-sess="${esc(ses.key)}" style="border-left-color:${serviceColour(ses.serviceId)}">
     <span class="pill">${esc(PART_BY_ID[ses.part]?.th || ses.part)}</span>
     ${ses.kind === "duty" ? `<span class="pill">เวร</span>` : ""}
@@ -5138,18 +4964,15 @@ function sessionChip(ses, withDate) {
     ${ses.kind === "central" ? `<span class="pill">ส่วนกลาง</span>` : ""}
     <b>${esc(ses.name)}</b>
     <span class="who">${esc(sessionStaffLabel(ses))}${ses.location ? " · " + esc(ses.location) : ""}</span>
-    <span class="who">${note || (ev ? "✓ ประเมินแล้ว " + (evalMean(ev) ?? "—") + "/5" : st === "due" ? "รอประเมิน" : svc ? esc(serviceSubLabel(svc)) : "")}</span>
+    <span class="who">${note || (svc ? esc(serviceSubLabel(svc)) : "")}</span>
   </button>`;
 }
 
-/* --- แบบประเมินท้ายเซสชัน --- */
+/* --- รายละเอียดเซสชัน: ดูข้อมูลของคาบ บันทึกว่าเข้าคาบไหนเมื่อชนกัน และขอแลกวัน --- */
 function openSession(key) {
   const ses = sessionByKey(key);
   if (!ses) { toast("ไม่พบเซสชันนี้แล้ว (ตารางหรือช่วงหมุนเวียนอาจถูกแก้ไข)"); return; }
-  const r = store.resident(ses.residentId), svc = serviceById(ses.serviceId), ev = evalForKey(key);
-  /* กล่องติ๊ก EPA แสดงแค่ 12 อันดับแรก — ตอนบันทึกต้องรู้ว่ารายการไหน "ถูกแสดงจริง" ด้วย
-     เพื่อไม่ให้ทับ/ลบผลประเมิน EPA ของหัวข้อที่ตกไปนอก 12 อันดับ (ดู C10 ด้านล่างตอนบันทึก) */
-  let visibleEpaIds = [];
+  const r = store.resident(ses.residentId), svc = serviceById(ses.serviceId);
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
@@ -5164,54 +4987,15 @@ function openSession(key) {
         ? `<br /><span class="tag">มีคำขอแลกวันรอตอบรับ — ตารางยังเป็นชื่อนี้</span>` : ""}</dd>
     </div>
     ${ses.superseded ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.supersededBy)}</b> ซึ่งมีลำดับความสำคัญสูงกว่า
-      ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น คาบนี้จึงไม่ถูกนับเป็นงานค้างประเมิน</p>` : ""}
+      ตามตารางแล้วแพทย์ประจำบ้านไปเข้าคาบนั้น</p>` : ""}
     ${ses.clash ? `<p class="notice warn small">คาบนี้ชนกับ <b>${esc(ses.clash)}</b> และทั้งสองมีลำดับความสำคัญเท่ากัน
       ระบบไม่ตัดสินแทน — กด “บันทึกว่าเข้าคาบนี้” เพื่อระบุว่าวันนั้นไปเข้าคาบไหนจริง
       หรือปรับลำดับความสำคัญที่หน้าตั้งค่าถ้าเป็นกติกาประจำทั้งปี</p>` : ""}
     ${ses.picked ? `<p class="notice small">บันทึกไว้แล้วว่าวันนี้เข้าคาบนี้${ses.pickedStaff ? " กับ " + esc(sessionStaffLabel(ses)) : ""}
       — คาบอื่นที่ชนกันในช่วงเดียวกันถูกทำเครื่องหมายว่าไม่ได้เข้า</p>` : ""}
     ${(ses.overlaps || []).length && !ses.picked ? `<p class="small muted">ช่วงเดียวกันวันนี้ยังมี: ${esc(ses.overlaps.join(" · "))}</p>` : ""}
-    <label class="f"><span>อาจารย์ผู้รับผิดชอบ / ผู้ประเมิน</span>
-      <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(ev?.staffId || myStaffId() || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
-    <h4>ประเมินท้ายเซสชัน <span class="small muted">(หลักฐาน WFME 3.1 / 3.2 / 5.2 / 7.2)</span></h4>
-    <div class="grid g3">
-      ${EVAL_ITEMS.map(it => `<label class="f"><span>${esc(it.th)}</span>
-        <select name="sc_${it.id}">
-          <option value="">—</option>
-          ${[1,2,3,4,5].map(v => `<option value="${v}" ${String(ev?.scores?.[it.id] ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}
-        </select></label>`).join("")}
-    </div>
-    <label class="f"><span>ระดับการปฏิบัติงานด้วยตนเองที่ไว้วางใจได้ (entrustment)</span>
-      <select name="entrust"><option value="">—</option>
-        ${ENTRUST_LEVELS.map(l => `<option value="${l.v}" ${String(ev?.entrust ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v} — ${esc(l.th)}</option>`).join("")}
-      </select></label>
-    ${(() => {
-      /* ระดับ entrustment ที่ให้ตรงนี้ กับระดับที่ให้ในหน้า EPA เป็นสเกลเดียวกัน (ENTRUST_LEVELS)
-         เดิมต้องให้สองรอบ — ประเมินท้ายเซสชันครั้งหนึ่ง แล้วไปให้ระดับ EPA อีกครั้ง
-         ติ๊กหัวข้อตรงนี้แล้วระบบบันทึกให้ทั้งสองที่จากการกดครั้งเดียว
-         หัวข้อที่ตรงกับอนุสาขาของคาบนี้ถูกยกขึ้นมาก่อน จะได้ไม่ต้องไล่หา */
-      const epas = store.data.epas || [];
-      if (!epas.length) return "";
-      const svcSub = serviceById(ses.serviceId)?.subspecialty || "";
-      const rank = (e) => (e.subspecialty === svcSub ? 0 : 1);
-      const sorted = epas.slice().sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code));
-      const already = new Set((store.data.epaAssessments || [])
-        .filter(a => a.sessionKey === ses.key).map(a => a.epaId));
-      const shown = sorted.slice(0, 12);
-      visibleEpaIds = shown.map(e => e.id);
-      return `<fieldset class="f" style="border:1px solid var(--line);border-radius:var(--r);padding:.6rem .8rem">
-        <legend class="small muted">หัวข้อ EPA ที่คาบนี้ครอบคลุม <span class="muted">(ไม่เลือกก็ได้)</span></legend>
-        <p class="small muted" style="margin:.1rem 0 .5rem">ติ๊กแล้วระดับ entrustment ข้างบนจะถูกบันทึกเป็นผลประเมิน EPA ของหัวข้อนั้นด้วย
-          — ประเมินครั้งเดียว ไม่ต้องมาให้ระดับซ้ำที่หน้า EPA</p>
-        <div class="row">${shown.map(e => `<label class="tag" style="cursor:pointer">
-          <input type="checkbox" name="epa_${e.id}" ${already.has(e.id) ? "checked" : ""} />
-          ${esc(e.code)} ${e.subspecialty === svcSub ? "★" : ""}
-          <span class="muted">${esc((e.title || "").slice(0, 34))}</span></label>`).join("")}</div>
-      </fieldset>`;
-    })()}
-    <label class="f"><span>ข้อเสนอแนะให้แพทย์ประจำบ้าน (feedback ทันทีหลังเซสชัน)</span>
-      <textarea name="comment" placeholder="สิ่งที่ทำได้ดี และสิ่งที่ควรทำต่างออกไปในครั้งหน้า">${esc(ev?.comment || "")}</textarea></label>
-    ${ev ? `<p class="small muted">บันทึกเมื่อ ${ev.createdAt ? fmtDateTime(ev.createdAt) : "—"}</p>` : ""}`;
+    <label class="f"><span>อาจารย์ผู้รับผิดชอบคาบนี้</span>
+      <select name="staffId">${(store.data.staff || []).map(x => `<option value="${x.id}" ${(myStaffId() || ses.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>`;
 
   /* ลำดับความสำคัญเป็นกติกาของทั้งปี ส่วนนี่คือความจริงของวันนั้น — วันไหนเข้าคาบไหน กับอาจารย์คนใด
      เจ้าของตารางบันทึกเองได้ ไม่ต้องรออาจารย์ */
@@ -5251,138 +5035,7 @@ function openSession(key) {
     onClick: () => { closeDialog(); openSwap(ses.date, sid, ses.part, ses.serviceId); return false; }
   }));
 
-  if (!canAssess()) {
-    showDialog("รายละเอียดเซสชัน",
-      body + `<p class="notice warn small">บัญชีนี้ประเมินไม่ได้ — การประเมินท้ายเซสชันทำได้โดยอาจารย์ผู้รับผิดชอบ
-        ${canPick ? " แต่บันทึกได้ว่าวันนี้เข้าคาบไหนและใครเป็นผู้คุม" : ""}</p>`, [...pickButtons, ...swapButtons]);
-    return;
-  }
-  showDialog(ev ? "แก้ไขผลประเมินท้ายเซสชัน" : "ประเมินท้ายเซสชัน", body, [
-    ...pickButtons, ...swapButtons,
-    { label: ev ? "บันทึกการแก้ไข" : "บันทึกผลประเมิน", cls:"btn-primary", onClick: () => {
-        const scores = {};
-        EVAL_ITEMS.forEach(it => { const v = dlgVal("sc_" + it.id); if (v) scores[it.id] = +v; });
-        const comment = ($('#dlgBody [name="comment"]')?.value || "").trim();
-        const entrust = dlgVal("entrust");
-        const epaIds = (store.data.epas || []).filter(e =>
-          visibleEpaIds.includes(e.id) && $('#dlgBody [name="epa_' + e.id + '"]')?.checked).map(e => e.id);
-        const r = saveSessionEval(ses, { staffId: dlgVal("staffId"), scores, entrust, comment, epaIds, visibleEpaIds });
-        if (!r.ok) { toast(r.error); return false; }
-        store.save(); renderAll();
-        toast(r.pickedEpa.length
-          ? "บันทึกผลประเมินแล้ว · บันทึกระดับ EPA " + r.pickedEpa.length + " หัวข้อให้พร้อมกัน"
-          : "บันทึกผลประเมินแล้ว");
-      }},
-    ...(ev ? [{ label:"ลบผลประเมิน", cls:"btn-danger", onClick: () => {
-        /* ผล EPA ที่เกิดจากคาบนี้ต้องหายไปด้วย ไม่งั้นจะเหลือระดับที่ไม่มีที่มาแล้ว — และกลับมาพร้อมกันตอนเลิกทำ */
-        removeWithUndo("ลบผลประเมินแล้ว", [
-          { list:"sessionEvals", keep: x => x.id !== ev.id },
-          { list:"epaAssessments", keep: a => a.sessionKey !== ses.key }]);
-      }}] : [])
-  ]);
-}
-
-/* บันทึกผลประเมินท้ายเซสชันของคาบเดียว — ตัวเดียวที่เขียน sessionEvals/epaAssessments ใช้ร่วมกันระหว่าง
-   กล่องรายคน (openSession) และกล่องประเมินทั้งคาบ (openSessionBatch) จะได้ไม่มีสองก๊อปปี้ที่เพี้ยนกัน
-   ไม่ save/renderAll เอง — ผู้เรียกทำหลังบันทึกครบทุกคน */
-function saveSessionEval(ses, { staffId, scores, entrust, comment, epaIds = [], visibleEpaIds = [] }) {
-  if (!Object.keys(scores).length && !comment && !entrust) return { ok: false, error: "ใส่คะแนนหรือข้อเสนอแนะอย่างน้อยหนึ่งอย่าง" };
-  const ev = evalForKey(ses.key);
-  const rec = {
-    key: ses.key, date: ses.date, part: ses.part, residentId: ses.residentId, serviceId: ses.serviceId,
-    staffId: staffId || ses.staffId, sessionName: ses.name, location: ses.location,
-    scores, entrust: entrust ? +entrust : null, comment, createdAt: new Date().toISOString()
-  };
-  if (ev) Object.assign(ev, rec); else store.data.sessionEvals.push({ id: uid("ev"), ...rec });
-
-  /* หัวข้อ EPA ที่ติ๊กไว้ — บันทึกระดับเดียวกันเป็นผลประเมิน EPA ให้เลย
-     ลบเฉพาะของเดิมที่มาจากคาบนี้ "และ" เป็นหัวข้อที่กล่องแสดงให้ติ๊กจริง (visibleEpaIds) — หัวข้อที่ตกไปนอก
-     12 อันดับแรกไม่มีช่องติ๊ก ถ้าลบทิ้งหมดผลประเมิน EPA เดิมจะหายเงียบ ๆ · เขียนเฉพาะเมื่อมีระดับ entrustment */
-  const pickedEpa = (store.data.epas || []).filter(e => epaIds.includes(e.id));
-  store.data.epaAssessments = (store.data.epaAssessments || [])
-    .filter(a => !(a.sessionKey === ses.key && visibleEpaIds.includes(a.epaId)));
-  if (entrust) pickedEpa.forEach(e => store.data.epaAssessments.push({
-    id: uid("epaa"), residentId: ses.residentId, epaId: e.id, level: +entrust,
-    by: rec.staffId ? staffName(rec.staffId) : (currentUser()?.displayName || ""),
-    byUserId: currentUser()?.id || "", at: ses.date, caseId: "",
-    sessionKey: ses.key,                 /* บอกที่มา และใช้กันรายการซ้อนตอนแก้ */
-    note: "จากการประเมินท้ายเซสชัน — " + ses.name
-  }));
-  audit("ประเมินท้ายเซสชัน", (store.resident(ses.residentId)?.name || "") + " · " + ses.name +
-    (entrust && pickedEpa.length ? " · บันทึก EPA " + pickedEpa.map(e => e.code).join(", ") : ""));
-  return { ok: true, pickedEpa: entrust ? pickedEpa : [] };
-}
-
-/* --- ประเมินทั้งคาบ: ทุกคนในคาบเดียวกันในกล่องเดียว --- */
-const batchKey = (s) => [s.date, s.part, s.serviceId, s.name].join("|");
-/* ปุ่ม "ประเมินทั้งคาบ" สำหรับทุกกลุ่มในรายการที่มีตั้งแต่ 2 คนขึ้นไป — ใช้ทั้งหน้าวันนี้และกระดานงานค้าง */
-function batchButtonsHtml(list, cls = "btn-sm") {
-  const g = {};
-  list.forEach(s => (g[batchKey(s)] ||= []).push(s));
-  const multi = Object.values(g).filter(x => x.length >= 2);
-  if (!multi.length) return "";
-  return `<div class="row no-print" style="margin:.2rem 0 .5rem">${multi.map(x =>
-    `<button class="${cls}" data-batch="${esc(x.map(s => s.key).join(","))}">ประเมินทั้งคาบ: ${esc(x[0].name)} ${fmtDate(x[0].date).replace(/ \d{4}$/, "")} (${x.length} คน)</button>`).join("")}</div>`;
-}
-function openSessionBatch(sessions) {
-  if (!canAssess()) { toast("บัญชีนี้ไม่มีสิทธิ์ประเมิน"); return; }
-  const list = (sessions || []).filter(Boolean);
-  if (!list.length) { toast("ไม่พบคาบนี้แล้ว (ตารางอาจถูกแก้ไข)"); return; }
-  const first = list[0];
-  /* ช่องเลือกให้แคบ — 6 คอลัมน์ต้องพอดีกล่องบนจอเดสก์ท็อป ไม่ต้องเลื่อนข้าง */
-  const scoreSel = (name, val) => `<select name="${name}" style="min-width:4.2rem;width:4.2rem"><option value="">—</option>${[1,2,3,4,5].map(v =>
-    `<option value="${v}" ${String(val ?? "") === String(v) ? "selected" : ""}>${v}</option>`).join("")}</select>`;
-  const entrustSel = (name, val) => `<select name="${name}" style="min-width:5.2rem;width:5.2rem"><option value="">—</option>${ENTRUST_LEVELS.map(l =>
-    `<option value="${l.v}" ${String(val ?? "") === String(l.v) ? "selected" : ""}>ระดับ ${l.v}</option>`).join("")}</select>`;
-  const body = `
-    <div class="kv" style="margin-bottom:.8rem">
-      <dt>เซสชัน</dt><dd>${esc(first.name)} · ${esc(PART_BY_ID[first.part]?.th || first.part)} ${esc(sessionTimeLabel(first))}</dd>
-      <dt>วันที่</dt><dd>${fmtDate(first.date)} · ${list.length} คน</dd>
-    </div>
-    <label class="f"><span>อาจารย์ผู้ประเมิน</span><select name="b_staff">${(store.data.staff || []).map(x =>
-      `<option value="${x.id}" ${(myStaffId() || first.staffId) === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>แพทย์ประจำบ้าน</th>${EVAL_ITEMS.map(it =>
-          `<th class="small" title="${esc(it.th)}">${esc(it.th.split(/และ|,| /)[0])}</th>`).join("")}
-        <th class="small">entrust</th><th>ข้อเสนอแนะ</th><th></th></tr></thead>
-      <tbody>
-        <tr class="muted"><th class="small">ใช้ค่านี้กับทุกคน</th>
-          ${EVAL_ITEMS.map(it => `<td>${scoreSel("q_sc_" + it.id)}</td>`).join("")}
-          <td>${entrustSel("q_entrust")}</td>
-          <td colspan="2"><button type="button" class="btn-sm" data-fillall>เติมให้ทุกคนที่ยังว่าง</button></td></tr>
-        ${list.map((ses, i) => {
-          const r = store.resident(ses.residentId), ev = evalForKey(ses.key);
-          return `<tr>
-            <td><b>${esc(r?.name || "—")}</b><br /><span class="small muted">ปี ${r?.year || "—"}${ev ? ' · <span class="tag ok">ประเมินแล้ว</span>' : ""}</span></td>
-            ${EVAL_ITEMS.map(it => `<td>${scoreSel("r" + i + "_sc_" + it.id, ev?.scores?.[it.id])}</td>`).join("")}
-            <td>${entrustSel("r" + i + "_entrust", ev?.entrust)}</td>
-            <td><input name="r${i}_comment" value="${esc(ev?.comment || "")}" placeholder="สั้น ๆ" style="min-width:9rem" /></td>
-            <td><button type="button" class="btn-sm btn-ghost" data-openses="${esc(ses.key)}" title="ประเมินรายคนพร้อม EPA">รายละเอียด</button></td>
-          </tr>`;
-        }).join("")}
-      </tbody></table></div>
-    <p class="small muted" style="margin-top:.5rem">แถวที่ยังว่างทั้งแถวจะไม่ถูกบันทึก · หัวข้อ EPA ประเมินได้จากปุ่ม "รายละเอียด" ของแต่ละคน</p>`;
-  showDialog("ประเมินทั้งคาบ — " + first.name, body, [
-    { label:"บันทึกทุกแถวที่กรอก", cls:"btn-primary", onClick: () => {
-        let saved = 0;
-        list.forEach((ses, i) => {
-          const scores = {};
-          EVAL_ITEMS.forEach(it => { const v = dlgVal("r" + i + "_sc_" + it.id); if (v) scores[it.id] = +v; });
-          const entrust = dlgVal("r" + i + "_entrust"), comment = dlgVal("r" + i + "_comment");
-          if (!Object.keys(scores).length && !entrust && !comment) return;   /* แถวว่าง — ข้าม */
-          if (saveSessionEval(ses, { staffId: dlgVal("b_staff"), scores, entrust, comment }).ok) saved++;
-        });
-        if (!saved) { toast("ยังไม่ได้กรอกคะแนนของใครเลย"); return false; }
-        store.save(); renderAll(); toast("บันทึกผลประเมิน " + saved + " คน");
-      }}
-  ]);
-  $('#dlgBody [data-fillall]').addEventListener("click", () => {
-    list.forEach((_, i) => {
-      EVAL_ITEMS.forEach(it => { const t = $(`#dlgBody [name="r${i}_sc_${it.id}"]`), q = dlgVal("q_sc_" + it.id); if (t && !t.value && q) t.value = q; });
-      const te = $(`#dlgBody [name="r${i}_entrust"]`), qe = dlgVal("q_entrust"); if (te && !te.value && qe) te.value = qe;
-    });
-  });
-  $$('#dlgBody [data-openses]').forEach(b => b.addEventListener("click", () => { closeDialog(); openSession(b.dataset.openses); }));
+  showDialog("รายละเอียดเซสชัน", body, [...pickButtons, ...swapButtons]);
 }
 
 /* --- ตารางเวรรายเดือน --- */
@@ -5549,13 +5202,12 @@ function editRotation(id) {
 function renderStaffTable() {
   const st = store.data.staff || [];
   $("#staffTable").innerHTML = st.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>ชื่อ</th><th>บทบาท</th><th>Subspecialty</th><th>เซสชันต่อสัปดาห์ที่รับผิดชอบ</th><th>ประเมินแล้ว</th><th></th></tr></thead>
+    <thead><tr><th>ชื่อ</th><th>บทบาท</th><th>Subspecialty</th><th>เซสชันต่อสัปดาห์ที่รับผิดชอบ</th><th></th></tr></thead>
     <tbody>${st.map(x => {
       const load = (store.data.services || []).reduce((n, svc) => n + (svc.template || []).filter(t => t.staffId === x.id).length, 0);
-      const done = (store.data.sessionEvals || []).filter(e => e.staffId === x.id).length;
       return `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.role || "—")}</td>
         <td class="small">${staffSubs(x).map(id => `<span class="tag">${esc(SUB_BY_ID[id]?.en || id)}</span>`).join(" ") || "—"}</td>
-        <td>${load}</td><td>${done}</td>
+        <td>${load}</td>
         <td class="no-print"><button class="btn-sm" data-staff="${x.id}">แก้ไข</button></td></tr>`;
     }).join("")}</tbody></table></div>` : `<p class="empty">ยังไม่มีรายชื่ออาจารย์</p>`;
   $$("#staffTable [data-staff]").forEach(b => b.addEventListener("click", () => editStaff(b.dataset.staff)));
@@ -5723,20 +5375,6 @@ function editService(id) {
   });
 }
 
-function evalCsvRows() {
-  const head = ["วันที่","ช่วง","แพทย์ประจำบ้าน","ชั้นปี","Service","Subspecialty","เซสชัน","สถานที่","ผู้ประเมิน",
-                ...EVAL_ITEMS.map(i => i.th), "คะแนนเฉลี่ย","ระดับ entrustment","ข้อเสนอแนะ","บันทึกเมื่อ"];
-  /* เหมือน #evalList — แพทย์ประจำบ้านต้องดาวน์โหลดได้เฉพาะผลประเมินของตัวเอง */
-  return [head].concat((store.data.sessionEvals || []).filter(ev => canSeeResident(ev.residentId))
-    .slice().sort((a, b) => a.date.localeCompare(b.date)).map(ev => {
-    const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
-    return [ev.date, PART_BY_ID[ev.part]?.th || ev.part, r?.name || "", r?.year || "", svc?.name || "",
-      SUB_BY_ID[svc?.subspecialty]?.en || "", ev.sessionName || "", ev.location || "", staffName(ev.staffId),
-      ...EVAL_ITEMS.map(i => ev.scores?.[i.id] ?? ""), evalMean(ev) ?? "", ev.entrust ?? "", ev.comment || "",
-      ev.createdAt ? fmtDateTime(ev.createdAt) : ""];
-  }));
-}
-
 function printRoster() {
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
@@ -5849,8 +5487,6 @@ function renderResidentDetail() {
       <div class="stat"><b>${p.overall}%</b><span>ความก้าวหน้าเทียบเกณฑ์ปีนี้</span></div>
       <div class="stat"><b>${p.subsDone.size}/${p.subsNeed || "—"}</b><span>อนุสาขาที่ครอบคลุม</span></div>
       <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
-      <div class="stat"><b>${p.sessionEval.total}</b><span>ประเมินท้ายเซสชันสะสม</span></div>
-      <div class="stat"><b>${p.sessionEval.meanEntrust ?? "—"}</b><span>ระดับ entrustment เฉลี่ย (เต็ม 5)</span></div>
       <div class="stat"><b>${p.logbook.total}</b><span>เคสผ่าตัดใน logbook</span></div>
       <div class="stat"><b>${roleCountAll(r.id, "surgeon")}</b><span>เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)</span></div>
     </div>
@@ -5863,9 +5499,6 @@ function renderResidentDetail() {
         <td>${barFor(l.pct)}</td>
         <td class="small">${l.type.wfme.map(id => `<span class="tag">${id}</span>`).join(" ")}</td>
       </tr>`).join("")}
-      <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td><td><b>${p.sessionEval.done}</b></td><td>${p.sessionEval.need || "—"}</td>
-        <td>${barFor(p.sessionEval.pct)}</td>
-        <td class="small"><span class="tag">3.1</span> <span class="tag">3.2</span> <span class="tag">5.2</span> <span class="tag">7.2</span></td></tr>
       <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
         <td>${barFor(p.logbook.surgeon.pct)}</td>
         <td class="small"><span class="tag">2.3</span> <span class="tag">2.6</span> <span class="tag">3.1</span></td></tr>
@@ -5888,13 +5521,12 @@ function renderResidentDetail() {
       <h3 style="margin-top:1rem">งานวิจัย</h3>${projects.map(pj => researchBlock(pj, true)).join("")}</section>` : ""}
 
     ${(() => {
-      const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => b.date.localeCompare(a.date));
       const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
       const revs = (store.data.rotationEvals || []).filter(x => x.residentId === r.id)
         .sort((a, b) => String(b.end || "").localeCompare(String(a.end || "")));
-      if (!evs.length && !rots.length && !revs.length) return "";
-      return `<section data-fold="res-rotations" data-fold-closed data-fold-sum="ลงกอง ${revs.length} · ท้ายเซสชัน ${evs.length}">
-      <h3 style="margin-top:1rem">การหมุนเวียน ผลประเมินลงกอง และการประเมินท้ายเซสชัน</h3>
+      if (!rots.length && !revs.length) return "";
+      return `<section data-fold="res-rotations" data-fold-closed data-fold-sum="ลงกอง ${revs.length} รอบ">
+      <h3 style="margin-top:1rem">การหมุนเวียนและผลประเมินลงกอง</h3>
       ${rots.length ? `<div class="row" style="margin-bottom:.5rem">${rots.slice(0, 6).map(rot => {
         const svc = serviceById(rot.serviceId);
         return `<span class="tag" title="${esc(staffName(rot.supervisorId))}">${esc(svc?.name || "—")} · ${fmtDate(rot.start)}–${fmtDate(rot.end)}</span>`;
@@ -5908,16 +5540,8 @@ function renderResidentDetail() {
           <td class="small">${esc(rotationOutcomeLabel(ev) || "—")}</td>
           <td class="small">${rotationScoreTags(ev) || "—"}</td>
           <td class="small">${rotationTextAnswers(ev).map(x => esc(x.v)).join("<br />") || "—"}</td>
-          <td class="small">${esc(ev.comment || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}
-      ${evs.length ? `<div class="tbl-wrap"><table>
-        <thead><tr><th>วันที่</th><th>เซสชัน</th><th>ผู้ประเมิน</th><th>เฉลี่ย</th><th>entrustment</th><th>ข้อเสนอแนะ</th></tr></thead>
-        <tbody>${evs.slice(0, 12).map(ev => `<tr>
-          <td class="small">${fmtDate(ev.date)}</td>
-          <td class="small">${esc(ev.sessionName || "")}<br /><span class="muted">${esc(serviceById(ev.serviceId)?.name || "")}</span></td>
-          <td class="small">${esc(staffName(ev.staffId))}</td>
-          <td>${evalMean(ev) ?? "—"}</td><td>${ev.entrust ?? "—"}</td>
-          <td class="small">${esc((ev.comment || "").slice(0, 80))}</td></tr>`).join("")}</tbody></table></div>
-        ${evs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${evs.length} ครั้ง</p>` : ""}` : ""}</section>`;
+          <td class="small">${esc(ev.comment || "—")}</td></tr>`).join("")}</tbody></table></div>
+        ${revs.length > 12 ? `<p class="small muted">แสดง 12 จาก ${revs.length} รอบ</p>` : ""}` : ""}</section>`;
     })()}
 
     ${(() => {
@@ -6388,8 +6012,7 @@ function readRotationForm(ev) {
   return { scores, answers, entrust: entrust ? +entrust : null, comment, missing, missingFields };
 }
 
-/* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ — ใช้เกณฑ์ชุดเดียวกับประเมินท้ายเซสชัน
-   จะได้เทียบกันได้ และอาจารย์ไม่ต้องจำสองสเกล */
+/* ประเมินลงกองของรอบหมุนเวียนหนึ่งรอบ */
 /* opts.next(currentRotationId) → รอบถัดไปที่ยังไม่ประเมินในเดือนเดียวกัน (ส่งมาเฉพาะจากหน้าประเมิน) */
 function openRotationEval(rotationId, opts = {}) {
   const rot = (store.data.rotations || []).find(x => x.id === rotationId);
@@ -6398,15 +6021,8 @@ function openRotationEval(rotationId, opts = {}) {
   const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
   const ev = rotationEvalFor(rot.id);
   const month = (rot.end || "").slice(0, 7);
-  /* ข้อมูลประกอบ (อ่านอย่างเดียว) — ให้อาจารย์เห็นว่าเดือนนี้เคยประเมินคนนี้รายคาบไปแล้วกี่ครั้ง ได้เท่าไร
-     และรอบก่อนหน้าเป็นอย่างไร จะได้ให้คะแนนบนหลักฐาน ไม่ใช่ความจำ */
+  /* ข้อมูลประกอบ (อ่านอย่างเดียว) — ให้อาจารย์เห็นว่ารอบก่อนหน้าเป็นอย่างไร จะได้ให้คะแนนบนหลักฐาน ไม่ใช่ความจำ */
   const avg = (arr) => arr.length ? Math.round(arr.reduce((x, y) => x + y, 0) / arr.length * 10) / 10 : null;
-  const inWin = (store.data.sessionEvals || []).filter(e => e.residentId === rot.residentId && e.date >= rot.start && e.date <= rot.end);
-  const sessMeans = inWin.map(evalMean).filter(v => v != null);
-  const sessEntr = inWin.map(e => e.entrust).filter(v => typeof v === "number");
-  const sessLine = inWin.length
-    ? `${inWin.length} ครั้ง${sessMeans.length ? " · เฉลี่ย " + avg(sessMeans) + "/5" : ""}${sessEntr.length ? " · entrust เฉลี่ย " + avg(sessEntr) : ""}`
-    : "ยังไม่มีผลประเมินท้ายเซสชันในรอบนี้";
   const prev = (store.data.rotationEvals || []).filter(x => x.residentId === rot.residentId && x.end && x.end < rot.start)
     .sort((x, y) => String(y.end).localeCompare(String(x.end)))[0];
   const prevLine = prev
@@ -6417,7 +6033,6 @@ function openRotationEval(rotationId, opts = {}) {
       <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
       <dt>สาย / หน่วยที่วน</dt><dd>${esc(svc?.name || "—")} · ${esc(svc ? serviceSubLabel(svc) : "—")}</dd>
       <dt>ช่วง</dt><dd>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</dd>
-      <dt>ท้ายเซสชันในรอบนี้</dt><dd class="small">${sessLine}</dd>
       <dt>รอบก่อนหน้า</dt><dd class="small">${prevLine}</dd>
     </div>
     <label class="f"><span>อาจารย์ผู้ประเมิน</span>
@@ -6713,7 +6328,7 @@ function syncSettingsDialog() {
    13a2) ฐานข้อมูลกลางบนคลาวด์ของภาควิชา + สำรองลงฮาร์ดดิสก์ของภาควิชา
         สองทางนี้ทำงานแยกกัน: คลาวด์คือชุดข้อมูลที่ใช้งานร่วมกัน ส่วนดิสก์คือสำเนาที่ถือไว้เอง
    ===================================================================== */
-const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks","activities",
+const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionPicks","activities",
   "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users",
   "duty","swaps","visits","rotationEvals","rotationForm"];
 
@@ -6741,7 +6356,7 @@ const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
    คีย์ที่ตกหล่นจะไม่ถูกรวมรายรายการใน mergeDatasets() แต่จะถูกทับด้วยของฝั่งคลาวด์ทั้งก้อน
    โดยไม่บันทึกเป็นรายการที่ชนกันด้วยซ้ำ — เท่ากับข้อมูลที่เครื่องนี้เพิ่งบันทึกหายเงียบ ๆ
    (rotationEvals เคยตกหล่นมาแล้ว มีข้อทดสอบใน sync.test.mjs กันไว้) */
-const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionEvals","sessionPicks",
+const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionPicks",
   "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals"];
 /* ก้อนคอนฟิกที่รวมกันทั้งชุด ไม่ใช่รายการที่ merge ทีละตัว — แบบประเมินลงกองอยู่ตรงนี้
    เพราะ merge รายข้อจะทำลายลำดับ และปล่อยให้สองเครื่องเอาข้อของตัวเองมาสลับกัน
@@ -7021,7 +6636,7 @@ function renderConflictList() {
   const box = $("#conflictList"); if (!box) return;
   const rows = (store.data.syncConflicts || []).slice(-20).reverse();
   const label = { residents:"แพทย์ประจำบ้าน", staff:"อาจารย์", services:"หน่วย", rotations:"ช่วงหมุนเวียน",
-    schedule:"ตารางนำเสนอ", sessionEvals:"ผลประเมินท้ายเซสชัน", sessionPicks:"การเข้าคาบรายวัน",
+    schedule:"ตารางนำเสนอ", sessionPicks:"การเข้าคาบรายวัน",
     activities:"กิจกรรม", research:"งานวิจัย",
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
     duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไปเข้าคาบสายอื่น",
@@ -8099,9 +7714,6 @@ function wfmeEvidence() {
   if (pg.reviewed)           map["9.0"].sources.push({ label:"ทบทวนพันธกิจและผลลัพธ์ล่าสุด " + fmtDate(pg.reviewed) });
   (pg.documents || []).forEach(d => (d.subs || []).forEach(id => map[id]?.docs.push(d)));
 
-  const evalN = (store.data.sessionEvals || []).length;
-  if (evalN) ["3.1","3.2","5.2","7.2"].forEach(id =>
-    map[id]?.sources.push({ label:"แบบประเมินท้ายเซสชันโดยอาจารย์ผู้รับผิดชอบ " + evalN + " ครั้ง (workplace-based assessment)" }));
   const revN = (store.data.rotationEvals || []).length;
   if (revN) {
     /* หมวดที่อ้างได้มาจากตัวแบบประเมินจริง ไม่ใช่รายการตายตัว — กลุ่มงานแก้ฟอร์มแล้ว
@@ -8214,8 +7826,6 @@ function renderSettings() {
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseSurgeon" value="${store.data.requirements[y]?.caseSurgeon ?? 0}" /></td>`).join("")}</tr>
       <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseAssist" value="${store.data.requirements[y]?.caseAssist ?? 0}" /></td>`).join("")}</tr>
-      <tr><td>การประเมินท้ายเซสชัน (workplace-based)</td>${years.map(y => `
-        <td><input type="number" min="0" style="width:80px" data-req="${y}|sessionEval" value="${store.data.requirements[y]?.sessionEval ?? 0}" /></td>`).join("")}</tr>
       <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
         <td><input type="number" min="0" max="12" style="width:80px" data-req="${y}|subspecialties" value="${store.data.requirements[y]?.subspecialties ?? 0}" /></td>`).join("")}</tr>
     </tbody></table>
@@ -8715,13 +8325,10 @@ function printPortfolio(residentId) {
   </div>
   ${(() => {
     const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).sort((a, b) => (a.start || "").localeCompare(b.start || ""));
-    const evs = (store.data.sessionEvals || []).filter(e => e.residentId === r.id).sort((a, b) => a.date.localeCompare(b.date));
-    if (!rots.length && !evs.length) return "";
-    const byService = {};
-    evs.forEach(e => { const k = serviceById(e.serviceId)?.name || "—"; (byService[k] ||= []).push(e); });
+    if (!rots.length) return "";
     return `<div class="card">
-      <h2>2. การหมุนเวียนและการประเมินท้ายเซสชัน</h2>
-      ${rots.length ? `<table><thead><tr><th>ช่วง</th><th>Service</th><th>Subspecialty</th><th>อาจารย์ผู้กำกับ</th><th>ผลประเมินลงกอง</th></tr></thead>
+      <h2>2. การหมุนเวียนและผลประเมินลงกอง</h2>
+      <table><thead><tr><th>ช่วง</th><th>Service</th><th>Subspecialty</th><th>อาจารย์ผู้กำกับ</th><th>ผลประเมินลงกอง</th></tr></thead>
         <tbody>${rots.map(rot => { const svc = serviceById(rot.serviceId); const rev = rotationEvalFor(rot.id); return `<tr>
           <td>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</td><td>${esc(svc?.name || "—")}</td>
           <td>${esc(svc ? serviceSubLabel(svc) : "—")}</td>
@@ -8732,16 +8339,7 @@ function printPortfolio(residentId) {
               + (rotationScoreTags(rev) ? "<br />" + rotationScoreTags(rev) : "")
               + rotationTextAnswers(rev).map(x => "<br /><b>" + esc(x.th) + ":</b> " + esc(x.v)).join("")
               + (rev.comment ? "<br /><b>ควรพัฒนา:</b> " + esc(rev.comment) : "")
-            : (rotationOutside(rot) ? "ไปวนนอกกลุ่มงาน" : "—")}</td></tr>`; }).join("")}</tbody></table>` : ""}
-      ${evs.length ? `<h3 style="margin-top:.8rem">สรุปผลประเมินท้ายเซสชัน (${evs.length} ครั้ง)</h3>
-        <table><thead><tr><th>Service</th><th>จำนวนครั้ง</th><th>คะแนนเฉลี่ย</th><th>entrustment เฉลี่ย</th></tr></thead>
-        <tbody>${Object.entries(byService).map(([name, list]) => {
-          const ms = list.map(evalMean).filter(v => v != null);
-          const en = list.map(e => e.entrust).filter(v => typeof v === "number");
-          return `<tr><td>${esc(name)}</td><td>${list.length}</td>
-            <td>${ms.length ? (ms.reduce((a, b) => a + b, 0) / ms.length).toFixed(2) : "—"}</td>
-            <td>${en.length ? (en.reduce((a, b) => a + b, 0) / en.length).toFixed(1) : "—"}</td></tr>`;
-        }).join("")}</tbody></table>` : ""}
+            : (rotationOutside(rot) ? "ไปวนนอกกลุ่มงาน" : "—")}</td></tr>`; }).join("")}</tbody></table>
     </div>`;
   })()}
   ${(() => {
@@ -9061,8 +8659,6 @@ function dashboardHtml() {
   const acts = visibleActivities().filter(a => a.academicYear === ay);
   const seenCases = (store.data.cases || []).filter(c =>
     (c.participants || []).some(p => canSeeResident(p.residentId)));
-  const evals = (store.data.sessionEvals || []).filter(e => canSeeResident(e.residentId));
-  const overdue = pendingEvaluations(14).filter(x => canSeeResident(x.residentId)).length;
   const waiting = acts.filter(a => !a.verified).length;
 
   /* --- กิจกรรมรายเดือนแยกประเภท — ใช้เดือนที่มีข้อมูลจริง ไม่ใช่ 12 ช่องเปล่า --- */
@@ -9111,8 +8707,6 @@ function dashboardHtml() {
   ${tile(list.length, "แพทย์ประจำบ้านในรายงาน")}
   ${tile(acts.length, "กิจกรรมในปีการศึกษานี้")}
   ${tile(seenCases.length, "เคสใน logbook")}
-  ${tile(evals.length, "ผลประเมินท้ายเซสชัน")}
-  ${tile(overdue, "เซสชันค้างประเมิน 14 วัน", overdue ? VIZ.bad : VIZ.ok)}
   ${tile(waiting, "กิจกรรมรออาจารย์รับรอง", waiting ? VIZ.warn : VIZ.ok)}
 </div>
 
@@ -9281,8 +8875,6 @@ function residentDashboardHtml(residentId) {
          p.logbook.surgeon.need ? vizStatus(p.logbook.surgeon.pct) : VIZ.ink)}
   ${tile(p.subsDone.size + " / " + (p.subsNeed || subs.length), "อนุสาขาที่มีผลงานแล้ว",
          p.subsNeed ? vizStatus(p.subsPct) : VIZ.ink)}
-  ${tile(p.sessionEval.done + " / " + (p.sessionEval.need || "—"), "ประเมินท้ายเซสชันปีนี้",
-         p.sessionEval.need ? vizStatus(p.sessionEval.pct) : VIZ.ink)}
   ${tile(acts.filter(a => !a.verified).length, "รอการรับรองจากอาจารย์",
          acts.some(a => !a.verified) ? VIZ.warn : VIZ.ok)}
 </div>
@@ -9299,7 +8891,6 @@ function residentDashboardHtml(residentId) {
       <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน</td></tr>
       ${barRow("เคสที่เป็นผู้ผ่าตัดหลัก", p.logbook.surgeon.done, p.logbook.surgeon.need, BW)}
       ${barRow("เคสที่เป็นผู้ช่วยผ่าตัด", p.logbook.assist.done, p.logbook.assist.need, BW)}
-      ${barRow("ประเมินท้ายเซสชัน", p.sessionEval.done, p.sessionEval.need, BW)}
       ${barRow("ความครอบคลุมอนุสาขา", p.subsDone.size, p.subsNeed, BW)}
     </tbody></table>
   </div>
@@ -9459,8 +9050,6 @@ function renderIngestStats() {
     <div class="stat"><b>${acts.filter(a => a.academicYear === ay).length}</b><span>กิจกรรมในปีการศึกษา ${ay}</span></div>
     <div class="stat"><b>${acts.filter(a => !a.verified).length}</b><span>รอการรับรองจากอาจารย์</span></div>
     <div class="stat"><b>${behind}</b><span>แพทย์ประจำบ้านที่มีส่วนขาดต้องตาม</span></div>`;
-  $("#ingestStats").insertAdjacentHTML("beforeend",
-    `<div class="stat"><b>${pendingEvaluations().length}</b><span>เซสชันใน 14 วันที่ยังไม่ได้ประเมิน</span></div>`);
   const recent = acts.slice().sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date)).slice(0, 8);
   $("#recentActivities").innerHTML = recent.length ? `<ul class="clean">${recent.map(a => {
     const r = store.resident(a.residentId);
@@ -9902,7 +9491,6 @@ function init() {
   $("#todayPrev").addEventListener("click", () => stepToday(-1));
   $("#todayNext").addEventListener("click", () => stepToday(1));
   $("#todayNow").addEventListener("click", () => { todayViewDate = ""; renderToday(); });
-  $("#btnEvalCsv").addEventListener("click", () => download("session-evaluations.csv", toCsv(evalCsvRows()), "text/csv;charset=utf-8"));
   $("#calSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-seg]"); if (!b) return;
     $$("#calSeg button").forEach(x => x.setAttribute("aria-current", String(x === b)));

@@ -53,8 +53,8 @@ export default async function run() {
                 td.headings.includes("ที่ต้องไป"), td.headings.join(" · "));
       }
       if (role === "staff")
-        t.check("staff: หน้าวันนี้เป็นคาบที่ระบุชื่อตัวเอง กับงานประเมินที่ค้าง",
-                td.headings.some(h => h.startsWith("ประเมินที่ค้าง")), td.headings.join(" · "));
+        t.check("staff: หน้าวันนี้เป็นคาบที่ระบุชื่อตัวเอง กับประเมินลงกองที่ค้าง",
+                td.headings.includes("คาบที่คุณรับผิดชอบวันนี้") && td.headings.some(h => h.startsWith("ประเมินลงกองที่ค้าง")), td.headings.join(" · "));
       if (role === "admin")
         t.check("admin: หน้าวันนี้เป็นภาพรวมทั้งภาควิชา",
                 td.headings.includes("วันนี้ใครอยู่สายไหน") && /\d+ คน/.test(td.where), td.where);

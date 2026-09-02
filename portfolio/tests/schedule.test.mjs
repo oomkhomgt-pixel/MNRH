@@ -85,10 +85,6 @@ export default async function run() {
     t.check("วันที่มีลิสต์อนุสาขาเดียวกันสองสาย ขึ้นว่าต้องเลือกเอง", (sub?.clashes ?? 0) > 0,
             (sub?.clashes ?? 0) + " คาบ");
 
-    /* ---------- คาบที่แพ้ ไม่ถูกนับเป็นงานค้างประเมิน ---------- */
-    t.check("คาบที่แพ้ไม่กลายเป็นงานค้างของอาจารย์", await page.evaluate(() =>
-      pendingEvaluations(30).every(s => !s.superseded)));
-
     /* ---------- กิจกรรมวิชาการมาก่อนงานบริการเสมอ ---------- */
     const academic = await page.evaluate(() => {
       const cs = store.data.services.find(x => x.central);
@@ -486,97 +482,21 @@ export default async function run() {
             "วิชาการ " + visit.academicPriority + " · ไปสายอื่น " + visit.visitPriority);
     t.check("มีอาจารย์ผู้อนุมัติที่ระบุตัวได้", visit.approvers > 0, visit.approvers + " คน");
 
-    /* ---------- ประเมินท้ายเซสชันครั้งเดียว ต้องได้ระดับ EPA ไปด้วย ----------
-       สองที่นี้ใช้สเกล entrustment เดียวกัน ถ้าไม่เชื่อมกัน อาจารย์ต้องให้ระดับซ้ำสองรอบ */
-    const epaFromSession = await page.evaluate(async () => {
-      store.data.sessionEvals = [];
-      store.data.epaAssessments = [];
+    /* ---------- รายละเอียดเซสชัน: เปิดแล้วไม่มีฟอร์มประเมิน มีแต่ข้อมูลอ่านอย่างเดียว + ปุ่มเข้าคาบ/แลกวัน ---------- */
+    const sessDetail = await page.evaluate(async () => {
       let ses = null;
       for (let i = 1; i < 15 && !ses; i++)
         ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
       if (!ses) return { none: true };
-      const epa = store.data.epas[0];
       openSession(ses.key);
-      const box = document.querySelector('#dlgBody [name="epa_' + epa.id + '"]');
-      const hasPicker = !!box;
-      if (box) box.checked = true;
-      document.querySelector('#dlgBody [name="entrust"]').value = "4";
-      document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกผลประเมิน")).click();
+      const hasScoreField = !!document.querySelector('#dlgBody [name^="sc_"], #dlgBody [name="entrust"], #dlgBody [name^="epa_"]');
+      const title = document.querySelector("#dlgTitle")?.textContent || "";
       document.querySelector("#dlg")?.close();
-      const written = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
-      const level = epaLevel(ses.residentId, epa.id);
-
-      /* แก้ผลประเมินซ้ำ ต้องไม่เกิดรายการ EPA ซ้อน */
-      openSession(ses.key);
-      document.querySelector('#dlgBody [name="epa_' + epa.id + '"]').checked = true;
-      document.querySelector('#dlgBody [name="entrust"]').value = "5";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกการแก้ไข") || x.textContent.includes("บันทึกผลประเมิน")).click();
-      document.querySelector("#dlg")?.close();
-      const afterEdit = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
-
-      /* ลบผลประเมิน ระดับ EPA ที่มาจากคาบนี้ต้องหายไปด้วย */
-      openSession(ses.key);
-      const realConfirm = window.confirm; window.confirm = () => true;
-      [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("ลบผลประเมิน")).click();
-      window.confirm = realConfirm;
-      document.querySelector("#dlg")?.close();
-      const afterDelete = (store.data.epaAssessments || []).filter(a => a.sessionKey === ses.key).length;
-
-      store.data.sessionEvals = []; store.data.epaAssessments = [];
-      return { hasPicker, written: written.length, level, source: written[0]?.sessionKey === ses.key,
-               afterEditCount: afterEdit.length, afterEditLevel: afterEdit[0]?.level, afterDelete };
+      return { hasScoreField, title };
     });
-    t.check("แบบประเมินท้ายเซสชันมีช่องเลือกหัวข้อ EPA", epaFromSession.hasPicker);
-    t.eq("ประเมินครั้งเดียว ได้ระดับ EPA มาด้วย", [epaFromSession.written, epaFromSession.level], [1, 4]);
-    t.check("ผล EPA บอกที่มาว่ามาจากคาบไหน", epaFromSession.source);
-    t.eq("แก้ผลประเมินแล้วไม่เกิดรายการ EPA ซ้อน",
-         [epaFromSession.afterEditCount, epaFromSession.afterEditLevel], [1, 5]);
-    t.eq("ลบผลประเมินแล้วระดับ EPA ที่มาจากคาบนั้นหายไปด้วย", epaFromSession.afterDelete, 0);
-
-    /* ---------- C10: กล่องติ๊ก EPA แสดงแค่ 12 อันดับแรก — บันทึกซ้ำต้องไม่ลบผลประเมิน EPA
-       ของหัวข้อที่ตกไปนอก 12 อันดับ (เช่น เพิ่ม EPA ใหม่จนลำดับเปลี่ยน) ---------- */
-    const c10 = await page.evaluate(async () => {
-      const backupEpas = store.data.epas;
-      const backupAssessments = store.data.epaAssessments;
-      const backupEvals = store.data.sessionEvals;
-      let ses = null;
-      for (let i = 1; i < 15 && !ses; i++)
-        ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
-      if (!ses) return { none: true };
-
-      /* เติม EPA ให้เกิน 12 หัวข้อที่ไม่ตรงอนุสาขาของคาบนี้แน่ ๆ (rank เดียวกัน) แล้ววางหัวข้อทดสอบ
-         ไว้ท้ายสุดด้วยรหัสที่เรียงหลังสุดเสมอ (Z นำหน้า) เพื่อให้ตกนอก 12 อันดับแรกแน่นอน */
-      const svcSub = serviceById(ses.serviceId)?.subspecialty || "";
-      const others = (store.data.epas || []).filter(e => e.subspecialty !== svcSub).length;
-      const padCount = Math.max(0, 13 - others);
-      const pad = Array.from({ length: padCount }, (_, i) => ({ id: "epa_pad_" + i, code: "PAD" + i, title: "pad", subspecialty: "__none__" }));
-      const hidden = { id: "epa_hidden_test", code: "ZZZ-hidden", title: "ทดสอบซ่อน", subspecialty: "__none__" };
-      store.data.epas = [...store.data.epas, ...pad, hidden];
-      store.data.epaAssessments = [...(store.data.epaAssessments || []), { id: "epaa_hidden_test",
-        residentId: ses.residentId, epaId: "epa_hidden_test", level: 3, by: "ทดสอบ", byUserId: "",
-        at: ses.date, caseId: "", sessionKey: ses.key }];
-
-      openSession(ses.key);
-      const checkboxExists = !!document.querySelector('[name="epa_epa_hidden_test"]');
-      const entrustEl = document.querySelector('#dlgBody [name="entrust"]');
-      if (entrustEl) entrustEl.value = "4";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกผลประเมิน") || x.textContent.includes("บันทึกการแก้ไข"))?.click();
-      document.querySelector("#dlg")?.close();
-
-      const stillThere = (store.data.epaAssessments || []).some(a => a.id === "epaa_hidden_test");
-
-      store.data.epas = backupEpas;
-      store.data.epaAssessments = backupAssessments;
-      store.data.sessionEvals = backupEvals;
-      return { checkboxExists, stillThere };
-    });
-    if (!c10.none) {
-      t.check("หัวข้อ EPA ที่ตกนอก 12 อันดับแรก ไม่มีช่องติ๊กให้เห็นจริง (พิสูจน์ว่าทดสอบตรงเงื่อนไข)", !c10.checkboxExists);
-      t.check("บันทึกซ้ำแล้วผลประเมิน EPA ของหัวข้อที่ตกนอก 12 อันดับ ไม่ถูกลบไปด้วย", c10.stillThere);
+    if (!sessDetail.none) {
+      t.check("เปิดรายละเอียดเซสชันแล้วไม่มีช่องให้คะแนน (ประเมินท้ายเซสชันถูกตัดออกแล้ว)", !sessDetail.hasScoreField);
+      t.eq("หัวกล่องเป็น 'รายละเอียดเซสชัน'", sessDetail.title, "รายละเอียดเซสชัน");
     }
 
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
@@ -1067,7 +987,7 @@ export default async function run() {
         const out = { title1: document.querySelector("#dlgTitle").textContent };
         const nextBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => /แล้วเปิดคนถัดไป/.test(b.textContent));
         out.hasNext = !!nextBtn;
-        out.context = /ท้ายเซสชันในรอบนี้/.test(document.querySelector("#dlgBody").textContent) && /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
+        out.context = /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
         const sc = document.querySelector('#dlgBody .scale-pick[data-field^="sc_"] input[value="4"]');
         sc.checked = true; sc.dispatchEvent(new Event("change", { bubbles: true }));
         out.meanShown = /เฉลี่ย 4\//.test(document.querySelector("#dlgBody [data-rot-mean]").textContent);
@@ -1080,7 +1000,7 @@ export default async function run() {
         return out;
       });
       if (nextFlow) {
-        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (ท้ายเซสชัน/รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
+        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
         t.check("ติ๊กคะแนนแล้วค่าเฉลี่ยขึ้นทันที", nextFlow.meanShown);
         t.check("กดแล้วบันทึกคนแรก และเปิดกล่องของคนถัดไปโดยอัตโนมัติ",
                 nextFlow.savedFirst && nextFlow.openAgain && nextFlow.title1 !== nextFlow.title2, nextFlow.title1 + " → " + nextFlow.title2);

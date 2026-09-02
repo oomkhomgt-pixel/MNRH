@@ -108,7 +108,7 @@ export default async function run() {
         if (open) document.querySelector("#dlg").close();
         return { none: false, open };
       });
-      t.check("คลิก chip ในปฏิทินเปิดกล่องประเมินท้ายเซสชันได้", click.none || click.open);
+      t.check("คลิก chip ในปฏิทินเปิดกล่องรายละเอียดเซสชันได้", click.none || click.open);
 
       t.check("Topic conference: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
