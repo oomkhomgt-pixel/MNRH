@@ -388,7 +388,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
       <button data-view="calendar">ปฏิทินรายคน</button>
     </div>
     <div class="row seg" data-subgroup="g2" hidden>
-      <button data-view="residents">รายชื่อ</button>
+      <button data-view="residents" data-perm="staff">รายชื่อ</button>
       <button data-view="resident">แฟ้มรายบุคคล</button>
       <button data-view="logbook">Logbook เคสผ่าตัด</button>
       <button data-view="epa">EPA</button>
@@ -656,7 +656,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
     <div class="card no-print">
       <div class="between">
         <div class="row">
-          <button class="btn-sm" id="btnResidentBack">‹ รายชื่อ</button>
+          <button class="btn-sm" id="btnResidentBack" data-perm="staff">‹ รายชื่อ</button>
           <h1 style="margin:0">แฟ้มรายบุคคล</h1>
           <select id="resPick" aria-label="เลือกแพทย์ประจำบ้าน" data-perm="staff" hidden></select>
         </div>
@@ -762,28 +762,31 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
   </section>
 
   <!-- ============ EPA ============ -->
+  <!-- อาจารย์เห็นภาพรวมทั้งกลุ่มงานก่อน แล้วค่อยเลือกคนในการ์ดรายบุคคล (พับไว้จนกว่าจะเลือก)
+       แพทย์ประจำบ้านไม่เห็นภาพรวม — การ์ดรายบุคคลของตัวเองขึ้นก่อนเลย -->
   <section class="view" id="view-epa">
-    <div class="card">
+    <div class="card" data-perm="staff" data-fold="epa-matrix" data-fold-sum="">
+      <h1>การประเมิน EPA — ภาพรวมทั้งกลุ่มงาน</h1>
+      <p class="muted small">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
+        · เทียบกับเป้าหมายของแต่ละชั้นปีที่หลักสูตรกำหนด · ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · <b>✓</b> ถึงเป้าหมายของชั้นปีแล้ว ·
+        <b>↑</b> ยังไม่ถึงเป้าหมาย · <b>—</b> ยังไม่เคยประเมิน</p>
+      <!-- คำเตือนชี้ไปหน้าตั้งค่า — คนที่เปิดหน้าตั้งค่าได้เท่านั้นที่ควรเห็น -->
+      <div class="notice warn small" id="epaCaveat" data-perm="admin"></div>
+      <div id="epaMatrix"></div>
+    </div>
+    <div class="card" data-fold="epa-person" data-fold-sum="">
       <div class="between">
         <div>
-          <h1>การประเมิน EPA</h1>
-          <p class="muted small">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
+          <h2 id="epaTitle">รายบุคคล</h2>
+          <p class="muted small" id="epaHint">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
             · เทียบกับเป้าหมายของแต่ละชั้นปีที่หลักสูตรกำหนด</p>
         </div>
         <div class="row no-print">
-          <select id="epaResident"></select>
+          <select id="epaResident" aria-label="เลือกแพทย์ประจำบ้าน"></select>
           <button class="btn-sm btn-primary" id="btnEpaAssess" data-perm="staff">+ บันทึกการประเมิน</button>
         </div>
       </div>
-      <!-- คำเตือนชี้ไปหน้าตั้งค่า — คนที่เปิดหน้าตั้งค่าได้เท่านั้นที่ควรเห็น -->
-      <div class="notice warn small" id="epaCaveat" data-perm="admin"></div>
       <div id="epaBoard"></div>
-    </div>
-    <div class="card" data-perm="staff" data-fold="epa-matrix" data-fold-closed data-fold-sum="">
-      <h2>ภาพรวมทั้งกลุ่มงาน</h2>
-      <p class="muted small">ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · <b>✓</b> ถึงเป้าหมายของชั้นปีแล้ว ·
-        <b>↑</b> ยังไม่ถึงเป้าหมาย · <b>—</b> ยังไม่เคยประเมิน</p>
-      <div id="epaMatrix"></div>
     </div>
   </section>
 
@@ -4663,14 +4666,22 @@ function renderCalendar() {
   const box = $("#calGrid"); if (!box) return;
   /* แพทย์ประจำบ้านเห็นแค่ตัวเองเสมอ ไม่มีทางเลือกดูของคนอื่นได้ ไม่ว่าจะพยายามตั้งค่าอย่างไร */
   if (isResident()) calResidentId = myResidentId();
-  else if (!calResidentId || !visibleResidents().some(r => r.id === calResidentId))
-    calResidentId = visibleResidents()[0]?.id || "";
+  else if (calResidentId && !visibleResidents().some(r => r.id === calResidentId)) calResidentId = "";
   const r = store.resident(calResidentId);
-  $("#calWho").textContent = r ? r.name + " (ปี " + r.year + ")" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
-
   const pick = $("#calResidentPick");
-  if (pick) pick.innerHTML = visibleResidents()
-    .map(x => `<option value="${x.id}" ${x.id === calResidentId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+  /* อาจารย์/ผู้จัดหลักสูตรเปิดมาเป็น "เลือกคนก่อน" — ไม่เดาเอาคนแรกมาโชว์ ภาพรวมทุกคนอยู่ที่ตารางรวม */
+  if (pick) pick.innerHTML = (isResident() ? "" : `<option value="" ${calResidentId ? "" : "selected"}>— เลือกแพทย์ประจำบ้าน —</option>`) +
+    visibleResidents().map(x => `<option value="${x.id}" ${x.id === calResidentId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+  if (!r) {
+    $("#calWho").textContent = visibleResidents().length ? "ยังไม่ได้เลือกแพทย์ประจำบ้าน" : "ยังไม่มีแพทย์ประจำบ้านในระบบ";
+    box.innerHTML = `<p class="empty">เลือกแพทย์ประจำบ้านจากรายการด้านบนเพื่อดูปฏิทินรายคน
+      <br /><button type="button" class="btn-sm" data-goto-roster style="margin-top:.6rem">ดูตารางเวรรายสัปดาห์ของทุกคน</button></p>`;
+    box.querySelector("[data-goto-roster]")?.addEventListener("click", () => {
+      showView("rotation"); $('#calSeg [data-seg="week"]')?.click();
+    });
+    return;
+  }
+  $("#calWho").textContent = r.name + " (ปี " + r.year + ")";
 
   if (calMode === "week") renderCalWeek(box); else renderCalMonth(box);
   $$("#calGrid .sess").forEach(b => b.addEventListener("click", () => openSession(b.dataset.sess)));
@@ -7468,7 +7479,11 @@ function renderEpa() {
   $("#epaResident").innerHTML = list.map(r =>
     `<option value="${r.id}" ${epaResidentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("");
   $("#epaResident").disabled = list.length <= 1;
-  $("#epaResident").onchange = (e) => { epaResidentId = e.target.value; renderEpa(); };
+  /* อาจารย์: การ์ดรายบุคคลพับไว้จนกว่าจะเลือกคน · แพทย์ประจำบ้าน: ของตัวเองเปิดอยู่เสมอ */
+  const person = $("#epaResident").closest("[data-fold]");
+  person.toggleAttribute("data-fold-closed", isStaff());
+  $("#epaTitle").textContent = isStaff() ? "รายบุคคล — เลือกแพทย์ประจำบ้าน" : "การประเมิน EPA ของฉัน";
+  $("#epaResident").onchange = (e) => { epaResidentId = e.target.value; renderEpa(); foldOpen(person); };
 
   const r = store.resident(epaResidentId);
   if (!r || !epas.length) {
@@ -9413,6 +9428,8 @@ const viewAllowed = (name) => !!name && name !== "report" && !!$("#view-" + name
 const currentViewName = () => ($$(".view").find(v => v.classList.contains("on"))?.id || "").replace(/^view-/, "");
 
 function showView(name) {
+  /* แพทย์ประจำบ้านไม่มีรายชื่อให้ดู — กลุ่ม "แพทย์ประจำบ้าน" เปิดแฟ้มของตัวเองเลย */
+  if (name === "residents" && isResident()) name = "resident";
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "view-" + name));
   const g = groupOfView(name);
   $$("#tabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.group === g)));

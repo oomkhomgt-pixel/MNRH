@@ -208,6 +208,17 @@ export default async function run() {
         return { pickerHidden, resetToMine: calResidentId === myResidentId(), attempted: other?.id || "__hijack__" };
       });
       t.check("แพทย์ประจำบ้าน: ตัวเลือกเปลี่ยนคนในหน้าปฏิทินถูกซ่อน", calScope.pickerHidden);
+      const own = await page.evaluate(() => {
+        showView("residents");
+        const epaFirst = [...document.querySelectorAll("#view-epa > .card")].filter(c => !c.hidden)[0];
+        return { landsOnOwn: currentViewName() === "resident", listTabHidden: document.querySelector('#subtabs [data-view="residents"]').hidden,
+                 backHidden: document.querySelector("#btnResidentBack").hidden,
+                 ownName: document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(myResidentId()).name),
+                 epaOwnFirst: epaFirst?.dataset.fold === "epa-person" && !epaFirst.classList.contains("folded"),
+                 calOwn: (showView("calendar"), calResidentId === myResidentId()) };
+      });
+      t.check("resident: กลุ่มแพทย์ประจำบ้านเปิดแฟ้มของตัวเองทันที ไม่มีแท็บรายชื่อ/ปุ่มกลับ · EPA และปฏิทินเป็นของตัวเองก่อน",
+              own.landsOnOwn && own.listTabHidden && own.backHidden && own.ownName && own.epaOwnFirst && own.calOwn, JSON.stringify(own));
       t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
               calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
 
