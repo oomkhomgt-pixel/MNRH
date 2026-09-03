@@ -196,29 +196,20 @@ export default async function run() {
     t.check("ตอนพิมพ์ ทุกส่วนที่พับถูกขยายด้วย CSS", fold.printExpands);
 
     const more = await page.evaluate(async () => {
-      showView("rotation");
-      const r = {};
-      const card = document.querySelector('[data-fold="rot-all"]');
-      r.folded = card.classList.contains("folded");
-      r.sumIsTotal = card.querySelector("h2 .fold-sum")?.textContent === store.data.rotations.length + " ช่วง";
-      foldOpen(card);
-      const total = store.data.rotations.length;
-      r.total = total;
-      r.first = document.querySelectorAll("#rotationTable tbody tr").length;
-      document.querySelector('#rotationTable [data-more][data-step="25"]')?.click();
-      r.afterMore = document.querySelectorAll("#rotationTable tbody tr").length;
-      document.querySelector('#rotationTable [data-more][data-step="all"]')?.click();
-      r.afterAll = document.querySelectorAll("#rotationTable tbody tr").length;
-      r.editButtons = document.querySelectorAll("#rotationTable [data-rot]").length;
       showView("logbook");
+      const r = {};
       r.cases = document.querySelectorAll("#caseTable tbody tr").length;
       r.caseTotal = filterCases().length;
       return r;
     });
-    t.check("ช่วงหมุนเวียนทั้งหมด: พับไว้ก่อน ป้ายบอกจำนวนจริง เปิดแล้วแสดง 25 แถวแรก", more.folded && more.sumIsTotal && more.first === Math.min(25, more.total), JSON.stringify(more));
-    t.check("แสดงเพิ่มอีก 25 → 50 แถว · แสดงทั้งหมด → ครบทุกช่วง พร้อมปุ่มแก้ไขทุกแถว",
-            more.afterMore === Math.min(50, more.total) && more.afterAll === more.total && more.editButtons === more.total, JSON.stringify(more));
     t.check("เคสทั้งหมดใน logbook เริ่มที่ 30 แถว", more.cases === Math.min(30, more.caseTotal), JSON.stringify(more));
+
+    /* ---------- ช่วงหมุนเวียนทั้งหมด: ตารางแยกถูกตัดออก แก้ไข/ลบยังทำได้ผ่านคลิกเซลล์ในตารางรายเดือน (มีเทสต์อยู่แล้วใน schedule.test.mjs) ---------- */
+    const rotEdit = await page.evaluate(async () => {
+      showView("rotation");
+      return { noTable: !document.querySelector("#rotationTable"), noWeekGrid: !document.querySelector("#weekGrid") };
+    });
+    t.check("ตาราง 'ช่วงหมุนเวียนทั้งหมด' และตารางประจำสัปดาห์ถูกเอาออกแล้ว", rotEdit.noTable && rotEdit.noWeekGrid, JSON.stringify(rotEdit));
 
     /* ---------- รายชื่อกับแฟ้มรายบุคคลเป็นคนละหน้า ---------- */
     const split = await page.evaluate(async () => {
@@ -293,15 +284,13 @@ export default async function run() {
       const sel = document.querySelector("#epaResident"); sel.value = sel.options[1].value; sel.dispatchEvent(new Event("change"));
       r.epaPersonOpensOnPick = !cards[1].classList.contains("folded") && epaResidentId === sel.options[1].value;
       showView("calendar");
-      r.calNoOneChosen = calResidentId === "" && !!document.querySelector("#calGrid .empty") && document.querySelector("#calResidentPick").value === "";
-      document.querySelector("#calGrid [data-goto-roster]").click();
-      r.calGotoRoster = currentViewName() === "rotation" && !document.querySelector('[data-segview="week"]').hidden;
+      r.calGridShown = !!document.querySelector("#calGrid .gcal-grid") && !document.querySelector("#calResidentPick")
+        && document.querySelector("#calScopeWrap").hidden === true;
       return r;
     });
     t.check("EPA ของอาจารย์: ภาพรวมทั้งกลุ่มงานมาก่อนและเปิดอยู่ · รายบุคคลพับไว้จนกว่าจะเลือกคน",
             overview.epaOrder[0] === "epa-matrix" && overview.epaMatrixOpen && overview.epaPersonFolded && overview.epaPersonOpensOnPick, JSON.stringify(overview));
-    t.check("ปฏิทินของอาจารย์: ยังไม่เดาเอาคนแรก ต้องเลือกก่อน และมีทางไปตารางเวรรายสัปดาห์ของทุกคน",
-            overview.calNoOneChosen && overview.calGotoRoster, JSON.stringify(overview));
+    t.check("ปฏิทินของอาจารย์: เปิดมาเห็นกริดรวมทันที ไม่มีขั้นเลือกคน", overview.calGridShown, JSON.stringify(overview));
     t.check("กล่องแก้ไขอาจารย์ติ๊กได้หลายสาย บันทึกเป็น subspecialties และสายแรกเป็น subspecialty · ไม่ติ๊กเลยถูกปฏิเสธที่ช่อง",
             staff.checkboxes > 3 && staff.saved === JSON.stringify(["spine", ["spine", "hand"]]) && staff.emptyRefused, JSON.stringify(staff));
     t.check("ข้อมูลสาธิตเก่าในเครื่อง: นพ. มานิตา → พญ. (รวมบัญชีและศัลยแพทย์หลักในเคส) · นพ. นฤพล ได้ Trauma · ชื่อที่แก้เองไม่ถูกแตะ",

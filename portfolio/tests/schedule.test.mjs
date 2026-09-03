@@ -85,10 +85,6 @@ export default async function run() {
     t.check("วันที่มีลิสต์อนุสาขาเดียวกันสองสาย ขึ้นว่าต้องเลือกเอง", (sub?.clashes ?? 0) > 0,
             (sub?.clashes ?? 0) + " คาบ");
 
-    /* ---------- คาบที่แพ้ ไม่ถูกนับเป็นงานค้างประเมิน ---------- */
-    t.check("คาบที่แพ้ไม่กลายเป็นงานค้างของอาจารย์", await page.evaluate(() =>
-      pendingEvaluations(30).every(s => !s.superseded)));
-
     /* ---------- กิจกรรมวิชาการมาก่อนงานบริการเสมอ ---------- */
     const academic = await page.evaluate(() => {
       const cs = store.data.services.find(x => x.central);
@@ -486,97 +482,21 @@ export default async function run() {
             "วิชาการ " + visit.academicPriority + " · ไปสายอื่น " + visit.visitPriority);
     t.check("มีอาจารย์ผู้อนุมัติที่ระบุตัวได้", visit.approvers > 0, visit.approvers + " คน");
 
-    /* ---------- ประเมินท้ายเซสชันครั้งเดียว ต้องได้ระดับ EPA ไปด้วย ----------
-       สองที่นี้ใช้สเกล entrustment เดียวกัน ถ้าไม่เชื่อมกัน อาจารย์ต้องให้ระดับซ้ำสองรอบ */
-    const epaFromSession = await page.evaluate(async () => {
-      store.data.sessionEvals = [];
-      store.data.epaAssessments = [];
+    /* ---------- รายละเอียดเซสชัน: เปิดแล้วไม่มีฟอร์มประเมิน มีแต่ข้อมูลอ่านอย่างเดียว + ปุ่มเข้าคาบ/แลกวัน ---------- */
+    const sessDetail = await page.evaluate(async () => {
       let ses = null;
       for (let i = 1; i < 15 && !ses; i++)
         ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
       if (!ses) return { none: true };
-      const epa = store.data.epas[0];
       openSession(ses.key);
-      const box = document.querySelector('#dlgBody [name="epa_' + epa.id + '"]');
-      const hasPicker = !!box;
-      if (box) box.checked = true;
-      document.querySelector('#dlgBody [name="entrust"]').value = "4";
-      document.querySelector('#dlgBody [name="sc_knowledge"]').value = "4";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกผลประเมิน")).click();
+      const hasScoreField = !!document.querySelector('#dlgBody [name^="sc_"], #dlgBody [name="entrust"], #dlgBody [name^="epa_"]');
+      const title = document.querySelector("#dlgTitle")?.textContent || "";
       document.querySelector("#dlg")?.close();
-      const written = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
-      const level = epaLevel(ses.residentId, epa.id);
-
-      /* แก้ผลประเมินซ้ำ ต้องไม่เกิดรายการ EPA ซ้อน */
-      openSession(ses.key);
-      document.querySelector('#dlgBody [name="epa_' + epa.id + '"]').checked = true;
-      document.querySelector('#dlgBody [name="entrust"]').value = "5";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกการแก้ไข") || x.textContent.includes("บันทึกผลประเมิน")).click();
-      document.querySelector("#dlg")?.close();
-      const afterEdit = (store.data.epaAssessments || []).filter(a => a.epaId === epa.id);
-
-      /* ลบผลประเมิน ระดับ EPA ที่มาจากคาบนี้ต้องหายไปด้วย */
-      openSession(ses.key);
-      const realConfirm = window.confirm; window.confirm = () => true;
-      [...document.querySelectorAll("#dlgFoot button")].find(x => x.textContent.includes("ลบผลประเมิน")).click();
-      window.confirm = realConfirm;
-      document.querySelector("#dlg")?.close();
-      const afterDelete = (store.data.epaAssessments || []).filter(a => a.sessionKey === ses.key).length;
-
-      store.data.sessionEvals = []; store.data.epaAssessments = [];
-      return { hasPicker, written: written.length, level, source: written[0]?.sessionKey === ses.key,
-               afterEditCount: afterEdit.length, afterEditLevel: afterEdit[0]?.level, afterDelete };
+      return { hasScoreField, title };
     });
-    t.check("แบบประเมินท้ายเซสชันมีช่องเลือกหัวข้อ EPA", epaFromSession.hasPicker);
-    t.eq("ประเมินครั้งเดียว ได้ระดับ EPA มาด้วย", [epaFromSession.written, epaFromSession.level], [1, 4]);
-    t.check("ผล EPA บอกที่มาว่ามาจากคาบไหน", epaFromSession.source);
-    t.eq("แก้ผลประเมินแล้วไม่เกิดรายการ EPA ซ้อน",
-         [epaFromSession.afterEditCount, epaFromSession.afterEditLevel], [1, 5]);
-    t.eq("ลบผลประเมินแล้วระดับ EPA ที่มาจากคาบนั้นหายไปด้วย", epaFromSession.afterDelete, 0);
-
-    /* ---------- C10: กล่องติ๊ก EPA แสดงแค่ 12 อันดับแรก — บันทึกซ้ำต้องไม่ลบผลประเมิน EPA
-       ของหัวข้อที่ตกไปนอก 12 อันดับ (เช่น เพิ่ม EPA ใหม่จนลำดับเปลี่ยน) ---------- */
-    const c10 = await page.evaluate(async () => {
-      const backupEpas = store.data.epas;
-      const backupAssessments = store.data.epaAssessments;
-      const backupEvals = store.data.sessionEvals;
-      let ses = null;
-      for (let i = 1; i < 15 && !ses; i++)
-        ses = sessionsForDate(addDaysISO(todayISO(), -i)).find(x => x.residentId && !x.advisory);
-      if (!ses) return { none: true };
-
-      /* เติม EPA ให้เกิน 12 หัวข้อที่ไม่ตรงอนุสาขาของคาบนี้แน่ ๆ (rank เดียวกัน) แล้ววางหัวข้อทดสอบ
-         ไว้ท้ายสุดด้วยรหัสที่เรียงหลังสุดเสมอ (Z นำหน้า) เพื่อให้ตกนอก 12 อันดับแรกแน่นอน */
-      const svcSub = serviceById(ses.serviceId)?.subspecialty || "";
-      const others = (store.data.epas || []).filter(e => e.subspecialty !== svcSub).length;
-      const padCount = Math.max(0, 13 - others);
-      const pad = Array.from({ length: padCount }, (_, i) => ({ id: "epa_pad_" + i, code: "PAD" + i, title: "pad", subspecialty: "__none__" }));
-      const hidden = { id: "epa_hidden_test", code: "ZZZ-hidden", title: "ทดสอบซ่อน", subspecialty: "__none__" };
-      store.data.epas = [...store.data.epas, ...pad, hidden];
-      store.data.epaAssessments = [...(store.data.epaAssessments || []), { id: "epaa_hidden_test",
-        residentId: ses.residentId, epaId: "epa_hidden_test", level: 3, by: "ทดสอบ", byUserId: "",
-        at: ses.date, caseId: "", sessionKey: ses.key }];
-
-      openSession(ses.key);
-      const checkboxExists = !!document.querySelector('[name="epa_epa_hidden_test"]');
-      const entrustEl = document.querySelector('#dlgBody [name="entrust"]');
-      if (entrustEl) entrustEl.value = "4";
-      [...document.querySelectorAll("#dlgFoot button")]
-        .find(x => x.textContent.includes("บันทึกผลประเมิน") || x.textContent.includes("บันทึกการแก้ไข"))?.click();
-      document.querySelector("#dlg")?.close();
-
-      const stillThere = (store.data.epaAssessments || []).some(a => a.id === "epaa_hidden_test");
-
-      store.data.epas = backupEpas;
-      store.data.epaAssessments = backupAssessments;
-      store.data.sessionEvals = backupEvals;
-      return { checkboxExists, stillThere };
-    });
-    if (!c10.none) {
-      t.check("หัวข้อ EPA ที่ตกนอก 12 อันดับแรก ไม่มีช่องติ๊กให้เห็นจริง (พิสูจน์ว่าทดสอบตรงเงื่อนไข)", !c10.checkboxExists);
-      t.check("บันทึกซ้ำแล้วผลประเมิน EPA ของหัวข้อที่ตกนอก 12 อันดับ ไม่ถูกลบไปด้วย", c10.stillThere);
+    if (!sessDetail.none) {
+      t.check("เปิดรายละเอียดเซสชันแล้วไม่มีช่องให้คะแนน (ประเมินท้ายเซสชันถูกตัดออกแล้ว)", !sessDetail.hasScoreField);
+      t.eq("หัวกล่องเป็น 'รายละเอียดเซสชัน'", sessDetail.title, "รายละเอียดเซสชัน");
     }
 
     t.check("ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
@@ -1067,7 +987,7 @@ export default async function run() {
         const out = { title1: document.querySelector("#dlgTitle").textContent };
         const nextBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => /แล้วเปิดคนถัดไป/.test(b.textContent));
         out.hasNext = !!nextBtn;
-        out.context = /ท้ายเซสชันในรอบนี้/.test(document.querySelector("#dlgBody").textContent) && /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
+        out.context = /รอบก่อนหน้า/.test(document.querySelector("#dlgBody").textContent);
         const sc = document.querySelector('#dlgBody .scale-pick[data-field^="sc_"] input[value="4"]');
         sc.checked = true; sc.dispatchEvent(new Event("change", { bubbles: true }));
         out.meanShown = /เฉลี่ย 4\//.test(document.querySelector("#dlgBody [data-rot-mean]").textContent);
@@ -1080,7 +1000,7 @@ export default async function run() {
         return out;
       });
       if (nextFlow) {
-        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (ท้ายเซสชัน/รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
+        t.check("กล่องลงกองจากคิวมีปุ่ม 'บันทึก แล้วเปิดคนถัดไป' และมีข้อมูลประกอบ (รอบก่อนหน้า)", nextFlow.hasNext && nextFlow.context);
         t.check("ติ๊กคะแนนแล้วค่าเฉลี่ยขึ้นทันที", nextFlow.meanShown);
         t.check("กดแล้วบันทึกคนแรก และเปิดกล่องของคนถัดไปโดยอัตโนมัติ",
                 nextFlow.savedFirst && nextFlow.openAgain && nextFlow.title1 !== nextFlow.title2, nextFlow.title1 + " → " + nextFlow.title2);
@@ -1137,8 +1057,12 @@ export default async function run() {
       /* pre-op กับ post-op conference ถูกยุบเป็นคาบเดียวกัน ของเก่าต้องย้ายตามให้ครบ */
       const merged = await page.evaluate(async () => {
         const d = store.data;
-        const a = d.activities[0], t0 = d.schedule[0];
-        a.type = "postop"; if (t0) t0.type = "postop";
+        const a = d.activities[0];
+        a.type = "postop";
+        /* ข้อมูลสาธิตไม่ลงตาราง F/P ล่วงหน้าแล้ว — สร้างแถว postop เองเพื่อพิสูจน์ว่า migration ย้ายแถวในตารางด้วย */
+        const t0 = { id: "talk_postop_test", date: todayISO(), start: "09:30", end: "10:00", slot: "Post-op", type: "postop",
+                     residentId: a.residentId, title: "ทดสอบ post-op", subspecialty: "trauma", location: "", moderatorId: "", activityId: null, note: "" };
+        d.schedule.push(t0);
         Object.values(d.requirements).forEach(req => { req.preop = 10; req.postop = 12; });
         localStorage.setItem("mnrh_ortho_portfolio_v1", JSON.stringify(d));
         return { actId: a.id, talkId: t0?.id };
@@ -1150,7 +1074,7 @@ export default async function run() {
         label: TYPE_BY_ID.preop?.th,
         desc: TYPE_BY_ID.preop?.desc,
         act: store.data.activities.find(x => x.id === ids.actId)?.type,
-        talk: ids.talkId ? store.data.schedule.find(x => x.id === ids.talkId)?.type : "preop",
+        talk: store.data.schedule.find(x => x.id === ids.talkId)?.type,
         req: store.data.requirements[1]?.preop,
         reqOld: store.data.requirements[1]?.postop ?? null
       }), merged);
@@ -1208,6 +1132,192 @@ export default async function run() {
       t.eq("mondayOf หาวันจันทร์ของสัปดาห์ถูกต้องในเขตเวลาไทย (28 ส.ค. 69 เป็นวันศุกร์)", r.monday, "2026-08-24");
       t.eq("todayISO() ตรงกับปฏิทินท้องถิ่น ไม่ใช่ปฏิทิน UTC", r.today, r.wantToday);
       t.check("ทดสอบเขตเวลาไทย: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- สำรองแผนหมุนเวียนอัตโนมัติก่อนเขียนทับ + กู้คืนได้จากประวัติ ----------
+       เดิม "สร้างแผนอัตโนมัติ" มีแค่ confirm + toast เลิกทำ 6 วินาที ซึ่งเป็นแค่ตัวแปรใน memory
+       รีเฟรชหน้าแล้วหายทันที — เพิ่มสแนปช็อตที่เก็บลง store.data เอง จึงรอดรีเฟรชและกู้คืนทีหลังได้ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        showView("rotation");
+        const ay = ayView || currentAY();
+        const from = monthStartISO(ayMonths(ay)[0]), to = monthEndISO(ayMonths(ay)[11]);
+        const inYearCount = () => store.data.rotations.filter(x => x.start >= from && x.start <= to).length;
+
+        const before = inYearCount();
+        const beforeBk = (store.data.rotationPlanBackups || []).length;
+
+        document.querySelector("#btnGeneratePlan").click();
+        await new Promise(res => setTimeout(res, 100));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 100));
+
+        const backups = store.data.rotationPlanBackups || [];
+        const created = backups[backups.length - 1];
+        const genBkCreated = backups.length === beforeBk + 1 && created.source === "generate" && created.rotations.length === before;
+
+        /* สำเนาที่เก็บไว้ต้องเป็น deep copy จริง — แก้ store.data.rotations ต่อจากนั้นไม่ควรกระทบ */
+        const beforeMutateLen = created.rotations.length;
+        store.data.rotations.push({ id: "rot_planbk_mutate_test", residentId: store.data.residents[0].id,
+          serviceId: store.data.services[0].id, start: from, end: from, note: "" });
+        const isolatedFromMutation = created.rotations.length === beforeMutateLen;
+        store.data.rotations = store.data.rotations.filter(x => x.id !== "rot_planbk_mutate_test");
+
+        /* จำลอง "รีเฟรชหน้า" ด้วย save แล้วโหลดใหม่ — พิสูจน์ว่าไม่ใช่แค่ตัวแปรใน closure เหมือน toastUndo เดิม */
+        store.save();
+        store.load();
+        const survivedReload = (store.data.rotationPlanBackups || []).some(x => x.id === created.id);
+
+        /* เปิดกล่องประวัติ แล้วกู้คืนรายการที่เพิ่งสร้าง */
+        document.querySelector("#btnPlanHistory").click();
+        await new Promise(res => setTimeout(res, 100));
+        const dlgOpenAfterHistory = document.querySelector("#dlg")?.open === true;
+        const rowsShown = document.querySelectorAll("#dlgBody [data-restore-plan]").length;
+        document.querySelector("#dlgBody [data-restore-plan]").click();
+        await new Promise(res => setTimeout(res, 100));
+        /* confirmAny ต้องถามแทรกในกล่องเดิม (confirmInline) ไม่ใช่เปิด <dialog> ซ้อน — ไม่งั้น showModal() จะพัง */
+        const inlineConfirmShown = !!document.querySelector(".confirm-inline");
+        document.querySelector(".confirm-inline [data-ok]").click();
+        await new Promise(res => setTimeout(res, 150));
+
+        const afterRestoreCount = inYearCount();
+        const afterRestoreBk = store.data.rotationPlanBackups || [];
+        const restoreBkCreated = afterRestoreBk[afterRestoreBk.length - 1].source === "restore";
+        const dlgClosedAfterRestore = document.querySelector("#dlg")?.open !== true;
+
+        /* เก็บสำรองไว้ไม่เกิน 10 ชุดล่าสุดต่อปีการศึกษา */
+        store.data.rotationPlanBackups = [];
+        for (let i = 0; i < 12; i++)
+          applyRotationPlanForAY(ay, structuredClone(store.data.rotations.filter(x => x.start >= from && x.start <= to)), "generate");
+        const capped = store.data.rotationPlanBackups.length;
+
+        return {
+          before, genBkCreated, isolatedFromMutation, survivedReload,
+          dlgOpenAfterHistory, rowsShown, inlineConfirmShown,
+          afterRestoreCount, restoreBkCreated, dlgClosedAfterRestore, capped
+        };
+      });
+      t.check("สร้างแผนอัตโนมัติแล้วมีสำรองใหม่ตรงจำนวนช่วงหมุนเวียนเดิม", r.genBkCreated, JSON.stringify(r));
+      t.check("สำเนาที่เก็บไว้เป็น deep copy จริง ไม่กระทบเมื่อแก้ข้อมูลปัจจุบันต่อ", r.isolatedFromMutation);
+      t.check("สำรองรอดจากการจำลองรีเฟรชหน้า (save แล้วโหลดใหม่)", r.survivedReload);
+      t.check("เปิด 'ประวัติแผนอัตโนมัติ' เห็นรายการที่เพิ่งสร้าง", r.dlgOpenAfterHistory && r.rowsShown === 1, r.rowsShown);
+      t.check("กดกู้คืนถามยืนยันแทรกในกล่องเดิม ไม่พังเพราะซ้อน dialog", r.inlineConfirmShown);
+      t.eq("กู้คืนแล้วจำนวนช่วงหมุนเวียนกลับไปตรงกับก่อนสร้างแผน", r.afterRestoreCount, r.before);
+      t.check("กู้คืนก็ยังสร้างสำรองใหม่ไว้ (กู้คืนผิดก็กู้คืนกลับไปอีกทีได้)", r.restoreBkCreated);
+      t.check("กล่องประวัติปิดเองหลังกู้คืนเสร็จ", r.dlgClosedAfterRestore);
+      t.eq("เก็บสำรองไว้สูงสุด 10 ชุดล่าสุดต่อปีการศึกษา ตัดชุดเก่าสุดทิ้ง", r.capped, 10);
+
+      t.check("สำรองแผนอัตโนมัติ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- ตารางจริงของกลุ่มงานปี 2569 (ROTATION_PRESETS) ----------
+       ข้อมูลสาธิตต้องเป็นตารางจริงทั้งปี ไม่ใช่แผนที่ตัวจัดแผนสุ่มแล้วทับเฉพาะ ส.ค. — และผู้จัดหลักสูตรลงตารางนี้กลับได้
+       ทุกเมื่อผ่านปุ่ม "ใช้ตารางจริงของกลุ่มงาน" (เช่นหลังเผลอกด "สร้างแผนอัตโนมัติ") โดยมีสำรองก่อนเหมือนกัน */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        showView("rotation");
+        const preset = ROTATION_PRESETS["2569"];
+        const months = ayMonths("2569");
+        const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+        const inYear = () => store.data.rotations.filter(x => x.start >= from && x.start <= to);
+        const byName = (n) => store.data.residents.find(x => stripName(x.name).startsWith(stripName(n)));
+        const cell = (name, m) => inYear().find(x => x.residentId === byName(name)?.id && x.start === monthStartISO(months[m]))?.serviceId || "";
+
+        /* seed ต้องตรง preset ทุกช่อง */
+        const mapping = matchPresetRows(preset, store.data.residents);
+        const allMapped = preset.rows.every(pr => mapping[pr.row]);
+        const uniqueMapped = new Set(Object.values(mapping)).size === preset.rows.length;
+        const seedCount = inYear().length;
+        const mismatches = [];
+        preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          const got = inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]));
+          if (got?.serviceId !== sid) mismatches.push(pr.row + "/" + m + ":" + (got?.serviceId || "—") + "≠" + sid);
+        }));
+        const spot = { chaya_jul: cell("ชญา", 0), kengkaj_sep: cell("เก่งกาจ", 2), paphop_mar: cell("ปภพ", 8), paphop_jun: cell("ปภพ", 11),
+                       nathaphat_aug: cell("ณภัทร", 1), tawan_jul: cell("ตะวัน", 0) };
+        const supervisorsFilled = inYear().every(x => typeof x.supervisorId === "string");
+
+        /* เผลอกด "สร้างแผนอัตโนมัติ" → ตารางเปลี่ยน → กด "ใช้ตารางจริงของกลุ่มงาน" → กลับเป็นตารางจริง */
+        const presetBtnShown = !document.querySelector("#presetWrap").hidden && !document.querySelector("#btnApplyPreset").hidden;
+        const bkBefore = (store.data.rotationPlanBackups || []).length;
+        document.querySelector("#btnGeneratePlan").click();
+        await new Promise(res => setTimeout(res, 100));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 100));
+        const changedByGenerate = preset.rows.some(pr => pr.months.some((sid, m) =>
+          inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid));
+
+        document.querySelector("#btnApplyPreset").click();
+        await new Promise(res => setTimeout(res, 100));
+        const dlgRows = document.querySelectorAll("#dlgBody [data-preset-row]").length;
+        const prefilledAll = [...document.querySelectorAll("#dlgBody [data-preset-row]")].every(s => s.value);
+        /* เลือกซ้ำคนเดียวกันสองแถวต้องถูกกัน */
+        const sel41 = document.querySelector('#dlgBody [name="map:4.1"]'), sel42 = document.querySelector('#dlgBody [name="map:4.2"]');
+        const orig42 = sel42.value;
+        sel42.value = sel41.value;
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 50));
+        const dupBlocked = document.querySelector("#dlg").open && !!document.querySelector("#dlgBody .err");
+        sel42.value = orig42; sel42.dispatchEvent(new Event("change"));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 150));
+        const dlgClosed = document.querySelector("#dlg")?.open !== true;
+        const restoredMismatch = [];
+        preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          const got = inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]));
+          if (got?.serviceId !== sid) restoredMismatch.push(pr.row + "/" + m);
+        }));
+        const bks = store.data.rotationPlanBackups || [];
+        const bkAfter = bks.length;
+        const lastBkSource = bks[bks.length - 1]?.source;
+        const noteShown = /ตารางจริงของกลุ่มงาน/.test(document.querySelector("#planNotes")?.textContent || "");
+        return { allMapped, uniqueMapped, seedCount, mismatches, spot, supervisorsFilled, presetBtnShown, changedByGenerate,
+                 dlgRows, prefilledAll, dupBlocked, dlgClosed, restoredMismatch, bkBefore, bkAfter, lastBkSource, noteShown };
+      });
+      t.check("ทุกแถวของตารางจริง 2569 จับคู่กับคนสาธิตได้ครบและไม่ซ้ำ", r.allMapped && r.uniqueMapped);
+      t.eq("ข้อมูลสาธิตปี 2569 มีบล็อกครบ 20 คน × 12 เดือน", r.seedCount, 240);
+      t.check("ข้อมูลสาธิตตรงกับตารางจริงทุกช่อง", r.mismatches.length === 0, r.mismatches.slice(0, 5).join(" "));
+      t.eq("ชญา ก.ค. = สายฟ้า", r.spot.chaya_jul, "svc_blue");
+      t.eq("เก่งกาจ ก.ย. = วิสัญญี", r.spot.kengkaj_sep, "svc_anesth");
+      t.check("ปภพ มี.ค.–มิ.ย. = free elective", r.spot.paphop_mar === "svc_elective" && r.spot.paphop_jun === "svc_elective", JSON.stringify(r.spot));
+      t.eq("ณภัทร ส.ค. = elective (ตรงตารางเวร ส.ค.)", r.spot.nathaphat_aug, "svc_elective");
+      t.eq("ตะวัน ก.ค. = elective (ปี 3 elective ไม่ติดกันตามตารางจริง)", r.spot.tawan_jul, "svc_elective");
+      t.check("ทุกบล็อกมีช่องอาจารย์ผู้กำกับ (ว่างได้เฉพาะหน่วยนอกกลุ่มงาน)", r.supervisorsFilled);
+      t.check("admin เห็นปุ่ม 'ใช้ตารางจริงของกลุ่มงาน' ในปีที่มีตารางฝังไว้", r.presetBtnShown);
+      t.check("สร้างแผนอัตโนมัติแล้วตารางเปลี่ยนไปจากตารางจริง (จำลองการเผลอกด)", r.changedByGenerate);
+      t.eq("กล่องจับคู่มีครบ 20 แถว", r.dlgRows, 20);
+      t.check("กล่องจับคู่เดาชื่อจริงให้ครบทุกแถว", r.prefilledAll);
+      t.check("เลือกคนเดียวกันสองแถวถูกกันด้วยข้อความในกล่อง ไม่ปิดกล่อง", r.dupBlocked);
+      t.check("กดใช้ตารางแล้วกล่องปิด และตารางกลับเป็นตารางจริงทุกช่อง", r.dlgClosed && r.restoredMismatch.length === 0, r.restoredMismatch.slice(0, 5).join(" "));
+      t.check("ทั้งสร้างแผนและใช้ตารางจริงต่างสำรองของเดิมไว้ก่อน (2 ชุดใหม่ ชุดล่าสุด source=preset)",
+        r.bkAfter === r.bkBefore + 2 && r.lastBkSource === "preset", r.bkBefore + "→" + r.bkAfter + " " + r.lastBkSource);
+      t.check("แถบสรุปบอกว่าลงตารางจริงของกลุ่มงานแล้ว", r.noteShown);
+      t.check("ตารางจริงของกลุ่มงาน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* resident/staff ไม่มีปุ่มใช้ตารางจริง */
+    for (const role of ["resident", "staff"]) {
+      const { page, errors } = await openAs(browser, srv.url, role);
+      const shown = await page.evaluate(() => { showView("rotation"); const b = document.querySelector("#btnApplyPreset"); return !!b && !b.hidden; });
+      t.check(role + " ไม่เห็นปุ่ม 'ใช้ตารางจริงของกลุ่มงาน'", !shown);
+      t.check(role + " หน้าตาราง: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- staff (ไม่ใช่ผู้จัดหลักสูตร) ไม่เห็นปุ่มประวัติแผน เหมือนปุ่มสร้างแผนอัตโนมัติ ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "staff");
+      const hidden = await page.evaluate(() => {
+        showView("rotation");
+        return document.querySelector("#btnPlanHistory")?.hidden;
+      });
+      t.check("staff ไม่เห็นปุ่ม 'ประวัติแผนอัตโนมัติ'", hidden === true);
+      t.check("สิทธิ์ประวัติแผน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 

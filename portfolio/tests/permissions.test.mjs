@@ -36,22 +36,6 @@ export default async function run() {
         return !open;
       }));
 
-      /* ผลประเมินท้ายเซสชันเป็นข้อมูลรายบุคคล เหมือนกิจกรรม — เห็นและดาวน์โหลดได้เฉพาะของตัวเอง
-         เดิม #evalList และ evalCsvRows() ไม่กรองเลย ทุกคนเห็นคะแนน/ข้อเสนอแนะของทุกคนในสาย */
-      const evalLeak = await page.evaluate(() => {
-        const me = myResidentId(), other = store.data.residents.find(r => r.id !== me).id;
-        store.data.sessionEvals.push({ id: "ev_leak_test", residentId: other, staffId: "",
-          date: todayISO(), part: "am", sessionName: "ทดสอบรั่ว", serviceId: "",
-          scores: {}, entrust: "3", comment: "ข้อความลับของคนอื่น ห้ามเห็น" });
-        renderRotation();
-        const inList = ($("#evalList").innerHTML || "").includes("ข้อความลับของคนอื่น");
-        const inCsv = evalCsvRows().some(row => row.some(cell => String(cell).includes("ข้อความลับของคนอื่น")));
-        store.data.sessionEvals = store.data.sessionEvals.filter(e => e.id !== "ev_leak_test");
-        return { inList, inCsv };
-      });
-      t.check("ไม่เห็นผลประเมินท้ายเซสชันของคนอื่นในตารางสัปดาห์", !evalLeak.inList);
-      t.check("ดาวน์โหลด CSV ผลประเมินไม่หลุดของคนอื่นมาด้วย", !evalLeak.inCsv);
-
       /* logbook เป็นของรายบุคคล — ไม่ระบุเจ้าของต้องไม่ส่งอะไรเลย
          เดิมช่องว่างแปลว่า "ทุกเคสในเครื่อง" ซึ่งส่งเคสของคนอื่นออกไปได้ */
       const sync = await page.evaluate(() => {
@@ -197,33 +181,50 @@ export default async function run() {
       t.check("บันทึกการเข้าคาบแทนคนอื่นไม่ได้",
               !pickPerm.other?.some(x => x.includes("บันทึกว่าเข้าคาบนี้")), (pickPerm.other || []).join(" / "));
 
-      /* ปฏิทิน: picker ต้องซ่อน และต่อให้แก้ calResidentId ตรง ๆ ทาง console แล้วสั่ง render ใหม่
-         ก็ต้องดีดกลับมาเป็นตัวเองเสมอ — ไม่มีทางเห็นปฏิทินของคนอื่นได้ */
-      const calScope = await page.evaluate(() => {
+      /* ปฏิทินรวม: ตารางนำเสนอเป็นของทั้งภาควิชา แพทย์ประจำบ้านเห็นของคนอื่นได้ (ไม่ใช่ช่องโหว่ — เป็นตารางสาธารณะ)
+         แต่ "ของฉัน" ต้องกรองเหลือแต่ของตัวเองจริง และการเปิดกิจกรรมของคนอื่นยังถูก openActivity บล็อกตามเดิม */
+      const calMine = await page.evaluate(() => {
         showView("calendar");
-        const pickerHidden = document.querySelector("#calResidentPick").hidden;
-        const other = store.data.residents.find(r => r.id !== myResidentId());
-        calResidentId = other?.id || "__hijack__";
-        renderCalendar();
-        return { pickerHidden, resetToMine: calResidentId === myResidentId(), attempted: other?.id || "__hijack__" };
+        const me = myResidentId();
+        const anyOfMine = store.data.schedule.find(x => x.residentId === me) ||
+          store.data.activities.find(x => x.residentId === me && ["traumafilm", "preop"].includes(x.type));
+        if (anyOfMine) calMonth = anyOfMine.date.slice(0, 7);
+        const ownerOf = (b) => {
+          const i = b.dataset.pres.indexOf(":");
+          const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
+          if (kind === "slot" || kind === "info") return kind;
+          const rec = (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id);
+          /* แถวที่ฉันเป็น chief ผู้กำกับ / ผู้จัดร่วม นับเป็นของฉันด้วย */
+          return rec?.chiefId === me || rec?.coResidentId === me ? me : rec?.residentId;
+        };
+        document.querySelector("#calScopeAll").click();
+        const all = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
+        document.querySelector("#calScopeMine").click();
+        const mine = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
+        /* กิจกรรมบังคับทั้งรุ่น (info) โผล่ใน "ของฉัน" ได้เฉพาะเมื่อชั้นปีของฉันอยู่ในรายการที่ต้องเข้า */
+        const myYear = +store.resident(me)?.year;
+        const infoYears = (store.data.programme.morningConference.interHospital.years || []).map(Number);
+        const infoAllowed = infoYears.includes(myYear);
+        return { toggleShown: document.querySelector("#calScopeWrap").hidden === false,
+                 seesOthers: all.some(x => x && x !== me && x !== "slot" && x !== "info"),
+                 mineN: mine.length, allMine: mine.every(x => x === me || (x === "info" && infoAllowed)) };
       });
-      t.check("แพทย์ประจำบ้าน: ตัวเลือกเปลี่ยนคนในหน้าปฏิทินถูกซ่อน", calScope.pickerHidden);
+      t.check("แพทย์ประจำบ้าน: ปฏิทินรวมเห็นของคนอื่นได้ แต่กด 'ของฉัน' แล้วเหลือแต่ของตัวเอง",
+              calMine.toggleShown && calMine.seesOthers && calMine.mineN > 0 && calMine.allMine, JSON.stringify(calMine));
       const own = await page.evaluate(() => {
         showView("residents");
         const epaFirst = [...document.querySelectorAll("#view-epa > .card")].filter(c => !c.hidden)[0];
         return { landsOnOwn: currentViewName() === "resident", listTabHidden: document.querySelector('#subtabs [data-view="residents"]').hidden,
                  backHidden: document.querySelector("#btnResidentBack").hidden,
                  ownName: document.querySelector("#residentDetail h2")?.textContent.includes(store.resident(myResidentId()).name),
-                 epaOwnFirst: epaFirst?.dataset.fold === "epa-person" && !epaFirst.classList.contains("folded"),
-                 calOwn: (showView("calendar"), calResidentId === myResidentId()) };
+                 epaOwnFirst: epaFirst?.dataset.fold === "epa-person" && !epaFirst.classList.contains("folded") };
       });
-      t.check("resident: กลุ่มแพทย์ประจำบ้านเปิดแฟ้มของตัวเองทันที ไม่มีแท็บรายชื่อ/ปุ่มกลับ · EPA และปฏิทินเป็นของตัวเองก่อน",
-              own.landsOnOwn && own.listTabHidden && own.backHidden && own.ownName && own.epaOwnFirst && own.calOwn, JSON.stringify(own));
-      t.check("แก้ calResidentId ตรง ๆ ทาง console แล้ว renderCalendar() ยังดีดกลับเป็นตัวเองเสมอ",
-              calScope.resetToMine, "พยายามตั้งเป็น " + calScope.attempted);
+      t.check("resident: กลุ่มแพทย์ประจำบ้านเปิดแฟ้มของตัวเองทันที ไม่มีแท็บรายชื่อ/ปุ่มกลับ · EPA เป็นของตัวเองก่อน",
+              own.landsOnOwn && own.listTabHidden && own.backHidden && own.ownName && own.epaOwnFirst, JSON.stringify(own));
 
       /* ตารางนำเสนอเป็นของทั้งภาควิชา — เดิมปุ่มแก้ไข/บันทึกไม่มี data-perm และฟังก์ชันไม่มี guard
-         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้ */
+         แพทย์ประจำบ้านแก้/ลบแถวของคนอื่น และบันทึกกิจกรรมเข้าแฟ้มคนอื่นได้
+         ปฏิทินรวมให้เห็นรายการของคนอื่นได้ (ตารางสาธารณะของภาควิชา) เส้นแบ่งจึงอยู่ที่ฟังก์ชันแก้/บันทึก ไม่ใช่ที่การมองเห็น */
       const talk = await page.evaluate(() => {
         const me = myResidentId();
         const other = store.data.schedule.find(x => x.residentId !== me);
@@ -236,14 +237,23 @@ export default async function run() {
         const afterOther = store.data.activities.length;
         let ownRecorded = null;
         if (mine) { recordFromTalk(mine.id); ownRecorded = store.data.activities.length === afterOther + 1 && !!mine.activityId; }
-        showView("rotation");
-        const editBtnVisible = [...document.querySelectorAll("#talkTable [data-talk]")].some(b => !b.hidden);
-        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, editBtnVisible };
+
+        /* ปฏิทิน: แถวของตัวเองที่ยังไม่มีสไลด์ต้องกดบันทึกได้จากปฏิทินโดยตรง */
+        showView("calendar");
+        const missingMine = store.data.schedule.find(x => x.residentId === me && !x.activityId && x.date < todayISO());
+        let ownChipClickable = null;
+        if (missingMine) {
+          calMonth = missingMine.date.slice(0, 7); renderCalendar();
+          const chip = document.querySelector(`#calGrid button[data-pres="schedule:${missingMine.id}"]`);
+          ownChipClickable = !!chip;
+        }
+        return { editOpened, otherGrew: afterOther !== n0, ownRecorded, ownChipClickable };
       });
       t.check("แก้ตารางนำเสนอของคนอื่นไม่ได้ (กล่องไม่เปิด)", !talk.editOpened);
       t.check("บันทึกเข้าแฟ้มของคนอื่นจากตารางนำเสนอไม่ได้", !talk.otherGrew);
       t.check("บันทึกแถวของตัวเองจากตารางนำเสนอได้", talk.ownRecorded !== false, talk.ownRecorded === null ? "ไม่มีแถวของตัวเองในข้อมูลสาธิต" : "");
-      t.check("ปุ่มแก้ไขในตารางนำเสนอถูกซ่อนสำหรับแพทย์ประจำบ้าน", !talk.editBtnVisible);
+      t.check("ปฏิทิน: แถวของตัวเองที่ยังไม่มีบันทึกสไลด์ กดบันทึกได้จากปฏิทินโดยตรง",
+              talk.ownChipClickable !== false, talk.ownChipClickable === null ? "ไม่มีแถวที่ยังไม่บันทึกของตัวเองในข้อมูลสาธิต" : "");
 
       /* หน้า logbook/EPA ต้องพูดความจริงกับแพทย์ประจำบ้าน — ตัวเลขของตัวเอง ไม่ใช่ทั้งแผนก
          และไม่มีคำสั่ง/คำเตือนที่เขาทำอะไรไม่ได้ */

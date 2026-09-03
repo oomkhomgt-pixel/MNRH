@@ -53,8 +53,8 @@ export default async function run() {
                 td.headings.includes("ที่ต้องไป"), td.headings.join(" · "));
       }
       if (role === "staff")
-        t.check("staff: หน้าวันนี้เป็นคาบที่ระบุชื่อตัวเอง กับงานประเมินที่ค้าง",
-                td.headings.some(h => h.startsWith("ประเมินที่ค้าง")), td.headings.join(" · "));
+        t.check("staff: หน้าวันนี้เป็นคาบที่ระบุชื่อตัวเอง กับประเมินลงกองที่ค้าง",
+                td.headings.includes("คาบที่คุณรับผิดชอบวันนี้") && td.headings.some(h => h.startsWith("ประเมินลงกองที่ค้าง")), td.headings.join(" · "));
       if (role === "admin")
         t.check("admin: หน้าวันนี้เป็นภาพรวมทั้งภาควิชา",
                 td.headings.includes("วันนี้ใครอยู่สายไหน") && /\d+ คน/.test(td.where), td.where);
@@ -112,12 +112,12 @@ export default async function run() {
 
       /* ตารางกว้างมีสัญญาณว่าเลื่อนได้ */
       const scrollable = await page.evaluate(() => {
-        document.querySelector('#calSeg [data-seg="week"]')?.click();
+        showView("rotation");
         markScrollable();
-        const w = document.querySelector("#weekGrid .tbl-wrap");
+        const w = document.querySelector("#monthGrid .tbl-wrap");
         return { found: !!w, can: !!w?.classList.contains("can-scroll"), atEnd: !!w?.classList.contains("at-end") };
       });
-      t.check(role + ": 390px ตารางสัปดาห์ที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
+      t.check(role + ": 390px ตารางรายเดือนที่กว้างมีสัญญาณ .can-scroll และยังไม่ถึงขอบขวา",
               scrollable.found && scrollable.can && !scrollable.atEnd, JSON.stringify(scrollable));
 
       /* แถวตัวกรองไม่กินทั้งจอ */

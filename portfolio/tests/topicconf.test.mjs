@@ -137,6 +137,36 @@ export default async function run() {
       t.check("staff แก้แล้วข้อมูลไม่เปลี่ยนจริง — ไม่ใช่พึ่งการซ่อนปุ่มอย่างเดียว", !staffEdit.saved, JSON.stringify(staffEdit.saved));
     }
 
+    /* ---------- migration: คีย์ทดลอง thursdaySub → thursdayTheme (ธีม + เวลา 4 ช่วง) และ externalConfs ---------- */
+    const mig = await page.evaluate(() => {
+      store.data.programme.thursdaySub = { day: 4, startDate: "2026-07-02", order: ["trauma", "spine"] };
+      delete store.data.programme.thursdayTheme;
+      delete store.data.externalConfs;
+      store.migrate();
+      const th = store.data.programme.thursdayTheme;
+      const out = { oldGone: !("thursdaySub" in store.data.programme), cycleN: (th?.cycle || []).length, hasBlocks: !!th?.blocks?.topic1?.start,
+                    extArr: Array.isArray(store.data.externalConfs) };
+      store.load();
+      return out;
+    });
+    t.check("migrate(): thursdaySub ถูกลบ thursdayTheme มี cycle และเวลา 4 ช่วง externalConfs เป็น array", mig.oldGone && mig.cycleN > 0 && mig.hasBlocks && mig.extArr, JSON.stringify(mig));
+
+    /* ---------- ธีมประจำสัปดาห์: วนตามรอบจากสัปดาห์แรก และแถว topicConf กำหนดทับได้ ---------- */
+    const theme = await page.evaluate(() => {
+      const cfg = store.data.programme.thursdayTheme;
+      const first = cfg.startDate, n = cfg.cycle.length;
+      const labels = Array.from({ length: n + 1 }, (_, i) => thursdayThemeLabel(addDaysISO(first, i * 7)));
+      const before = thursdayThemeLabel(addDaysISO(first, -7));
+      const sameWeek = thursdayThemeLabel(addDaysISO(first, 2)) === labels[0];
+      store.data.topicConf = [{ id: "tc_theme_test", date: first, staffId: "", teamServiceId: "", theme: cfg.cycle[2].label }];
+      const overridden = thursdayThemeLabel(first), auto = thursdayThemeLabel(first, { auto: true });
+      store.load();
+      return { labels, expected: cfg.cycle.map(c => c.label).concat(cfg.cycle[0].label), before, sameWeek, overridden, expectOverride: cfg.cycle[2].label, auto, first: cfg.cycle[0].label };
+    });
+    t.eq("ธีมวนตามรอบสัปดาห์ละหนึ่ง แล้วกลับมาตัวแรกเมื่อครบรอบ", theme.labels, theme.expected);
+    t.check("ก่อนสัปดาห์แรกของรอบไม่มีธีม · ทุกวันในสัปดาห์เดียวกันได้ธีมเดียวกัน", theme.before === "" && theme.sameWeek, JSON.stringify(theme));
+    t.check("แถว topicConf กำหนดธีมทับได้ และค่า auto ยังบอกธีมตามรอบ", theme.overridden === theme.expectOverride && theme.auto === theme.first, JSON.stringify(theme));
+
     t.eq("ไม่มี error หลุดในคอนโซลระหว่างทดสอบทั้งหมด", errors.length, 0);
   } finally {
     await browser.close();
