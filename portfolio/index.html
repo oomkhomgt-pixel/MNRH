@@ -525,6 +525,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
               โดยจับคู่แถวกับแพทย์ประจำบ้านให้ตรวจก่อน — ตารางจริงไม่จำเป็นต้องตรงกติกาข้างบนทุกข้อ (เช่น elective ปี 3 ไม่ติดกัน)</li>
           </ul></details>
         <div id="planNotes"></div>
+        <div id="presetNotes"></div>
         <div id="rotationRuleNotes"></div>
         <div class="row" id="monthLegend" style="margin-bottom:.6rem"></div>
         <div id="monthGrid"></div>
@@ -4852,9 +4853,31 @@ function renderMonthGrid() {
   const presetWrap = $("#presetWrap");
   if (presetWrap) presetWrap.hidden = !ROTATION_PRESETS[String(ayView)];
   const months = ayMonths(ayView);
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  /* ปีที่มีตารางจริงฝังไว้: เรียงแถวตามตารางต้นฉบับ (4.1 … 1.5) และบอกรหัสแถว จะได้เทียบกับกระดาษของกลุ่มงานได้ทันที
+     คนที่ไม่อยู่ในตาราง (หรือปีอื่น) เรียงตามชั้นปี/ชื่อเหมือนเดิมต่อท้าย */
+  const preset = ROTATION_PRESETS[String(ayView)];
+  const presetMap = preset ? matchPresetRows(preset, store.data.residents) : {};
+  const rowOf = {}; (preset?.rows || []).forEach((pr, i) => { if (presetMap[pr.row]) rowOf[presetMap[pr.row]] = { i, row: pr.row }; });
+  const rs = store.data.residents.slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
   const usedIds = new Set();
+  /* ผู้จัดหลักสูตร: ถ้าตารางที่บันทึกไว้ยังไม่ตรงตารางจริง (หรือจับคู่ชื่อไม่ครบ) บอกไว้เหนือตารางพร้อมทางไป — ไม่ต้องเดาว่าทำไมหน้าเว็บไม่เหมือนกระดาษ */
+  const presetNotes = $("#presetNotes");
+  if (presetNotes) {
+    let html = "";
+    if (preset && canManage()) {
+      const unmatched = preset.rows.filter(pr => !presetMap[pr.row]);
+      const cellOf = (rid, mm) => rotationsInMonth(rid, mm).find(x => x.start === monthStartISO(mm))?.serviceId || rotationsInMonth(rid, mm)[0]?.serviceId || "";
+      let diff = 0;
+      preset.rows.forEach(pr => { if (presetMap[pr.row]) pr.months.forEach((sid, m) => { if (cellOf(presetMap[pr.row], months[m]) !== sid) diff++; }); });
+      if (unmatched.length || diff)
+        html = `<div class="notice warn small">ตารางปีการศึกษา ${esc(ayView)} ที่บันทึกไว้ยังไม่ตรงตารางจริงของกลุ่มงาน${diff ? " (" + diff + " ช่อง)" : ""}${unmatched.length
+          ? " · จับคู่ชื่อไม่ได้ " + unmatched.length + " แถว: " + esc(unmatched.map(pr => pr.row + " " + pr.name).join(", ")) : ""}
+          — กด <button type="button" class="btn-sm" data-open-preset>ใช้ตารางจริงของกลุ่มงาน</button> เพื่อตรวจการจับคู่แล้วลงทั้งปี (สำรองของเดิมให้ก่อน)</div>`;
+    }
+    presetNotes.innerHTML = html;
+    $$("#presetNotes [data-open-preset]").forEach(b => b.addEventListener("click", applyPresetDialog));
+  }
 
   /* ตรวจตารางจริงที่ป้อนไว้ ไม่ใช่แค่แผนที่ระบบสร้าง — จุดที่พลาดคือตอนป้อนตารางด้วยมือ */
   const ruleWarn = rotationYearWarnings(store.data.rotations, store.data.services, store.data.residents);
@@ -4866,7 +4889,7 @@ function renderMonthGrid() {
   $("#monthGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="month">
     <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
     <tbody>${rs.map(r => `<tr>
-      <th class="who">${esc(r.name)}<br /><span class="small muted">ชั้นปีที่ ${r.year}</span></th>
+      <th class="who">${esc(r.name)}<br /><span class="small muted">ชั้นปีที่ ${r.year}${rowOf[r.id] ? " · แถว " + esc(rowOf[r.id].row) : ""}</span></th>
       ${months.map(mm => {
         const list = rotationsInMonth(r.id, mm);
         list.forEach(x => usedIds.add(x.serviceId));
