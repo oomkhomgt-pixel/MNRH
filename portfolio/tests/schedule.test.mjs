@@ -1300,6 +1300,54 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- เครื่องที่มีข้อมูลเก่า: เปิดเวอร์ชันใหม่แล้วระบบลงตารางจริงปี 2569 ให้เองครั้งเดียว (สำรองก่อน) ----------
+       ผู้ใช้เปิดเว็บจริงแล้วยังเห็นตารางเก่าใน localStorage — migrate() ต้องแทนที่ให้ ไม่ต้องรอกดปุ่ม แต่ทำครั้งเดียว ไม่ทับที่แก้เองภายหลัง */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const preset = ROTATION_PRESETS["2569"], months = ayMonths("2569");
+        const mapping = matchPresetRows(preset, store.data.residents);
+        const mismatches = () => { let n = 0; preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          if (store.data.rotations.find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid) n++; })); return n; };
+        /* จำลองข้อมูลเก่า: แผนอัตโนมัติทับตารางจริง และไม่มีธงว่าตรวจ preset แล้ว */
+        showView("rotation");
+        document.querySelector("#btnGeneratePlan").click(); await new Promise(res => setTimeout(res, 100));
+        document.querySelector("#dlgFoot .btn-primary").click(); await new Promise(res => setTimeout(res, 100));
+        const staleDiff = mismatches();
+        delete store.data.meta.rotationPresetApplied;
+        store.data.rotationPlanBackups = [];
+        store.save(); store.load();
+        const afterLoadDiff = mismatches();
+        const bk = store.data.rotationPlanBackups || [];
+        const autoBk = bk.length === 1 && bk[0].source === "preset-auto" && /ระบบ/.test(bk[0].by);
+        const flagSet = !!store.data.meta.rotationPresetApplied?.["2569"];
+        const noticeQueued = /ปีการศึกษา 2569/.test(store.pendingNotice || "");
+        /* โหลดซ้ำหลังผู้ใช้แก้เองหนึ่งช่อง — ต้องไม่ทับ (ทำครั้งเดียว) */
+        const cell = store.data.rotations.find(x => x.residentId === mapping["4.1"] && x.start === monthStartISO(months[0]));
+        cell.serviceId = "svc_white"; store.pendingNotice = ""; store.save(); store.load();
+        const keptManual = store.data.rotations.find(x => x.id === cell.id)?.serviceId === "svc_white";
+        const noSecondBk = (store.data.rotationPlanBackups || []).length === 1;
+        /* จับคู่ไม่ครบ (ลบแพทย์ประจำบ้าน 1 คน): ไม่แตะตาราง แต่ตั้งธงว่าตรวจแล้ว */
+        store.load();
+        const removed = store.data.residents.pop();
+        delete store.data.meta.rotationPresetApplied;
+        const before = JSON.stringify(store.data.rotations);
+        store.migrate();
+        const untouched = JSON.stringify(store.data.rotations) === before && !!store.data.meta.rotationPresetApplied?.["2569"];
+        store.data.residents.push(removed);
+        store.load();
+        return { staleDiff, afterLoadDiff, autoBk, flagSet, noticeQueued, keptManual, noSecondBk, untouched };
+      });
+      t.check("ข้อมูลเก่าที่ถูกแผนอัตโนมัติทับ ต่างจากตารางจริง (ตั้งต้นการทดสอบ)", r.staleDiff > 0, r.staleDiff);
+      t.eq("โหลดใหม่แล้วระบบลงตารางจริงปี 2569 ให้เองครบทุกช่อง", r.afterLoadDiff, 0);
+      t.check("ลงให้อัตโนมัติก็สำรองชุดเดิมไว้ (source preset-auto โดย 'ระบบ')", r.autoBk);
+      t.check("ตั้งธง meta.rotationPresetApplied และเตรียมข้อความแจ้ง", r.flagSet && r.noticeQueued);
+      t.check("ทำครั้งเดียว — ช่องที่ผู้ใช้แก้เองภายหลังไม่ถูกทับ และไม่สำรองซ้ำ", r.keptManual && r.noSecondBk);
+      t.check("จับคู่แถวไม่ครบ: ไม่แตะตาราง แต่ไม่ถามซ้ำทุกครั้งที่เปิด", r.untouched);
+      t.check("ลงตารางจริงอัตโนมัติ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* resident/staff ไม่มีปุ่มใช้ตารางจริง */
     for (const role of ["resident", "staff"]) {
       const { page, errors } = await openAs(browser, srv.url, role);
