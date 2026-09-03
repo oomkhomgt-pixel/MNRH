@@ -192,16 +192,20 @@ export default async function run() {
         const ownerOf = (b) => {
           const i = b.dataset.pres.indexOf(":");
           const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
-          if (kind === "slot") return "slot";
+          if (kind === "slot" || kind === "info") return kind;
           return (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id)?.residentId;
         };
         document.querySelector("#calScopeAll").click();
         const all = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
         document.querySelector("#calScopeMine").click();
         const mine = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
+        /* กิจกรรมบังคับทั้งรุ่น (info) โผล่ใน "ของฉัน" ได้เฉพาะเมื่อชั้นปีของฉันอยู่ในรายการที่ต้องเข้า */
+        const myYear = +store.resident(me)?.year;
+        const infoYears = (store.data.programme.morningConference.interHospital.years || []).map(Number);
+        const infoAllowed = infoYears.includes(myYear);
         return { toggleShown: document.querySelector("#calScopeWrap").hidden === false,
-                 seesOthers: all.some(x => x && x !== me && x !== "slot"),
-                 mineN: mine.length, allMine: mine.every(x => x === me) };
+                 seesOthers: all.some(x => x && x !== me && x !== "slot" && x !== "info"),
+                 mineN: mine.length, allMine: mine.every(x => x === me || (x === "info" && infoAllowed)) };
       });
       t.check("แพทย์ประจำบ้าน: ปฏิทินรวมเห็นของคนอื่นได้ แต่กด 'ของฉัน' แล้วเหลือแต่ของตัวเอง",
               calMine.toggleShown && calMine.seesOthers && calMine.mineN > 0 && calMine.allMine, JSON.stringify(calMine));

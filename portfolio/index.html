@@ -1224,9 +1224,11 @@ const SESSION_PRIORITY_DEFAULT = { academic: 40, central: 30, duty: 25, subUnit:
    ปฏิทินวาดช่องเปล่าจากรูปแบบนี้ ชื่อโผล่เมื่อส่งสไลด์เข้ามา · แก้ได้ที่หน้าตั้งค่า เก็บใน programme.morningConference */
 const MORNING_CONFERENCE_DEFAULT = { days: [1, 2, 3, 5], traumafilm: { start:"09:00", end:"09:30" }, preop: { start:"09:30", end:"10:00" },
   /* บ่ายพฤหัสฯ Inter-hospital conference ของปี 4 — ขึ้นปฏิทินให้เห็นเฉย ๆ ไม่มีผู้นำเสนอ ไม่มีการประเมิน */
-  interHospital: { day: 4, start:"13:00", end:"15:00" } };
+  interHospital: { day: 4, start:"13:00", end:"15:00", years: [4] } };
 /* รายการบนปฏิทินที่ไม่ใช่ประเภทกิจกรรมในแฟ้ม (ไม่มีใน ACTIVITY_TYPES) — แสดงอย่างเดียว */
-const CALENDAR_INFO = { interhospital: { icon:"I", th:"Inter-hospital conference · ปี 4", en:"Inter-hospital conference (year 4)" } };
+/* กิจกรรมบังคับเข้าทั้งรุ่น (ไม่ใช่การนำเสนอ ไม่มีผู้นำเสนอ ไม่มีการประเมิน) — ขึ้นปฏิทินให้เห็นว่าวันนั้นทั้งชั้นปีต้องไป */
+const CALENDAR_INFO = { interhospital: { icon:"I", th:"Inter-hospital conference", en:"Inter-hospital conference" } };
+const yearsLabel = (years) => (years || []).length ? "ปี " + years.join("/") : "";
 /* กิจกรรมวิชาการเป็นหน้าที่แรกของแพทย์ประจำบ้าน มาก่อนงานบริการทุกอย่าง
    การบันทึกรายวันจึงชนะได้แค่คาบงานบริการด้วยกัน ไม่ชนะกิจกรรมวิชาการ */
 const PICKED_PRIORITY = 35;
@@ -1684,6 +1686,7 @@ const store = {
     d.programme.sessionPriority ||= { ...SESSION_PRIORITY_DEFAULT };
     d.programme.morningConference ||= structuredClone(MORNING_CONFERENCE_DEFAULT);
     d.programme.morningConference.interHospital ||= structuredClone(MORNING_CONFERENCE_DEFAULT.interHospital);
+    d.programme.morningConference.interHospital.years ||= [...MORNING_CONFERENCE_DEFAULT.interHospital.years];
     /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
        ลำดับความสำคัญเป็นค่าตั้งต้นของทั้งปี ส่วนอันนี้คือความจริงของวันนั้น */
     d.sessionPicks ||= [];
@@ -4526,7 +4529,7 @@ function renderCalMonth(box) {
     <span class="swatch"><i style="background:var(--warn-soft)"></i>ยังไม่มีบันทึกสไลด์</span>
     <span class="swatch"><i style="background:#fff"></i>ตามกำหนด</span>
     <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ<span class="lg-name"> ยังไม่ระบุผู้นำเสนอ</span></span>
-    <span class="swatch"><i style="background:${PRESENTATION_COLOUR.interhospital}"></i><b>I</b><span class="lg-name">&nbsp;Inter-hospital conference (แสดงเฉย ๆ)</span></span>
+    <span class="swatch"><i style="background:${PRESENTATION_COLOUR.interhospital}"></i><b>I</b><span class="lg-name">&nbsp;Inter-hospital conference (บังคับเข้าทั้งรุ่น ไม่มีการประเมิน)</span></span>
   </div>`;
   /* โหมด "ของฉัน" (resident เท่านั้น): ช่องประจำที่ยังไม่มีเจ้าของไม่ใช่ของใคร จึงไม่โชว์ */
   const mine = isResident() && calScope === "mine";
@@ -4534,7 +4537,10 @@ function renderCalMonth(box) {
     ${DAY_SHORT.slice(1).concat(DAY_SHORT[0]).map(d => `<div class="gcal-dow">${d}</div>`).join("")}
     ${cells.map(iso => {
       const inMonth = iso.slice(0, 7) === calMonth;
-      const items = presentationsForDate(iso).filter(p => !mine || p.residentId === myResidentId());
+      /* "ของฉัน" = ของตัวเอง + กิจกรรมบังคับทั้งรุ่นที่ชั้นปีของฉันต้องเข้า (ช่องประจำเปล่าไม่มีเจ้าของ ไม่โผล่) */
+      const myYear = mine ? +store.resident(myResidentId())?.year : 0;
+      const items = presentationsForDate(iso).filter(p => !mine || p.residentId === myResidentId() ||
+        (p.kind === "info" && (p.years || []).includes(myYear)));
       return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
         <span class="gcal-date">${Number(iso.slice(8))}</span>
         ${items.map(presentationChip).join("")}
@@ -4824,10 +4830,12 @@ function presentationsForDate(iso) {
       slots.push({ kind:"slot", id: ty + ":" + iso, type: ty, date: iso, start: tm.start || "", end: tm.end || "", residentId:"", title:"" });
     });
   }
-  /* 4) Inter-hospital conference ปี 4 — แสดงเฉย ๆ (kind "info") ไม่มีผู้นำเสนอ ไม่มีการประเมิน */
+  /* 4) Inter-hospital conference — กิจกรรมบังคับเข้าทั้งรุ่น (kind "info") ไม่มีผู้นำเสนอ ไม่มีการประเมิน
+        years บอกว่าชั้นปีไหนต้องไป (โหมด "ของฉัน" ใช้เลือกว่าโผล่ไหม) */
   const ih = mc.interHospital;
   if (ih && +ih.day === dow && !holiday)
-    slots.push({ kind:"info", id: "interhospital:" + iso, type:"interhospital", date: iso, start: ih.start || "", end: ih.end || "", residentId:"", title:"" });
+    slots.push({ kind:"info", id: "interhospital:" + iso, type:"interhospital", date: iso, start: ih.start || "", end: ih.end || "",
+                 residentId:"", title:"", years: (ih.years || []).map(Number) });
   return fromSchedule.concat(fromActivity, slots)
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 }
@@ -4845,9 +4853,10 @@ function presentationChip(p) {
   const status = isSlot || isInfo ? "" : p.kind === "schedule" ? talkStatus(p) : "done";
   const cls = "sess gcal-chip pres-" + p.type +
     (isInfo ? " info" : isSlot ? (past ? " slot muted-sess" : " slot") : status === "done" ? " done" : status === "missing" ? " due" : "");
-  const name = isInfo ? type.th : r ? r.name : isSlot && past ? "ไม่มีสไลด์ส่ง" : "ยังไม่ระบุผู้นำเสนอ";
+  const name = isInfo ? type.th + (p.years?.length ? " · " + yearsLabel(p.years) + " ทุกคน" : "")
+    : r ? r.name : isSlot && past ? "ไม่มีสไลด์ส่ง" : "ยังไม่ระบุผู้นำเสนอ";
   const line2 = p.title || (p.start ? p.start + (p.end ? "–" + p.end : "") : "");
-  const hint = isInfo ? type.th + " · แสดงเฉย ๆ ไม่มีการประเมิน"
+  const hint = isInfo ? name + " · บังคับเข้าทั้งรุ่น ไม่มีการประเมิน"
     : type.th + " · " + name + (p.title ? " — " + p.title : "") + (isSlot ? "" : " · " + TALK_STATUS_TAG[status][1]);
   return `<button class="${cls}" data-pres="${p.kind}:${esc(p.id)}" style="border-left-color:${colour};--pres:${colour}" title="${esc(hint)}">
     <b class="abbr">${esc(type.icon)}</b> <span class="nm${r || isInfo ? "" : " muted"}">${esc(name)}</span>
@@ -4862,11 +4871,16 @@ function presentationDetailDialog(kind, id) {
   if (kind === "info") {
     const i = id.indexOf(":"), type = id.slice(0, i), iso = id.slice(i + 1);
     const ih = morningConference().interHospital || {};
-    showDialog("กิจกรรมประจำ", `<div class="kv">
+    const yrs = (ih.years || []).map(Number);
+    const who = yrs.length ? store.data.residents.filter(r => yrs.includes(+r.year)) : [];
+    showDialog("กิจกรรมบังคับเข้าทั้งรุ่น", `<div class="kv">
       <dt>รายการ</dt><dd>${esc(presTypeOf(type).th)}</dd>
       <dt>วันที่</dt><dd>${fmtDate(iso)}${ih.start ? " · " + esc(ih.start) + (ih.end ? "–" + esc(ih.end) : "") + " น." : ""}</dd>
+      <dt>ใครต้องเข้า</dt><dd>${yrs.length ? "แพทย์ประจำบ้าน" + yearsLabel(yrs) + " ทุกคน" + (who.length ? " (" + who.length + " คน)" : "") : "—"}</dd>
     </div>
-    <p class="small muted">แสดงไว้ให้เห็นเฉย ๆ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน (ผู้จัดหลักสูตรปรับวัน/เวลาได้ที่หน้าตั้งค่า)</p>`, []);
+    ${who.length ? `<p class="small">${who.map(r => esc(r.name)).join(" · ")}</p>` : ""}
+    <p class="small muted">กิจกรรมบังคับของทั้งชั้นปี — ไม่มีผู้นำเสนอ ไม่มีการประเมิน และอยู่ในตารางประจำวันของทุกคนในชั้นปีนั้นอยู่แล้ว
+      (หน้า "วันนี้") · ผู้จัดหลักสูตรปรับวัน/เวลา/ชั้นปีได้ที่หน้าตั้งค่า</p>`, []);
     return;
   }
   if (kind === "slot") {
@@ -4989,7 +5003,7 @@ function recordFromTalk(id) {
 
 /* สถานะเป็นคำ ใช้ทั้ง CSV และรายงานพิมพ์ — ช่องประจำไม่มีสถานะแบบแถวที่ระบุคนแล้ว */
 const presentationStatusLabel = (p) =>
-  p.kind === "info" ? "แสดงเฉย ๆ ไม่มีการประเมิน"
+  p.kind === "info" ? "บังคับเข้า" + (p.years?.length ? " " + yearsLabel(p.years) + " ทุกคน" : "") + " · ไม่มีการประเมิน"
   : p.kind === "slot" ? (p.date < todayISO() ? "ไม่มีสไลด์ส่ง" : "ยังไม่ระบุผู้นำเสนอ")
   : TALK_STATUS_TAG[p.kind === "schedule" ? talkStatus(p) : "done"][1];
 
@@ -7947,8 +7961,10 @@ function renderSettings() {
         `<option value="${d}" ${+(mc.interHospital?.day ?? 4) === d ? "selected" : ""}>${DAY_NAMES[d]}</option>`).join("")}</select></label>
       <label class="f" style="max-width:11rem"><span>เริ่ม</span><input type="time" data-mc="interHospital.start" value="${esc(mc.interHospital?.start || "")}" /></label>
       <label class="f" style="max-width:11rem"><span>จบ</span><input type="time" data-mc="interHospital.end" value="${esc(mc.interHospital?.end || "")}" /></label>
+      <label class="f" style="max-width:11rem"><span>ชั้นปีที่ต้องเข้า (คั่นด้วย ,)</span><input data-mc="interHospital.years" value="${esc((mc.interHospital?.years || []).join(","))}" placeholder="เช่น 4" /></label>
     </div>
-    <p class="small muted">Inter-hospital conference ขึ้นปฏิทินให้เห็นเฉย ๆ ไม่มีผู้นำเสนอ ไม่มีการประเมิน</p>`;
+    <p class="small muted">Inter-hospital conference เป็นกิจกรรมบังคับเข้าทั้งรุ่น (ค่าเริ่มต้นปี 4) ไม่มีผู้นำเสนอ ไม่มีการประเมิน
+      ขึ้นปฏิทินให้เห็น และโผล่ในโหมด "ของฉัน" ของแพทย์ประจำบ้านชั้นปีนั้น</p>`;
   $$("#morningConfEditor [data-mc-day]").forEach(inp => inp.addEventListener("change", () => {
     const d = +inp.dataset.mcDay;
     mc.days = inp.checked ? [...new Set([...(mc.days || []), d])].sort() : (mc.days || []).filter(x => x !== d);
@@ -7956,7 +7972,8 @@ function renderSettings() {
   }));
   $$("#morningConfEditor [data-mc]").forEach(inp => inp.addEventListener("change", () => {
     const [ty, k] = inp.dataset.mc.split(".");
-    (mc[ty] ||= {})[k] = inp.value;
+    /* ชั้นปีเก็บเป็นอาเรย์ตัวเลข — พิมพ์ "3,4" ได้ ช่องว่างหรือตัวอักษรอื่นถูกทิ้ง */
+    (mc[ty] ||= {})[k] = k === "years" ? [...new Set(inp.value.split(/[,\s]+/).map(Number).filter(n => n >= 1 && n <= 6))] : inp.value;
     store.save(); renderAll(); toast("ปรับรูปแบบ morning conference แล้ว");
   }));
 

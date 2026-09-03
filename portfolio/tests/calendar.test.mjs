@@ -109,8 +109,8 @@ export default async function run() {
       t.check("วันที่มีกิจกรรม Trauma film จากสไลด์ ไม่มีช่องประจำ F ซ้ำ", r.hasFilmAct && r.noDupFilm);
       t.eq("วันพฤหัสบดีไม่มีช่อง F/P (เป็น Topic/Journal ที่ลงตารางล่วงหน้า)", r.thuSlots, 0);
       t.check("บ่ายพฤหัสฯ มี Inter-hospital conference แสดงเฉย ๆ 13:00 ไม่มีผู้นำเสนอ และไม่โผล่วันอื่น", r.infoOk && r.infoOnlyThu);
-      t.check("กด I: กล่องบอกว่าแสดงเฉย ๆ ไม่มีการประเมิน และไม่มีปุ่มทำอะไร",
-        !!r.info && r.info.title === "กิจกรรมประจำ" && r.info.noEval && r.info.foot.length === 1, JSON.stringify(r.info));
+      t.check("กด I: กล่องบอกว่าเป็นกิจกรรมบังคับทั้งรุ่น ไม่มีการประเมิน และไม่มีปุ่มทำอะไร",
+        !!r.info && r.info.title === "กิจกรรมบังคับเข้าทั้งรุ่น" && r.info.noEval && r.info.foot.length === 1, JSON.stringify(r.info));
       t.check("admin ไม่มีปุ่มสลับ ทั้งกลุ่มงาน/ของฉัน", r.noToggle);
       t.check("admin: ตารางรวมเห็นของหลายคนในเดือนเดียว", r.residentCount > 1, r.residentCount);
       t.check("chip ทุกอันมีตัวย่อ T/P/F/J ตรงประเภท และ class pres-{type}", r.chips > 0 && r.abbrOk, r.chips);
@@ -168,13 +168,25 @@ export default async function run() {
           otherFoot = { open: document.querySelector("#dlg")?.open === true, foot: [...document.querySelectorAll("#dlgFoot button")].map(x => x.textContent) };
           document.querySelector("#dlg").close(); }
         document.querySelector("#calScopeMine").click();
-        const mineOwners = [...document.querySelectorAll("#calGrid [data-pres]")].map(b => recOf(b)?.residentId);
-        return { hasMine: !!anyOfMine, toggleShown, defaultAll, seesOthers, mineN: mineOwners.length, allMine: mineOwners.every(x => x === me), otherFoot };
+        const mineRecs = [...document.querySelectorAll("#calGrid [data-pres]")].map(recOf);
+        const mineOwners = mineRecs.filter(x => x?.kind !== "info").map(x => x?.residentId);
+        const noSlotInMine = mineRecs.every(x => x?.kind !== "slot");
+        /* กิจกรรมบังคับทั้งรุ่น: โผล่ใน "ของฉัน" ก็ต่อเมื่อชั้นปีของฉันต้องเข้า — ทดสอบทั้งสองทางด้วยการสลับชั้นปีของบัญชีนี้ */
+        const mc = store.data.programme.morningConference;
+        const myYear = +store.resident(me).year, ihYears = (mc.interHospital.years || []).map(Number);
+        const infoWhenMine = (yrs) => { mc.interHospital.years = yrs; renderCalendar();
+          return [...document.querySelectorAll("#calGrid [data-pres]")].some(b => recOf(b)?.kind === "info"); };
+        const infoShownWhenMyYear = infoWhenMine([myYear]);
+        const infoHiddenWhenOtherYear = !infoWhenMine([myYear === 4 ? 3 : 4]);
+        mc.interHospital.years = ihYears; renderCalendar();
+        return { hasMine: !!anyOfMine, toggleShown, defaultAll, seesOthers, mineN: mineOwners.length, allMine: mineOwners.every(x => x === me),
+                 noSlotInMine, infoShownWhenMyYear, infoHiddenWhenOtherYear, otherFoot };
       }, REC_OF);
       t.check("resident: มีปุ่มสลับ และเปิดมาเป็น 'ทั้งกลุ่มงาน' ก่อน", r.toggleShown && r.defaultAll);
       t.check("resident: ตารางรวมเห็นของคนอื่นด้วย (ตารางนำเสนอเป็นของทั้งภาควิชา)", r.seesOthers);
       if (r.otherFoot) t.check("resident: เปิดกล่องของคนอื่นดูได้ แต่ไม่มีปุ่ม 'เปิดกิจกรรม'", r.otherFoot.open && !r.otherFoot.foot.includes("เปิดกิจกรรม"), r.otherFoot.foot.join(" / "));
-      t.check("resident: กด 'ของฉัน' แล้วเหลือแต่ของตัวเอง ไม่มีช่องประจำเปล่าปน", r.hasMine && r.mineN > 0 && r.allMine, JSON.stringify(r));
+      t.check("resident: กด 'ของฉัน' แล้วเหลือแต่ของตัวเอง ไม่มีช่องประจำเปล่าปน", r.hasMine && r.mineN > 0 && r.allMine && r.noSlotInMine, JSON.stringify(r));
+      t.check("resident: Inter-hospital (บังคับทั้งรุ่น) โผล่ใน 'ของฉัน' เฉพาะเมื่อชั้นปีของฉันต้องเข้า", r.infoShownWhenMyYear && r.infoHiddenWhenOtherYear, JSON.stringify(r));
       t.check("resident: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
