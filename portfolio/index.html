@@ -292,7 +292,7 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-cell.today{outline:2px solid var(--brand);outline-offset:-1px}
 .gcal-date{display:block;font-size:.74rem;font-weight:650;margin-bottom:.2rem}
 /* ป้ายอนุสาขาประจำสัปดาห์ในช่องวันพฤหัสฯ — ไม่ใช่รายการ กดไม่ได้ */
-.gcal-week-sub{display:block;width:100%;text-align:left;font:inherit;font-size:.66rem;font-weight:650;color:var(--brand-ink);background:#eef3f8;border:0;border-radius:4px;padding:0 .3rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcal-week-sub{display:block;width:100%;min-height:0;height:auto;text-align:left;font:inherit;font-size:.66rem;font-weight:650;color:var(--brand-ink);background:#eef3f8;border:0;border-radius:4px;padding:0 .3rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button.gcal-week-sub{cursor:pointer}
 button.gcal-week-sub:hover{background:#dfe8f2}
 .gcal-month-note{margin:0 0 .5rem;line-height:1.4}
@@ -312,6 +312,8 @@ button.gcal-week-sub:hover{background:#dfe8f2}
   .gcal-date{width:100%;font-size:.66rem;margin-bottom:0;line-height:1.1}
   .gcal-chip{display:inline-block;width:auto;min-height:0;margin:0;padding:0 .22rem;border-left-width:3px;border-radius:4px;font-size:.68rem;line-height:1.4;text-align:center}
   .gcal-chip .nm,.gcal-chip .ttl{display:none}
+  /* ป้ายธีมของพฤหัสฯ บนจอแคบ: บรรทัดเดียวเตี้ย ๆ เต็มความกว้าง (ชื่อธีมเต็มอยู่ใน title และกล่องจัดการ) */
+  .gcal-week-sub{font-size:.56rem;line-height:1.3;padding:0 .15rem;margin:0;border-radius:3px}
   .gcal-legend{gap:.2rem}
   .gcal-legend .swatch{font-size:.66rem;padding:0 .35rem}
   .gcal-legend .lg-name{display:none}
