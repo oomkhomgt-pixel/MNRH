@@ -554,11 +554,17 @@ export default async function run() {
         const text = new TextDecoder().decode(bytes);
         const me = store.resident(myResidentId());
         const others = store.data.residents.filter(x => x.id !== myResidentId());
-        return { pk: bytes[0] === 0x50 && bytes[1] === 0x4b, slides: slides.length,
+        /* กราฟล้วน: ไม่มีตาราง a:tbl · ข้อความยาวเกิน 1 บรรทัดต่อสไลด์ไม่เกิน 2 กล่อง (ชื่อเรื่อง+คำอธิบาย) · มีสไลด์ logbook รายคน */
+        const noTables = slides.every(items => items.every(it => it.kind !== "table"));
+        const longText = slides.map(items => items.filter(it => it.kind === "text" && String(Array.isArray(it.text) ? it.text.join(" ") : it.text).length > 80).length);
+        const logbookSlides = slides.filter(items => items.some(it => it.kind === "text" && /Logbook รายคน/.test(String(it.text)))).length;
+        return { pk: bytes[0] === 0x50 && bytes[1] === 0x4b, slides: slides.length, noTables, maxLong: Math.max(...longText), logbookSlides,
                  parts: ["[Content_Types].xml", "ppt/presentation.xml", "ppt/slideMasters/slideMaster1.xml", "ppt/slideLayouts/slideLayout1.xml", "ppt/theme/theme1.xml", "ppt/slides/slide1.xml"].every(n => text.includes(n)),
                  mine: text.includes(me.name.replace(/&/g, "&amp;")), leaked: others.filter(o => text.includes(o.name)).map(o => o.name), kb: Math.round(bytes.length / 1024) };
       });
       t.check("สไลด์ PPTX เป็น zip ที่มีส่วนครบ (presentation, master, layout, theme, slide)", px.pk && px.parts && px.slides >= 5, JSON.stringify(px));
+      t.check("สไลด์เป็นกราฟล้วน — ไม่มีตาราง และข้อความยาวต่อหน้าไม่เกินชื่อเรื่อง+คำอธิบาย", px.noTables && px.maxLong <= 2, "long " + px.maxLong);
+      t.check("มีสไลด์ logbook รายคน (ผู้ผ่าตัดหลัก/ผู้ช่วย)", px.logbookSlides >= 2, String(px.logbookSlides));
       t.check("สไลด์ PPTX ของแพทย์ประจำบ้านมีชื่อตัวเอง ไม่หลุดชื่อคนอื่น และไฟล์เล็ก (< 2 MB)", px.mine && px.leaked.length === 0 && px.kb < 2048, px.leaked.join(", ") + " · " + px.kb + " KB");
       await page.close();
 
