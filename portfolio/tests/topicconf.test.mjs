@@ -167,6 +167,42 @@ export default async function run() {
     t.check("ก่อนสัปดาห์แรกของรอบไม่มีธีม · ทุกวันในสัปดาห์เดียวกันได้ธีมเดียวกัน", theme.before === "" && theme.sameWeek, JSON.stringify(theme));
     t.check("แถว topicConf กำหนดธีมทับได้ และค่า auto ยังบอกธีมตามรอบ", theme.overridden === theme.expectOverride && theme.auto === theme.first, JSON.stringify(theme));
 
+    /* ---------- ตารางกิจกรรมจริงถูกลงให้เครื่องที่มีข้อมูลเก่าอยู่แล้ว และลงซ้ำไม่ทับของที่แก้เอง ---------- */
+    const preset = await page.evaluate(() => {
+      const dates = Object.keys(THURSDAY_PRESETS);
+      /* จำลองเครื่องเก่า: ไม่เคยมีตารางกิจกรรมของสี่เดือนนี้ */
+      store.data.topicConf = []; store.data.thursdayEvents = []; store.data.externalConfs = []; store.data.duty = [];
+      store.data.schedule = store.data.schedule.filter(t => !dates.includes(t.date));
+      delete store.data.meta.thursdayPresetApplied;
+      store.migrate();
+      const first = { notice: store.pendingNotice || "", tc: store.data.topicConf.length,
+                      events: store.data.thursdayEvents.length, ext: store.data.externalConfs.length,
+                      holidays: store.data.duty.filter(d => d.holiday).length,
+                      talks: store.data.schedule.filter(t => dates.includes(t.date)).length,
+                      flag: store.data.meta.thursdayPresetApplied,
+                      named: store.data.schedule.filter(t => dates.includes(t.date) && t.residentId).length,
+                      lecture: staffName((store.data.topicConf.find(x => x.date === "2026-07-02") || {}).lectureStaffId) };
+      /* แก้เองหนึ่งสัปดาห์ แล้วสั่งลงซ้ำ — ต้องไม่ทับ ไม่เพิ่มซ้ำ */
+      store.data.topicConf.find(x => x.date === "2026-07-02").theme = "แก้เอง";
+      const again = store.applyThursdayPresetOnce(true);
+      const second = { added: again.talks, tc: store.data.topicConf.length,
+                       talks: store.data.schedule.filter(t => dates.includes(t.date)).length,
+                       theme: store.data.topicConf.find(x => x.date === "2026-07-02").theme,
+                       missing: again.missing.length };
+      store.load();
+      return { first, second };
+    });
+    t.check("เครื่องที่มีข้อมูลเก่า: โหลดใหม่แล้วได้ตารางกิจกรรมจริงครบ (13 สัปดาห์ · 2 งานเต็มเช้า · 4 การประชุม · 1 วันหยุด)",
+      preset.first.tc === 13 && preset.first.events === 2 && preset.first.ext === 4 && preset.first.holidays === 1 && preset.first.talks > 30,
+      JSON.stringify(preset.first));
+    t.check("ทุกแถวจับคู่ชื่อกับทะเบียนได้ และ Staff lecture 2 ก.ค. ได้ อ.ธน ไม่ใช่ อ.ธนัท",
+      preset.first.named === preset.first.talks && /ธน$/.test(preset.first.lecture), preset.first.lecture);
+    t.check("มีข้อความแจ้งให้ผู้ใช้รู้ และตั้งธงไว้ไม่ให้ลงซ้ำเอง",
+      /ตารางกิจกรรม/.test(preset.first.notice) && preset.first.flag === "2569-q1", preset.first.notice);
+    t.check("สั่งลงซ้ำ: ไม่เพิ่มแถวใหม่ และสัปดาห์ที่แก้เองไม่ถูกทับ",
+      preset.second.added === 0 && preset.second.tc === 13 && preset.second.theme === "แก้เอง" && preset.second.missing === 0,
+      JSON.stringify(preset.second));
+
     t.eq("ไม่มี error หลุดในคอนโซลระหว่างทดสอบทั้งหมด", errors.length, 0);
   } finally {
     await browser.close();

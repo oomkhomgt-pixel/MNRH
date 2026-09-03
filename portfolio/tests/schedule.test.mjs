@@ -905,18 +905,18 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id).assessment;
         /* ข้อเฉพาะประเภทต้องเปลี่ยนตามชนิดของงานนำเสนอ ไม่ใช่ชุดเดียวใช้ทุกแบบ */
-        const perType = Object.fromEntries(ACTIVITY_TYPES.map(t =>
+        const perType = Object.fromEntries(ACTIVITY_TYPES.filter(t => !t.noEval).map(t =>
           [t.id, talkEvalItemsFor(t.id).length]));
         const base = TALK_EVAL_ITEMS.length;
-        const extraIds = ACTIVITY_TYPES.map(t => talkEvalItemsFor(t.id).slice(-1)[0].id);
+        const extraIds = ACTIVITY_TYPES.filter(t => !t.noEval).map(t => talkEvalItemsFor(t.id).slice(-1)[0].id);
         const csv = activityCsvRows([store.data.activities.find(x => x.id === a.id)]);
         return { type: a.type, sels: sels.length, expected, saved, perType,
-                 base, uniqueExtras: new Set(extraIds).size, nTypes: ACTIVITY_TYPES.length,
+                 base, uniqueExtras: new Set(extraIds).size, nTypes: ACTIVITY_TYPES.filter(t => !t.noEval).length,
                  csvHasItem: csv[0].some(h => /^ประเมิน: /.test(h)),
                  csvOutcome: csv[1][csv[0].indexOf("ผลการประเมิน")] };
       });
       t.eq("ฟอร์มประเมินการนำเสนอมีข้อครบตามประเภทกิจกรรม", talk.sels, talk.expected);
-      t.check("ทุกประเภทได้ข้อเฉพาะเพิ่มมาหนึ่งข้อ",
+      t.check("ทุกประเภทที่มีแบบประเมินได้ข้อเฉพาะเพิ่มมาหนึ่งข้อ (attend ไม่มีแบบประเมิน)",
               Object.values(talk.perType).every(n => n === talk.base + 1), JSON.stringify(talk.perType));
       t.eq("ข้อเฉพาะประเภทไม่ซ้ำกัน — คนละประเภทดูคนละเรื่อง", talk.uniqueExtras, talk.nTypes);
       t.eq("ค่าเฉลี่ยคิดจากเฉพาะข้อที่ให้คะแนน ไม่นับข้อที่เว้นว่าง", talk.saved?.score, 4);
