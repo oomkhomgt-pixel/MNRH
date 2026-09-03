@@ -193,7 +193,9 @@ export default async function run() {
           const i = b.dataset.pres.indexOf(":");
           const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
           if (kind === "slot" || kind === "info") return kind;
-          return (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id)?.residentId;
+          const rec = (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id);
+          /* แถวที่ฉันเป็น chief ผู้กำกับ / ผู้จัดร่วม นับเป็นของฉันด้วย */
+          return rec?.chiefId === me || rec?.coResidentId === me ? me : rec?.residentId;
         };
         document.querySelector("#calScopeAll").click();
         const all = [...document.querySelectorAll("#calGrid [data-pres]")].map(ownerOf);
