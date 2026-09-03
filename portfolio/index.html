@@ -9681,7 +9681,7 @@ function pptxSlideXml(items) {
     const x = inch(it.x), y = inch(it.y), w = inch(it.w), h = inch(it.h), n = id++;
     if (it.kind === "rect")
       return `<p:sp><p:nvSpPr><p:cNvPr id="${n}" name="r${n}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>` +
-        `<a:prstGeom prst="${it.round ? "roundRect" : "rect"}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${it.fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>` +
+        `<a:prstGeom prst="${it.shape || (it.round ? "roundRect" : "rect")}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${it.fill}"/></a:solidFill>${it.stroke ? `<a:ln w="9525"><a:solidFill><a:srgbClr val="${it.stroke}"/></a:solidFill></a:ln>` : "<a:ln><a:noFill/></a:ln>"}</p:spPr>` +
         `<p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>`;
     if (it.kind === "text") {
       const lines = Array.isArray(it.text) ? it.text : [it.text];
@@ -9748,27 +9748,97 @@ function buildPptx(slides, title) {
   });
   return zipStore(files);
 }
-/* กล่องมาตรฐานของสไลด์แดชบอร์ด */
+/* กล่องมาตรฐานของสไลด์แดชบอร์ด — ชื่อเรื่องบรรทัดเดียว + คำอธิบายสั้น ที่เหลือเป็นกราฟ */
 const pptxTitle = (title, sub) => [
   { kind:"rect", x:0, y:0, w:13.333, h:0.08, fill:"1F6F8B" },
   { kind:"text", x:0.5, y:0.25, w:12.3, h:0.6, text: title, sz:2200, b:true },
   ...(sub ? [{ kind:"text", x:0.5, y:0.8, w:12.3, h:0.4, text: sub, sz:1200, color:"6B7A89" }] : [])
 ];
 const pptxFoot = (text) => [{ kind:"text", x:0.5, y:7.0, w:12.3, h:0.35, text, sz:900, color:"6B7A89" }];
-/* แถบแนวนอน: label · bar · ตัวเลข */
-function pptxBars(rows, x, y, w, max, colorOf) {
-  const out = [], rowH = 0.36, labelW = 3.2, numW = 1.0, barW = w - labelW - numW - 0.2;
+const hex = (c) => String(c || "#1F6F8B").replace("#", "").toUpperCase();
+/* ผสมสีสองค่า (0 = a, 1 = b) สำหรับ heat map */
+const mixHex = (a, b, t) => { const p = (h, i) => parseInt(h.slice(i, i + 2), 16); const c = (i) => Math.round(p(a, i) + (p(b, i) - p(a, i)) * t).toString(16).padStart(2, "0"); return (c(0) + c(2) + c(4)).toUpperCase(); };
+const median = (arr) => { const a = arr.slice().sort((x, y) => x - y); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : 0; };
+
+/* ---- กราฟวาดด้วยรูปทรง (เปิดได้ทุกโปรแกรม แก้ต่อได้ทีละกล่อง) ---- */
+/* แถบแนวนอนต่อแถว: ป้าย · แถบ (value สีเข้ม + value2 สีอ่อนซ้อนต่อท้าย) · ขีดเป้าหมาย · ตัวเลขท้ายแถบ */
+function pptxHBarChart({ x, y, w, rows, max, rowH = 0.34, labelW = 2.6, numW = 0.9 }) {
+  const out = [], barW = w - labelW - numW - 0.15, scale = max > 0 ? barW / max : 0;
   rows.forEach((r, i) => {
-    const yy = y + i * rowH, frac = max ? Math.min(1, r.value / max) : 0;
-    out.push({ kind:"text", x, y: yy, w: labelW, h: rowH, text: r.label, sz:1100, anchor:"ctr" });
-    out.push({ kind:"rect", x: x + labelW, y: yy + 0.09, w: barW, h: rowH - 0.18, fill:"EEF2F5", round:true });
-    if (frac > 0) out.push({ kind:"rect", x: x + labelW, y: yy + 0.09, w: Math.max(0.06, barW * frac), h: rowH - 0.18, fill: colorOf ? colorOf(r) : "1F6F8B", round:true });
-    out.push({ kind:"text", x: x + labelW + barW + 0.1, y: yy, w: numW, h: rowH, text: r.text ?? String(r.value), sz:1100, b:true, anchor:"ctr", align:"r" });
+    const yy = y + i * rowH, bh = rowH - 0.14;
+    out.push({ kind:"text", x, y: yy, w: labelW, h: rowH, text: r.label, sz:1050, anchor:"ctr", color: r.labelColor || "12181F", b: !!r.labelBold });
+    out.push({ kind:"rect", x: x + labelW, y: yy + 0.07, w: barW, h: bh, fill:"EEF2F5", round:true });
+    if (r.value2 > 0) out.push({ kind:"rect", x: x + labelW, y: yy + 0.07, w: Math.max(0.05, Math.min(barW, (r.value + r.value2) * scale)), h: bh, fill: r.color2 || "B8D4DF", round:true });
+    if (r.value > 0) out.push({ kind:"rect", x: x + labelW, y: yy + 0.07, w: Math.max(0.05, Math.min(barW, r.value * scale)), h: bh, fill: r.color || "1F6F8B", round:true });
+    if (r.target > 0 && r.target <= max) out.push({ kind:"rect", x: x + labelW + r.target * scale - 0.015, y: yy + 0.02, w: 0.03, h: rowH - 0.04, fill:"12181F" });
+    out.push({ kind:"text", x: x + labelW + barW + 0.08, y: yy, w: numW, h: rowH, text: r.text ?? String(r.value), sz:1000, b:true, anchor:"ctr", align:"r", color: r.numColor || "12181F" });
   });
   return out;
 }
-const hex = (c) => String(c || "#1F6F8B").replace("#", "").toUpperCase();
-/* แดชบอร์ดของกลุ่มงาน (หรือของฉัน) เป็นสไลด์ 6–8 หน้า — ตัวเลขชุดเดียวกับ dashboardHtml */
+/* คอลัมน์ซ้อนรายเดือน + legend swatch + ตัวเลขรวมบนหัวคอลัมน์ */
+function pptxStackedColumns({ x, y, w, h, cats, series }) {
+  const out = [], totals = cats.map((_, i) => series.reduce((a, s) => a + (s.values[i] || 0), 0)), max = Math.max(1, ...totals);
+  /* legend พับบรรทัดละ 5 รายการ (ชื่อประเภทยาว) แล้วค่อยวางกราฟใต้ legend */
+  const perRow = 5, itemW = w / perRow, legendRows = Math.ceil(series.length / perRow), legendH = 0.32 * legendRows + 0.1;
+  const axisH = 0.4, plotTop = y + legendH, plotH = h - legendH - axisH, colW = w / cats.length, barW = Math.min(0.9, colW * 0.62);
+  series.forEach((s, k) => { const lx = x + (k % perRow) * itemW, ly = y + Math.floor(k / perRow) * 0.32;
+    out.push({ kind:"rect", x: lx, y: ly + 0.06, w: 0.2, h: 0.2, fill: s.color, round:true });
+    out.push({ kind:"text", x: lx + 0.24, y: ly, w: itemW - 0.3, h: 0.32, text: s.name, sz:950, anchor:"ctr" }); });
+  out.push({ kind:"rect", x, y: plotTop + plotH, w, h: 0.02, fill:"3D4A57" });
+  cats.forEach((c, i) => {
+    const cx = x + i * colW + (colW - barW) / 2; let top = plotTop + plotH;
+    series.forEach(s => { const v = s.values[i] || 0; if (!v) return; const hh = plotH * v / max; top -= hh; out.push({ kind:"rect", x: cx, y: top, w: barW, h: hh, fill: s.color }); });
+    if (totals[i]) out.push({ kind:"text", x: cx - 0.3, y: top - 0.32, w: barW + 0.6, h: 0.3, text: String(totals[i]), sz:1000, b:true, align:"ctr", anchor:"b" });
+    out.push({ kind:"text", x: x + i * colW, y: plotTop + plotH + 0.04, w: colW, h: axisH - 0.04, text: c, sz:900, align:"ctr", color:"3D4A57" });
+  });
+  return out;
+}
+/* ตารางสี: แถว × คอลัมน์ ระบายสีตามค่า (0 = แดงอ่อน ✕) ตัวเลขเล็กในช่อง */
+function pptxHeatGrid({ x, y, w, rows, cols, values, rowH = 0.42, labelW = 2.6 }) {
+  const out = [], cellW = (w - labelW) / cols.length, max = Math.max(1, ...values.flat());
+  cols.forEach((c, j) => out.push({ kind:"text", x: x + labelW + j * cellW, y, w: cellW, h: rowH, text: c, sz:900, align:"ctr", anchor:"b", color:"3D4A57", b:true }));
+  rows.forEach((r, i) => {
+    const yy = y + (i + 1) * rowH;
+    out.push({ kind:"text", x, y: yy, w: labelW, h: rowH, text: r, sz:1000, anchor:"ctr" });
+    cols.forEach((_, j) => {
+      const v = values[i][j] || 0, t = v / max;
+      out.push({ kind:"rect", x: x + labelW + j * cellW + 0.03, y: yy + 0.03, w: cellW - 0.06, h: rowH - 0.06, fill: v ? mixHex("DCEBF1", "1F6F8B", t) : "FDECEC", round:true });
+      out.push({ kind:"text", x: x + labelW + j * cellW, y: yy, w: cellW, h: rowH, text: v ? String(v) : "✕", sz:1000, b:!!v, align:"ctr", anchor:"ctr", color: v ? (t > 0.55 ? "FFFFFF" : "12181F") : hex(VIZ.bad) });
+    });
+  });
+  return out;
+}
+/* EPA: แถบเทาถึงเป้าหมาย + จุดค่าเฉลี่ย (เขียว = ถึง / แดง = ยังไม่ถึง / เทา = ยังไม่ประเมิน) */
+function pptxDotTarget({ x, y, w, rows, max = 5, rowH = 0.34, labelW = 5.2, numW = 1.4 }) {
+  const out = [], trackW = w - labelW - numW - 0.15, scale = trackW / max;
+  rows.forEach((r, i) => {
+    const yy = y + i * rowH, cy = yy + rowH / 2;
+    out.push({ kind:"text", x, y: yy, w: labelW, h: rowH, text: r.label, sz:1000, anchor:"ctr" });
+    out.push({ kind:"rect", x: x + labelW, y: cy - 0.03, w: trackW, h: 0.06, fill:"EEF2F5", round:true });
+    if (r.target > 0) out.push({ kind:"rect", x: x + labelW, y: cy - 0.03, w: Math.min(trackW, r.target * scale), h: 0.06, fill:"C9D6DE", round:true });
+    if (r.target > 0) out.push({ kind:"rect", x: x + labelW + r.target * scale - 0.015, y: yy + 0.04, w: 0.03, h: rowH - 0.08, fill:"12181F" });
+    const col = r.mean == null ? "B0BAC4" : r.mean >= r.target ? hex(VIZ.ok) : hex(VIZ.bad);
+    const mx = r.mean == null ? 0 : r.mean * scale;
+    out.push({ kind:"rect", x: x + labelW + mx - 0.09, y: cy - 0.09, w: 0.18, h: 0.18, fill: col, shape:"ellipse" });
+    out.push({ kind:"text", x: x + labelW + trackW + 0.08, y: yy, w: numW, h: rowH, text: r.mean == null ? "—" : r.mean + " / " + r.target + " (" + r.n + ")", sz:950, b:true, anchor:"ctr", align:"r", color: col });
+  });
+  return out;
+}
+/* แถบแนวนอนต่อคน แยกชั้นปี เรียงคนที่ตามหลังขึ้นก่อน — ต่อหน้าเมื่อเกิน 14 แถว */
+function pptxPersonPages(title, sub, byYear, foot, max, opts = {}) {
+  const slides = []; let page = [], count = 0;
+  const flush = () => { if (page.length) slides.push([...pptxTitle(title, sub), ...page, ...foot]); page = []; count = 0; };
+  byYear.forEach(([yr, rows]) => {
+    if (count + rows.length + 1 > 14) flush();
+    page.push({ kind:"text", x:0.5, y:1.3 + count * 0.34, w:12, h:0.34, text:"ชั้นปีที่ " + yr + (opts.yearNote ? " · " + opts.yearNote(yr) : ""), sz:1150, b:true, color:"1F6F8B", anchor:"ctr" });
+    count++;
+    page.push(...pptxHBarChart({ x:0.5, y:1.3 + count * 0.34, w:12.3, rows, max: typeof max === "function" ? max(yr) : max }));
+    count += rows.length;
+  });
+  flush();
+  return slides;
+}
+/* แดชบอร์ดของกลุ่มงาน (หรือของฉัน) เป็นสไลด์ — กราฟล้วน ตัวเลขชุดเดียวกับ dashboardHtml */
 function dashboardPptxSlides() {
   const ay = currentAY();
   const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
@@ -9777,68 +9847,87 @@ function dashboardPptxSlides() {
   const acts = visibleActivities().filter(a => a.academicYear === ay);
   const seenCases = (store.data.cases || []).filter(c => (c.participants || []).some(p => canSeeResident(p.residentId)));
   const waiting = acts.filter(a => !a.verified).length;
-  const sub = `รพ.มหาราชนครราชสีมา · ปีการศึกษา ${ay} · ${scope} · ${fmtDate(todayISO())} · โดย ${currentUser()?.displayName || "—"}`;
+  const sub = `รพ.มหาราชนครราชสีมา · ปีการศึกษา ${ay} · ${scope} · ${fmtDate(todayISO())}`;
   const foot = pptxFoot("ตัวเลขรวม ณ วันที่ออกรายงาน ไม่มีข้อมูลผู้ป่วยรายบุคคล · แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา");
+  const rows = list.map(r => ({ r, p: progressFor(r, ay) }));
+  const years = [...new Set(rows.map(x => x.r.year))].sort((a, b) => b - a);
+  const short = (r) => String(r.name || "").replace(/^(นพ\.|พญ\.)\s*/, "");
   const slides = [];
-  /* 1 หน้าปก + ตัวเลขหัวเรื่อง */
-  const tiles = [[list.length, "แพทย์ประจำบ้านในรายงาน"], [acts.length, "กิจกรรมในปีการศึกษานี้"], [seenCases.length, "เคสใน logbook"], [waiting, "กิจกรรมรออาจารย์รับรอง"]];
-  slides.push([
+  /* 1 ปก: ตัวเลข 4 ช่อง + แถบสถานะ ครบ/เกินครึ่ง/ต่ำกว่าครึ่ง */
+  const tiles = [[list.length, "แพทย์ประจำบ้าน"], [acts.length, "กิจกรรมปีนี้"], [seenCases.length, "เคสใน logbook"], [waiting, "รออาจารย์รับรอง"]];
+  const st = { ok: rows.filter(x => x.p.overall >= 100).length, warn: rows.filter(x => x.p.overall >= 50 && x.p.overall < 100).length, bad: rows.filter(x => x.p.overall < 50).length };
+  const cover = [
     { kind:"rect", x:0, y:0, w:13.333, h:7.5, fill:"1F6F8B" },
-    { kind:"text", x:0.8, y:1.3, w:11.7, h:1.0, text:"แดชบอร์ดแฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์", sz:3200, b:true, color:"FFFFFF" },
-    { kind:"text", x:0.8, y:2.3, w:11.7, h:0.5, text: sub, sz:1400, color:"DDE7EC" },
+    { kind:"text", x:0.8, y:1.0, w:11.7, h:1.0, text:"แดชบอร์ดแฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์", sz:3200, b:true, color:"FFFFFF" },
+    { kind:"text", x:0.8, y:1.95, w:11.7, h:0.5, text: sub, sz:1400, color:"DDE7EC" },
     ...tiles.flatMap(([n, label], i) => [
-      { kind:"rect", x:0.8 + i * 2.95, y:3.6, w:2.7, h:1.7, fill:"FFFFFF", round:true },
-      { kind:"text", x:0.9 + i * 2.95, y:3.7, w:2.5, h:0.9, text:String(n), sz:3600, b:true, color: (label.startsWith("กิจกรรมรอ") && n) ? hex(VIZ.warn) : "12181F" },
-      { kind:"text", x:0.9 + i * 2.95, y:4.6, w:2.5, h:0.6, text:label, sz:1100, color:"3D4A57" }
+      { kind:"rect", x:0.8 + i * 2.95, y:2.9, w:2.7, h:1.6, fill:"FFFFFF", round:true },
+      { kind:"text", x:0.9 + i * 2.95, y:2.95, w:2.5, h:0.9, text:String(n), sz:3600, b:true, color: (label.startsWith("รอ") && n) ? hex(VIZ.warn) : "12181F" },
+      { kind:"text", x:0.9 + i * 2.95, y:3.85, w:2.5, h:0.5, text:label, sz:1100, color:"3D4A57" }
     ])
-  ]);
-  /* 2… ความก้าวหน้าเทียบเกณฑ์ — แถบต่อคน แยกชั้นปี (หน้าละไม่เกิน 14 แถว) */
-  const rows = list.map(r => ({ r, p: progressFor(r, ay), gaps: gapsFor(r) }));
-  const byYear = [...new Set(rows.map(x => x.r.year))].sort((a, b) => b - a)
-    .map(yr => [yr, rows.filter(x => x.r.year === yr).sort((a, b) => a.p.overall - b.p.overall)]);
-  let page = [], count = 0;
-  const flushProgress = (label) => { if (page.length) slides.push([...pptxTitle("ความก้าวหน้าเทียบเกณฑ์ — เรียงจากคนที่ตามหลังมากที่สุด", label + " · เขียว = ครบ · ส้ม = เกินครึ่ง · แดง = ต่ำกว่าครึ่ง"), ...page, ...foot]); page = []; count = 0; };
-  byYear.forEach(([yr, grp]) => {
-    const bars = grp.map(({ r, p, gaps }) => ({ label: r.name, value: p.overall, text: p.overall + "%" + (gaps.length ? " · ขาด " + gaps.length : ""), col: hex(vizStatus(p.overall)) }));
-    if (count + bars.length + 1 > 14) flushProgress("");
-    page.push({ kind:"text", x:0.5, y:1.35 + count * 0.36, w:12, h:0.36, text:"ชั้นปีที่ " + yr + " · " + grp.length + " คน", sz:1200, b:true, color:"1F6F8B", anchor:"ctr" });
-    count++;
-    page.push(...pptxBars(bars, 0.5, 1.35 + count * 0.36, 12.3, 100, (b) => b.col));
-    count += bars.length;
-  });
-  flushProgress("");
-  /* สิ่งที่ยังขาด — 10 คนแรก */
-  const withGaps = rows.filter(x => x.gaps.length).sort((a, b) => b.gaps.length - a.gaps.length || a.p.overall - b.p.overall).slice(0, 10);
-  if (withGaps.length) slides.push([...pptxTitle("สิ่งที่ยังขาด — " + withGaps.length + " คนที่ต้องตามก่อน", "ปีการศึกษา " + ay),
-    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[3.2, 9.1], aligns:["l", "l"], sz:1000, rowH:0.5, head:["แพทย์ประจำบ้าน", "ยังขาด"],
-      rows: withGaps.map(({ r, gaps }) => [r.name + " (ปี " + r.year + ")", { text: gaps.slice(0, 3).map(g => g.text).join(" · ") + (gaps.length > 3 ? " · และอีก " + (gaps.length - 3) : ""), color: gaps.some(g => g.level === "bad") ? hex(VIZ.bad) : hex(VIZ.warn) }]) }, ...foot]);
-  /* กิจกรรมรายเดือน แยกประเภท (ตาราง) */
-  const monthKeys = [...new Set(acts.map(a => (a.date || "").slice(0, 7)).filter(Boolean))].sort();
-  if (monthKeys.length) {
-    const typeRows = ACTIVITY_TYPES.map(t => ({ name: t.th, by: monthKeys.map(m => acts.filter(a => a.type === t.id && (a.date || "").startsWith(m)).length), total: acts.filter(a => a.type === t.id).length })).filter(r => r.total);
-    const mk = monthKeys.slice(-10);
-    slides.push([...pptxTitle("กิจกรรมรายเดือน แยกตามประเภท", "ปีการศึกษา " + ay + (monthKeys.length > 10 ? " · แสดง 10 เดือนล่าสุด" : "")),
-      { kind:"table", x:0.5, y:1.35, w:12.3, widths:[3.3, ...mk.map(() => (12.3 - 3.3 - 0.9) / mk.length), 0.9], sz:1000, rowH:0.36,
-        head:["ประเภท", ...mk.map(m => THAI_MONTHS[+m.slice(5, 7) - 1] + " " + (+m.slice(0, 4) + 543).toString().slice(2)), "รวม"],
-        rows: typeRows.map(r => [r.name, ...mk.map(m => { const v = r.by[monthKeys.indexOf(m)]; return v ? String(v) : ""; }), String(r.total)]) }, ...foot]);
+  ];
+  if (rows.length) {
+    const tot = rows.length, segs = [["ok", st.ok, "ครบเกณฑ์"], ["warn", st.warn, "เกินครึ่ง"], ["bad", st.bad, "ต่ำกว่าครึ่ง"]];
+    let sx = 0.8;
+    cover.push({ kind:"text", x:0.8, y:4.9, w:11.7, h:0.4, text:"ความก้าวหน้าเทียบเกณฑ์ของทั้งรุ่น", sz:1200, color:"DDE7EC" });
+    segs.forEach(([k, n, label]) => { if (!n) return; const ww = 11.7 * n / tot;
+      cover.push({ kind:"rect", x: sx, y:5.3, w: ww, h:0.55, fill: hex(VIZ[k]), stroke:"FFFFFF" });
+      cover.push({ kind:"text", x: sx, y:5.3, w: ww, h:0.55, text: n + " " + label, sz:1100, b:true, color:"FFFFFF", align:"ctr", anchor:"ctr" });
+      sx += ww; });
   }
-  /* เคสแยกตามอนุสาขา + EPA */
-  const bySub = SUBSPECIALTIES.filter(x => x.id !== "general").map(sx => ({ label: sx.en, value: seenCases.filter(c => c.subspecialty === sx.id).length })).filter(x => x.value).sort((a, b) => b.value - a.value);
-  if (bySub.length) slides.push([...pptxTitle("เคสใน logbook แยกตามอนุสาขา", seenCases.length + " เคส · ปีการศึกษา " + ay), ...pptxBars(bySub, 0.5, 1.4, 12.3, Math.max(...bySub.map(x => x.value))), ...foot]);
+  slides.push(cover);
+  /* 2 ความก้าวหน้าเทียบเกณฑ์ */
+  slides.push(...pptxPersonPages("ความก้าวหน้าเทียบเกณฑ์ — เรียงจากคนที่ตามหลังมากที่สุด", "ขีดดำ = ครบ 100% · เขียว ครบ · ส้ม เกินครึ่ง · แดง ต่ำกว่าครึ่ง",
+    years.map(yr => [yr, rows.filter(x => x.r.year === yr).sort((a, b) => a.p.overall - b.p.overall)
+      .map(({ r, p }) => ({ label: short(r), value: p.overall, target: 100, text: p.overall + "%", color: hex(vizStatus(p.overall)), labelColor: p.overall < 50 ? hex(VIZ.bad) : "12181F" }))]),
+    foot, 100));
+  /* 3–4 logbook รายคนรายปี — ผู้ผ่าตัดหลัก / ผู้ช่วยผ่าตัด เทียบเกณฑ์ชั้นปี (requirements[year]) ใครได้น้อยอยู่บนสุด */
+  const logbookPages = (key, title) => {
+    const groups = years.map(yr => {
+      const grp = rows.filter(x => x.r.year === yr).sort((a, b) => a.p.logbook[key].done - b.p.logbook[key].done);
+      const med = median(grp.map(x => x.p.logbook[key].done));
+      return [yr, grp.map(({ r, p }) => { const lb = p.logbook[key], behindTarget = lb.need > 0 && lb.done < lb.need, behindPeers = lb.done < med;
+        return { label: short(r), value: lb.done, target: lb.need, text: lb.done + (lb.need ? " / " + lb.need : ""),
+                 color: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : hex(VIZ.ok),
+                 labelColor: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : "12181F", labelBold: behindTarget }; })];
+    });
+    const needOf = (yr) => +(store.data.requirements?.[yr]?.[key === "surgeon" ? "caseSurgeon" : "caseAssist"] || 0);
+    const anyTarget = years.some(yr => needOf(yr) > 0);
+    const max = Math.max(1, ...rows.map(x => Math.max(x.p.logbook[key].done, x.p.logbook[key].need)));
+    return pptxPersonPages(title, "ปีการศึกษา " + ay + " · ขีดดำ = เกณฑ์ของชั้นปี" + (anyTarget ? "" : " (ยังไม่ตั้ง — ใส่ได้ที่หน้าตั้งค่า › เกณฑ์)") + " · แดง ต่ำกว่าเกณฑ์ · ส้ม ต่ำกว่ามัธยฐานของรุ่น",
+      groups, foot, max, { yearNote: (yr) => needOf(yr) ? "เกณฑ์ " + needOf(yr) + " เคส" : "ยังไม่ตั้งเกณฑ์" });
+  };
+  slides.push(...logbookPages("surgeon", "Logbook รายคน — ผู้ผ่าตัดหลัก"));
+  slides.push(...logbookPages("assist", "Logbook รายคน — ผู้ช่วยผ่าตัด"));
+  /* 5 เคสตามอนุสาขา: แถบเข้ม = ผู้ผ่าตัดหลัก · แถบอ่อนต่อท้าย = ผู้ช่วย */
+  const visibleIds = new Set(list.map(r => r.id));
+  const roleIn = (c, roles) => (c.participants || []).some(p => visibleIds.has(p.residentId) && roles.includes(p.role));
+  const bySub = SUBSPECIALTIES.filter(x => x.id !== "general").map(sx => { const cs = seenCases.filter(c => c.subspecialty === sx.id);
+    const surgeon = cs.filter(c => roleIn(c, ["surgeon"])).length, assist = cs.filter(c => !roleIn(c, ["surgeon"]) && roleIn(c, ["assist1", "assist2"])).length;
+    return { label: sx.en, value: surgeon, value2: assist, text: surgeon + " + " + assist, color: hex(VIZ.one), color2:"B8D4DF" }; }).filter(x => x.value + x.value2).sort((a, b) => (b.value + b.value2) - (a.value + a.value2));
+  if (bySub.length) slides.push([...pptxTitle("เคสใน logbook แยกตามอนุสาขา", seenCases.length + " เคส · เข้ม = ผู้ผ่าตัดหลัก · อ่อน = ผู้ช่วยผ่าตัด"),
+    ...pptxHBarChart({ x:0.5, y:1.4, w:12.3, rows: bySub, max: Math.max(1, ...bySub.map(x => x.value + x.value2)), rowH:0.4, labelW:2.4, numW:1.2 }), ...foot]);
+  /* 6 กิจกรรมรายเดือน — คอลัมน์ซ้อน */
+  const monthKeys = [...new Set(acts.map(a => (a.date || "").slice(0, 7)).filter(Boolean))].sort().slice(-12);
+  if (monthKeys.length) {
+    const series = ACTIVITY_TYPES.map((t, i) => ({ name: t.en, color: hex(VIZ.cat[i % VIZ.cat.length]), values: monthKeys.map(m => acts.filter(a => a.type === t.id && (a.date || "").startsWith(m)).length) })).filter(sr => sr.values.some(Boolean));
+    slides.push([...pptxTitle("กิจกรรมรายเดือน แยกตามประเภท", "ปีการศึกษา " + ay),
+      ...pptxStackedColumns({ x:0.5, y:1.4, w:12.3, h:5.3, cats: monthKeys.map(m => THAI_MONTHS[+m.slice(5, 7) - 1] + " " + String(+m.slice(0, 4) + 543).slice(2)), series }), ...foot]);
+  }
+  /* 7 EPA — จุดค่าเฉลี่ยเทียบเป้าหมาย */
   const epaRows = (store.data.epas || []).map(e => {
     const lv = list.map(r => epaLevel(r.id, e.id)).filter(v => v != null);
     const tg = list.length ? Math.max(...list.map(r => epaTargetFor(r.year, e.id))) : 0;
-    return { code: e.code, title: e.title, mean: lv.length ? Math.round(lv.reduce((a, b) => a + b, 0) / lv.length * 10) / 10 : null, target: tg, n: lv.length };
+    return { label: e.code + " " + e.title, mean: lv.length ? Math.round(lv.reduce((a, b) => a + b, 0) / lv.length * 10) / 10 : null, target: tg, n: lv.length };
   }).filter(x => x.target > 0);
-  if (epaRows.length) slides.push([...pptxTitle("EPA — ระดับเฉลี่ยเทียบเป้าหมายของชั้นปี", "ปีการศึกษา " + ay),
-    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[7.3, 1.7, 1.6, 1.7], sz:1000, rowH:0.34, head:["หัวข้อ", "ระดับเฉลี่ย", "เป้าหมาย", "ประเมินแล้ว"],
-      rows: epaRows.slice(0, 14).map(e => [e.code + " " + e.title, { text: e.mean == null ? "ยังไม่ประเมิน" : String(e.mean), color: e.mean == null ? "6B7A89" : (e.mean >= e.target ? hex(VIZ.ok) : hex(VIZ.bad)) }, String(e.target), e.n + " คน"]) }, ...foot]);
-  /* งานนำเสนอ ประเภท × อนุสาขา */
+  if (epaRows.length) slides.push([...pptxTitle("EPA — ระดับเฉลี่ยเทียบเป้าหมายของชั้นปี", "จุด = ค่าเฉลี่ย · ขีดดำ = เป้าหมาย · (n) = จำนวนคนที่ประเมินแล้ว"),
+    ...pptxDotTarget({ x:0.5, y:1.4, w:12.3, rows: epaRows.slice(0, 15), max: 5 }), ...foot]);
+  /* 8 งานนำเสนอ ประเภท × อนุสาขา — ตารางสี */
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
   const pres = ACTIVITY_TYPES.filter(t => PRESENTATION_TYPES.includes(t.id) || t.id === "research" || t.id === "supervise");
-  slides.push([...pptxTitle("งานนำเสนอ แยกตามประเภท × อนุสาขา", "ช่องว่าง = ยังไม่มีเลย · ปีการศึกษา " + ay),
-    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[2.9, ...subs.map(() => (12.3 - 2.9) / subs.length)], sz:1000, rowH:0.36, head:["ประเภท", ...subs.map(x => x.en)],
-      rows: pres.map(t => [t.th, ...subs.map(sx => { const n = acts.filter(a => a.type === t.id && a.subspecialty === sx.id).length; return n ? String(n) : { text:"✕", color: hex(VIZ.bad) }; })]) }, ...foot]);
+  slides.push([...pptxTitle("งานนำเสนอ แยกตามประเภท × อนุสาขา", "ยิ่งเข้มยิ่งมาก · ✕ = ยังไม่มีเลย · ปีการศึกษา " + ay),
+    ...pptxHeatGrid({ x:0.5, y:1.4, w:12.3, rows: pres.map(t => t.th), cols: subs.map(x => x.en),
+      values: pres.map(t => subs.map(sx => acts.filter(a => a.type === t.id && a.subspecialty === sx.id).length)) }), ...foot]);
   return slides;
 }
 function exportDashboardPptx() {
