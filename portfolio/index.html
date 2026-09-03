@@ -499,14 +499,16 @@ button.gcal-week-sub:hover{background:#dfe8f2}
         <div class="between">
           <div>
             <h2>ตารางหมุนเวียนรายเดือน</h2>
-            <p class="muted small">แถว = แพทย์ประจำบ้าน · คอลัมน์ = เดือนของปีการศึกษา · สี = สาย/หน่วย · กดช่องเพื่อแก้</p>
+            <p class="muted small">แถว = แพทย์ประจำบ้าน · คอลัมน์ = เดือนของปีการศึกษา · สี = สาย/หน่วย · กดช่องเพื่อแก้
+              · ปีที่มีตารางจริงของกลุ่มงาน ระบบใช้ตารางจริงก่อนเสมอ — สร้างแผนอัตโนมัติเติมเฉพาะคนที่ไม่อยู่ในตาราง</p>
           </div>
           <div class="row no-print">
             <select id="ayPick"></select>
+            <!-- ตารางจริงของกลุ่มงานที่ฝังไว้ในระบบ (ROTATION_PRESETS) มาก่อนเสมอ และเป็นปุ่มหลักในปีที่มีตาราง
+                 โผล่เฉพาะปีการศึกษาที่มีตาราง · ซ่อน/แสดงด้วย wrapper ที่ไม่มี data-perm
+                 เพราะ applyPermissions() เขียนทับ hidden ของปุ่มที่มี data-perm -->
+            <span id="presetWrap" hidden><button class="btn-sm btn-primary" id="btnApplyPreset" data-perm="admin">ใช้ตารางจริงของกลุ่มงาน</button></span>
             <button class="btn-sm btn-primary" id="btnGeneratePlan" data-perm="admin">สร้างแผนอัตโนมัติ</button>
-            <!-- ตารางจริงของกลุ่มงานที่ฝังไว้ในระบบ (ROTATION_PRESETS) — โผล่เฉพาะปีการศึกษาที่มีตาราง
-                 ซ่อน/แสดงด้วย wrapper ที่ไม่มี data-perm เพราะ applyPermissions() เขียนทับ hidden ของปุ่มที่มี data-perm -->
-            <span id="presetWrap" hidden><button class="btn-sm" id="btnApplyPreset" data-perm="admin">ใช้ตารางจริงของกลุ่มงาน</button></span>
             <button class="btn-sm" id="btnPlanHistory" data-perm="admin">ประวัติแผนอัตโนมัติ</button>
             <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
             <button class="btn-sm" id="btnMonthCsv">CSV</button>
@@ -521,8 +523,10 @@ button.gcal-week-sub:hover{background:#dfe8f2}
             <li><b>ปี 4</b> วนตาม sub/สาย ถึงเดือนกุมภาพันธ์ จากนั้น free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.</li>
             <li>การวนนอกภาควิชาไม่ให้ชนกันในชั้นปีเดียวกัน และการลงสายแบ่งจำนวนคนให้เท่ากันที่สุด</li>
             <li>หน่วยอนุสาขาที่อยู่คู่กัน: Trauma/Paediatrics · Hand/Tumour · Foot &amp; Ankle/Sports (Spine และ Arthroplasty แยกหน่วย)</li>
-            <li>ปีการศึกษาที่มี<b>ตารางจริงของกลุ่มงาน</b>ฝังไว้ (ตอนนี้: 2569) ใช้ปุ่ม “ใช้ตารางจริงของกลุ่มงาน” ลงตารางทั้งปีได้ทันที
-              โดยจับคู่แถวกับแพทย์ประจำบ้านให้ตรวจก่อน — ตารางจริงไม่จำเป็นต้องตรงกติกาข้างบนทุกข้อ (เช่น elective ปี 3 ไม่ติดกัน)</li>
+            <li>ปีการศึกษาที่มี<b>ตารางจริงของกลุ่มงาน</b>ฝังไว้ (ตอนนี้: 2569) <b>ใช้ตารางจริงก่อนเสมอ</b> — ระบบลงให้เองเมื่อปีนั้นยังว่าง
+              และปุ่ม “ใช้ตารางจริงของกลุ่มงาน” ลงทั้งปีได้ทันทีโดยจับคู่แถวกับแพทย์ประจำบ้านให้ตรวจก่อน
+              · ตารางจริงไม่จำเป็นต้องตรงกติกาข้างบนทุกข้อ (เช่น elective ปี 3 ไม่ติดกัน)
+              · “สร้างแผนอัตโนมัติ” ในปีนั้น<b>เติมเฉพาะคนที่ไม่อยู่ในตารางจริง</b> ไม่แตะแถวของตารางจริง</li>
           </ul></details>
         <div id="planNotes"></div>
         <div id="presetNotes"></div>
@@ -2030,13 +2034,16 @@ const store = {
     const d = this.data;
     const preset = ROTATION_PRESETS[ay]; if (!preset) return;
     d.meta.rotationPresetApplied ||= {};
-    if (d.meta.rotationPresetApplied[ay]) return;
-    d.meta.rotationPresetApplied[ay] = new Date().toISOString();
     const mapping = matchPresetRows(preset, d.residents || []);
     const ids = Object.values(mapping).filter(Boolean);
     if (ids.length !== preset.rows.length || new Set(ids).size !== ids.length) return;   /* จับคู่ไม่ครบ — ไม่เดา ให้ admin กดเอง */
     const months = ayMonths(ay);
     const cellOf = (rid, mm) => (d.rotations || []).find(r => r.residentId === rid && r.start === monthStartISO(mm))?.serviceId || "";
+    /* ปีนั้นยังไม่มีบล็อกของคนในตารางจริงเลย = เครื่องที่ล้างข้อมูลหรือนำเข้าไฟล์ที่ไม่มีตารางปีนี้
+       ต้องลงตารางจริงให้ใหม่แม้เคยตั้งธงไว้แล้ว — ตารางจริงมาก่อนเสมอ */
+    const emptyYear = !preset.rows.some(pr => pr.months.some((sid, m) => cellOf(mapping[pr.row], months[m])));
+    if (d.meta.rotationPresetApplied[ay] && !emptyYear) return;
+    d.meta.rotationPresetApplied[ay] = new Date().toISOString();
     const differs = preset.rows.some(pr => pr.months.some((sid, m) => cellOf(mapping[pr.row], months[m]) !== sid));
     if (!differs) return;
     const rots = presetRotationsFor(ay, ay, mapping, d.residents, d.services, d.staff);
@@ -5062,9 +5069,12 @@ function renderMonthGrid() {
   const planBkCount = rotationPlanBackupsFor(ayView).length;
   const planBkBtn = $("#btnPlanHistory");
   if (planBkBtn) planBkBtn.textContent = "ประวัติแผนอัตโนมัติ" + (planBkCount ? ` (${planBkCount})` : "");
-  /* ปุ่มใช้ตารางจริงมีเฉพาะปีที่ฝังตารางไว้ */
+  /* ปุ่มใช้ตารางจริงมีเฉพาะปีที่ฝังตารางไว้ — และในปีนั้นตารางจริงเป็นปุ่มหลัก "สร้างแผนอัตโนมัติ" เป็นปุ่มรอง
+     ปีที่ไม่มีตารางจริง สร้างแผนกลับมาเป็นปุ่มหลักเหมือนเดิม */
   const presetWrap = $("#presetWrap");
-  if (presetWrap) presetWrap.hidden = !ROTATION_PRESETS[String(ayView)];
+  const hasPreset = !!ROTATION_PRESETS[String(ayView)];
+  if (presetWrap) presetWrap.hidden = !hasPreset;
+  $("#btnGeneratePlan")?.classList.toggle("btn-primary", !hasPreset);
   const months = ayMonths(ayView);
   /* ปีที่มีตารางจริงฝังไว้: เรียงแถวตามตารางต้นฉบับ (4.1 … 1.5) และบอกรหัสแถว จะได้เทียบกับกระดาษของกลุ่มงานได้ทันที
      คนที่ไม่อยู่ในตาราง (หรือปีอื่น) เรียงตามชั้นปี/ชื่อเหมือนเดิมต่อท้าย */
@@ -10887,10 +10897,27 @@ function init() {
     const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
     const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
     if (!store.data.residents.length) { toast("ยังไม่มีรายชื่อแพทย์ประจำบ้าน"); return; }
-    if (!(await confirmDialog("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
-                 "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
-                 { title: "สร้างแผนอัตโนมัติ", okLabel: "สร้างแผน" }))) return;
-    const plan = buildRotationPlan(ay, store.data.residents, store.data.services, store.data.staff);
+    /* ปีที่มีตารางจริงของกลุ่มงาน: ตารางจริงมาก่อนเสมอ ตัวจัดแผนได้จัดแค่คนที่ไม่อยู่ในตารางจริง
+       (เคยกดปุ่มนี้แล้วตารางจริงทั้งปีหายไป จนต้องไปกู้จากประวัติ) */
+    const preset = ROTATION_PRESETS[String(ay)];
+    const mapping = preset ? matchPresetRows(preset, store.data.residents) : {};
+    const mappedIds = new Set(Object.values(mapping).filter(Boolean));
+    const keepPreset = !!preset && mappedIds.size > 0;
+    const todo = keepPreset ? store.data.residents.filter(r => !mappedIds.has(r.id)) : store.data.residents;
+    if (keepPreset && !todo.length) {
+      toast("ทุกคนอยู่ในตารางจริงของกลุ่มงานแล้ว — ไม่มีใครให้จัดเพิ่ม แก้รายช่องได้ที่ตาราง", 7000);
+      return;
+    }
+    if (!(await confirmDialog(keepPreset
+                 ? "ปีการศึกษา " + ay + " มีตารางจริงของกลุ่มงาน — ตัวจัดแผนจะเติมเฉพาะ " + todo.length +
+                   " คนที่ไม่อยู่ในตารางจริง ไม่แตะแถวของตารางจริง\nเลิกทำได้ทันทีหลังสร้าง"
+                 : "สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
+                   "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
+                 { title: "สร้างแผนอัตโนมัติ", okLabel: keepPreset ? "เติมคนที่เหลือ" : "สร้างแผน" }))) return;
+    const plan = buildRotationPlan(ay, todo, store.data.services, store.data.staff);
+    if (keepPreset)
+      plan.rotations = presetRotationsFor(ay, String(ay), mapping, store.data.residents, store.data.services, store.data.staff)
+        .concat(plan.rotations);
     const { prevRotations } = applyRotationPlanForAY(ay, plan.rotations, "generate");
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
     store.save(); renderAll();
