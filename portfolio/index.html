@@ -358,9 +358,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
         เช่น <code>staff7</code> ใช้ <code>2007</code> · <code>resident12</code> ใช้ <code>3012</code></p>
       <button type="button" class="btn small" id="loginDemo" style="margin-top:.5rem">เติมรหัสสาธิตของบัญชีที่เลือก</button>
     </details>
-    <p class="notice warn small" style="margin-top:.9rem">รหัสข้างต้นเป็น <b>รหัสสาธิต</b> สำหรับลองใช้งานเท่านั้น
-      การตรวจสิทธิ์ทั้งหมดทำในเบราว์เซอร์ จึงเป็นการแบ่งมุมมองบนเครื่องที่ใช้ร่วมกัน <b>ยังไม่ใช่ระบบยืนยันตัวตนจริง</b>
-      ของจริงต้องผูกกับบัญชีของโรงพยาบาลและตรวจสิทธิ์ที่เซิร์ฟเวอร์</p>
+    <p class="notice warn small" style="margin-top:.9rem">รหัสข้างต้นเป็น<b>รหัสสาธิต</b> — ตรวจสิทธิ์ในเบราว์เซอร์เท่านั้น ยังไม่ใช่ระบบยืนยันตัวตนจริง</p>
   </div>
 </div>
 
@@ -454,10 +452,8 @@ button.gcal-week-sub:hover{background:#dfe8f2}
       <div class="between">
         <div>
           <h1>รับสไลด์ที่นำเสนอ แล้วบันทึกเข้าแฟ้มอัตโนมัติ</h1>
-          <p class="muted small">วางไฟล์ <b>.pptx</b> หรือ <b>.pdf</b> ที่ใช้นำเสนอ ระบบจะอ่านชื่อเรื่อง ผู้จัดทำ วันที่ และเนื้อหาในสไลด์
-            เพื่อเดา <b>ประเภทกิจกรรม</b> และ <b>อนุสาขา</b> ให้เอง ผู้ใช้เพียงตรวจแล้วกดยืนยัน — ไฟล์ไม่ถูกส่งออกจากเครื่องนี้</p>
-          <p class="muted small">เดาได้แม่นขึ้นถ้า: ตั้งชื่อ "ผู้จัดทำ" ของไฟล์เป็นชื่อตัวเอง (File → Info) ·
-            ตั้งชื่อไฟล์ให้มีวันที่นำเสนอ (เช่น <span class="mono">2569-08-15</span>) และคำของประเภท/อนุสาขา · ใช้ .pptx ถ้าเป็นไปได้</p>
+          <p class="muted small">วางไฟล์ .pptx/.pdf — ระบบอ่านชื่อเรื่อง ผู้จัดทำ วันที่ และเนื้อหา แล้วเดา<b>ประเภท</b>/<b>อนุสาขา</b>ให้ตรวจก่อนยืนยัน · ไฟล์ไม่ออกจากเครื่องนี้</p>
+          <p class="muted small">เดาแม่นขึ้นถ้า: “ผู้จัดทำ” ของไฟล์ = ชื่อตัวเอง · ชื่อไฟล์มีวันที่ (เช่น <code>2569-08-15</code>) และคำของประเภท/อนุสาขา · ใช้ .pptx</p>
         </div>
         <button class="btn-sm no-print" id="btnManualAdd">+ บันทึกด้วยมือ</button>
       </div>
@@ -503,8 +499,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
         <div class="between">
           <div>
             <h2>ตารางหมุนเวียนรายเดือน</h2>
-            <p class="muted small">แถวคือแพทย์ประจำบ้าน คอลัมน์คือเดือนของปีการศึกษา สีคือสายหรืออนุสาขาที่หมุนเวียนในเดือนนั้น
-              กดที่ช่องเพื่อแก้ไขช่วงหมุนเวียน</p>
+            <p class="muted small">แถว = แพทย์ประจำบ้าน · คอลัมน์ = เดือนของปีการศึกษา · สี = สาย/หน่วย · กดช่องเพื่อแก้</p>
           </div>
           <div class="row no-print">
             <select id="ayPick"></select>
@@ -522,7 +517,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
             <li>ปีการศึกษาเริ่มเดือน <b>กรกฎาคม</b> จบเดือน <b>มิถุนายน</b> รวม 12 บล็อก บล็อกละ 1 เดือน</li>
             <li><b>ปี 1</b> วนนอกภาควิชา 3 เดือน — วิสัญญี, โรคข้อ, ศัลยกรรมอุบัติเหตุ อย่างละ 1 เดือน ที่เหลือวนตามสาย</li>
             <li><b>ปี 2</b> วนเวชศาสตร์ฟื้นฟู 1 เดือน ที่เหลือวนตามสาย</li>
-            <li><b>ปี 3</b> วนตามสาย + free elective 3 เดือน ไปพร้อมกันได้ไม่เกิน 2 คน และทำหน้าที่หัวหน้าสายเมื่อสายนั้นไม่มีปี 4</li>
+            <li><b>ปี 3</b> วนตามสาย + free elective 3 เดือน ไปพร้อมกันได้ไม่เกิน 2 คน และเป็นหัวหน้าสาย (ถ้าสายไม่มีปี 3 ปี 4 ที่ลงสายทำแทน)</li>
             <li><b>ปี 4</b> วนตาม sub/สาย ถึงเดือนกุมภาพันธ์ จากนั้น free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.</li>
             <li>การวนนอกภาควิชาไม่ให้ชนกันในชั้นปีเดียวกัน และการลงสายแบ่งจำนวนคนให้เท่ากันที่สุด</li>
             <li>หน่วยอนุสาขาที่อยู่คู่กัน: Trauma/Paediatrics · Hand/Tumour · Foot &amp; Ankle/Sports (Spine และ Arthroplasty แยกหน่วย)</li>
@@ -570,7 +565,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
         </div>
         <details class="hint"><summary>คำอธิบายและวิธีใช้</summary><p class="muted small">กำหนดอาจารย์ผู้นิเทศและสายที่อยู่เวรของคาบ Topic conference / Journal club / Staff lecture
           วันพฤหัสบดีแต่ละสัปดาห์ (09:00–12:00) — ผู้จัดหลักสูตรตั้งเองรายสัปดาห์ ไม่หมุนอัตโนมัติ
-          · หัวหน้าสายคำนวณสดจากสายที่เลือก (ปี 3 ที่ไม่มีปี 4 ร่วมสายในเดือนนั้น) ไม่มีให้เลือกเอง
+          · หัวหน้าสายคำนวณสดจากสายที่เลือก (ปี 3 ในสาย หรือปี 4 เมื่อสายไม่มีปี 3) ไม่มีให้เลือกเอง
           · ยังไม่ได้กำหนด = แสดง “ยังไม่ได้กำหนด” ในปฏิทินและข้อความแจ้งเตือน LINE</p></details>
         <div id="tcTable"></div>
       </div>
@@ -697,8 +692,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
       <div class="between">
         <div>
           <h1>Logbook เคสผ่าตัด</h1>
-          <p class="muted small">ดึงรายการเคสจากระบบคิวห้องผ่าตัด แล้วระบุว่าแพทย์ประจำบ้านคนใดร่วมผ่าตัดเคสไหน ในบทบาทใด
-            เพื่อใช้เป็น logbook · <b>ระบบไม่นำชื่อผู้ป่วยเข้ามา</b> และข้อมูลทั้งหมดอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น</p>
+          <p class="muted small">ดึงเคสจากระบบคิวห้องผ่าตัด แล้วระบุว่าใครร่วมผ่าตัดในบทบาทใด เป็น logbook · ไม่นำชื่อผู้ป่วยเข้ามา ข้อมูลอยู่ในเครื่องนี้</p>
         </div>
         <div class="row no-print">
           <button class="btn-sm btn-primary" id="btnImportQueue" data-perm="staff">ดึงจากหน้าระบบคิว</button>
@@ -723,8 +717,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
           <span class="tag warn" id="unassignedCount">—</span>
         </div>
       </div>
-      <p class="muted small">ระบบคิวบันทึกเฉพาะศัลยแพทย์หลัก ยังไม่มีช่องผู้ช่วยผ่าตัด จึงต้องยืนยันตรงนี้
-        ระบบเสนอชื่อให้จากตารางหมุนเวียน (ใครอยู่หน่วยที่ตรงกับอนุสาขาของเคสในวันนั้น)</p>
+      <p class="muted small">ระบบคิวมีแต่ศัลยแพทย์หลัก — ยืนยันผู้ช่วยตรงนี้ ระบบเสนอชื่อจากตารางหมุนเวียนให้</p>
       <div id="unassignedList"></div>
     </div>
 
@@ -748,9 +741,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
   <section class="view" id="view-epa">
     <div class="card" data-perm="staff" data-fold="epa-matrix" data-fold-sum="">
       <h1>การประเมิน EPA — ภาพรวมทั้งกลุ่มงาน</h1>
-      <p class="muted small">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
-        · เทียบกับเป้าหมายของแต่ละชั้นปีที่หลักสูตรกำหนด · ตัวเลข = ระดับล่าสุดของแต่ละหัวข้อ · <b>✓</b> ถึงเป้าหมายของชั้นปีแล้ว ·
-        <b>↑</b> ยังไม่ถึงเป้าหมาย · <b>—</b> ยังไม่เคยประเมิน</p>
+      <p class="muted small">ระดับ entrustment รายหัวข้อ เทียบเป้าหมายของชั้นปี · ตัวเลข = ระดับล่าสุด · ✓ ถึงเป้า · ↑ ยังไม่ถึง · — ยังไม่ประเมิน</p>
       <!-- คำเตือนชี้ไปหน้าตั้งค่า — คนที่เปิดหน้าตั้งค่าได้เท่านั้นที่ควรเห็น -->
       <div class="notice warn small" id="epaCaveat" data-perm="admin"></div>
       <div id="epaMatrix"></div>
@@ -759,8 +750,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
       <div class="between">
         <div>
           <h2 id="epaTitle">รายบุคคล</h2>
-          <p class="muted small" id="epaHint">ระดับความไว้วางใจให้ปฏิบัติงานได้เอง (entrustment) รายหัวข้อ แยกตามอนุสาขาและชั้นปี
-            · เทียบกับเป้าหมายของแต่ละชั้นปีที่หลักสูตรกำหนด</p>
+          <p class="muted small" id="epaHint">ระดับ entrustment รายหัวข้อ แยกอนุสาขา/ชั้นปี เทียบเป้าหมายของหลักสูตร</p>
         </div>
         <div class="row no-print">
           <select id="epaResident" aria-label="เลือกแพทย์ประจำบ้าน"></select>
@@ -788,11 +778,9 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     <div class="card">
       <div class="between">
         <h1>ความครอบคลุมอนุสาขาออร์โธปิดิกส์</h1>
-        <button class="btn-sm no-print" id="btnDashboard2">ดาวน์โหลดแดชบอร์ด (HTML)</button>
+        <button class="btn-sm no-print" id="btnDashboard2" title="ไฟล์เดียว เปิดได้ไม่ต้องมีเน็ต พิมพ์ลง A4 ได้ · ตัวเลขรวม ไม่มีข้อมูลผู้ป่วย · ตามสิทธิ์ของบัญชีคุณ">ดาวน์โหลดแดชบอร์ด (HTML)</button>
       </div>
-      <p class="muted small">แดชบอร์ดเป็นไฟล์เดียวจบ เปิดในเบราว์เซอร์ได้โดยไม่ต้องมีเน็ต สั่งพิมพ์เป็น PDF ลง A4 ได้
-        · เป็นตัวเลขรวม ไม่มีข้อมูลผู้ป่วยรายบุคคล · ได้ข้อมูลเท่าที่บัญชีของคุณมีสิทธิ์เห็น</p>
-      <p class="muted small">เริ่มที่ภาพรวมเพื่อดูว่าอะไรขาด แล้วกดเข้าไปดูทีละประเภทงานนำเสนอเพื่อดูว่าใครขาด</p>
+      <p class="muted small">ภาพรวมบอกว่าอะไรขาด · กดประเภทงานนำเสนอเพื่อดูว่าใครขาด</p>
       <div class="row filters no-print" id="coverageFilters"></div>
       <div class="row seg no-print" id="coverageNav"></div>
     </div>
@@ -803,8 +791,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
   <section class="view" id="view-wfme">
     <div class="card">
       <h1>หลักฐานตามมาตรฐาน WFME (Postgraduate Medical Education)</h1>
-      <p class="muted small">ทุกกิจกรรมที่บันทึกจะถูกผูกกับหัวข้อมาตรฐาน WFME ที่ใช้อ้างเป็นหลักฐานได้
-        หน้านี้รวมว่าแต่ละหมวดมีหลักฐานอะไรอยู่ในระบบบ้าง และยังขาดอะไร</p>
+      <p class="muted small">ทุกกิจกรรมผูกกับหัวข้อ WFME — หน้านี้สรุปว่าแต่ละหมวดมีหลักฐานอะไร และยังขาดอะไร</p>
       <div class="notice warn small" id="wfmeCaveat"></div>
       <div class="row no-print" style="margin-top:.8rem">
         <button class="btn-sm btn-primary" id="btnWfmeReport">สร้างรายงานหลักฐาน (พิมพ์ได้)</button>
@@ -820,26 +807,23 @@ button.gcal-week-sub:hover{background:#dfe8f2}
   <section class="view" id="view-settings">
     <div class="card no-print">
       <h1>ตั้งค่า &amp; ข้อมูล</h1>
-      <p class="muted small">เรียงจากที่ใช้บ่อยไปหาที่ตั้งครั้งเดียว — กดปุ่มเพื่อเปิดการ์ดนั้น · การ์ดพับอยู่ กดที่หัวข้อเพื่อขยายหรือพับ ระบบจำไว้ให้ในเครื่องนี้</p>
+      <p class="muted small">เรียงจากที่ใช้บ่อยไปหาที่ตั้งครั้งเดียว · กดหัวข้อการ์ดเพื่อพับ/ขยาย (ระบบจำไว้ให้)</p>
       <div class="row seg" id="settingsNav" style="margin-bottom:0"></div>
     </div>
     <div class="card" data-anchor="เตรียมปีการศึกษา" data-fold="set-เตรียมปีการศึกษา">
       <h2>เตรียมปีการศึกษา — สิ่งที่ต้องตั้งให้ครบ</h2>
-      <p class="muted small">รายการนี้คำนวณสดจากข้อมูลจริง ไม่ต้องติ๊กเอง — ข้อไหนยังไม่ครบ กดปุ่มไปทำได้เลย
-        (ลำดับที่ควรทำ: อาจารย์ → หน่วย → แพทย์ประจำบ้าน → บัญชี → แผนหมุนเวียน → ตารางเวร/ผู้นิเทศรายเดือน → เกณฑ์)</p>
+      <p class="muted small">คำนวณสดจากข้อมูลจริง — ข้อไหนยังไม่ครบ กดปุ่มไปทำได้เลย ตามลำดับบนลงล่าง</p>
       <div id="yearChecklist"></div>
     </div>
     <div class="card" data-anchor="บัญชีผู้ใช้" data-fold="set-บัญชีผู้ใช้" data-fold-closed>
       <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
         <button class="btn-sm no-print" id="btnAddUser">+ เพิ่มบัญชี</button></div>
-      <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะข้อมูลของตนเอง · อาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมินและรับรอง
-        · ผู้จัดหลักสูตรดูแลทะเบียน ตาราง เกณฑ์ และการเชื่อมต่อ · เพิ่มแพทย์ประจำบ้านใหม่ที่หน้ารายชื่อจะได้บัญชีผูกให้ทันที</p>
+      <p class="muted small">แพทย์ประจำบ้านเห็นเฉพาะของตนเอง · อาจารย์เห็นทุกคนเพื่อประเมิน/รับรอง · ผู้จัดหลักสูตรดูแลทะเบียนและตั้งค่า · เพิ่มแพทย์ประจำบ้านแล้วได้บัญชีทันที</p>
       <div id="userTable"></div>
     </div>
     <div class="card" data-anchor="สำรองข้อมูล" data-fold="set-สำรองข้อมูล" data-fold-closed>
       <h2>สำรองข้อมูลลงดิสก์ของภาควิชา</h2>
-      <p class="muted small">สำเนาที่สองนอกเหนือจากฐานข้อมูลกลางบนคลาวด์ — เลือกโฟลเดอร์บนดิสก์ของภาควิชาไว้ครั้งเดียว
-        ระบบจะเขียนไฟล์ทั้งชุดข้อมูลลงไป ตั้งชื่อไฟล์ตามวันเวลา และหมุนไฟล์เก่าออกตามจำนวนที่กำหนด</p>
+      <p class="muted small">สำเนาที่สองบนดิสก์ของภาควิชา — เลือกโฟลเดอร์ครั้งเดียว ระบบเขียนไฟล์ตามวันเวลาและหมุนไฟล์เก่าออกให้</p>
       <div id="backupPanel"></div>
     </div>
     <div class="card" data-anchor="ข้อมูลในเครื่อง" data-fold="set-ข้อมูลในเครื่อง" data-fold-closed>
@@ -861,14 +845,12 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     <div class="card" data-anchor="หน่วย" data-fold="set-หน่วย" data-fold-closed>
       <div class="between"><h2>หน่วยที่หมุนเวียนและตารางประจำสัปดาห์</h2>
         <button class="btn-sm no-print" id="btnAddService">+ เพิ่มหน่วย</button></div>
-      <p class="muted small">แต่ละหน่วยมีตารางกิจกรรมประจำสัปดาห์ ระบบใช้ตารางนี้ร่วมกับช่วงหมุนเวียนเพื่อสร้างเซสชันในปฏิทินโดยอัตโนมัติ
-        ชื่อหน่วยและอนุสาขาเป็นภาษาอังกฤษทั้งหมด</p>
+      <p class="muted small">ตารางประจำสัปดาห์ของแต่ละหน่วย + ช่วงหมุนเวียน = เซสชันในปฏิทิน · ชื่อหน่วย/อนุสาขาเป็นภาษาอังกฤษ</p>
       <div id="serviceTable"></div>
     </div>
     <div class="card" data-anchor="เกณฑ์" data-fold="set-เกณฑ์" data-fold-closed>
       <h2>เกณฑ์จำนวนกิจกรรมต่อชั้นปี</h2>
-      <p class="muted small">ค่าเหล่านี้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ยังไม่ใช่เกณฑ์ทางการของหลักสูตร
-        กรุณาแก้ให้ตรงกับหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
+      <p class="muted small"><b>ค่าตั้งต้นสำหรับสาธิต</b> — แก้ให้ตรงหลักสูตรของกลุ่มงานและเกณฑ์ราชวิทยาลัยฯ ก่อนใช้จริง</p>
       <div class="tbl-wrap"><div id="requirementEditor"></div></div>
     </div>
     <div class="card" data-anchor="EPA" data-fold="set-EPA" data-fold-closed>
@@ -892,12 +874,8 @@ button.gcal-week-sub:hover{background:#dfe8f2}
           <button class="btn-sm" id="btnRformReset">คืนค่าตั้งต้น</button>
         </div></div>
       <details class="hint"><summary>คำอธิบายและวิธีใช้ — นำเข้า/ส่งออก และผลต่อใบประเมินเดิม</summary>
-      <p class="muted small">ข้อที่ใส่มาให้เป็น <b>ค่าตั้งต้นสำหรับสาธิต</b> ไม่ใช่แบบประเมินทางการของกลุ่มงาน
-        — พิมพ์ฟอร์มจริงลงที่นี่ได้เลย หรือนำเข้าเป็นไฟล์ CSV
-        (คอลัมน์ <span class="mono">order, id, kind, question, options, minLabel, maxLabel, required, scored</span>)
-        หรือ JSON</p>
-      <p class="muted small">แก้ฟอร์มแล้วมีผลกับใบประเมินที่กรอกครั้งต่อไป
-        <b>ผลประเมินที่บันทึกไว้แล้วไม่ถูกลบ</b> คำตอบของข้อที่ถูกลบจะยังอยู่ในผลเดิมและยังส่งออกใน CSV</p></details>
+      <p class="muted small">ข้อที่ให้มาเป็น<b>ค่าตั้งต้นสาธิต</b> — พิมพ์ฟอร์มจริงที่นี่ หรือนำเข้า CSV/JSON (คอลัมน์ตามไฟล์ที่ส่งออก)</p>
+      <p class="muted small">แก้ฟอร์มมีผลกับใบประเมินครั้งต่อไป — ผลเดิมไม่ถูกลบ และยังส่งออก CSV ได้</p></details>
       <input type="file" id="rformPick" accept=".csv,.json,text/csv,application/json" hidden />
       <div id="rotationFormEditor"></div>
     </div>
@@ -908,15 +886,13 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     </div>
     <div class="card" data-anchor="ข้อมูลหลักสูตร" data-fold="set-ข้อมูลหลักสูตร" data-fold-closed>
       <h2>ข้อมูลหลักสูตร</h2>
-      <p class="muted small">ส่วนนี้เก็บหลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ และทะเบียนเอกสารของหลักสูตร
-        ซึ่งเป็นหลักฐานของ WFME หมวดที่ 1, 8 และ 9 ที่กิจกรรมการนำเสนอตอบไม่ได้</p>
+      <p class="muted small">หลักฐานที่ไม่ได้มาจากสไลด์ — พันธกิจ ผลลัพธ์การเรียนรู้ ทะเบียนเอกสาร (WFME หมวด 1, 8, 9)</p>
       <div id="programmeEditor"></div>
     </div>
     <div class="card" data-anchor="ทะเบียนเอกสาร" data-fold="set-ทะเบียนเอกสาร" data-fold-closed>
       <div class="between"><h2>ทะเบียนเอกสารหลักสูตร</h2>
         <button class="btn-sm no-print" id="btnAddDoc">+ เพิ่มเอกสาร</button></div>
-      <p class="muted small">บันทึกว่ามีเอกสารอะไร เก็บไว้ที่ใด ทบทวนล่าสุดเมื่อไร และใช้เป็นหลักฐานของมาตรฐานข้อใด
-        (ตัวเอกสารไม่ได้ถูกอัปโหลดเข้าหน้านี้)</p>
+      <p class="muted small">บันทึกว่ามีเอกสารอะไร อยู่ที่ใด ทบทวนเมื่อไร อ้างมาตรฐานข้อใด (ไม่ได้อัปโหลดตัวเอกสาร)</p>
       <div id="docRegister"></div>
     </div>
     <div class="card" data-perm="admin" data-anchor="ลำดับความสำคัญ" data-fold="set-ลำดับความสำคัญ" data-fold-closed>
@@ -941,8 +917,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     <div class="card" data-anchor="ชนตอนซิงก์" data-fold="set-ชนตอนซิงก์" data-fold-closed>
       <div class="between"><h2>รายการที่ชนกันตอนซิงก์</h2>
         <button class="btn-sm no-print" id="btnClearConflicts">ล้างรายการ</button></div>
-      <p class="muted small">เมื่อมีคนแก้พร้อมกัน ระบบจะรวมข้อมูลให้อัตโนมัติ — รายการที่แก้คนละที่จะรวมกันได้เลย
-        ส่วนรายการเดียวกันที่ถูกแก้ทั้งสองฝั่งจะถูกบันทึกไว้ตรงนี้ให้ตรวจย้อน</p>
+      <p class="muted small">แก้พร้อมกันคนละรายการ ระบบรวมให้เอง · รายการเดียวกันที่แก้ทั้งสองฝั่งบันทึกไว้ตรงนี้ให้ตรวจ</p>
       <div id="conflictList"></div>
     </div>
     <div class="card" data-anchor="ติดตั้งแอป" data-fold="set-ติดตั้งแอป" data-fold-closed>
@@ -961,7 +936,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     </div>
     <div class="card" data-anchor="โซนอันตราย" data-fold="set-โซนอันตราย" data-fold-closed data-fold-sum="" style="border-color:var(--bad)">
       <h2>โซนอันตราย</h2>
-      <p class="muted small">สองปุ่มนี้แทนที่หรือลบข้อมูลทั้งเครื่อง — ระบบจะถามยืนยันก่อนทุกครั้ง และควรสำรองข้อมูลเป็นไฟล์ JSON ไว้ก่อนเสมอ</p>
+      <p class="muted small">สองปุ่มนี้แทนที่/ลบข้อมูลทั้งเครื่อง — ถามยืนยันก่อนทุกครั้ง และควรสำรอง JSON ไว้ก่อน</p>
       <div class="row">
         <button id="btnSeed">โหลดข้อมูลสาธิตใหม่</button>
         <button class="btn-danger" id="btnWipe">ลบข้อมูลทั้งหมดในเครื่องนี้</button>
@@ -2206,17 +2181,18 @@ const serviceInk = (id) => {
 const serviceSubs = (svc) => (svc?.subspecialties?.length ? svc.subspecialties : [svc?.subspecialty].filter(Boolean));
 const serviceCovers = (svc, subId) => serviceSubs(svc).includes(subId);
 const serviceSubLabel = (svc) => serviceSubs(svc).map(x => SUB_BY_ID[x]?.en || x).join(" / ");
-/* ปี 3 ทำหน้าที่หัวหน้าสายเมื่อเดือนนั้นไม่มีปี 4 อยู่ในสายเดียวกัน */
+/* หัวหน้าสาย = ปี 3 ที่อยู่ในสาย · ถ้าเดือนนั้นสายไม่มีปี 3 เลย ปี 4 ที่มาลงสายทำหน้าที่แทน (ปี 4 ปกติวนหน่วยอนุสาขา จึงเป็นหัวหน้าสายเฉพาะกรณีนี้) */
 function isChiefOn(residentId, iso) {
   const r = store.resident(residentId);
-  if (!r || r.year !== 3) return false;
+  if (!r || (r.year !== 3 && r.year !== 4)) return false;
   const rot = rotationOn(residentId, iso);
   const svc = rot ? serviceById(rot.serviceId) : null;
   if (!svc?.team) return false;
+  if (r.year === 3) return true;
   return !(store.data.rotations || []).some(x => x.serviceId === rot.serviceId &&
-    x.start <= iso && x.end >= iso && store.resident(x.residentId)?.year === 4);
+    x.start <= iso && x.end >= iso && store.resident(x.residentId)?.year === 3);
 }
-/* หัวหน้าสาย (ปี 3 ไม่มีปี 4 ร่วมสาย) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา */
+/* หัวหน้าสาย (ปี 3 หรือปี 4 เมื่อไม่มีปี 3) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา */
 function chiefResidentOfTeam(serviceId, iso) {
   if (!serviceId) return null;
   return (store.data.residents || []).find(r =>
@@ -3108,7 +3084,8 @@ function seedData() {
       const a = {
         id: uid("act"), residentId: partner.id, type, subspecialty: row.subspecialty,
         title: type === "quiz" ? row.title : "กำกับ: " + row.title, date, academicYear: academicYear(date), source: "schedule",
-        evidence: null, wfme: (TYPE_BY_ID[type]?.wfme || []).slice(), assessment: null,
+        evidence: null, wfme: (TYPE_BY_ID[type]?.wfme || []).slice(),
+        assessment: i % 2 === 0 ? demoTalkEval(type, 4, staffBySub(sub, i + 3), date, i + 1) : null,
         verified: i % 2 === 0, verifiedBy: i % 2 === 0 ? staffBySub(sub, i + 3) : "",
         note: type === "quiz" ? "สร้างอัตโนมัติจากตารางนำเสนอ — ผู้จัดร่วมกับ " + presenter.name
                               : "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter.name,
@@ -4562,12 +4539,7 @@ function openVisit(residentId, iso) {
         `<option value="${id}">${esc(th)}</option>`).join("")}</select></label>
       <label class="f"><span>รายละเอียด</span><input name="reason" placeholder="เช่น เคส TKA ที่อยู่ในงานวิจัยของตัวเอง" /></label>
     </div>
-    <p class="small muted" style="margin-top:.6rem"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติเสมอ</b>
-      — รวมถึงวันที่หัวหน้าสายมอบหมายหน้างานเพราะคนในสายไม่พอ คำสั่งของหัวหน้าสายไม่ใช่การอนุมัติ
-      · ถ้าเป็นเรื่องที่เกิดไปแล้ว ขอย้อนหลังได้ ระบบจะกำกับไว้ว่าเป็นการขอย้อนหลัง
-      · คำขอนี้ยังไม่มีผลกับตารางจนกว่าอาจารย์ผู้กำกับจะอนุมัติ
-      · อนุมัติแล้วคาบนั้นจะขึ้นในตารางของคุณ และคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น
-      · กิจกรรมวิชาการยังมาก่อนอยู่ดี ถ้าชนกันคุณต้องเข้ากิจกรรมวิชาการ</p>`;
+    <p class="small muted" style="margin-top:.6rem"><b>นอกสาย/นอกหน่วยต้องได้รับอนุมัติเสมอ</b> — แม้หัวหน้าสายมอบหมายหน้างานก็ยังต้องขอ (ขอย้อนหลังได้ ระบบกำกับไว้) · มีผลกับตารางเมื่ออาจารย์อนุมัติ · กิจกรรมวิชาการมาก่อนเสมอ</p>`;
   showDialog("ขอไปเข้าคาบของสายอื่น", body, [
     { label:"ส่งคำขอ", cls:"btn-primary", onClick: () => {
         const d = dlgVal("date"), target = dlgVal("target");
@@ -4699,14 +4671,14 @@ function renderCalMonth(box) {
   const today = todayISO();
   /* จอแคบซ่อนชื่อประเภทเต็ม (.lg-name) เหลือสี+ตัวย่อ — ชื่อเต็มอยู่ในคำอธิบายใต้หัวปฏิทินอยู่แล้ว */
   const legend = `<div class="row gcal-legend" style="margin-bottom:.5rem;gap:.35rem">
-    ${PRESENTATION_TYPES.map(ty => `<span class="swatch"><i style="background:${PRESENTATION_COLOUR[ty]}"></i><b>${esc(TYPE_BY_ID[ty].icon)}</b><span class="lg-name">&nbsp;${esc(TYPE_BY_ID[ty].th)}</span></span>`).join("")}
+    ${PRESENTATION_TYPES.map(ty => `<span class="swatch"><i style="background:${PRESENTATION_COLOUR[ty]}"></i><b>${esc(TYPE_BY_ID[ty].icon)}</b><span class="lg-name">&nbsp;${esc(TYPE_BY_ID[ty].en)}</span></span>`).join("")}
+    <span class="swatch" title="ช่วงเปิดเช้าพฤหัสฯ ของอาจารย์ ไม่มีการประเมิน"><i style="background:${PRESENTATION_COLOUR.caseconf}"></i><b>C</b>/<b>L</b><span class="lg-name">&nbsp;Case conf / Staff lecture</span></span>
+    <span class="swatch" title="บังคับเข้าทั้งรุ่น ไม่มีการประเมิน"><i style="background:${PRESENTATION_COLOUR.interhospital}"></i><b>I</b><span class="lg-name">&nbsp;Inter-hospital</span></span>
+    <span class="swatch" title="การประชุมภายนอกที่ชั้นปีนั้นต้องไป"><i style="background:${PRESENTATION_COLOUR.external}"></i><b>X</b><span class="lg-name">&nbsp;ประชุมภายนอก</span></span>
     <span class="swatch"><i style="background:var(--ok-soft)"></i>บันทึกสไลด์แล้ว</span>
-    <span class="swatch"><i style="background:var(--warn-soft)"></i>ยังไม่มีบันทึกสไลด์</span>
+    <span class="swatch"><i style="background:var(--warn-soft)"></i>ยังไม่มีสไลด์</span>
     <span class="swatch"><i style="background:#fff"></i>ตามกำหนด</span>
-    <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ<span class="lg-name"> ยังไม่ระบุผู้นำเสนอ</span></span>
-    <span class="swatch"><i style="background:${PRESENTATION_COLOUR.caseconf}"></i><b>C</b>/<b>L</b><span class="lg-name">&nbsp;Interesting case / Staff lecture (ช่วงเปิดเช้าพฤหัสฯ ของอาจารย์)</span></span>
-    <span class="swatch"><i style="background:${PRESENTATION_COLOUR.interhospital}"></i><b>I</b><span class="lg-name">&nbsp;Inter-hospital conference (บังคับเข้าทั้งรุ่น ไม่มีการประเมิน)</span></span>
-    <span class="swatch"><i style="background:${PRESENTATION_COLOUR.external}"></i><b>X</b><span class="lg-name">&nbsp;การประชุมภายนอกที่ชั้นปีนั้นต้องไป</span></span>
+    <span class="swatch"><i style="background:#fbfcfd;border-style:dashed"></i>ช่องประจำ<span class="lg-name"> ยังไม่ระบุคน</span></span>
   </div>`;
   /* โหมด "ของฉัน" (resident เท่านั้น): ช่องประจำที่ยังไม่มีเจ้าของไม่ใช่ของใคร จึงไม่โชว์ */
   const mine = isResident() && calScope === "mine";
@@ -4886,7 +4858,7 @@ function renderMonthGrid() {
   $("#monthLegend").innerHTML = ((store.data.services || []).filter(x => usedIds.has(x.id))
     .map(x => `<span class="swatch"><i style="background:${serviceColour(x.id)}"></i>${esc(x.abbr || "")} — ${esc(x.name)}</span>`).join("")
     || `<span class="small muted">ยังไม่มีการหมุนเวียนในปีการศึกษานี้</span>`) +
-    `<span class="swatch">★ หัวหน้าสาย (ปี 3 ในสายที่ไม่มีปี 4)</span>`;
+    `<span class="swatch">★ หัวหน้าสาย (ปี 3 · ปี 4 เมื่อสายไม่มีปี 3)</span>`;
 
   $$("#monthGrid [data-rotcell]").forEach(b => b.addEventListener("click", () => editRotation(b.dataset.rotcell)));
 
@@ -4894,9 +4866,7 @@ function renderMonthGrid() {
   const teamSvcs = (store.data.services || []).filter(x => x.team);
   $("#teamComposition").innerHTML = teamSvcs.length ? `
     <h3>องค์ประกอบของแต่ละสาย</h3>
-    <p class="muted small">ตัวเลขในช่อง = จำนวนคนในสายเดือนนั้น (ปี 3–4 / ปี 1–2) · ปี 4 นับเป็นกำลังเสริมเมื่อมาลงสาย
-      · <span class="tag ok">✓ องค์ประกอบเหมาะสม</span> <span class="tag warn">! ไม่มีรุ่นพี่ ไม่มีรุ่นน้อง หรือรุ่นน้องกระจุก</span>
-      <span class="tag bad">✕ ไม่มีคนลงสาย</span> — สัญลักษณ์กำกับไว้เพื่อให้อ่านออกแม้พิมพ์ขาวดำ</p>
+    <p class="muted small">ตัวเลข = คนในสาย (ปี 3–4 / ปี 1–2) · <span class="tag ok">✓ เหมาะสม</span> <span class="tag warn">! ขาดรุ่นพี่/รุ่นน้อง หรือรุ่นน้องกระจุก</span> <span class="tag bad">✕ ไม่มีคน</span></p>
     <div class="tbl-wrap"><table class="month">
       <thead><tr><th class="who">สาย</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
       <tbody>${teamSvcs.map(t => `<tr>
@@ -5009,9 +4979,7 @@ function applyPresetDialog() {
     return `<option value="">— ไม่ลงแถวนี้ —</option>` + rs.map(r =>
       `<option value="${r.id}" ${guess[pr.row] === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${esc(String(r.year))})</option>`).join("");
   };
-  const body = `<p class="small muted">${esc(preset.label)} · ตรวจการจับคู่แถวกับแพทย์ประจำบ้านก่อน (ระบบเดาจากชื่อจริงให้) — เมื่อกดใช้
-      ช่วงหมุนเวียนเดิมของปีการศึกษา ${esc(ay)} จำนวน ${inYear.length} รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ)
-      โดยกันสำเนาของเดิมไว้ใน “ประวัติแผนอัตโนมัติ” ก่อนเสมอ และเลิกทำได้ทันทีหลังกด</p>
+  const body = `<p class="small muted">${esc(preset.label)} — ตรวจการจับคู่แถว ↔ แพทย์ประจำบ้าน (เดาจากชื่อจริงให้) แล้วกดใช้: แทนที่ช่วงหมุนเวียนเดิม ${inYear.length} รายการของปี ${esc(ay)} โดยสำรองไว้ใน “ประวัติแผนอัตโนมัติ” ก่อน เลิกทำได้ทันที</p>
     <div class="tbl-wrap"><table>
       <thead><tr><th>แถว</th><th>ชื่อในตาราง</th><th>ปี</th><th>แพทย์ประจำบ้านในระบบ</th></tr></thead>
       <tbody>${preset.rows.map(pr => `<tr>
@@ -5217,8 +5185,7 @@ function presentationDetailDialog(kind, id) {
         <dt>ธีมประจำสัปดาห์</dt><dd>${esc(tc.themeLabel)}</dd>
         <dt>ผู้นิเทศวันพฤหัสฯ</dt><dd class="tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</dd>
       </div>
-      <p class="small muted">ช่วงเปิดของเช้าวันพฤหัสฯ เป็นของอาจารย์ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน · ปกติเป็น Interesting Case Conference
-        สัปดาห์ที่มี Staff lecture ผู้จัดหลักสูตรกำหนดหัวข้อและอาจารย์ได้ที่ "จัดการวันพฤหัสฯ นี้" (หรือกดป้ายธีมบนปฏิทิน)</p>`, buttons);
+      <p class="small muted">ช่วงเปิดเป็นของอาจารย์ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน · ปกติเป็น Interesting Case Conference สัปดาห์ที่มี Staff lecture ตั้งหัวข้อ/อาจารย์ที่ “จัดการวันพฤหัสฯ นี้”</p>`, buttons);
       return;
     }
     const ih = morningConference().interHospital || {};
@@ -5230,8 +5197,7 @@ function presentationDetailDialog(kind, id) {
       <dt>ใครต้องเข้า</dt><dd>${yrs.length ? "แพทย์ประจำบ้าน" + yearsLabel(yrs) + " ทุกคน" + (who.length ? " (" + who.length + " คน)" : "") : "—"}</dd>
     </div>
     ${who.length ? `<p class="small">${who.map(r => esc(r.name)).join(" · ")}</p>` : ""}
-    <p class="small muted">กิจกรรมบังคับของทั้งชั้นปี — ไม่มีผู้นำเสนอ ไม่มีการประเมิน และอยู่ในตารางประจำวันของทุกคนในชั้นปีนั้นอยู่แล้ว
-      (หน้า "วันนี้") · ผู้จัดหลักสูตรปรับวัน/เวลา/ชั้นปีได้ที่หน้าตั้งค่า</p>`, []);
+    <p class="small muted">กิจกรรมบังคับของทั้งชั้นปี — ไม่มีผู้นำเสนอ ไม่มีการประเมิน (อยู่ในหน้า “วันนี้” ของทุกคนในชั้นปีแล้ว) · ผู้จัดหลักสูตรปรับวัน/เวลา/ชั้นปีที่หน้าตั้งค่า</p>`, []);
     return;
   }
   if (kind === "slot") {
@@ -5746,8 +5712,7 @@ function thursdayDialog(iso) {
 function externalConfsDialog() {
   if (!canManage()) { toast("การจัดการการประชุมภายนอกเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
   const list = (store.data.externalConfs || []).slice().sort((a, b) => (a.start || "").localeCompare(b.start || ""));
-  const body = `<p class="small muted">การประชุม/งานวิชาการนอกโรงพยาบาลที่แพทย์ประจำบ้านชั้นปีที่ระบุต้องไป (เช่น 20–21 ส.ค. Regional Hand: ปี 4)
-      ขึ้นปฏิทินทุกวันในช่วง โผล่ในโหมด "ของฉัน" ของชั้นปีนั้น และเตือนเมื่อลงตารางนำเสนอชนวัน</p>
+  const body = `<p class="small muted">งานวิชาการนอกโรงพยาบาลที่ชั้นปีที่ระบุต้องไป — ขึ้นปฏิทินทุกวันในช่วง โผล่ใน “ของฉัน” ของชั้นปีนั้น และเตือนเมื่อลงตารางนำเสนอชนวัน</p>
     ${list.length ? `<div class="tbl-wrap"><table>
       <thead><tr><th>ช่วงวัน</th><th>ชื่องาน</th><th>ชั้นปี</th><th>อนุสาขา</th><th>สถานที่</th><th></th></tr></thead>
       <tbody>${list.map(x => `<tr>
@@ -5998,10 +5963,7 @@ function editService(id) {
     </div>
     <label class="f"><span>สถานที่หลัก</span><input name="site" value="${esc(svc?.site || "")}" placeholder="เช่น หอผู้ป่วยอุบัติเหตุ ชั้น 4" /></label>
     <h4>ตารางกิจกรรมประจำสัปดาห์</h4>
-    <p class="small muted">เว้นเวลาไว้ = ใช้ทั้งช่วง (เช่น OR ทั้งเช้า) · ใส่เวลา = แทรกอยู่ในช่วงนั้น (เช่น ประชุม 07:30–08:30)
-      ระบบถือว่าสองคาบชนกันก็ต่อเมื่อทั้งคู่ใช้ทั้งช่วงเดียวกัน หรือเวลาที่ระบุคาบเกี่ยวกัน
-      · เลือกอาจารย์ได้หลายคน (กด Ctrl หรือ Cmd ค้าง) เพราะสายหนึ่งมีอาจารย์จากหลายอนุสาขา
-      · ลำดับความสำคัญเว้นว่างได้ จะใช้ค่าตามชนิดของหน่วยที่ตั้งไว้ในหน้าตั้งค่า</p>
+    <p class="small muted">เว้นเวลา = ใช้ทั้งช่วง · ใส่เวลา = แทรกในช่วง (ชนกันเมื่อเวลาคาบเกี่ยว) · เลือกอาจารย์ได้หลายคน (Ctrl/Cmd) · ลำดับความสำคัญเว้นว่างได้ ใช้ค่าตามชนิดหน่วย</p>
     <div id="tplRows"></div>
     <button type="button" class="btn-sm" id="btnTplAdd" style="margin-top:.5rem">+ เพิ่มเซสชัน</button>`;
   showDialog(svc ? "แก้ไขหน่วยที่หมุนเวียน" : "เพิ่มหน่วยที่หมุนเวียน", body, [
@@ -6316,7 +6278,7 @@ function renderActivityTable() {
     <tbody>${rows.map(a => {
       const r = store.resident(a.residentId);
       return `<tr>
-        <td class="small">${fmtDate(a.date)}<br /><span class="muted">ปีการศึกษา ${a.academicYear}</span></td>
+        <td class="small" title="ปีการศึกษา ${esc(String(a.academicYear || ""))}">${fmtDate(a.date)}</td>
         <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
         <td><span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span></td>
         <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.en || a.subspecialty)}</td>
@@ -8312,9 +8274,7 @@ function covOverviewHtml() {
     </div>
     <div class="card">
       <h2>งานนำเสนอ แยกตามประเภท × อนุสาขา</h2>
-      <p class="muted small">แถว = ประเภทงานนำเสนอ, คอลัมน์ = อนุสาขา
-        · ช่องยิ่งเข้มยิ่งมีมาก ช่องแดง ✕ คือประเภทนั้นยังไม่เคยทำในอนุสาขานั้นเลย
-        · กดปุ่มประเภทด้านบนเพื่อดูว่าใครขาดประเภทนั้น</p>
+      <p class="muted small">แถว = ประเภท · คอลัมน์ = อนุสาขา · ยิ่งเข้มยิ่งมาก · ✕ = ยังไม่เคยทำ · กดปุ่มประเภทด้านบนดูว่าใครขาด</p>
       <div class="tbl-wrap" id="covTypeSub">${typeSubTableHtml(acts)}</div>
     </div>
     <div class="card">
@@ -8525,8 +8485,7 @@ function renderSettings() {
       <label class="f" style="max-width:11rem"><span>จบ</span><input type="time" data-mc="interHospital.end" value="${esc(mc.interHospital?.end || "")}" /></label>
       <label class="f" style="max-width:11rem"><span>ชั้นปีที่ต้องเข้า (คั่นด้วย ,)</span><input data-mc="interHospital.years" value="${esc((mc.interHospital?.years || []).join(","))}" placeholder="เช่น 4" /></label>
     </div>
-    <p class="small muted">Inter-hospital conference เป็นกิจกรรมบังคับเข้าทั้งรุ่น (ค่าเริ่มต้นปี 4) ไม่มีผู้นำเสนอ ไม่มีการประเมิน
-      ขึ้นปฏิทินให้เห็น และโผล่ในโหมด "ของฉัน" ของแพทย์ประจำบ้านชั้นปีนั้น</p>
+    <p class="small muted">Inter-hospital conference = กิจกรรมบังคับทั้งรุ่น (ค่าเริ่มต้นปี 4) ไม่มีผู้นำเสนอ ไม่ประเมิน — ขึ้นปฏิทินและ “ของฉัน” ของชั้นปีนั้น</p>
     <h3 style="margin-top:.8rem">เช้าวันพฤหัสฯ 4 ช่วง และธีมประจำสัปดาห์</h3>
     <div class="row">
       <label class="f" style="max-width:11rem"><span>วันในสัปดาห์</span><select data-ts="day">${[1, 2, 3, 4, 5].map(d =>
@@ -8539,9 +8498,7 @@ function renderSettings() {
     <label class="f"><span>ลำดับธีมที่วน — บรรทัดละหนึ่งธีม รูปแบบ <code>ป้าย | รหัสอนุสาขาที่ใช้ตั้งต้นหัวข้อ</code>
         (รหัส: ${esc(SUBSPECIALTIES.filter(s => s.id !== "general").map(s => s.id).join(", "))})</span>
       <textarea data-ts="cycle" rows="5">${esc((ts.cycle || []).map(c => c.label + " | " + (c.sub || "")).join("\n"))}</textarea></label>
-    <p class="small muted">ระบบวนสัปดาห์ละหนึ่งธีมไปเรื่อย ๆ ตั้งแต่สัปดาห์แรกของรอบ ทุกหัวข้อ Topic/Journal ของสัปดาห์นั้นอยู่ในธีมนั้น
-      (รายการใหม่ตั้งต้นอนุสาขาให้ กล่องรายละเอียดเตือนถ้าหัวข้อออกนอกธีม) · สัปดาห์ไหนสลับพิเศษ หรือมี Staff lecture กดป้ายธีมบนปฏิทิน
-      หรือปุ่ม “จัดการ” ในตารางผู้นิเทศ · ตอนนี้: ${esc(thursdayThemeLabel(todayISO()) || "ยังไม่ตั้งรอบ")}</p>`;
+    <p class="small muted">วนสัปดาห์ละหนึ่งธีมจากสัปดาห์แรกของรอบ — หัวข้อ Topic/Journal ของสัปดาห์นั้นอยู่ในธีมนั้น (ตั้งต้นอนุสาขาให้ เตือนเมื่อออกนอกธีม) · สลับพิเศษ/Staff lecture: กดป้ายธีมบนปฏิทิน · ตอนนี้: ${esc(thursdayThemeLabel(todayISO()) || "ยังไม่ตั้งรอบ")}</p>`;
   $$("#morningConfEditor [data-ts]").forEach(inp => inp.addEventListener("change", () => {
     const k = inp.dataset.ts;
     if (k === "cycle") {
@@ -10143,8 +10100,7 @@ function editUser(id, preset = {}) {
         ${(store.data.staff || []).map(x => `<option value="${x.id}" ${u?.staffId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
     <label class="tag" style="cursor:pointer"><input type="checkbox" name="active" ${u?.active !== false ? "checked" : ""} /> เปิดใช้งานบัญชีนี้</label>
-    <p class="small muted" style="margin-top:.6rem">บัญชีแพทย์ประจำบ้านจะเห็นเฉพาะข้อมูลของตนเอง
-      บัญชีอาจารย์เห็นข้อมูลของแพทย์ประจำบ้านทุกคนเพื่อประเมิน และบัญชีผู้จัดหลักสูตรดูแลทะเบียนกับตารางทั้งหมด</p>`;
+    <p class="small muted" style="margin-top:.6rem">แพทย์ประจำบ้านเห็นเฉพาะของตนเอง · อาจารย์เห็นทุกคนเพื่อประเมิน · ผู้จัดหลักสูตรดูแลทะเบียนและตารางทั้งหมด</p>`;
   showDialog(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const username = dlgVal("username"); if (!username) return fieldError("username", "กรุณาใส่ชื่อผู้ใช้");
