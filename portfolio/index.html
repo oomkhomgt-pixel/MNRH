@@ -533,28 +533,10 @@ button.gcal-week-sub:hover{background:#dfe8f2}
       </div>
     </div>
 
-    <!-- ---- เวรรายเดือน · ผู้นิเทศ Topic conference · คำขอแลกวัน/เข้าคาบสายอื่น ---- -->
+    <!-- ---- ผู้นิเทศ Topic conference · คำขอแลกเวร OR · คำขอไป attend activity
+         (ตารางเวรรายเดือนถูกถอดออก — OPD/ER วนตามสายอยู่แล้ว วันพฤหัสฯ กลุ่มงานจัดเองทุกเดือน ข้อมูล duty เก่า
+          ยังอ่านได้เพื่อวันหยุด/เวร ER ที่เคยลงไว้ แต่ไม่มีหน้าให้กรอกใหม่) ---- -->
     <div data-segview="week" hidden>
-      <div class="card" data-fold="rot-duty" data-fold-closed data-fold-sum="">
-        <div class="between">
-          <h2>ตารางเวรรายเดือน</h2>
-          <div class="row no-print">
-            <button class="btn-sm" id="dutyPrev">‹ เดือนก่อน</button>
-            <b class="small" id="dutyLabel">—</b>
-            <button class="btn-sm" id="dutyNext">เดือนถัดไป ›</button>
-            <button class="btn-sm" id="dutyFill" data-perm="admin">เติมจากรูปแบบประจำสัปดาห์</button>
-            <button class="btn-sm btn-danger" id="dutyClear" data-perm="admin">ล้างเดือนนี้</button>
-          </div>
-        </div>
-        <details class="hint"><summary>ตารางเวรรายเดือนใช้ทำอะไร และกติกา ER</summary><p class="muted small">ของที่ไม่ซ้ำทุกสัปดาห์อยู่ตรงนี้ — อาจารย์เวร ER รายวัน สายที่อยู่ ER วันพฤหัสบดี
-          อาจารย์ที่ออกตรวจ OPD วันพฤหัสบดี และวันหยุดราชการ
-          · ช่องว่าง = ใช้ตามตารางประจำสัปดาห์ · ติ๊กวันหยุดแล้วคาบทั้งวันจะหายไปจากปฏิทิน
-          · ER ในเวลาราชการเป็นความรับผิดชอบของทั้งสาย คนที่ชั้นปีน้อยที่สุดเป็นหน้างาน (คนแรกที่เจอเคส + consult นอกแผนก)
-          โดยมีอาจารย์ผู้รับผิดชอบเป็นผู้ตัดสินใจ ทุกคนยังเข้า OR emergency ตามตารางสายได้ตามปกติ
-          · “เติมจากรูปแบบประจำสัปดาห์” จะกรอกวันจันทร์–ศุกร์ให้ตามตารางของแต่ละสาย แล้วค่อยแก้เฉพาะวันที่ต่างออกไป</p></details>
-        <div id="dutyTable"></div>
-      </div>
-
       <div class="card" data-fold="rot-tc" data-fold-closed data-fold-sum="">
         <div class="between">
           <h2>ผู้นิเทศ Topic conference รายสัปดาห์</h2>
@@ -590,16 +572,13 @@ button.gcal-week-sub:hover{background:#dfe8f2}
 
       <div class="card" data-fold="rot-visit" data-fold-closed>
         <div class="between">
-          <h2>ขอไปเข้าคาบของสายอื่น</h2>
-          <button class="btn-sm no-print" id="btnAddVisit">+ ขอไปเข้าคาบของสายอื่น</button>
+          <h2>ขอไป attend activity</h2>
+          <button class="btn-sm no-print" id="btnAddVisit">+ ขอไป attend activity</button>
         </div>
-        <details class="hint"><summary>กติกาการขอไปเข้าคาบของสายอื่น — ต้องได้รับอนุมัติเสมอ</summary><p class="muted small"><b>ทุกครั้งที่ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเอง ต้องได้รับอนุมัติจากอาจารย์ผู้กำกับเสมอ</b>
-          ไม่ว่าจะด้วยเหตุผลใด — เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่ เคสที่หาดูยาก ตามเก็บหัตถการที่ยังขาดตามเกณฑ์
-          หรือวันที่คนในสายไม่พอแล้ว<b>หัวหน้าสายมอบหมายหน้างาน</b>
-          · หัวหน้าสายเป็นคนตัดสินหน้างานว่าวันไหนคนไม่พอ ไม่ได้กำหนดล่วงหน้า แต่คำสั่งของหัวหน้าสาย
-          <b>ไม่ใช่การอนุมัติ</b> จึงต้องมีคำขอเข้ามาให้อาจารย์อนุมัติอยู่ดี ขอย้อนหลังได้และระบบจะกำกับไว้
-          · ก่อนอนุมัติ คาบนั้นไม่ขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต
-          · อนุมัติแล้วคาบของสายเดิมที่ชนกันจะกลายเป็นคาบที่ไม่ได้เข้าในวันนั้น แต่กิจกรรมวิชาการยังมาก่อนอยู่ดี</p></details>
+        <details class="hint"><summary>กติกา — ต้องได้รับอนุมัติเสมอ</summary><p class="muted small"><b>ไป attend activity นอกสาย/นอกหน่วยของตัวเองต้องได้รับอนุมัติเสมอ</b> ไม่ว่าจะด้วยเหตุผลใด
+          · ระบุแค่ <b>อาจารย์ที่รับผิดชอบเดิม</b> (คนที่คุมคุณวันนั้น) <b>อาจารย์ที่จะไป attend ด้วย</b> และเหตุผล — ไม่ต้องเลือกว่ากิจกรรมอะไร
+          · อนุมัติได้โดยอาจารย์ที่รับผิดชอบเดิม อาจารย์ที่จะไป attend หรือ<b>อาจารย์ประจำสาย</b>ของคุณคนใดคนหนึ่ง (งานรวมของสายที่ไม่ใช่ OR อาจารย์ประจำสายรับทราบก็พอ) · ผู้จัดหลักสูตรอนุมัติได้เสมอ
+          · ก่อนอนุมัติ คาบนั้นไม่ขึ้นในตารางเลย · อนุมัติแล้วคาบของสายเดิมที่ชนกันกลายเป็นคาบที่ไม่ได้เข้า แต่กิจกรรมวิชาการยังมาก่อน · ขอย้อนหลังได้ ระบบกำกับไว้</p></details>
         <div id="visitTable"></div>
       </div>
 
@@ -779,7 +758,10 @@ button.gcal-week-sub:hover{background:#dfe8f2}
     <div class="card">
       <div class="between">
         <h1>ความครอบคลุมอนุสาขาออร์โธปิดิกส์</h1>
-        <button class="btn-sm no-print" id="btnDashboard2" title="ไฟล์เดียว เปิดได้ไม่ต้องมีเน็ต พิมพ์ลง A4 ได้ · ตัวเลขรวม ไม่มีข้อมูลผู้ป่วย · ตามสิทธิ์ของบัญชีคุณ">ดาวน์โหลดแดชบอร์ด (HTML)</button>
+        <div class="row no-print">
+          <button class="btn-sm" id="btnDashboardPptx" title="สไลด์ 16:9 สรุปสั้น ๆ สำหรับนำเสนอในที่ประชุม · ตัวเลขรวม ไม่มีข้อมูลผู้ป่วย">ดาวน์โหลดสไลด์ (PPTX)</button>
+          <button class="btn-sm" id="btnDashboard2" title="ไฟล์เดียว เปิดได้ไม่ต้องมีเน็ต พิมพ์ลง A4 ได้ · ตัวเลขรวม ไม่มีข้อมูลผู้ป่วย · ตามสิทธิ์ของบัญชีคุณ">แดชบอร์ดเต็ม (HTML)</button>
+        </div>
       </div>
       <p class="muted small">ภาพรวมบอกว่าอะไรขาด · กดประเภทงานนำเสนอเพื่อดูว่าใครขาด</p>
       <div class="row filters no-print" id="coverageFilters"></div>
@@ -2121,15 +2103,31 @@ function computeSessions(iso, data) {
      คือชนะงานบริการตามตาราง แต่ยังแพ้กิจกรรมวิชาการ เพราะวิชาการมาก่อนเสมอ */
   (data.visits || []).forEach(v => {
     if (v.date !== iso || v.status !== "approved") return;
-    /* วันหยุดราชการลบคาบตามตารางประจำสัปดาห์ทิ้งทั้งวัน — คำขอไปเข้าคาบของสายอื่นอ้างอิงช่องในตาราง
-       ประจำสัปดาห์ของวันนั้น (t.day===dow) ซึ่งไม่ได้เกิดขึ้นจริงในวันหยุด ถ้าไม่กันไว้ตรงนี้ คำขอเดิม
-       จะสร้างคาบผีที่ไม่มีกิจกรรมจริงรองรับขึ้นมา (ต่างจากเวร ER ที่ยังต้องมีคนคุมทุกวันแม้วันหยุด) */
+    /* วันหยุดราชการไม่มีกิจกรรมตามตารางให้ไป attend — กันคาบผี (ต่างจากเวร ER ที่ยังต้องมีคนคุมทุกวันแม้วันหยุด) */
     if (duty?.holiday) return;
-    const svc = svcById(v.serviceId);
-    const t = (svc?.template || [])[v.index];
-    if (!t || t.day !== dow) return;          /* ตารางของสายนั้นถูกแก้ไปแล้ว คำขอเดิมจึงใช้ไม่ได้ */
     const rot = (data.rotations || []).find(x => x.residentId === v.residentId &&
       (!x.start || iso >= x.start) && (!x.end || iso <= x.end));
+    if (v.toStaffId) {
+      /* รูปแบบปัจจุบัน: ระบุแค่อาจารย์ที่จะไป attend ด้วย — คาบคือ "attend activity กับ อ. X" ในช่วงที่ขอ
+         สังกัดหน่วยของอาจารย์คนนั้นในวันนั้น (ถ้าหาได้) เพื่อให้สี/ชนิดคาบถูก */
+      const to = (data.staff || []).find(x => x.id === v.toStaffId);
+      const svc = (data.services || []).find(x => (x.template || []).some(t => t.day === dow && (t.staffIds || []).includes(v.toStaffId)))
+        || (data.services || []).find(x => x.id === rot?.serviceId) || null;
+      out.push({
+        key: "visit@" + v.id + "|" + iso + "|0",
+        rotationId: rot?.id || "", residentId: v.residentId, serviceId: svc?.id || "",
+        date: iso, part: v.part || "day", name: "Attend activity กับ " + (to?.name || "อาจารย์"),
+        start:"", end:"", location: svc?.site || "",
+        staffIds: [v.toStaffId], staffId: v.toStaffId, subs: [],
+        kind: svc ? serviceKind(svc) : "team", academic: false, topicConference: false,
+        visit: true, visitReason: v.reason || "", visitId: v.id, priority: PICKED_PRIORITY
+      });
+      return;
+    }
+    /* คำขอรูปแบบเก่า (อ้างช่องในตารางประจำสัปดาห์ของสายอื่น) */
+    const svc = svcById(v.serviceId);
+    const t = (svc?.template || [])[v.index];
+    if (!t || t.day !== dow) return;
     push("visit@" + v.id, v.index, t, svc, v.residentId, rot);
     const ses = out[out.length - 1];
     ses.visit = true;
@@ -4133,16 +4131,14 @@ function todayForResident(iso, all) {
     </div>
   </div>`);
 
-  /* ขอไปเข้าคาบของสายอื่น — แสดงคำขอของตัวเองด้วย จะได้รู้ว่ารออยู่หรือถูกปฏิเสธไปแล้ว */
+  /* ขอไป attend activity — แสดงคำขอของตัวเองด้วย จะได้รู้ว่ารออยู่หรือถูกปฏิเสธไปแล้ว */
   const visits = me ? visitsOfResident(me).filter(v => v.date >= addDaysISO(iso, -14)) : [];
   out.push(`<div class="card">
     <div class="between">
-      <h2>ขอไปเข้าคาบของสายอื่น</h2>
+      <h2>ขอไป attend activity</h2>
       <button class="btn-sm no-print" data-tvisit="${esc(iso)}">+ ส่งคำขอ</button>
     </div>
-    <p class="small muted" style="margin:.2rem 0 .5rem">ปฏิบัติงานนอกสาย/นอกหน่วยของตัวเองเมื่อไร
-      <b>ต้องได้รับอนุมัติเสมอ</b> — รวมถึงวันที่หัวหน้าสายมอบหมายหน้างานเพราะคนไม่พอ
-      ก่อนอนุมัติคาบนั้นจะยังไม่ขึ้นในตาราง ขอย้อนหลังได้</p>
+    <p class="small muted" style="margin:.2rem 0 .5rem">ไป attend นอกสาย/นอกหน่วย<b>ต้องได้รับอนุมัติเสมอ</b> — ระบุอาจารย์ที่รับผิดชอบเดิม อาจารย์ที่จะไป attend และเหตุผล · ก่อนอนุมัติยังไม่ขึ้นในตาราง</p>
     ${visits.length ? visits.map(v => {
       const [cls, th] = VISIT_STATUS[v.status] || VISIT_STATUS.pending;
       return `<div class="sess" style="border-left-color:var(--line)">
@@ -4196,13 +4192,13 @@ function todayForStaff(iso, all) {
 
   const vbox = pendingVisitsFor(sid);
   if (vbox.length) out.push(`<div class="card">
-    <h2>คำขอไปเข้าคาบของสายอื่น รอคุณอนุมัติ <span class="tag warn">${vbox.length}</span></h2>
-    <p class="small muted" style="margin:.2rem 0 .6rem">คุณเป็นอาจารย์ผู้กำกับของเขาในช่วงนี้
+    <h2>คำขอไป attend activity รอคุณอนุมัติ <span class="tag warn">${vbox.length}</span></h2>
+    <p class="small muted" style="margin:.2rem 0 .6rem">คุณเป็นอาจารย์ที่รับผิดชอบเดิม อาจารย์ที่เขาจะไป attend ด้วย หรืออาจารย์ประจำสายของเขา
       · ก่อนอนุมัติ คาบนั้นยังไม่ขึ้นในตารางของเขา</p>
     ${vbox.map(v => `<div class="nowcard" style="margin-bottom:.5rem">
       <div class="between"><b>${esc(store.resident(v.residentId)?.name || "—")}</b>
         <span class="tag">${fmtDate(v.date)}</span></div>
-      <div class="small">ขอไปเข้า <b>${esc(visitLabel(v))}</b></div>
+      <div class="small">ขอไป <b>${esc(visitLabel(v))}</b>${v.fromStaffId ? ` · รับผิดชอบเดิม: ${esc(staffName(v.fromStaffId))}` : ""}</div>
       <div class="small muted">${esc(v.reason || "")}</div>
       ${v.retrospective ? `<p class="notice warn small" style="margin:.4rem 0 0">
         เป็นการขอย้อนหลัง — วันนั้นผ่านไปแล้ว กำลังอนุมัติสิ่งที่เกิดขึ้นไปแล้ว</p>` : ""}
@@ -4287,7 +4283,7 @@ function todayForAdmin(iso, all) {
       <div class="stat"><b>${(store.data.activities || []).filter(a => !a.verified).length}</b><span>กิจกรรมรอรับรอง</span></div>
       <div class="stat"><b>${idle.length}</b><span>วันนี้ไม่มีคาบเลย</span></div>
       <div class="stat"><b>${noRotation.length}</b><span>ยังไม่ได้กำหนดช่วงหมุนเวียน</span></div>
-      <div class="stat"><b>${(store.data.visits || []).filter(v => v.status === "pending").length}</b><span>คำขอไปเข้าคาบสายอื่นรออนุมัติ</span></div>
+      <div class="stat"><b>${(store.data.visits || []).filter(v => v.status === "pending").length}</b><span>คำขอไป attend activity รออนุมัติ</span></div>
       <div class="stat"><b>${(store.data.swaps || []).filter(v => v.status === "pending").length}</b><span>คำขอแลกวันรอตอบรับ</span></div>
       <div class="stat"><b>${rotationBacklogFor("").length}</b><span>ผลประเมินลงกองค้าง (ทุกเดือนที่ปิดแล้ว)</span></div>
     </div>
@@ -4402,7 +4398,7 @@ function openSwap(iso, fromStaffId, part, serviceId) {
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(iso + "T00:00:00").getDay()]}ที่ ${fmtDate(iso)}</dd>
-      <dt>คาบเดิมของ</dt><dd><b>${esc(staffName(fromStaffId))}</b></dd>
+      <dt>เวรเดิมของ</dt><dd><b>${esc(staffName(fromStaffId))}</b></dd>
     </div>
     <div class="grid g2">
       <label class="f"><span>ให้ใครมาแทน</span><select name="toStaffId"><option value="">—</option>
@@ -4468,10 +4464,10 @@ function openSwapPicker() {
   const body = `
     <div class="grid g2">
       <label class="f"><span>วันที่จะแลก</span><input type="date" name="date" value="${todayISO()}" /></label>
-      <label class="f"><span>คาบเดิมของ</span><select name="fromStaffId">${list.map(x =>
+      <label class="f"><span>เวรเดิมของ</span><select name="fromStaffId">${list.map(x =>
         `<option value="${x.id}" ${x.id === mine ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     </div>
-    ${canManage() ? "" : `<p class="small muted" style="margin-top:.6rem">บัญชีอาจารย์บันทึกได้เฉพาะคาบของตัวเอง</p>`}`;
+    ${canManage() ? "" : `<p class="small muted" style="margin-top:.6rem">บัญชีอาจารย์บันทึกได้เฉพาะเวรของตัวเอง</p>`}`;
   showDialog("ขอแลกวัน OR", body, [
     { label:"ถัดไป", cls:"btn-primary", onClick: () => {
         const date = dlgVal("date"), from = dlgVal("fromStaffId");
@@ -4490,13 +4486,6 @@ function openSwapPicker() {
    หัวหน้าสายเป็นคนตัดสินว่าวันไหนคนไม่พอ (ตัดสินหน้างาน ไม่ได้กำหนดล่วงหน้า) แต่คำสั่งนั้นไม่ใช่การอนุมัติ
    จึงต้องมีคำขอเข้ามาให้อาจารย์อนุมัติอยู่ดี ขอย้อนหลังได้ แต่ระบบจะกำกับไว้ว่าเป็นการขอย้อนหลัง
    ถ้าไม่มีการอนุมัติ คาบนั้นไม่เกิดขึ้นในตารางเลย — ระบบไม่บันทึกสิ่งที่ยังไม่ได้รับอนุญาต */
-const VISIT_REASONS = [
-  ["chief_assign", "หัวหน้าสายมอบหมายหน้างาน — คนในสายไม่พอ"],
-  ["research", "เคสที่เกี่ยวกับงานวิจัยที่ทำอยู่"],
-  ["interesting", "เคสที่หาดูยาก / น่าสนใจทางวิชาการ"],
-  ["make_up", "ตามเก็บหัตถการที่ยังขาดตามเกณฑ์"],
-  ["other", "อื่น ๆ (ระบุ)"]
-];
 const VISIT_STATUS = { pending:["warn","รออนุมัติ"], approved:["ok","อนุมัติแล้ว"], declined:["bad","ไม่อนุมัติ"] };
 
 /* ใครคือ "อาจารย์ผู้กำกับ" ของคนนั้นในวันนั้น
@@ -4514,103 +4503,95 @@ function visitApprovers(residentId, iso) {
   return [...ids];
 }
 const supervisorOn = (residentId, iso) => visitApprovers(residentId, iso)[0] || "";
+/* อาจารย์ประจำสายของเขาในเดือนนั้น = ทุกคนที่มีชื่อในตารางประจำสัปดาห์ของสาย/หน่วยที่เขาอยู่ + อาจารย์ผู้กำกับบล็อก
+   (งานรวมของสายที่ไม่ใช่ OR อาจารย์ประจำสายคนใดคนหนึ่งรับทราบ/อนุมัติได้) */
+function teamStaffOf(residentId, iso) {
+  const rot = rotationOn(residentId, iso);
+  const svc = serviceById(rot?.serviceId);
+  const ids = new Set(rot?.supervisorId ? [rot.supervisorId] : []);
+  (svc?.template || []).forEach(t => (t.staffIds || []).forEach(id => id && ids.add(id)));
+  if (svc?.supervisorId) ids.add(svc.supervisorId);
+  return [...ids];
+}
+/* ใครอนุมัติคำขอนี้ได้: อาจารย์ที่รับผิดชอบเดิม · อาจารย์ที่จะไป attend ด้วย · อาจารย์ที่คุม/ประจำสายของเขาวันนั้น · ผู้จัดหลักสูตร */
+const visitDeciders = (v) => [...new Set([v.fromStaffId, v.toStaffId, ...visitApprovers(v.residentId, v.date), ...teamStaffOf(v.residentId, v.date)].filter(Boolean))];
 const approverLabel = (residentId, iso) => {
   const ids = visitApprovers(residentId, iso);
   return ids.length ? ids.map(staffName).join(" / ") : "";
 };
 const canDecideVisit = (v) => !!v && v.status === "pending" &&
-  (canManage() || (myRole() === "staff" && !!currentUser()?.staffId &&
-                   visitApprovers(v.residentId, v.date).includes(currentUser().staffId)));
+  (canManage() || (myRole() === "staff" && !!currentUser()?.staffId && visitDeciders(v).includes(currentUser().staffId)));
 const pendingVisitsFor = (staffId) => (store.data.visits || []).filter(v =>
-  v.status === "pending" && visitApprovers(v.residentId, v.date).includes(staffId))
+  v.status === "pending" && visitDeciders(v).includes(staffId))
   .sort((a, b) => a.date.localeCompare(b.date));
 const visitsOfResident = (residentId) => (store.data.visits || [])
   .filter(v => v.residentId === residentId).sort((a, b) => b.date.localeCompare(a.date));
 
-/* คาบของสายอื่นที่มีจริงในวันนั้น — ไม่รวมสายที่ตัวเองอยู่ เพราะไม่ต้องขอ */
-function visitOptions(residentId, iso) {
-  const dow = new Date(iso + "T00:00:00").getDay();
-  const own = rotationOn(residentId, iso)?.serviceId || "";
-  const out = [];
-  (store.data.services || []).filter(x => x.team || x.subUnit).forEach(svc => {
-    if (svc.id === own) return;
-    (svc.template || []).forEach((t, i) => {
-      if (t.day !== dow || t.staffOnly) return;
-      out.push({ serviceId: svc.id, index: i, svcName: svc.name, name: t.name, part: t.part,
-                 staff: (t.staffIds || []).map(staffName).join(" · ") });
-    });
-  });
-  return out;
-}
-
+/* ขอไป attend activity: ไม่ต้องเลือกว่ากิจกรรมอะไร — ใส่อาจารย์ที่รับผิดชอบเดิม อาจารย์ที่จะไป attend ด้วย และเหตุผลก็พอ */
 function openVisit(residentId, iso) {
   if (!canEditResidentData(residentId)) { toast("ขอแทนคนอื่นไม่ได้"); return; }
   const date = iso || todayISO();
-  const opts = visitOptions(residentId, date);
+  const staff = store.data.staff || [];
+  const opt = (list, sel, blank) => `<option value="">${blank}</option>` +
+    list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>ผู้ขอ</dt><dd>${esc(store.resident(residentId)?.name || "—")}</dd>
-      <dt>สายที่อยู่ตอนนี้</dt><dd>${esc(serviceById(rotationOn(residentId, date)?.serviceId)?.name || "—")}</dd>
-      <dt>ผู้อนุมัติ</dt><dd>${approverLabel(residentId, date)
-        ? esc(approverLabel(residentId, date)) + `<br /><span class="muted small">อาจารย์ที่คุมสายของคุณในวันนั้น — คนใดคนหนึ่งอนุมัติก็พอ</span>`
-        : `<span class="tag bad">วันนั้นไม่มีอาจารย์คุมสายของคุณในตาราง — ต้องให้ผู้จัดหลักสูตรอนุมัติ</span>`}</dd>
+      <dt>สายที่อยู่ตอนนี้</dt><dd data-visit-team>${esc(serviceById(rotationOn(residentId, date)?.serviceId)?.name || "—")}</dd>
     </div>
-    <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(date)}" /></label>
-    <label class="f"><span>คาบที่จะขอไปเข้า</span><select name="target">${visitTargetOptions(opts)}</select></label>
     <div class="grid g2">
-      <label class="f"><span>เหตุผล</span><select name="reasonType">${VISIT_REASONS.map(([id, th]) =>
-        `<option value="${id}">${esc(th)}</option>`).join("")}</select></label>
-      <label class="f"><span>รายละเอียด</span><input name="reason" placeholder="เช่น เคส TKA ที่อยู่ในงานวิจัยของตัวเอง" /></label>
+      <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(date)}" /></label>
+      <label class="f"><span>ช่วง</span><select name="part"><option value="">ทั้งวัน</option>
+        ${SESSION_PARTS.map(p => `<option value="${p.id}">${esc(p.th)}</option>`).join("")}</select></label>
+      <label class="f"><span>อาจารย์ที่รับผิดชอบเดิม</span><select name="fromStaffId">${opt(staff, supervisorOn(residentId, date), "— ไม่ระบุ —")}</select></label>
+      <label class="f"><span>อาจารย์ที่จะไป attend ด้วย</span><select name="toStaffId">${opt(staff, "", "— เลือก —")}</select></label>
     </div>
-    <p class="small muted" style="margin-top:.6rem"><b>นอกสาย/นอกหน่วยต้องได้รับอนุมัติเสมอ</b> — แม้หัวหน้าสายมอบหมายหน้างานก็ยังต้องขอ (ขอย้อนหลังได้ ระบบกำกับไว้) · มีผลกับตารางเมื่ออาจารย์อนุมัติ · กิจกรรมวิชาการมาก่อนเสมอ</p>`;
-  showDialog("ขอไปเข้าคาบของสายอื่น", body, [
+    <label class="f"><span>เหตุผล</span><input name="reason" placeholder="เช่น เคส TKA ที่อยู่ในงานวิจัยของตัวเอง · หัวหน้าสายมอบหมายเพราะคนไม่พอ" /></label>
+    <p class="small muted" style="margin-top:.6rem">อนุมัติได้โดยอาจารย์ที่รับผิดชอบเดิม อาจารย์ที่จะไป attend หรืออาจารย์ประจำสายคนใดคนหนึ่ง (ผู้จัดหลักสูตรได้เสมอ)
+      · มีผลกับตารางเมื่ออนุมัติ · กิจกรรมวิชาการมาก่อนเสมอ · ขอย้อนหลังได้ ระบบกำกับไว้</p>`;
+  showDialog("ขอไป attend activity", body, [
     { label:"ส่งคำขอ", cls:"btn-primary", onClick: () => {
-        const d = dlgVal("date"), target = dlgVal("target");
+        const d = dlgVal("date"), toStaffId = dlgVal("toStaffId"), fromStaffId = dlgVal("fromStaffId"), reason = dlgVal("reason");
         if (!d) return fieldError("date", "เลือกวันที่ก่อน");
-        if (!target) return fieldError("target", "วันนั้นไม่มีคาบของสายอื่นให้ขอ — เลือกวันอื่น");
-        const [serviceId, index] = target.split("|");
-        const reasonType = dlgVal("reasonType"), detail = dlgVal("reason");
-        if (reasonType === "other" && !detail) return fieldError("reason", "เหตุผล “อื่น ๆ” ต้องระบุรายละเอียด");
-        const label = (VISIT_REASONS.find(x => x[0] === reasonType) || [])[1] || "";
-        (store.data.visits ||= []).push({ id: uid("visit"), residentId, date: d, serviceId,
-          index: +index, reasonType, reason: detail || label, status: "pending",
-          /* ขอย้อนหลังไม่ได้ผิดกติกา — หัวหน้าสายตัดสินหน้างาน คำขอจึงตามมาทีหลังได้
-             แต่ต้องกำกับไว้ให้ผู้อนุมัติเห็นว่ากำลังอนุมัติสิ่งที่เกิดไปแล้ว */
+        if (!toStaffId) return fieldError("toStaffId", "เลือกอาจารย์ที่จะไป attend ด้วย");
+        if (fromStaffId && fromStaffId === toStaffId) return fieldError("toStaffId", "อาจารย์ที่จะไป attend ต้องไม่ใช่คนเดียวกับผู้รับผิดชอบเดิม");
+        if (!reason) return fieldError("reason", "ใส่เหตุผลก่อน");
+        (store.data.visits ||= []).push({ id: uid("visit"), residentId, date: d, part: dlgVal("part"),
+          fromStaffId, toStaffId, reason, status: "pending",
+          /* ขอย้อนหลังไม่ได้ผิดกติกา — คำขอตามมาทีหลังได้ แต่ต้องกำกับไว้ให้ผู้อนุมัติเห็นว่ากำลังอนุมัติสิ่งที่เกิดไปแล้ว */
           retrospective: d < todayISO(),
           requestedAt: new Date().toISOString(), decidedBy: "", decidedAt: "" });
-        audit("ขอไปเข้าคาบของสายอื่น", (store.resident(residentId)?.name || "") + " · " + fmtDate(d));
+        audit("ขอไป attend activity", (store.resident(residentId)?.name || "") + " · " + fmtDate(d) + " · กับ " + staffName(toStaffId));
         store.save(); renderAll();
-        const who = approverLabel(residentId, d);
-        toast(who ? "ส่งคำขอแล้ว — รอ " + who + " อนุมัติ" : "ส่งคำขอแล้ว — รอผู้จัดหลักสูตรอนุมัติ");
+        const who = visitDeciders({ residentId, date: d, fromStaffId, toStaffId }).map(staffName).filter(Boolean);
+        toast(who.length ? "ส่งคำขอแล้ว — รอ " + who.slice(0, 3).join(" / ") + (who.length > 3 ? " …" : "") + " อนุมัติ" : "ส่งคำขอแล้ว — รอผู้จัดหลักสูตรอนุมัติ");
       }}
   ]);
-  /* เปลี่ยนวันแล้วรายการคาบต้องเป็นของวันใหม่ — เดิมสร้างครั้งเดียวจากวันแรก เปลี่ยนวันแล้วส่งคำขอได้
-     โดยอ้าง index ของคาบวันเดิม บันทึกผิดคาบเงียบ ๆ พร้อม toast ว่าสำเร็จ */
+  /* เปลี่ยนวันแล้วอาจารย์ที่รับผิดชอบเดิม/สายต้องเป็นของวันใหม่ */
   $('#dlgBody [name="date"]').addEventListener("change", (e) => {
-    const sel = $('#dlgBody [name="target"]');
-    if (sel && e.target.value) sel.innerHTML = visitTargetOptions(visitOptions(residentId, e.target.value));
+    const d = e.target.value; if (!d) return;
+    const sel = $('#dlgBody [name="fromStaffId"]'); if (sel) sel.value = supervisorOn(residentId, d) || "";
+    const team = $("#dlgBody [data-visit-team]"); if (team) team.textContent = serviceById(rotationOn(residentId, d)?.serviceId)?.name || "—";
   });
 }
-const visitTargetOptions = (opts) => opts.length
-  ? opts.map(o => `<option value="${o.serviceId}|${o.index}">${esc(o.svcName)} · ${esc(o.name)}
-      (${esc(PART_BY_ID[o.part]?.th || o.part)}${o.staff ? " · " + esc(o.staff) : ""})</option>`).join("")
-  : `<option value="">— วันนั้นไม่มีคาบของสายอื่น —</option>`;
 
 function decideVisit(id, approve) {
   const v = (store.data.visits || []).find(x => x.id === id);
   if (!v) return;
-  if (!canDecideVisit(v)) { toast("อนุมัติได้เฉพาะอาจารย์ผู้กำกับของช่วงหมุนเวียนนั้น หรือผู้จัดหลักสูตร"); return; }
+  if (!canDecideVisit(v)) { toast("อนุมัติได้เฉพาะอาจารย์ที่รับผิดชอบเดิม อาจารย์ที่จะไป attend อาจารย์ประจำสายของเขา หรือผู้จัดหลักสูตร"); return; }
   v.status = approve ? "approved" : "declined";
   v.decidedBy = currentUser()?.displayName || "";
   v.decidedByStaffId = currentUser()?.staffId || "";
   v.decidedAt = new Date().toISOString();
-  audit(approve ? "อนุมัติให้ไปเข้าคาบของสายอื่น" : "ไม่อนุมัติให้ไปเข้าคาบของสายอื่น",
+  audit(approve ? "อนุมัติให้ไป attend activity" : "ไม่อนุมัติให้ไป attend activity",
         (store.resident(v.residentId)?.name || "") + " · " + fmtDate(v.date));
   store.save(); renderAll();
   toast(approve ? "อนุมัติแล้ว — คาบนั้นขึ้นในตารางของเขาแล้ว" : "ไม่อนุมัติ — ตารางของเขาไม่เปลี่ยน");
 }
 
 function visitLabel(v) {
+  if (v.toStaffId) return "attend กับ " + staffName(v.toStaffId) + (v.part ? " (" + (PART_BY_ID[v.part]?.th || v.part) + ")" : "");
+  /* คำขอรูปแบบเก่า */
   const svc = serviceById(v.serviceId);
   const t = (svc?.template || [])[v.index];
   return (svc?.name || "—") + " · " + (t?.name || "คาบที่ถูกลบไปแล้ว");
@@ -4623,14 +4604,15 @@ function renderVisitTable() {
     .filter(v => v.date >= addDaysISO(today, -30))
     .sort((a, b) => a.date.localeCompare(b.date));
   box.innerHTML = list.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>ผู้ขอ</th><th>ขอไปเข้า</th><th>เหตุผล</th><th>ผู้อนุมัติ</th><th>สถานะ</th><th></th></tr></thead>
+    <thead><tr><th>วันที่</th><th>ผู้ขอ</th><th>อาจารย์ที่รับผิดชอบเดิม</th><th>ไป attend กับ</th><th>เหตุผล</th><th>ผู้อนุมัติได้</th><th>สถานะ</th><th></th></tr></thead>
     <tbody>${list.map(v => {
       const [cls, th] = VISIT_STATUS[v.status] || VISIT_STATUS.pending;
-      const who = approverLabel(v.residentId, v.date);
+      const who = visitDeciders(v).map(staffName).filter(Boolean).join(" / ");
       return `<tr class="${v.date < today ? "muted" : ""}">
         <td>${fmtDate(v.date)}</td>
         <td>${esc(store.resident(v.residentId)?.name || "—")}</td>
-        <td>${esc(visitLabel(v))}</td>
+        <td class="small">${esc(v.fromStaffId ? staffName(v.fromStaffId) : "—")}</td>
+        <td>${esc(v.toStaffId ? staffName(v.toStaffId) + (v.part ? " (" + (PART_BY_ID[v.part]?.th || v.part) + ")" : "") : visitLabel(v))}</td>
         <td class="small">${esc(v.reason || "")}
           ${v.retrospective ? `<br /><span class="tag warn">ขอย้อนหลัง</span>` : ""}</td>
         <td class="small">${who ? esc(who) : `<span class="muted">ผู้จัดหลักสูตร</span>`}
@@ -4640,7 +4622,7 @@ function renderVisitTable() {
           ? `<button class="btn-sm btn-primary" data-visitok="${esc(v.id)}">อนุมัติ</button>
              <button class="btn-sm" data-visitno="${esc(v.id)}">ไม่อนุมัติ</button>` : ""}</td></tr>`;
     }).join("")}</tbody></table></div>`
-    : `<p class="empty">ยังไม่มีคำขอไปเข้าคาบของสายอื่น</p>`;
+    : `<p class="empty">ยังไม่มีคำขอไป attend activity</p>`;
   $$("#visitTable [data-visitok]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitok, true)));
   $$("#visitTable [data-visitno]").forEach(b => b.addEventListener("click", () => decideVisit(b.dataset.visitno, false)));
 }
@@ -4652,7 +4634,7 @@ function renderSwapTable() {
     .filter(x => x.date >= addDaysISO(today, -30))
     .sort((a, b) => a.date.localeCompare(b.date));
   box.innerHTML = list.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>ช่วง</th><th>คาบเดิมของ</th><th>ขอให้มาแทน</th><th>สถานะ</th>
+    <thead><tr><th>วันที่</th><th>ช่วง</th><th>เวรเดิมของ</th><th>ขอให้มาแทน</th><th>สถานะ</th>
       <th>แลกกลับ</th><th>หมายเหตุ</th><th></th></tr></thead>
     <tbody>${list.map(sw => {
       const [cls, th] = SWAP_STATUS[sw.status] || SWAP_STATUS.pending;
@@ -5488,7 +5470,7 @@ const sessionTimeLabel = (ses) => ses.start && ses.end ? ses.start + "–" + ses
 function sessionChip(ses, withDate) {
   const cls = ses.superseded ? "muted-sess" : "";
   /* คาบที่แพ้ยังแสดงอยู่ ไม่ซ่อน เพราะคนจัดตารางต้องเห็นว่ามันชนกับอะไร */
-  const note = ses.visit ? `<span class="tag ok">ได้รับอนุมัติให้ไปเข้าคาบสายอื่น${ses.visitReason ? " — " + esc(ses.visitReason) : ""}</span>`
+  const note = ses.visit ? `<span class="tag ok">ได้รับอนุมัติให้ไป attend activity${ses.visitReason ? " — " + esc(ses.visitReason) : ""}</span>`
              : ses.advisory ? `<span class="tag">${ses.frontline ? "หน้างาน" : "ร่วมรับผิดชอบ"}</span>`
              : ses.academic ? `<span class="tag b">กิจกรรมวิชาการ — มาก่อนงานบริการ</span>`
              : ses.picked ? `<span class="tag ok">✓ บันทึกว่าเข้าคาบนี้</span>`
@@ -5578,7 +5560,8 @@ function openSession(key) {
 }
 
 /* --- ตารางเวรรายเดือน --- */
-let dutyMonth = todayISO().slice(0, 7);
+/* ตารางเวรรายเดือนไม่มีหน้ากรอกแล้ว (OPD/ER วนตามสาย · วันพฤหัสฯ กลุ่มงานจัดเองทุกเดือน) — เก็บ dutyRow/weeklyDutyPattern ไว้
+   เพราะข้อมูล duty เก่า (วันหยุดราชการ เวร ER) ยังถูกอ่านใน computeSessions/ปฏิทิน และเทสต์ */
 /* monthLabel รับ {m,y} ส่วนตารางเวรใช้สตริง "YYYY-MM" จึงมีตัวแปลงของตัวเอง */
 const ymLabel = (ym) => {
   const [y, m] = ym.split("-").map(Number);
@@ -5602,56 +5585,6 @@ const dutyRow = (iso) => (store.data.duty ||= []).find(d => d.date === iso)
   || ((store.data.duty.push({ id: uid("duty"), date: iso, holiday:false, note:"",
         opdServiceId:"", opdStaffIds:[], erServiceId:"", erStaffIds:[], erResidentIds:[] })),
       store.data.duty[store.data.duty.length - 1]);
-
-function renderDutyTable() {
-  const box = $("#dutyTable"); if (!box) return;
-  const [y, m] = dutyMonth.split("-").map(Number);
-  $("#dutyLabel").textContent = ymLabel(dutyMonth);
-  const days = monthDays(dutyMonth).filter(iso => {
-    const dow = new Date(iso + "T00:00:00").getDay();
-    return dow >= 1 && dow <= 5;                       /* ตารางนี้เป็นของวันราชการ */
-  });
-  const teams = (store.data.services || []).filter(x => x.team);
-  const staff = store.data.staff || [];
-  const opts = (list, sel, blank) => `<option value="">${blank}</option>` +
-    list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
-  const multi = (list, sel, attr) => `<select multiple size="2" data-d="${attr}">${
-    list.map(x => `<option value="${x.id}" ${(sel || []).includes(x.id) ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
-  /* หน้างานต้องเลือกได้เฉพาะคนที่อยู่สาย ER ของวันนั้นจริง (ตามตารางหมุนเวียน) — เดิมเลือกได้จาก
-     รายชื่อแพทย์ประจำบ้านทั้งหมด ถ้าเลือกคนนอกสาย จะไม่มีคาบเกิดขึ้นจริงและไม่มีอะไรเตือนเลย */
-  const erTeamOn = (serviceId, iso) => !serviceId ? [] : (store.data.residents || []).filter(r =>
-    (store.data.rotations || []).some(x => x.residentId === r.id && x.serviceId === serviceId &&
-      (!x.start || iso >= x.start) && (!x.end || iso <= x.end)));
-
-  box.innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr><th>วันที่</th><th>วัน</th><th>OPD (สาย)</th><th>OPD (อาจารย์ — วันพฤหัสบดี)</th>
-      <th>ER (สาย)</th><th>อาจารย์ผู้รับผิดชอบ</th><th>หน้างาน (เว้นว่าง = ชั้นปีน้อยสุดของสาย)</th><th>หยุด</th></tr></thead>
-    <tbody>${days.map(iso => {
-      const d = (store.data.duty || []).find(x => x.date === iso) || {};
-      const dow = new Date(iso + "T00:00:00").getDay();
-      return `<tr class="${d.holiday ? "muted" : ""}">
-        <td class="small">${fmtDate(iso).replace(/ \d{4}$/, "")}</td>
-        <td class="small">${DAY_SHORT[dow]}</td>
-        <td><select data-d="${iso}|opdServiceId">${opts(teams, d.opdServiceId, "—")}</select></td>
-        <td>${multi(staff, d.opdStaffIds, iso + "|opdStaffIds")}</td>
-        <td><select data-d="${iso}|erServiceId">${opts(teams, d.erServiceId, "—")}</select></td>
-        <td>${multi(staff, d.erStaffIds, iso + "|erStaffIds")}</td>
-        <td>${multi(erTeamOn(d.erServiceId, iso), d.erResidentIds, iso + "|erResidentIds")}</td>
-        <td style="text-align:center"><input type="checkbox" data-d="${iso}|holiday" ${d.holiday ? "checked" : ""} /></td>
-      </tr>`;
-    }).join("")}</tbody></table></div>`;
-
-  $$("#dutyTable [data-d]").forEach(el => el.addEventListener("change", () => {
-    if (!canManage()) { toast("การแก้ตารางเวรเป็นสิทธิ์ของผู้จัดหลักสูตร"); renderDutyTable(); return; }
-    const [iso, field] = el.dataset.d.split("|");
-    const row = dutyRow(iso);
-    if (field === "holiday") row.holiday = el.checked;
-    else if (el.multiple) row[field] = [...el.selectedOptions].map(o => o.value);
-    else row[field] = el.value;
-    audit("แก้ตารางเวรรายเดือน", fmtDate(iso));
-    store.save(); renderAll();
-  }));
-}
 
 /* --- ผู้นิเทศ Topic conference รายสัปดาห์ --- */
 let tcMonth = todayISO().slice(0, 7);
@@ -7305,7 +7238,7 @@ function renderConflictList() {
     schedule:"ตารางนำเสนอ", sessionPicks:"การเข้าคาบรายวัน",
     activities:"กิจกรรม", research:"งานวิจัย",
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
-    duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไปเข้าคาบสายอื่น",
+    duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไป attend activity",
     rotationEvals:"ผลประเมินลงกอง", rotationForm:"แบบประเมินลงกอง", externalConfs:"การประชุมภายนอก",
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
@@ -9699,6 +9632,223 @@ function exportDashboard() {
   audit("ส่งออกแดชบอร์ด", "dashboard-" + todayISO() + ".html");
   toast("ดาวน์โหลดแดชบอร์ดแล้ว — เปิดในเบราว์เซอร์หรือสั่งพิมพ์เป็น PDF ได้");
 }
+/* ปุ่ม "แดชบอร์ด" บนแถบบน: ให้เลือกรูปแบบ — สไลด์สั้นสำหรับนำเสนอ หรือไฟล์ HTML เต็ม */
+function exportDashboardPicker() {
+  showDialog("ดาวน์โหลดแดชบอร์ด", `<p class="small muted">เลือกรูปแบบ — <b>สไลด์ (PPTX)</b> สรุปสั้น 6–8 หน้า 16:9 สำหรับนำเสนอในที่ประชุม
+    · <b>HTML</b> ฉบับเต็มทุกตาราง เปิดได้ไม่ต้องมีเน็ต พิมพ์ลง A4 ได้ · ทั้งสองแบบเป็นตัวเลขรวม ไม่มีข้อมูลผู้ป่วย ตามสิทธิ์ของบัญชีคุณ</p>`, [
+    { label:"สไลด์ (PPTX)", cls:"btn-primary", onClick: () => { exportDashboardPptx(); } },
+    { label:"ฉบับเต็ม (HTML)", onClick: () => { exportDashboard(); } }
+  ]);
+}
+
+/* =====================================================================
+   แดชบอร์ดแบบสไลด์ (PPTX) — เขียน Office Open XML ตรง ๆ + zip แบบเก็บ (ไม่บีบอัด) ไม่พึ่งไลบรารีภายนอก
+   ให้ไฟล์เล็กและเปิดได้ใน PowerPoint / Keynote / Google Slides · ใช้ตัวเลขชุดเดียวกับแดชบอร์ด HTML
+   ===================================================================== */
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (u8) => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+/* zip แบบ store: files = [{ name, text }] ชื่อไฟล์เป็น ASCII */
+function zipStore(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  const u16 = (n) => [n & 255, (n >>> 8) & 255], u32 = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    const head = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)]);
+    parts.push(head, name, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(0), ...u32(offset)]), name);
+    offset += head.length + name.length + data.length;
+  });
+  const cdStart = offset, cdLen = central.reduce((a, b) => a + b.length, 0);
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdLen), ...u32(cdStart), ...u16(0)]);
+  const all = [...parts, ...central, end], out = new Uint8Array(all.reduce((a, b) => a + b.length, 0));
+  let pos = 0; all.forEach(b => { out.set(b, pos); pos += b.length; });
+  return out;
+}
+const xml = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const EMU = 914400, SLIDE_W = 12192000, SLIDE_H = 6858000;
+const inch = (x) => Math.round(x * EMU);
+/* สไลด์ = รายการกล่อง: { kind:"text"|"rect"|"table", ... } พิกัดเป็นนิ้ว */
+function pptxSlideXml(items) {
+  let id = 2;
+  const run = (text, sz, opts = {}) => `<a:r><a:rPr lang="th-TH" sz="${sz}" b="${opts.b ? 1 : 0}"${opts.color ? "" : ""}>` +
+    `<a:solidFill><a:srgbClr val="${opts.color || "12181F"}"/></a:solidFill><a:latin typeface="Calibri"/><a:cs typeface="Tahoma"/></a:rPr><a:t>${xml(text)}</a:t></a:r>`;
+  const para = (text, sz, opts = {}) => `<a:p><a:pPr algn="${opts.align || "l"}"/>${run(text, sz, opts)}</a:p>`;
+  const shapes = items.map(it => {
+    const x = inch(it.x), y = inch(it.y), w = inch(it.w), h = inch(it.h), n = id++;
+    if (it.kind === "rect")
+      return `<p:sp><p:nvSpPr><p:cNvPr id="${n}" name="r${n}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>` +
+        `<a:prstGeom prst="${it.round ? "roundRect" : "rect"}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${it.fill}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>` +
+        `<p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>`;
+    if (it.kind === "text") {
+      const lines = Array.isArray(it.text) ? it.text : [it.text];
+      return `<p:sp><p:nvSpPr><p:cNvPr id="${n}" name="t${n}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>` +
+        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${it.fill ? `<a:solidFill><a:srgbClr val="${it.fill}"/></a:solidFill>` : "<a:noFill/>"}</p:spPr>` +
+        `<p:txBody><a:bodyPr wrap="square" lIns="45720" tIns="27432" rIns="45720" bIns="27432" anchor="${it.anchor || "t"}"><a:normAutofit/></a:bodyPr><a:lstStyle/>` +
+        lines.map(l => para(l, it.sz || 1400, it)).join("") + `</p:txBody></p:sp>`;
+    }
+    if (it.kind === "table") {
+      const cols = it.widths || it.head.map(() => it.w / it.head.length);
+      const rowH = inch(it.rowH || 0.32);
+      const cell = (text, head, align, color) => `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>${para(text, head ? (it.sz || 1100) : (it.sz || 1100), { b: head, align, color: head ? "FFFFFF" : (color || "12181F") })}</a:txBody>` +
+        `<a:tcPr marL="45720" marR="45720" marT="18288" marB="18288">${head ? `<a:solidFill><a:srgbClr val="1F6F8B"/></a:solidFill>` : ""}</a:tcPr></a:tc>`;
+      const aligns = it.aligns || it.head.map((_, i) => i === 0 ? "l" : "r");
+      return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${n}" name="tbl${n}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>` +
+        `<p:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${rowH * (it.rows.length + 1)}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1" bandRow="1"/>` +
+        `<a:tblGrid>${cols.map(c => `<a:gridCol w="${inch(c)}"/>`).join("")}</a:tblGrid>` +
+        `<a:tr h="${rowH}">${it.head.map((h, i) => cell(h, true, aligns[i])).join("")}</a:tr>` +
+        it.rows.map(r => `<a:tr h="${rowH}">${r.map((c, i) => cell(typeof c === "object" && c ? c.text : c, false, aligns[i], c && typeof c === "object" ? c.color : "")).join("")}</a:tr>`).join("") +
+        `</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+    }
+    return "";
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+}
+/* ประกอบไฟล์ .pptx จากรายการสไลด์ (แต่ละสไลด์ = รายการกล่อง) */
+function buildPptx(slides, title) {
+  const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+  const H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const rel = (id, type, target) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${target}"/>`;
+  const rels = (list) => `${H}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.join("")}</Relationships>`;
+  const spTree = `<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree>`;
+  const lvl = `<a:lvl1pPr><a:defRPr sz="1400"><a:latin typeface="Calibri"/><a:cs typeface="Tahoma"/></a:defRPr></a:lvl1pPr>`;
+  const fill3 = `<a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>`;
+  const ln3 = `<a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>`;
+  const eff3 = `<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>`;
+  const theme = `${H}<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Portfolio"><a:themeElements><a:clrScheme name="Portfolio"><a:dk1><a:srgbClr val="12181F"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="3D4A57"/></a:dk2><a:lt2><a:srgbClr val="EEF2F5"/></a:lt2><a:accent1><a:srgbClr val="1F6F8B"/></a:accent1><a:accent2><a:srgbClr val="EB6834"/></a:accent2><a:accent3><a:srgbClr val="1BAF7A"/></a:accent3><a:accent4><a:srgbClr val="EDA100"/></a:accent4><a:accent5><a:srgbClr val="E87BA4"/></a:accent5><a:accent6><a:srgbClr val="008300"/></a:accent6><a:hlink><a:srgbClr val="2A78D6"/></a:hlink><a:folHlink><a:srgbClr val="6B7A89"/></a:folHlink></a:clrScheme>` +
+    `<a:fontScheme name="Portfolio"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface="Tahoma"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface="Tahoma"/></a:minorFont></a:fontScheme>` +
+    `<a:fmtScheme name="Portfolio">${fill3}${ln3}${eff3}<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
+  const master = `${H}<p:sldMaster ${NS}><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>${spTree}</p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle>${lvl}</p:titleStyle><p:bodyStyle>${lvl}</p:bodyStyle><p:otherStyle>${lvl}</p:otherStyle></p:txStyles></p:sldMaster>`;
+  const layout = `${H}<p:sldLayout ${NS} type="blank" preserve="1"><p:cSld name="Blank">${spTree}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`;
+  const files = [
+    { name: "[Content_Types].xml", text: `${H}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>` +
+      `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>` +
+      `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>` +
+      `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>` +
+      `<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>` +
+      slides.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("") +
+      `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>` },
+    { name: "_rels/.rels", text: rels([rel("rId1", "officeDocument", "ppt/presentation.xml"), `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>`, rel("rId3", "extended-properties", "docProps/app.xml")]) },
+    { name: "docProps/core.xml", text: `${H}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xml(title)}</dc:title><dc:creator>${xml(APP.name || "Ortho portfolio")}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created></cp:coreProperties>` },
+    { name: "docProps/app.xml", text: `${H}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Ortho portfolio</Application><Slides>${slides.length}</Slides></Properties>` },
+    { name: "ppt/presentation.xml", text: `${H}<p:presentation ${NS}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${3 + i}"/>`).join("")}</p:sldIdLst><p:sldSz cx="${SLIDE_W}" cy="${SLIDE_H}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>` },
+    { name: "ppt/_rels/presentation.xml.rels", text: rels([rel("rId1", "slideMaster", "slideMasters/slideMaster1.xml"), rel("rId2", "theme", "theme/theme1.xml"), ...slides.map((_, i) => rel("rId" + (3 + i), "slide", `slides/slide${i + 1}.xml`))]) },
+    { name: "ppt/slideMasters/slideMaster1.xml", text: master },
+    { name: "ppt/slideMasters/_rels/slideMaster1.xml.rels", text: rels([rel("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"), rel("rId2", "theme", "../theme/theme1.xml")]) },
+    { name: "ppt/slideLayouts/slideLayout1.xml", text: layout },
+    { name: "ppt/slideLayouts/_rels/slideLayout1.xml.rels", text: rels([rel("rId1", "slideMaster", "../slideMasters/slideMaster1.xml")]) },
+    { name: "ppt/theme/theme1.xml", text: theme }
+  ];
+  slides.forEach((items, i) => {
+    files.push({ name: `ppt/slides/slide${i + 1}.xml`, text: pptxSlideXml(items) });
+    files.push({ name: `ppt/slides/_rels/slide${i + 1}.xml.rels`, text: rels([rel("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")]) });
+  });
+  return zipStore(files);
+}
+/* กล่องมาตรฐานของสไลด์แดชบอร์ด */
+const pptxTitle = (title, sub) => [
+  { kind:"rect", x:0, y:0, w:13.333, h:0.08, fill:"1F6F8B" },
+  { kind:"text", x:0.5, y:0.25, w:12.3, h:0.6, text: title, sz:2200, b:true },
+  ...(sub ? [{ kind:"text", x:0.5, y:0.8, w:12.3, h:0.4, text: sub, sz:1200, color:"6B7A89" }] : [])
+];
+const pptxFoot = (text) => [{ kind:"text", x:0.5, y:7.0, w:12.3, h:0.35, text, sz:900, color:"6B7A89" }];
+/* แถบแนวนอน: label · bar · ตัวเลข */
+function pptxBars(rows, x, y, w, max, colorOf) {
+  const out = [], rowH = 0.36, labelW = 3.2, numW = 1.0, barW = w - labelW - numW - 0.2;
+  rows.forEach((r, i) => {
+    const yy = y + i * rowH, frac = max ? Math.min(1, r.value / max) : 0;
+    out.push({ kind:"text", x, y: yy, w: labelW, h: rowH, text: r.label, sz:1100, anchor:"ctr" });
+    out.push({ kind:"rect", x: x + labelW, y: yy + 0.09, w: barW, h: rowH - 0.18, fill:"EEF2F5", round:true });
+    if (frac > 0) out.push({ kind:"rect", x: x + labelW, y: yy + 0.09, w: Math.max(0.06, barW * frac), h: rowH - 0.18, fill: colorOf ? colorOf(r) : "1F6F8B", round:true });
+    out.push({ kind:"text", x: x + labelW + barW + 0.1, y: yy, w: numW, h: rowH, text: r.text ?? String(r.value), sz:1100, b:true, anchor:"ctr", align:"r" });
+  });
+  return out;
+}
+const hex = (c) => String(c || "#1F6F8B").replace("#", "").toUpperCase();
+/* แดชบอร์ดของกลุ่มงาน (หรือของฉัน) เป็นสไลด์ 6–8 หน้า — ตัวเลขชุดเดียวกับ dashboardHtml */
+function dashboardPptxSlides() {
+  const ay = currentAY();
+  const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const mine = myResidentId();
+  const scope = mine ? "เฉพาะข้อมูลของ " + (store.resident(mine)?.name || "") : "ทั้งกลุ่มงาน";
+  const acts = visibleActivities().filter(a => a.academicYear === ay);
+  const seenCases = (store.data.cases || []).filter(c => (c.participants || []).some(p => canSeeResident(p.residentId)));
+  const waiting = acts.filter(a => !a.verified).length;
+  const sub = `รพ.มหาราชนครราชสีมา · ปีการศึกษา ${ay} · ${scope} · ${fmtDate(todayISO())} · โดย ${currentUser()?.displayName || "—"}`;
+  const foot = pptxFoot("ตัวเลขรวม ณ วันที่ออกรายงาน ไม่มีข้อมูลผู้ป่วยรายบุคคล · แฟ้มสะสมงานแพทย์ประจำบ้านออร์โธปิดิกส์ รพ.มหาราชนครราชสีมา");
+  const slides = [];
+  /* 1 หน้าปก + ตัวเลขหัวเรื่อง */
+  const tiles = [[list.length, "แพทย์ประจำบ้านในรายงาน"], [acts.length, "กิจกรรมในปีการศึกษานี้"], [seenCases.length, "เคสใน logbook"], [waiting, "กิจกรรมรออาจารย์รับรอง"]];
+  slides.push([
+    { kind:"rect", x:0, y:0, w:13.333, h:7.5, fill:"1F6F8B" },
+    { kind:"text", x:0.8, y:1.3, w:11.7, h:1.0, text:"แดชบอร์ดแฟ้มสะสมงานแพทย์ประจำบ้าน ออร์โธปิดิกส์", sz:3200, b:true, color:"FFFFFF" },
+    { kind:"text", x:0.8, y:2.3, w:11.7, h:0.5, text: sub, sz:1400, color:"DDE7EC" },
+    ...tiles.flatMap(([n, label], i) => [
+      { kind:"rect", x:0.8 + i * 2.95, y:3.6, w:2.7, h:1.7, fill:"FFFFFF", round:true },
+      { kind:"text", x:0.9 + i * 2.95, y:3.7, w:2.5, h:0.9, text:String(n), sz:3600, b:true, color: (label.startsWith("กิจกรรมรอ") && n) ? hex(VIZ.warn) : "12181F" },
+      { kind:"text", x:0.9 + i * 2.95, y:4.6, w:2.5, h:0.6, text:label, sz:1100, color:"3D4A57" }
+    ])
+  ]);
+  /* 2… ความก้าวหน้าเทียบเกณฑ์ — แถบต่อคน แยกชั้นปี (หน้าละไม่เกิน 14 แถว) */
+  const rows = list.map(r => ({ r, p: progressFor(r, ay), gaps: gapsFor(r) }));
+  const byYear = [...new Set(rows.map(x => x.r.year))].sort((a, b) => b - a)
+    .map(yr => [yr, rows.filter(x => x.r.year === yr).sort((a, b) => a.p.overall - b.p.overall)]);
+  let page = [], count = 0;
+  const flushProgress = (label) => { if (page.length) slides.push([...pptxTitle("ความก้าวหน้าเทียบเกณฑ์ — เรียงจากคนที่ตามหลังมากที่สุด", label + " · เขียว = ครบ · ส้ม = เกินครึ่ง · แดง = ต่ำกว่าครึ่ง"), ...page, ...foot]); page = []; count = 0; };
+  byYear.forEach(([yr, grp]) => {
+    const bars = grp.map(({ r, p, gaps }) => ({ label: r.name, value: p.overall, text: p.overall + "%" + (gaps.length ? " · ขาด " + gaps.length : ""), col: hex(vizStatus(p.overall)) }));
+    if (count + bars.length + 1 > 14) flushProgress("");
+    page.push({ kind:"text", x:0.5, y:1.35 + count * 0.36, w:12, h:0.36, text:"ชั้นปีที่ " + yr + " · " + grp.length + " คน", sz:1200, b:true, color:"1F6F8B", anchor:"ctr" });
+    count++;
+    page.push(...pptxBars(bars, 0.5, 1.35 + count * 0.36, 12.3, 100, (b) => b.col));
+    count += bars.length;
+  });
+  flushProgress("");
+  /* สิ่งที่ยังขาด — 10 คนแรก */
+  const withGaps = rows.filter(x => x.gaps.length).sort((a, b) => b.gaps.length - a.gaps.length || a.p.overall - b.p.overall).slice(0, 10);
+  if (withGaps.length) slides.push([...pptxTitle("สิ่งที่ยังขาด — " + withGaps.length + " คนที่ต้องตามก่อน", "ปีการศึกษา " + ay),
+    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[3.2, 9.1], aligns:["l", "l"], sz:1000, rowH:0.5, head:["แพทย์ประจำบ้าน", "ยังขาด"],
+      rows: withGaps.map(({ r, gaps }) => [r.name + " (ปี " + r.year + ")", { text: gaps.slice(0, 3).map(g => g.text).join(" · ") + (gaps.length > 3 ? " · และอีก " + (gaps.length - 3) : ""), color: gaps.some(g => g.level === "bad") ? hex(VIZ.bad) : hex(VIZ.warn) }]) }, ...foot]);
+  /* กิจกรรมรายเดือน แยกประเภท (ตาราง) */
+  const monthKeys = [...new Set(acts.map(a => (a.date || "").slice(0, 7)).filter(Boolean))].sort();
+  if (monthKeys.length) {
+    const typeRows = ACTIVITY_TYPES.map(t => ({ name: t.th, by: monthKeys.map(m => acts.filter(a => a.type === t.id && (a.date || "").startsWith(m)).length), total: acts.filter(a => a.type === t.id).length })).filter(r => r.total);
+    const mk = monthKeys.slice(-10);
+    slides.push([...pptxTitle("กิจกรรมรายเดือน แยกตามประเภท", "ปีการศึกษา " + ay + (monthKeys.length > 10 ? " · แสดง 10 เดือนล่าสุด" : "")),
+      { kind:"table", x:0.5, y:1.35, w:12.3, widths:[3.3, ...mk.map(() => (12.3 - 3.3 - 0.9) / mk.length), 0.9], sz:1000, rowH:0.36,
+        head:["ประเภท", ...mk.map(m => THAI_MONTHS[+m.slice(5, 7) - 1] + " " + (+m.slice(0, 4) + 543).toString().slice(2)), "รวม"],
+        rows: typeRows.map(r => [r.name, ...mk.map(m => { const v = r.by[monthKeys.indexOf(m)]; return v ? String(v) : ""; }), String(r.total)]) }, ...foot]);
+  }
+  /* เคสแยกตามอนุสาขา + EPA */
+  const bySub = SUBSPECIALTIES.filter(x => x.id !== "general").map(sx => ({ label: sx.en, value: seenCases.filter(c => c.subspecialty === sx.id).length })).filter(x => x.value).sort((a, b) => b.value - a.value);
+  if (bySub.length) slides.push([...pptxTitle("เคสใน logbook แยกตามอนุสาขา", seenCases.length + " เคส · ปีการศึกษา " + ay), ...pptxBars(bySub, 0.5, 1.4, 12.3, Math.max(...bySub.map(x => x.value))), ...foot]);
+  const epaRows = (store.data.epas || []).map(e => {
+    const lv = list.map(r => epaLevel(r.id, e.id)).filter(v => v != null);
+    const tg = list.length ? Math.max(...list.map(r => epaTargetFor(r.year, e.id))) : 0;
+    return { code: e.code, title: e.title, mean: lv.length ? Math.round(lv.reduce((a, b) => a + b, 0) / lv.length * 10) / 10 : null, target: tg, n: lv.length };
+  }).filter(x => x.target > 0);
+  if (epaRows.length) slides.push([...pptxTitle("EPA — ระดับเฉลี่ยเทียบเป้าหมายของชั้นปี", "ปีการศึกษา " + ay),
+    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[7.3, 1.7, 1.6, 1.7], sz:1000, rowH:0.34, head:["หัวข้อ", "ระดับเฉลี่ย", "เป้าหมาย", "ประเมินแล้ว"],
+      rows: epaRows.slice(0, 14).map(e => [e.code + " " + e.title, { text: e.mean == null ? "ยังไม่ประเมิน" : String(e.mean), color: e.mean == null ? "6B7A89" : (e.mean >= e.target ? hex(VIZ.ok) : hex(VIZ.bad)) }, String(e.target), e.n + " คน"]) }, ...foot]);
+  /* งานนำเสนอ ประเภท × อนุสาขา */
+  const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
+  const pres = ACTIVITY_TYPES.filter(t => PRESENTATION_TYPES.includes(t.id) || t.id === "research" || t.id === "supervise");
+  slides.push([...pptxTitle("งานนำเสนอ แยกตามประเภท × อนุสาขา", "ช่องว่าง = ยังไม่มีเลย · ปีการศึกษา " + ay),
+    { kind:"table", x:0.5, y:1.35, w:12.3, widths:[2.9, ...subs.map(() => (12.3 - 2.9) / subs.length)], sz:1000, rowH:0.36, head:["ประเภท", ...subs.map(x => x.en)],
+      rows: pres.map(t => [t.th, ...subs.map(sx => { const n = acts.filter(a => a.type === t.id && a.subspecialty === sx.id).length; return n ? String(n) : { text:"✕", color: hex(VIZ.bad) }; })]) }, ...foot]);
+  return slides;
+}
+function exportDashboardPptx() {
+  const slides = dashboardPptxSlides();
+  const name = "dashboard-" + todayISO() + ".pptx";
+  const bytes = buildPptx(slides, "แดชบอร์ดแฟ้มสะสมงาน " + currentAY());
+  download(name, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  audit("ส่งออกแดชบอร์ดเป็นสไลด์", name + " · " + slides.length + " หน้า");
+  toast("ดาวน์โหลดสไลด์แล้ว " + slides.length + " หน้า — เปิดใน PowerPoint / Keynote / Google Slides ได้");
+}
 
 async function exportJson() {
   /* ไฟล์นี้คือฐานข้อมูลทั้งก้อน รวมข้อมูลผู้ป่วยและรหัสผ่านของบัญชี
@@ -9807,7 +9957,6 @@ function renderAll() {
   renderResearch();
   renderCoverage();
   renderWfme();
-  renderDutyTable();
   renderTopicConfTable();
   renderSwapTable();
   renderVisitTable();
@@ -9885,8 +10034,6 @@ function renderYearChecklist() {
       detail: noAcct.length ? "ยังไม่มีบัญชี " + noAcct.length + " คน" : "ครบ", go: () => noAcct.length ? showView("residents") : gotoAnchor("บัญชี") },
     { ok: (d.residents || []).length > 0 && !noRot.length, th: "ช่วงหมุนเวียนปีการศึกษา " + ay,
       detail: noRot.length ? "ยังไม่มี " + noRot.length + " คน" : "ครบทุกคน", go: () => showView("rotation") },
-    { ok: (d.duty || []).some(x => x.date.startsWith(ym) && (x.opdServiceId || x.erServiceId || (x.erStaffIds || []).length)),
-      th: "ตารางเวรเดือน " + ymLabel(ym), go: () => weekPane("#dutyTable") },
     { ok: (d.topicConf || []).some(x => x.date.startsWith(ym) && x.staffId),
       th: "ผู้นิเทศ Topic conference เดือน " + ymLabel(ym), go: () => weekPane("#tcTable") },
     { ok: Object.values(d.requirements || {}).some(req => Object.values(req || {}).some(v => +v > 0)),
@@ -10280,31 +10427,6 @@ function init() {
     if (!rid) { toast("บัญชีนี้ไม่ได้ผูกกับแพทย์ประจำบ้านคนใด"); return; }
     openVisit(rid, todayISO());
   });
-  $("#dutyPrev").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, -1); renderDutyTable(); });
-  $("#dutyNext").addEventListener("click", () => { dutyMonth = shiftMonth(dutyMonth, 1); renderDutyTable(); });
-  $("#dutyFill").addEventListener("click", () => {
-    if (!canManage()) return;
-    let n = 0;
-    monthDays(dutyMonth).forEach(iso => {
-      const dow = new Date(iso + "T00:00:00").getDay();
-      if (dow < 1 || dow > 5) return;
-      const pat = weeklyDutyPattern(dow);
-      if (!pat.opdServiceId && !pat.erServiceId) return;   /* พฤหัสบดีไม่มีรูปแบบตายตัว */
-      const row = dutyRow(iso);
-      if (!row.opdServiceId) row.opdServiceId = pat.opdServiceId;
-      if (!row.erServiceId) row.erServiceId = pat.erServiceId;
-      n++;
-    });
-    audit("เติมตารางเวรจากรูปแบบประจำสัปดาห์", ymLabel(dutyMonth) + " · " + n + " วัน");
-    store.save(); renderAll();
-    toast("เติมให้ " + n + " วัน — วันพฤหัสบดีและอาจารย์เวรยังต้องกรอกเอง");
-  });
-  $("#dutyClear").addEventListener("click", () => {
-    if (!canManage()) { toast("การแก้ตารางเวรเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
-    const month = dutyMonth;
-    audit("ล้างตารางเวรรายเดือน", ymLabel(month));
-    removeWithUndo("ล้างตารางเวรของ " + ymLabel(month) + " แล้ว", [{ list:"duty", keep: d => !d.date.startsWith(month) }]);
-  });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
   $("#calScopeAll").addEventListener("click", () => { calScope = "all"; renderCalendar(); });
@@ -10325,7 +10447,9 @@ function init() {
     download("ortho-portfolio-activities.csv", toCsv(activityCsvRows(store.data.activities)), "text/csv;charset=utf-8");
   });
   [$("#btnExport"), $("#btnExport2")].forEach(b => b.addEventListener("click", exportJson));
-  [$("#btnDashboard"), $("#btnDashboard2")].forEach(b => b?.addEventListener("click", exportDashboard));
+  $("#btnDashboard")?.addEventListener("click", exportDashboardPicker);
+  $("#btnDashboard2")?.addEventListener("click", exportDashboard);
+  $("#btnDashboardPptx")?.addEventListener("click", exportDashboardPptx);
   [$("#btnImport"), $("#btnImport2")].forEach(b => b.addEventListener("click", () => $("#importPick").click()));
   $("#importPick").addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; });
   $("#btnSeed").addEventListener("click", async () => {

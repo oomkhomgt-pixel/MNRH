@@ -273,22 +273,29 @@ export default async function run() {
       t.check("logbook: การ์ดเคสที่ยังไม่ระบุผู้ร่วมผ่าตัด (งานของอาจารย์) ถูกซ่อน", lb.unassignedHidden);
       t.check("EPA: คำเตือนที่ชี้ไปหน้าตั้งค่าถูกซ่อน", lb.epaCaveatHidden);
 
-      /* กล่องขอไปเข้าคาบสายอื่น: เปลี่ยนวันแล้วรายการคาบต้องเป็นของวันใหม่ */
+      /* กล่องขอไป attend activity: ไม่ต้องเลือกกิจกรรม — มีแค่อาจารย์เดิม อาจารย์ที่จะไป attend และเหตุผล
+         เปลี่ยนวันแล้วอาจารย์ที่รับผิดชอบเดิมต้องเป็นของวันใหม่ */
       const visit = await page.evaluate(() => {
         const me = myResidentId();
         let d0 = todayISO();
-        /* หาวันทำการที่วันถัดไปก็เป็นวันทำการ จะได้เทียบสองวันที่มี option ต่างกันได้ */
         for (let i = 0; i < 10; i++) { const dow = new Date(d0 + "T00:00:00").getDay(); if (dow >= 1 && dow <= 4) break; d0 = addDaysISO(d0, 1); }
         const d1 = addDaysISO(d0, 1);
         openVisit(me, d0);
+        const fields = ["date", "part", "fromStaffId", "toStaffId", "reason"].map(n => !!document.querySelector(`#dlgBody [name="${n}"]`));
+        const noTarget = !document.querySelector('#dlgBody [name="target"]') && !document.querySelector('#dlgBody [name="reasonType"]');
         const inp = document.querySelector('#dlgBody [name="date"]');
         inp.value = d1; inp.dispatchEvent(new Event("change", { bubbles: true }));
-        const got = [...document.querySelectorAll('#dlgBody [name="target"] option')].map(o => o.value).filter(Boolean);
-        const want = visitOptions(me, d1).map(o => o.serviceId + "|" + o.index);
+        const got = document.querySelector('#dlgBody [name="fromStaffId"]').value;
+        const want = supervisorOn(me, d1) || "";
+        /* ส่งโดยไม่เลือกอาจารย์ที่จะไป attend ต้องถูกกัน */
+        document.querySelector("#dlgFoot .btn-primary").click();
+        const blocked = document.querySelector("#dlg").open && !!document.querySelector("#dlgBody .err");
         document.querySelector("#dlg").close();
-        return { got, want };
+        return { fields, noTarget, got, want, blocked };
       });
-      t.eq("เปลี่ยนวันในกล่องขอไปเข้าคาบ แล้วรายการคาบเป็นของวันใหม่", visit.got, visit.want);
+      t.check("กล่องขอไป attend activity มีแค่ วันที่ ช่วง อาจารย์เดิม อาจารย์ที่จะไป attend เหตุผล", visit.fields.every(Boolean) && visit.noTarget, JSON.stringify(visit.fields));
+      t.eq("เปลี่ยนวันแล้วอาจารย์ที่รับผิดชอบเดิมเป็นของวันใหม่", visit.got, visit.want);
+      t.check("ไม่เลือกอาจารย์ที่จะไป attend แล้วส่งไม่ได้", visit.blocked);
 
       t.check("แพทย์ประจำบ้าน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
@@ -540,6 +547,19 @@ export default async function run() {
               r.leaked.length === 0, r.leaked.join(", ") || "ไม่หลุด");
       t.check("แดชบอร์ดไม่อ้าง asset จากภายนอก เปิดออฟไลน์ได้", !r.external);
       t.check("แดชบอร์ดไม่มีสคริปต์ — เป็นภาพนิ่งล้วน", !r.script);
+      /* สไลด์ PPTX: zip ที่เปิดได้ (ลายเซ็น PK, มีทุกส่วนที่ PowerPoint ต้องการ) และไม่หลุดชื่อคนอื่นเช่นกัน */
+      const px = await page.evaluate(() => {
+        const slides = dashboardPptxSlides();
+        const bytes = buildPptx(slides, "t");
+        const text = new TextDecoder().decode(bytes);
+        const me = store.resident(myResidentId());
+        const others = store.data.residents.filter(x => x.id !== myResidentId());
+        return { pk: bytes[0] === 0x50 && bytes[1] === 0x4b, slides: slides.length,
+                 parts: ["[Content_Types].xml", "ppt/presentation.xml", "ppt/slideMasters/slideMaster1.xml", "ppt/slideLayouts/slideLayout1.xml", "ppt/theme/theme1.xml", "ppt/slides/slide1.xml"].every(n => text.includes(n)),
+                 mine: text.includes(me.name.replace(/&/g, "&amp;")), leaked: others.filter(o => text.includes(o.name)).map(o => o.name), kb: Math.round(bytes.length / 1024) };
+      });
+      t.check("สไลด์ PPTX เป็น zip ที่มีส่วนครบ (presentation, master, layout, theme, slide)", px.pk && px.parts && px.slides >= 5, JSON.stringify(px));
+      t.check("สไลด์ PPTX ของแพทย์ประจำบ้านมีชื่อตัวเอง ไม่หลุดชื่อคนอื่น และไฟล์เล็ก (< 2 MB)", px.mine && px.leaked.length === 0 && px.kb < 2048, px.leaked.join(", ") + " · " + px.kb + " KB");
       await page.close();
 
       const { page: ap } = await openAs(browser, srv.url, "admin");

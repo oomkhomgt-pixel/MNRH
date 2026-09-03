@@ -175,23 +175,17 @@ export default async function run() {
     t.check("ระบุอาจารย์ของวันนั้นทับค่าในตารางได้", picked?.staffOverridden === true);
     t.check("การเลือกมีผลเฉพาะวันนั้น ไม่ลามไปสัปดาห์อื่น", picked?.otherDayUntouched === true);
 
-    /* ---------- ตารางเวรรายเดือน: ของที่ไม่ซ้ำทุกสัปดาห์ ---------- */
+    /* ---------- ตารางเวรรายเดือน: ไม่มีหน้ากรอกแล้ว (OPD/ER วนตามสาย) แต่รูปแบบประจำสัปดาห์ยังอ่านได้ และข้อมูล duty เก่ายังใช้ ---------- */
     const duty = await page.evaluate(() => {
       store.data.duty = [];
-      dutyMonth = "2026-08"; renderDutyTable();
-      document.querySelector("#dutyFill").click();
-      const rows = store.data.duty.filter(d => d.date.startsWith("2026-08"));
-      const mon = rows.find(d => d.date === "2026-08-03");
-      const thu = rows.find(d => d.date === "2026-08-06");
-      return { filled: rows.length,
-               monOpd: serviceById(mon?.opdServiceId)?.abbr || "",
-               monEr: serviceById(mon?.erServiceId)?.abbr || "",
-               thursdayLeftBlank: !thu };
+      const mon = weeklyDutyPattern(1), thu = weeklyDutyPattern(4);
+      return { noCard: !document.querySelector("#dutyTable") && !document.querySelector("#dutyFill"),
+               monOpd: serviceById(mon.opdServiceId)?.abbr || "", monEr: serviceById(mon.erServiceId)?.abbr || "",
+               thursdayBlank: !thu.opdServiceId && !thu.erServiceId };
     });
-    t.check("เติมเดือนจากรูปแบบประจำสัปดาห์ได้", duty.filled > 0, duty.filled + " วัน");
-    t.check("วันจันทร์ได้ OPD กับ ER ตรงกับตารางของสาย", duty.monOpd === "ฟ้า" && duty.monEr === "แดง",
-            "OPD " + duty.monOpd + " · ER " + duty.monEr);
-    t.check("วันพฤหัสบดีไม่ถูกเดาให้ เพราะไม่มีรูปแบบตายตัว", duty.thursdayLeftBlank);
+    t.check("ไม่มีการ์ดตารางเวรรายเดือนให้กรอกแล้ว", duty.noCard);
+    t.check("รูปแบบประจำสัปดาห์ยังบอกได้ว่าวันจันทร์ OPD/ER เป็นสายไหน", duty.monOpd === "ฟ้า" && duty.monEr === "แดง", "OPD " + duty.monOpd + " · ER " + duty.monEr);
+    t.check("วันพฤหัสบดีไม่มีรูปแบบตายตัว (กลุ่มงานจัดเองทุกเดือน)", duty.thursdayBlank);
 
     const erDay = await page.evaluate(() => {
       const white = store.data.services.find(x => x.abbr === "ขาว");
@@ -248,8 +242,8 @@ export default async function run() {
         if (idx >= 0) { svc = s; break; }
       }
       if (!svc) return { none: true };
-      store.data.visits = [{ id: "v_holiday_test", residentId: store.data.residents[0].id, date: iso,
-        serviceId: svc.id, index: idx, reasonType: "research", reason: "ทดสอบ", status: "approved" }];
+      store.data.visits = [{ id: "v_holiday_test", residentId: store.data.residents[0].id, date: iso, part: "",
+        fromStaffId: "", toStaffId: store.data.staff[0].id, reason: "ทดสอบ", status: "approved" }];
       const row = dutyRow(iso);
       row.holiday = false;
       const normalCount = sessionsForDate(iso).filter(s => s.visitId === "v_holiday_test").length;
@@ -263,22 +257,20 @@ export default async function run() {
       t.eq("วันหยุดราชการ คำขอเดิมไม่สร้างคาบผีที่ไม่มีตารางประจำสัปดาห์รองรับ", b6.holidayCount, 0);
     }
 
-    /* ---------- B7: ตัวเลือก "หน้างาน" ต้องจำกัดเฉพาะคนในสาย ER ของวันนั้นจริง ----------
-       เดิมเลือกได้จากรายชื่อแพทย์ประจำบ้านทั้งหมด เลือกคนนอกสายได้แต่ไม่มีคาบเกิดขึ้นจริง ไม่มีเตือน */
+    /* ---------- B7: เวร ER ที่เคยลงไว้ในข้อมูล duty ยังใช้ได้ (ไม่มีหน้ากรอกแล้ว) — คาบ ER ตกกับคนในสายนั้นเท่านั้น ---------- */
     const b7 = await page.evaluate(() => {
       const white = store.data.services.find(x => x.abbr === "ขาว");
       const iso = "2026-08-06";
       const row = dutyRow(iso);
-      row.erServiceId = white.id;
-      dutyMonth = "2026-08"; renderDutyTable();
-      const sel = document.querySelector('[data-d="' + iso + '|erResidentIds"]');
-      const optIds = sel ? [...sel.options].map(o => o.value) : [];
+      row.erServiceId = white.id; row.erResidentIds = [];
       const teamIds = new Set(store.data.residents.filter(r => rotationOn(r.id, iso)?.serviceId === white.id).map(r => r.id));
-      return { optCount: optIds.length, outsiders: optIds.filter(id => !teamIds.has(id)), teamSize: teamIds.size };
+      const er = sessionsForDate(iso).filter(s => s.kind === "duty");
+      return { n: er.length, outsiders: er.filter(s => !teamIds.has(s.residentId)).map(s => s.residentId), teamSize: teamIds.size,
+               frontlineInTeam: er.filter(s => s.frontline).every(s => teamIds.has(s.residentId)) };
     });
-    t.eq("ตัวเลือกหน้างานไม่มีคนนอกสาย ER ของวันนั้นปนมา", b7.outsiders, []);
-    t.check("มีตัวเลือกให้จริง ไม่ใช่ว่างเปล่า", b7.optCount === b7.teamSize && b7.optCount > 0,
-            b7.optCount + " จากทีม " + b7.teamSize + " คน");
+    t.eq("คาบ ER จากข้อมูลเวรเก่าไม่ตกกับคนนอกสาย", b7.outsiders, []);
+    t.check("ทุกคนในสาย ER ของวันนั้นได้คาบ และหน้างานเป็นคนในสาย", b7.n === b7.teamSize && b7.n > 0 && b7.frontlineInTeam,
+            b7.n + " จากทีม " + b7.teamSize + " คน");
 
     /* ---------- B4: สร้างรอบหมุนเวียนใหม่ ช่องอาจารย์ผู้กำกับต้องเริ่มที่ว่าง ไม่ใช่คนแรกในรายชื่อ ----------
        เดิม select ไม่มีตัวเลือกว่าง เบราว์เซอร์จึงเลือกคนแรกในรายชื่อให้อัตโนมัติโดยไม่มีใครตั้งใจเลือก
@@ -448,16 +440,17 @@ export default async function run() {
       let iso = todayISO(), r = null;
       for (let i = 0; i < 21 && !r; i++) {
         iso = addDaysISO(todayISO(), -i);
-        r = store.data.residents.find(x => visitOptions(x.id, iso).length &&
-          sessionsForDate(iso).some(s => s.residentId === x.id && (s.staffIds || []).length));
+        r = store.data.residents.find(x => sessionsForDate(iso).some(s => s.residentId === x.id && (s.staffIds || []).length && !s.academic));
       }
       if (!r) return { none: true };
-      const o = visitOptions(r.id, iso)[0];
+      /* อาจารย์ที่จะไป attend ด้วย = อาจารย์ที่ไม่ได้อยู่ในคาบของเขาวันนั้น */
+      const own = new Set(sessionsForDate(iso).filter(s => s.residentId === r.id).flatMap(s => s.staffIds || []));
+      const to = store.data.staff.find(st => !own.has(st.id));
       const names = () => sessionsForDate(iso).filter(x => x.residentId === r.id)
         .map(x => x.name + (x.superseded ? "|แพ้" : "") + (x.visit ? "|ไปสายอื่น" : ""));
       const before = names();
-      store.data.visits.push({ id: "v_test", residentId: r.id, date: iso, serviceId: o.serviceId,
-        index: o.index, reasonType: "research", reason: "เคสงานวิจัย", status: "pending" });
+      store.data.visits.push({ id: "v_test", residentId: r.id, date: iso, part: "",
+        fromStaffId: supervisorOn(r.id, iso), toStaffId: to.id, reason: "เคสงานวิจัย", status: "pending" });
       const pending = names();
       store.data.visits[0].status = "approved";
       const approved = names();
@@ -474,8 +467,8 @@ export default async function run() {
     });
     t.eq("คำขอที่ยังไม่อนุมัติ ตารางไม่ขยับเลย", visit.pending, visit.before);
     t.eq("ไม่อนุมัติ ตารางก็ไม่ขยับ", visit.declined, visit.before);
-    t.check("อนุมัติแล้วคาบของสายอื่นขึ้นในตาราง",
-            visit.approved.some(n => n.includes("|ไปสายอื่น")), visit.approved.join(" · "));
+    t.check("อนุมัติแล้วคาบ 'Attend activity กับ อ. …' ขึ้นในตาราง",
+            visit.approved.some(n => n.includes("Attend activity") && n.includes("|ไปสายอื่น")), visit.approved.join(" · "));
     t.check("คาบของสายเดิมที่ชนกันกลายเป็นคาบที่ไม่ได้เข้า", visit.ownTeamLost, visit.approved.join(" · "));
     t.check("คาบที่ไปสายอื่นยังแพ้กิจกรรมวิชาการ — วิชาการมาก่อนเสมอ",
             visit.academicPriority > visit.visitPriority,
