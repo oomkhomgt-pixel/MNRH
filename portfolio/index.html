@@ -1860,6 +1860,28 @@ const store = {
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
+    this.applyRotationPresetOnce("2569");
+  },
+  /* ลงตารางจริงของกลุ่มงานให้เองครั้งเดียวต่อปีการศึกษา — เครื่องที่มีข้อมูลเก่าอยู่แล้ว (เช่น แผนที่ "สร้างแผนอัตโนมัติ" เขียนทับ)
+     เปิดเวอร์ชันใหม่มาต้องเห็นตารางจริงเลย ไม่ต้องรอ admin กดปุ่ม · ทำเฉพาะเมื่อจับคู่แถวกับแพทย์ประจำบ้านได้ครบทุกแถวไม่ซ้ำ
+     และตารางที่เก็บอยู่ต่างจาก preset · สำรองชุดเดิมไว้ใน rotationPlanBackups เสมอ (กู้คืนได้ที่ "ประวัติแผนอัตโนมัติ")
+     · จำไว้ใน meta.rotationPresetApplied[ay] ว่าตรวจแล้ว จะได้ไม่ทับสิ่งที่ผู้ใช้แก้เองภายหลัง */
+  applyRotationPresetOnce(ay) {
+    const d = this.data;
+    const preset = ROTATION_PRESETS[ay]; if (!preset) return;
+    d.meta.rotationPresetApplied ||= {};
+    if (d.meta.rotationPresetApplied[ay]) return;
+    d.meta.rotationPresetApplied[ay] = new Date().toISOString();
+    const mapping = matchPresetRows(preset, d.residents || []);
+    const ids = Object.values(mapping).filter(Boolean);
+    if (ids.length !== preset.rows.length || new Set(ids).size !== ids.length) return;   /* จับคู่ไม่ครบ — ไม่เดา ให้ admin กดเอง */
+    const months = ayMonths(ay);
+    const cellOf = (rid, mm) => (d.rotations || []).find(r => r.residentId === rid && r.start === monthStartISO(mm))?.serviceId || "";
+    const differs = preset.rows.some(pr => pr.months.some((sid, m) => cellOf(mapping[pr.row], months[m]) !== sid));
+    if (!differs) return;
+    const rots = presetRotationsFor(ay, ay, mapping, d.residents, d.services, d.staff);
+    applyRotationPlanForAY(ay, rots, "preset-auto", "ระบบ — อัปเดตตารางจริงปี " + ay);
+    this.pendingNotice = "ลงตารางหมุนเวียนจริงของกลุ่มงาน ปีการศึกษา " + ay + " ให้แล้ว " + rots.length + " บล็อก — ชุดเดิมสำรองไว้ใน “ประวัติแผนอัตโนมัติ”";
   },
   save() {
     try {
@@ -4915,7 +4937,7 @@ function printMonthGrid() {
 /* แทนที่ช่วงหมุนเวียนของปีการศึกษาหนึ่งด้วยชุดใหม่ ("สร้างแผนอัตโนมัติ" และ "กู้คืนจากประวัติ" ใช้ทางเดียวกันนี้)
    ก่อนเขียนทับ สำรองชุดเดิมที่กำลังจะหายไว้ใน rotationPlanBackups เสมอ (ถ้ามีอะไรให้สำรอง) เก็บไว้ 10 ชุดล่าสุด
    — กู้คืนก็ผ่านฟังก์ชันนี้เหมือนกัน จึงสมมาตร: กู้คืนผิดก็ยังกู้คืนกลับไปอีกทีได้ ไม่ใช่ทางตัน */
-function applyRotationPlanForAY(ay, newRotations, source) {
+function applyRotationPlanForAY(ay, newRotations, source, by) {
   const months = ayMonths(ay);
   const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
   const prevRotations = store.data.rotations || [];
@@ -4923,7 +4945,7 @@ function applyRotationPlanForAY(ay, newRotations, source) {
   if (inYear.length) {
     (store.data.rotationPlanBackups ||= []).push({
       id: uid("planbk"), at: new Date().toISOString(), ay, source,
-      by: currentUser()?.displayName || "—", rotations: structuredClone(inYear)
+      by: by || currentUser()?.displayName || "—", rotations: structuredClone(inYear)
     });
     if (store.data.rotationPlanBackups.length > 10)
       store.data.rotationPlanBackups.splice(0, store.data.rotationPlanBackups.length - 10);
@@ -5025,7 +5047,8 @@ function planHistoryDialog() {
         <td class="small">${fmtDateTime(x.at)}</td>
         <td class="small">${esc(x.by)}</td>
         <td class="small">${x.rotations.length} บล็อก${x.source === "restore" ? " (สำรองไว้ตอนกู้คืนครั้งก่อน)"
-          : x.source === "preset" ? " (สำรองไว้ตอนลงตารางจริงของกลุ่มงาน)" : ""}</td>
+          : x.source === "preset" ? " (สำรองไว้ตอนลงตารางจริงของกลุ่มงาน)"
+          : x.source === "preset-auto" ? " (สำรองไว้ตอนระบบลงตารางจริงให้อัตโนมัติ)" : ""}</td>
         <td class="no-print"><button class="btn-sm" data-restore-plan="${x.id}">กู้คืนชุดนี้</button></td>
       </tr>`).join("")}</tbody></table></div>
       <p class="small muted" style="margin-top:.5rem">เก็บไว้สูงสุด 10 ชุดล่าสุดต่อปีการศึกษา อยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ซิงก์ขึ้นคลาวด์</p>`
@@ -10306,6 +10329,13 @@ function init() {
   $("#loginGate").hidden = true;
   applyPermissions();
   renderAll();
+  /* ตารางจริงของกลุ่มงานถูกลงให้อัตโนมัติตอนโหลด (store.applyRotationPresetOnce) — บอกให้รู้และเขียน audit ไว้ */
+  if (store.pendingNotice) {
+    const msg = store.pendingNotice; store.pendingNotice = "";
+    audit("ลงตารางจริงของกลุ่มงานอัตโนมัติ", msg); store.save();
+    const notes = $("#planNotes"); if (notes) notes.innerHTML = `<div class="notice small">${esc(msg)}</div>`;
+    toast(msg, 9000);
+  }
   const hash = location.hash.replace("#", "");
   showView(viewAllowed(hash) ? hash : defaultViewForRole());
   /* ปุ่ม Back/Forward ของเบราว์เซอร์ — เดิม showView เขียน hash ทุกครั้งแต่ไม่มีใครฟัง hashchange
