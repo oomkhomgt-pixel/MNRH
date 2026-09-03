@@ -216,8 +216,10 @@ export default async function run() {
       const r = await page.evaluate(async () => {
         const wait = (ms) => new Promise(res => setTimeout(res, ms));
         showView("calendar"); calMonth = "2026-08"; renderCalendar();
-        const badges = [...document.querySelectorAll("#calGrid .gcal-week-sub")].slice(0, 4).map(b => b.textContent);
-        const badgeIsButton = document.querySelector("#calGrid .gcal-week-sub")?.tagName === "BUTTON";
+        const badges = [...document.querySelectorAll("#calGrid .gcal-week-sub:not(.holiday)")].slice(0, 4).map(b => b.textContent);
+        const badgeIsButton = document.querySelector("#calGrid .gcal-week-sub:not(.holiday)")?.tagName === "BUTTON";
+        /* 30 ก.ค. ที่ค้างอยู่หัวตารางเดือน ส.ค. ขึ้นป้ายวันหยุดแทนป้ายธีม */
+        const holidayBadge = document.querySelector("#calGrid .gcal-week-sub.holiday")?.textContent || "";
         const seq = (d) => presentationsForDate(d).filter(p => p.kind !== "activity").map(p => p.kind + ":" + p.type);
         const aug6 = seq("2026-08-06"), aug13 = seq("2026-08-13");
         const t6 = presentationsForDate("2026-08-06").filter(p => p.type === "topic");
@@ -280,7 +282,7 @@ export default async function run() {
         showView("coverage"); await wait(50);
         const covText = document.querySelector("#view-coverage")?.textContent || "";
         return { badges, badgeIsButton, aug6, aug13, chiefNames, chip6, quizChip, lectureChip, ext, noExt19, note, emptyThu, sup, quizActs,
-                 dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
+                 holidayBadge, dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
                  covHasQuiz: covText.includes("Kahoot quiz"), covHasSup: covText.includes("กำกับการนำเสนอ") };
       });
       t.eq("ป้ายธีม 4 สัปดาห์ของ ส.ค. 2569 ตรงตารางจริง (Trauma → Spine → Metabolic bone → Shoulder & Sports)", r.badges, ["Trauma", "Spine", "Metabolic bone", "Shoulder & Sports"]);
@@ -300,6 +302,7 @@ export default async function run() {
       t.check("Kahoot quiz: ผู้จัดทั้งสองคนมีกิจกรรมประเภท quiz คนละชุด", !!r.quizActs && r.quizActs.host && r.quizActs.co, JSON.stringify(r.quizActs));
       t.check("กล่องจัดการวันพฤหัสฯ: เลือก Staff lecture แล้วช่องหัวข้อ/อาจารย์โผล่ บันทึกแล้ว chip C กลายเป็น L",
         r.dlgTitle.startsWith("จัดการเช้าวันพฤหัสฯ") && r.lectureFieldsShown && r.after6?.type === "lecture" && r.after6?.title === "Pelvic ring injuries", JSON.stringify([r.dlgTitle, r.after6]));
+      t.check("วันพฤหัสฯ ที่เป็นวันหยุดขึ้นป้ายวันหยุดแทนป้ายธีม", /วันเข้าพรรษา/.test(r.holidayBadge), r.holidayBadge);
       t.check("ธีมกำหนดทับรายสัปดาห์ได้ และกลับมาวนตามรอบเมื่อล้าง", r.themeOverride === "Hand" && r.themeAuto === "Trauma", r.themeOverride + "/" + r.themeAuto);
       t.check("กล่องการประชุมภายนอก: มี 4 รายการจากตารางจริง (Regional Hand · THOFAS · KOKU · RCOST) เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง",
         r.extRows === 4 && r.addedShown, r.extRows + " " + r.addedShown);

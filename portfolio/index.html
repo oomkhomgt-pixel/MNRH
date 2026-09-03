@@ -295,6 +295,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-week-sub{display:block;width:100%;min-height:0;height:auto;text-align:left;font:inherit;font-size:.66rem;font-weight:650;color:var(--brand-ink);background:#eef3f8;border:0;border-radius:4px;padding:0 .3rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button.gcal-week-sub{cursor:pointer}
 button.gcal-week-sub:hover{background:#dfe8f2}
+.gcal-week-sub.holiday{background:#fdf1e6;color:#9a3412}
+button.gcal-week-sub.holiday:hover{background:#fae4d0}
 .gcal-month-note{margin:0 0 .5rem;line-height:1.4}
 /* chip = ตัวย่อประเภท + ชื่อผู้นำเสนอ บรรทัดหนึ่ง · หัวข้อย่อบรรทัดสอง — สีขอบ/ตัวย่อตามประเภท (--pres จาก PRESENTATION_COLOUR)
    พื้นตามสถานะใช้ .done/.due ของ .sess · ช่องประจำที่ยังไม่มีคน = .slot เส้นประ · รายละเอียดเต็มอยู่ในกล่องตอนกด */
@@ -2458,6 +2460,11 @@ function topicConfInfo(iso) {
     topicSlots: row?.topicSlots
   };
 }
+/* ป้ายวันหยุดของวันหนึ่ง (ว่าง = ไม่ใช่วันหยุด) — ช่องวันที่ว่างเปล่าต้องบอกได้ว่าว่างเพราะเป็นวันหยุด */
+const holidayOn = (iso) => {
+  const d = (store.data.duty || []).find(x => x.date === iso);
+  return d?.holiday ? (d.note || "วันหยุดราชการ") : "";
+};
 /* วันพฤหัสฯ ที่ไม่มี 4 คาบตามปกติ — วันหยุด หรืองานเต็มเช้า (ใช้ในตารางผู้นิเทศให้เห็นว่าสัปดาห์นั้นไม่ต้องจัดคน) */
 function dayNote(iso) {
   const duty = (store.data.duty || []).find(x => x.date === iso);
@@ -4935,12 +4942,17 @@ function renderCalMonth(box) {
       const me = mine ? myResidentId() : "", myYear = mine ? +store.resident(me)?.year : 0;
       const items = presentationsForDate(iso).filter(p => !mine || (p.residentId && p.residentId === me) || p.chiefId === me || (p.coResidentIds || []).includes(me) ||
         (p.kind === "info" && ((p.years || []).includes(myYear) || (p.residentIds || []).includes(me))));
-      const theme = thuDay === new Date(iso + "T00:00:00").getDay() ? thursdayThemeLabel(iso) : "";
+      /* ป้ายธีมมีความหมายเฉพาะสัปดาห์ที่มีหัวข้อจริง — วันหยุด งานเต็มวัน หรือสัปดาห์ที่ไม่มีหัวข้อ ไม่ต้องขึ้นธีมวนมาให้สับสน */
+      const tcRow = (store.data.topicConf || []).find(x => x.date === iso);
+      const theme = thuDay === new Date(iso + "T00:00:00").getDay() && !dayNote(iso) && +tcRow?.topicSlots !== 0
+        ? thursdayThemeLabel(iso) : "";
       const themeTitle = "ธีมประจำสัปดาห์ของกิจกรรมเช้าวันพฤหัสฯ — ทุกหัวข้อสัปดาห์นี้อยู่ในธีมนี้" + (manage ? " · กดเพื่อจัดการวันพฤหัสฯ นี้" : "");
       return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
         <span class="gcal-date">${Number(iso.slice(8))}</span>
         ${theme ? (manage ? `<button class="gcal-week-sub" data-thu="${iso}" title="${esc(themeTitle)}">${esc(theme)}</button>`
                           : `<span class="gcal-week-sub" title="${esc(themeTitle)}">${esc(theme)}</span>`) : ""}
+        ${holidayOn(iso) ? (manage ? `<button class="gcal-week-sub holiday" data-thu="${iso}" title="${esc(holidayOn(iso))} · กดเพื่อจัดการวันนี้">${esc(holidayOn(iso))}</button>`
+                                   : `<span class="gcal-week-sub holiday">${esc(holidayOn(iso))}</span>`) : ""}
         ${items.map(presentationChip).join("")}
       </div>`;
     }).join("")}
