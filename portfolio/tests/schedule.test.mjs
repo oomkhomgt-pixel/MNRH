@@ -1213,6 +1213,102 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- ตารางจริงของกลุ่มงานปี 2569 (ROTATION_PRESETS) ----------
+       ข้อมูลสาธิตต้องเป็นตารางจริงทั้งปี ไม่ใช่แผนที่ตัวจัดแผนสุ่มแล้วทับเฉพาะ ส.ค. — และผู้จัดหลักสูตรลงตารางนี้กลับได้
+       ทุกเมื่อผ่านปุ่ม "ใช้ตารางจริงของกลุ่มงาน" (เช่นหลังเผลอกด "สร้างแผนอัตโนมัติ") โดยมีสำรองก่อนเหมือนกัน */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        showView("rotation");
+        const preset = ROTATION_PRESETS["2569"];
+        const months = ayMonths("2569");
+        const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+        const inYear = () => store.data.rotations.filter(x => x.start >= from && x.start <= to);
+        const byName = (n) => store.data.residents.find(x => stripName(x.name).startsWith(stripName(n)));
+        const cell = (name, m) => inYear().find(x => x.residentId === byName(name)?.id && x.start === monthStartISO(months[m]))?.serviceId || "";
+
+        /* seed ต้องตรง preset ทุกช่อง */
+        const mapping = matchPresetRows(preset, store.data.residents);
+        const allMapped = preset.rows.every(pr => mapping[pr.row]);
+        const uniqueMapped = new Set(Object.values(mapping)).size === preset.rows.length;
+        const seedCount = inYear().length;
+        const mismatches = [];
+        preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          const got = inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]));
+          if (got?.serviceId !== sid) mismatches.push(pr.row + "/" + m + ":" + (got?.serviceId || "—") + "≠" + sid);
+        }));
+        const spot = { chaya_jul: cell("ชญา", 0), kengkaj_sep: cell("เก่งกาจ", 2), paphop_mar: cell("ปภพ", 8), paphop_jun: cell("ปภพ", 11),
+                       nathaphat_aug: cell("ณภัทร", 1), tawan_jul: cell("ตะวัน", 0) };
+        const supervisorsFilled = inYear().every(x => typeof x.supervisorId === "string");
+
+        /* เผลอกด "สร้างแผนอัตโนมัติ" → ตารางเปลี่ยน → กด "ใช้ตารางจริงของกลุ่มงาน" → กลับเป็นตารางจริง */
+        const presetBtnShown = !document.querySelector("#presetWrap").hidden && !document.querySelector("#btnApplyPreset").hidden;
+        const bkBefore = (store.data.rotationPlanBackups || []).length;
+        document.querySelector("#btnGeneratePlan").click();
+        await new Promise(res => setTimeout(res, 100));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 100));
+        const changedByGenerate = preset.rows.some(pr => pr.months.some((sid, m) =>
+          inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid));
+
+        document.querySelector("#btnApplyPreset").click();
+        await new Promise(res => setTimeout(res, 100));
+        const dlgRows = document.querySelectorAll("#dlgBody [data-preset-row]").length;
+        const prefilledAll = [...document.querySelectorAll("#dlgBody [data-preset-row]")].every(s => s.value);
+        /* เลือกซ้ำคนเดียวกันสองแถวต้องถูกกัน */
+        const sel41 = document.querySelector('#dlgBody [name="map:4.1"]'), sel42 = document.querySelector('#dlgBody [name="map:4.2"]');
+        const orig42 = sel42.value;
+        sel42.value = sel41.value;
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 50));
+        const dupBlocked = document.querySelector("#dlg").open && !!document.querySelector("#dlgBody .err");
+        sel42.value = orig42; sel42.dispatchEvent(new Event("change"));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        await new Promise(res => setTimeout(res, 150));
+        const dlgClosed = document.querySelector("#dlg")?.open !== true;
+        const restoredMismatch = [];
+        preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          const got = inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]));
+          if (got?.serviceId !== sid) restoredMismatch.push(pr.row + "/" + m);
+        }));
+        const bks = store.data.rotationPlanBackups || [];
+        const bkAfter = bks.length;
+        const lastBkSource = bks[bks.length - 1]?.source;
+        const noteShown = /ตารางจริงของกลุ่มงาน/.test(document.querySelector("#planNotes")?.textContent || "");
+        return { allMapped, uniqueMapped, seedCount, mismatches, spot, supervisorsFilled, presetBtnShown, changedByGenerate,
+                 dlgRows, prefilledAll, dupBlocked, dlgClosed, restoredMismatch, bkBefore, bkAfter, lastBkSource, noteShown };
+      });
+      t.check("ทุกแถวของตารางจริง 2569 จับคู่กับคนสาธิตได้ครบและไม่ซ้ำ", r.allMapped && r.uniqueMapped);
+      t.eq("ข้อมูลสาธิตปี 2569 มีบล็อกครบ 20 คน × 12 เดือน", r.seedCount, 240);
+      t.check("ข้อมูลสาธิตตรงกับตารางจริงทุกช่อง", r.mismatches.length === 0, r.mismatches.slice(0, 5).join(" "));
+      t.eq("ชญา ก.ค. = สายฟ้า", r.spot.chaya_jul, "svc_blue");
+      t.eq("เก่งกาจ ก.ย. = วิสัญญี", r.spot.kengkaj_sep, "svc_anesth");
+      t.check("ปภพ มี.ค.–มิ.ย. = free elective", r.spot.paphop_mar === "svc_elective" && r.spot.paphop_jun === "svc_elective", JSON.stringify(r.spot));
+      t.eq("ณภัทร ส.ค. = elective (ตรงตารางเวร ส.ค.)", r.spot.nathaphat_aug, "svc_elective");
+      t.eq("ตะวัน ก.ค. = elective (ปี 3 elective ไม่ติดกันตามตารางจริง)", r.spot.tawan_jul, "svc_elective");
+      t.check("ทุกบล็อกมีช่องอาจารย์ผู้กำกับ (ว่างได้เฉพาะหน่วยนอกกลุ่มงาน)", r.supervisorsFilled);
+      t.check("admin เห็นปุ่ม 'ใช้ตารางจริงของกลุ่มงาน' ในปีที่มีตารางฝังไว้", r.presetBtnShown);
+      t.check("สร้างแผนอัตโนมัติแล้วตารางเปลี่ยนไปจากตารางจริง (จำลองการเผลอกด)", r.changedByGenerate);
+      t.eq("กล่องจับคู่มีครบ 20 แถว", r.dlgRows, 20);
+      t.check("กล่องจับคู่เดาชื่อจริงให้ครบทุกแถว", r.prefilledAll);
+      t.check("เลือกคนเดียวกันสองแถวถูกกันด้วยข้อความในกล่อง ไม่ปิดกล่อง", r.dupBlocked);
+      t.check("กดใช้ตารางแล้วกล่องปิด และตารางกลับเป็นตารางจริงทุกช่อง", r.dlgClosed && r.restoredMismatch.length === 0, r.restoredMismatch.slice(0, 5).join(" "));
+      t.check("ทั้งสร้างแผนและใช้ตารางจริงต่างสำรองของเดิมไว้ก่อน (2 ชุดใหม่ ชุดล่าสุด source=preset)",
+        r.bkAfter === r.bkBefore + 2 && r.lastBkSource === "preset", r.bkBefore + "→" + r.bkAfter + " " + r.lastBkSource);
+      t.check("แถบสรุปบอกว่าลงตารางจริงของกลุ่มงานแล้ว", r.noteShown);
+      t.check("ตารางจริงของกลุ่มงาน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* resident/staff ไม่มีปุ่มใช้ตารางจริง */
+    for (const role of ["resident", "staff"]) {
+      const { page, errors } = await openAs(browser, srv.url, role);
+      const shown = await page.evaluate(() => { showView("rotation"); const b = document.querySelector("#btnApplyPreset"); return !!b && !b.hidden; });
+      t.check(role + " ไม่เห็นปุ่ม 'ใช้ตารางจริงของกลุ่มงาน'", !shown);
+      t.check(role + " หน้าตาราง: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- staff (ไม่ใช่ผู้จัดหลักสูตร) ไม่เห็นปุ่มประวัติแผน เหมือนปุ่มสร้างแผนอัตโนมัติ ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "staff");
