@@ -192,13 +192,13 @@ export default async function run() {
       store.load();
       return { first, second };
     });
-    t.check("เครื่องที่มีข้อมูลเก่า: โหลดใหม่แล้วได้ตารางกิจกรรมจริงครบ (13 สัปดาห์ · 2 งานเต็มเช้า · 4 การประชุม · 1 วันหยุด)",
-      preset.first.tc === 13 && preset.first.events === 2 && preset.first.ext === 4 && preset.first.holidays === 1 && preset.first.talks > 30,
+    t.check("เครื่องที่มีข้อมูลเก่า: โหลดใหม่แล้วได้ตารางกิจกรรมจริงครบ (13 สัปดาห์มีตารางเช้าเต็ม · 2 งานเต็มเช้า · 11 การประชุม · 6 วันหยุด)",
+      preset.first.tc === 13 && preset.first.events === 2 && preset.first.ext === 11 && preset.first.holidays === 6 && preset.first.talks > 30,
       JSON.stringify(preset.first));
     t.check("ทุกแถวจับคู่ชื่อกับทะเบียนได้ และ Staff lecture 2 ก.ค. ได้ อ.ธน ไม่ใช่ อ.ธนัท",
       preset.first.named === preset.first.talks && /ธน$/.test(preset.first.lecture), preset.first.lecture);
     t.check("มีข้อความแจ้งให้ผู้ใช้รู้ และตั้งธงไว้ไม่ให้ลงซ้ำเอง",
-      /ตารางกิจกรรม/.test(preset.first.notice) && preset.first.flag === "2569-q1", preset.first.notice);
+      /ตารางกิจกรรม/.test(preset.first.notice) && preset.first.flag === "2569-full", preset.first.notice);
     t.check("สั่งลงซ้ำ: ไม่เพิ่มแถวใหม่ และสัปดาห์ที่แก้เองไม่ถูกทับ",
       preset.second.added === 0 && preset.second.tc === 13 && preset.second.theme === "แก้เอง" && preset.second.missing === 0,
       JSON.stringify(preset.second));
