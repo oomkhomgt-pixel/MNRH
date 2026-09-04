@@ -2102,6 +2102,16 @@ const store = {
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
+    /* หัวข้อ/Journal club/Kahoot quiz ลงได้เฉพาะวันพฤหัสฯ — แถวเก่าที่หลุดไปวันอื่น (จากตอนที่ยังไม่มีการตรวจวันที่) ตัดออกจากตาราง
+       กิจกรรมที่เคยผูกไว้ (ถ้ามี) ยังอยู่ในแฟ้มของเจ้าของตามเดิม แค่เลิกผูกกับตาราง */
+    (d.schedule || []).filter(t => ["topic", "journal", "quiz"].includes(t.type) &&
+      new Date(t.date + "T00:00:00").getDay() !== thursdayDay()).forEach(t => {
+        if (!t.activityId) return;
+        const a = (d.activities || []).find(x => x.id === t.activityId);
+        if (a) delete a.scheduleId;
+      });
+    d.schedule = (d.schedule || []).filter(t => !(["topic", "journal", "quiz"].includes(t.type) &&
+      new Date(t.date + "T00:00:00").getDay() !== thursdayDay()));
     this.applyRotationPresetOnce("2569");
     this.applyThursdayPresetOnce();
   },
@@ -5735,6 +5745,8 @@ function editTalk(id, preset = {}) {
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const date = dlgVal("date"), title = dlgVal("title"), type = dlgVal("type");
         if (!date) return fieldError("date", "กรุณาเลือกวันที่");
+        if (["topic", "journal", "quiz"].includes(type) && new Date(date + "T00:00:00").getDay() !== thursdayDay())
+          return fieldError("date", "หัวข้อ/Journal club/Kahoot quiz ลงได้เฉพาะวันพฤหัสฯ เท่านั้น");
         if (!title) return fieldError("title", "กรุณาใส่หัวข้อ");
         const chiefId = type === "topic" ? dlgVal("chiefId") : "", coResidentIds = type === "quiz" ? checkedCoIds() : [];
         if (chiefId && chiefId === dlgVal("residentId")) return fieldError("chiefId", "chief ผู้กำกับต้องไม่ใช่ผู้นำเสนอเอง");

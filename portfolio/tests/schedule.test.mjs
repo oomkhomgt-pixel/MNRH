@@ -1416,6 +1416,65 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- หัวข้อ/Journal club/Kahoot quiz ลงได้เฉพาะวันพฤหัสฯ ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const nonThu = todayISO(); /* addDaysISO ด้านล่างจะเลื่อนให้ไม่ตรงวันพฤหัสฯ แน่ๆ */
+        let wed = nonThu; while (new Date(wed + "T00:00:00").getDay() !== 3) wed = addDaysISO(wed, 1);
+        const n0 = store.data.schedule.length;
+        editTalk(null, { type:"journal", date: wed });
+        document.querySelector('#dlgBody [name="title"]').value = "ทดสอบ";
+        document.querySelector('#dlgBody [name="title"]').dispatchEvent(new Event("input", { bubbles:true }));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        const inp = document.querySelector('#dlgBody [name="date"]');
+        const blocked = { open: document.querySelector("#dlg").open, invalid: inp.getAttribute("aria-invalid"),
+                           err: inp.parentElement.querySelector(".err")?.textContent || "", grew: store.data.schedule.length !== n0 };
+        document.querySelector("#dlg").close();
+        /* วันพฤหัสฯ ต้องบันทึกได้ตามปกติ (กติกาใหม่ไม่ไปกันวันที่ถูกต้อง) */
+        let thu = wed; while (new Date(thu + "T00:00:00").getDay() !== thursdayDay()) thu = addDaysISO(thu, 1);
+        editTalk(null, { type:"journal", date: thu });
+        document.querySelector('#dlgBody [name="title"]').value = "ทดสอบวันพฤหัสฯ";
+        document.querySelector('#dlgBody [name="title"]').dispatchEvent(new Event("input", { bubbles:true }));
+        document.querySelector("#dlgFoot .btn-primary").click();
+        const okThursday = !document.querySelector("#dlg").open && store.data.schedule.length === n0 + 1;
+        return { blocked, okThursday };
+      });
+      t.check("สร้างรายการ journal ลงวันที่ไม่ใช่พฤหัสฯ: กล่องยังเปิด ช่องวันที่ถูกทำเครื่องหมายผิด และไม่บันทึก",
+              r.blocked.open && r.blocked.invalid === "true" && r.blocked.err.length > 0 && !r.blocked.grew, JSON.stringify(r.blocked));
+      t.check("รายการเดียวกันลงวันพฤหัสฯ บันทึกได้ตามปกติ", r.okThursday);
+      t.check("กติกาวันพฤหัสฯ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- migrate() เก็บกวาดแถวเก่าที่หลุดไปวันอื่น (ข้อมูลจากรุ่นก่อนที่ยังไม่ตรวจวันที่) ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        let wed = todayISO(); while (new Date(wed + "T00:00:00").getDay() !== 3) wed = addDaysISO(wed, 1);
+        const actId = uid("act");
+        store.data.activities.push({ id: actId, residentId: store.data.residents[0].id, type:"journal", subspecialty:"trauma",
+          title:"ของเก่าที่หลุดวัน", date: wed, academicYear: academicYear(wed), source:"manual", evidence:null,
+          wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString() });
+        const badId = uid("talk");
+        store.data.schedule.push({ id: badId, date: wed, start:"08:00", end:"09:00", slot:"Journal club", type:"journal",
+          residentId: store.data.residents[0].id, chiefId:"", title:"ของเก่าที่หลุดวัน", subspecialty:"trauma",
+          location:"", moderatorId:"", activityId: actId, note:"" });
+        const a = store.data.activities.find(x => x.id === actId); a.scheduleId = badId;
+        const before = { schedRow: !!store.data.schedule.find(x => x.id === badId), actLinked: a.scheduleId === badId };
+        store.migrate();
+        const after = { schedRow: !!store.data.schedule.find(x => x.id === badId),
+                         actStillExists: !!store.data.activities.find(x => x.id === actId),
+                         actUnlinked: !store.data.activities.find(x => x.id === actId)?.scheduleId };
+        return { before, after };
+      });
+      t.check("ก่อน migrate: แถวที่หลุดวันมีอยู่จริง และผูกกิจกรรมไว้", r.before.schedRow && r.before.actLinked, JSON.stringify(r.before));
+      t.check("migrate() ตัดแถวตารางที่หลุดไปวันอื่นออก", !r.after.schedRow);
+      t.check("กิจกรรมที่เคยผูกไว้ยังอยู่ในแฟ้มเดิม แค่เลิกผูกกับตาราง", r.after.actStillExists && r.after.actUnlinked, JSON.stringify(r.after));
+      t.check("เก็บกวาดแถวหลุดวัน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     await srv.close();
