@@ -1340,17 +1340,91 @@ const THURSDAY_PRESETS = {
               ["10:00","10:30","Myofascial Pain Syndrome","Resident Rehab"],
               ["10:30","12:00","Dry Needling Workshop","อาจารย์ หทัยมาศ"]],
     staff:["ศรุต","อุรวิศ","เทอดพงษ์","คงธัช"],
-    note:"Rehab: อาจารย์ หทัยมาศ · Anes: อาจารย์ มัลลิกา" } }
+    note:"Rehab: อาจารย์ หทัยมาศ · Anes: อาจารย์ มัลลิกา" } },
+  /* วันหยุดที่เหลือของปีการศึกษา 2569 จากตาราง Inter-hospital conference — ยังไม่มีตารางเช้าวันพฤหัสฯ (Topic/Journal)
+     ของเดือนเหล่านี้ จึงลงแค่วันหยุดไว้ก่อน (ตัดทั้งวันเหมือน 30 ก.ค.) */
+  "2026-12-10": { holiday:"วันรัฐธรรมนูญ" },
+  "2026-12-31": { holiday:"วันสิ้นปี" },
+  "2027-04-15": { holiday:"วันสงกรานต์" },
+  "2027-05-20": { holiday:"วันวิสาขบูชา" },
+  "2027-06-03": { holiday:"วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี" }
 };
 /* การประชุมนอกโรงพยาบาลของไตรมาสแรก — wholeDay:true แปลว่ากินเช้าวันพฤหัสฯ ทั้งหมด (ไม่มี 4 คาบวันนั้น)
    Regional Hand ตรงกับวันพฤหัสฯ 20 ส.ค. แต่ตารางจริงยังมีกิจกรรมครบ จึงไม่ใช่ wholeDay */
+/* งานประชุมที่แทนช่วงบ่าย Inter-hospital conference ของบางสัปดาห์ (ตาราง "ไม่มีการสอน")
+   ผู้เข้าร่วมแตกต่างกันทุกงาน — บางงานเฉพาะบางชั้นปี บางงานเฉพาะบางคน ตารางต้นฉบับไม่ได้ระบุรายชื่อ
+   จึงเว้น years/residentIds ว่างไว้ก่อน (ไม่โผล่เป็นภาคบังคับของใคร) ผู้จัดหลักสูตรกรอกทีหลังได้ที่ปุ่ม "การประชุมภายนอก" */
 const EXTERNAL_CONF_PRESETS = [
   { title:"Regional Hand", start:"2026-08-20", end:"2026-08-21", years:[4], subspecialty:"hand" },
   { title:"THOFAS", start:"2026-08-26", end:"2026-08-28", years:[4], subspecialty:"foot", note:"Thai Orthopaedic Foot and Ankle Society" },
   { title:"KOKU 2026", start:"2026-09-17", end:"2026-09-17", years:[1,2,3,4], wholeDay:true },
-  { title:"RCOST Annual Meeting 2026", start:"2026-10-22", end:"2026-10-24", years:[1,2,3,4], location:"พัทยา", wholeDay:true }
+  { title:"RCOST Annual Meeting 2026", start:"2026-10-22", end:"2026-10-24", years:[1,2,3,4], location:"พัทยา", wholeDay:true },
+  { title:"TOSSM 2026", start:"2026-07-02", end:"2026-07-02", years:[], subspecialty:"sports", note:"Thai Orthopaedic Society for Sports Medicine — ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"AOTrauma Basic Course Y2", start:"2026-09-03", end:"2026-09-03", years:[], subspecialty:"trauma", note:"ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"THKS 2026", start:"2026-11-19", end:"2026-11-19", years:[], subspecialty:"arthroplasty", note:"Thai Hip & Knee Society — ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"MBOG 2026", start:"2026-12-03", end:"2026-12-03", years:[], subspecialty:"trauma", note:"ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"SST 2027", start:"2027-01-14", end:"2027-01-14", years:[], subspecialty:"spine", note:"Thai Spine Society — ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"TOTAC 2027", start:"2027-02-18", end:"2027-02-18", years:[], subspecialty:"trauma", note:"ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" },
+  { title:"Annual Meeting 2027", start:"2027-03-18", end:"2027-03-18", years:[], subspecialty:"hand", note:"ยังไม่ระบุชั้นปี/รายชื่อผู้เข้าร่วม" }
 ];
-const THURSDAY_PRESET_VERSION = "2569-q1";
+const THURSDAY_PRESET_VERSION = "2569-full";
+/* หัวข้อ Inter-hospital conference ช่วงบ่ายวันพฤหัสฯ (13:00–15:00) ตลอดปีการศึกษา 2569 — จากตาราง "Inter-hospital
+   conference ประจำเดือน ก.ค. 69 – มิ.ย. 70" ของกลุ่มงาน อ่านตรงจากค่าคงที่นี้ทุกครั้ง ไม่ได้ก็อปปี้ลง store.data
+   (ต่างจาก THURSDAY_PRESETS ที่ลงครั้งเดียวแล้วแก้ต่อได้ — ที่นี่ยังไม่มีหน้าจอแก้รายสัปดาห์ ถ้าต้องแก้ให้แก้ตรงนี้)
+     topic/sub   หัวข้อและอนุสาขาของสัปดาห์นั้น (Metabolic ไม่มีรหัสอนุสาขาเป็นของตัวเอง ใช้ sub:"trauma" ตามธีมเช้าวันพฤหัสฯ)
+     onsite      ออกไปประชุมที่สถาบันกรุงเทพและปริมณฑล — เป็นแค่ข้อความในกล่องรายละเอียด ไม่มีผลอื่น
+     noTeaching  สัปดาห์นั้น "ไม่มีการสอน" เพราะบางคนไปประชุมภายนอกที่ชื่อเดียวกับหัวข้อ (ดู EXTERNAL_CONF_PRESETS)
+                 ไม่ใช่ทุกคนไป จึงไม่ขึ้นชิป I Inter-hospital ของสัปดาห์นั้น (กันเข้าใจผิดว่าเป็นกิจกรรมบังคับทั้งรุ่น)
+                 เหลือแค่ชิป X ของการประชุมภายนอกไว้ให้เห็น
+   วันหยุด (30 ก.ค., 10/31 ธ.ค., 15 เม.ย., 20 พ.ค., 3 มิ.ย.) และ 22 ต.ค. (48th RCOST 2026 — ประชุมประจำปี wholeDay)
+   ไม่ต้องมีรายการในนี้ เพราะ duty.holiday / externalConfs.wholeDay ตัดช่วงบ่ายให้อยู่แล้ว */
+const INTERHOSPITAL_PRESETS = {
+  "2026-07-02": { topic:"Sports Medicine", sub:"sports", noTeaching:true },
+  "2026-07-09": { topic:"Spine", sub:"spine" },
+  "2026-07-16": { topic:"Hand", sub:"hand" },
+  "2026-07-23": { topic:"Spine", sub:"spine" },
+  "2026-08-06": { topic:"Trauma", sub:"trauma" },
+  "2026-08-13": { topic:"Hand", sub:"hand" },
+  "2026-08-20": { topic:"Pediatric", sub:"pediatric" },
+  "2026-08-27": { topic:"Foot and Ankle", sub:"foot", noTeaching:true },
+  "2026-09-03": { topic:"Trauma", sub:"trauma", noTeaching:true },
+  "2026-09-10": { topic:"Hip & Knee", sub:"arthroplasty", onsite:true },
+  "2026-09-17": { topic:"Hand", sub:"hand" },
+  "2026-09-24": { topic:"Pediatric", sub:"pediatric" },
+  "2026-10-01": { topic:"Trauma", sub:"trauma" },
+  "2026-10-08": { topic:"Sports Medicine", sub:"sports", onsite:true },
+  "2026-10-15": { topic:"Pediatric", sub:"pediatric" },
+  "2026-10-29": { topic:"Tumor", sub:"oncology" },
+  "2026-11-05": { topic:"Hand", sub:"hand" },
+  "2026-11-12": { topic:"Trauma", sub:"trauma", onsite:true },
+  "2026-11-19": { topic:"Hip & Knee", sub:"arthroplasty", noTeaching:true },
+  "2026-11-26": { topic:"Spine", sub:"spine" },
+  "2026-12-03": { topic:"Metabolic", sub:"trauma", noTeaching:true },
+  "2026-12-17": { topic:"Pediatric", sub:"pediatric" },
+  "2026-12-24": { topic:"Trauma", sub:"trauma" },
+  "2027-01-07": { topic:"Trauma", sub:"trauma" },
+  "2027-01-14": { topic:"Spine", sub:"spine", noTeaching:true },
+  "2027-01-21": { topic:"Foot and Ankle", sub:"foot" },
+  "2027-01-28": { topic:"Hip & Knee", sub:"arthroplasty" },
+  "2027-02-04": { topic:"Pediatric", sub:"pediatric" },
+  "2027-02-11": { topic:"Tumor", sub:"oncology", onsite:true },
+  "2027-02-18": { topic:"Trauma", sub:"trauma", noTeaching:true },
+  "2027-02-25": { topic:"Sports Medicine", sub:"sports" },
+  "2027-03-04": { topic:"Trauma", sub:"trauma" },
+  "2027-03-11": { topic:"Metabolic", sub:"trauma", onsite:true },
+  "2027-03-18": { topic:"Hand", sub:"hand", noTeaching:true },
+  "2027-03-25": { topic:"Hip & Knee", sub:"arthroplasty" },
+  "2027-04-01": { topic:"Sports Medicine", sub:"sports" },
+  "2027-04-08": { topic:"Spine", sub:"spine", onsite:true },
+  "2027-04-22": { topic:"Hand", sub:"hand" },
+  "2027-04-29": { topic:"Hip & Knee", sub:"arthroplasty" },
+  "2027-05-06": { topic:"Trauma", sub:"trauma" },
+  "2027-05-13": { topic:"Hand", sub:"hand", onsite:true },
+  "2027-05-27": { topic:"Pediatric", sub:"pediatric" },
+  "2027-06-10": { topic:"Sports Medicine", sub:"sports", onsite:true },
+  "2027-06-17": { topic:"Pediatric", sub:"pediatric" },
+  "2027-06-24": { topic:"Hand", sub:"hand" }
+};
 /* ลงตารางจริงลงในก้อนข้อมูลหนึ่งก้อน — ใช้ทั้งตอนโหลดอัตโนมัติ (store.applyThursdayPresetOnce) และปุ่มของผู้จัดหลักสูตร
    กติกาเดียว: วันไหนมีแถวของตัวเองอยู่แล้ว (topicConf / topic-journal-quiz / งานเต็มวัน) ถือว่าจัดเองแล้ว ข้ามทั้งวัน
    ชื่อคนที่จับคู่กับทะเบียนไม่ได้จะถูกปล่อยว่างไว้ (แถวยังขึ้นปฏิทิน แต่ยังไม่ระบุผู้นำเสนอ) และรายงานกลับไปใน missing */
@@ -5399,9 +5473,13 @@ function presentationsForDate(iso) {
   /* 4) Inter-hospital conference — กิจกรรมบังคับเข้าทั้งรุ่น (kind "info") ไม่มีผู้นำเสนอ ไม่มีการประเมิน
         years บอกว่าชั้นปีไหนต้องไป (โหมด "ของฉัน" ใช้เลือกว่าโผล่ไหม) */
   const ih = mc.interHospital;
-  if (ih && +ih.day === dow && !holiday && !offSite)
+  const ihPreset = INTERHOSPITAL_PRESETS[iso];
+  /* สัปดาห์ "ไม่มีการสอน" (ดูคอมเมนต์ที่ INTERHOSPITAL_PRESETS) ไม่ใช่ทุกคนไปประชุมภายนอก จึงไม่ขึ้นชิปบังคับทั้งรุ่น
+     เหลือแค่ชิป X ของการประชุมภายนอกในหมวด 6 ด้านล่างให้เห็นว่าสัปดาห์นี้มีอะไรแทน */
+  if (ih && +ih.day === dow && !holiday && !offSite && !ihPreset?.noTeaching)
     slots.push({ kind:"info", id: "interhospital:" + iso, type:"interhospital", date: iso, start: ih.start || "", end: ih.end || "",
-                 residentId:"", title:"", years: (ih.years || []).map(Number) });
+                 residentId:"", title: ihPreset?.topic || "", subspecialty: ihPreset?.sub || "", onsite: !!ihPreset?.onsite,
+                 years: (ih.years || []).map(Number) });
   /* 5) เช้าวันพฤหัสฯ: บางสัปดาห์เป็นงานเต็มเช้า (workshop / ประชุมร่วมต่างภาควิชาของกลุ่มงาน หรือการประชุมภายนอกที่ตั้ง wholeDay)
         ซึ่งแทนทั้ง 4 คาบ · สัปดาห์ปกติ = ช่วงเปิด + ช่อง Topic + ช่องปิด
         ช่วงเปิดมี 4 แบบ: Interesting case (ค่าปกติ) · Staff lecture · Pediatric inter-hospital · หัวข้อของ resident (วันนั้นมี 3 หัวข้อ)
@@ -5463,6 +5541,8 @@ const infoChipName = (p) =>
   p.type === "lecture" ? "Staff Lecture: " + (p.title || "—") + (p.staffId ? " · " + staffName(p.staffId) : "")
   : p.type === "external" || p.type === "interdept" || p.type === "workshop"
     ? (p.title || presTypeOf(p.type).th) + (goersLabel(p) ? " · " + goersLabel(p) : "")
+  : p.type === "interhospital"
+    ? presTypeOf(p.type).th + (p.title ? ": " + p.title : "") + (p.onsite ? " (Onsite)" : "") + (goersLabel(p) ? " · " + goersLabel(p) : "")
   : presTypeOf(p.type).th + (goersLabel(p) ? " · " + goersLabel(p) : "");
 /* คู่ของแถว: topic = chief ผู้กำกับ (คนเดียว) · quiz = ผู้จัดร่วมทุกคน
    ตารางจริงของกลุ่มงานมีผู้จัด Kahoot quiz ตั้งแต่สองถึงสามคน และไม่ได้เป็นปี 4 เสมอ (2 ก.ค. 2569 เป็น R3 สองคน)
@@ -5521,8 +5601,11 @@ function presentationDetailDialog(kind, id) {
     const ih = morningConference().interHospital || {};
     const yrs = (ih.years || []).map(Number);
     const who = yrs.length ? store.data.residents.filter(r => yrs.includes(+r.year)) : [];
+    const ihPreset = type === "interhospital" ? INTERHOSPITAL_PRESETS[iso] : null;
     showDialog("กิจกรรมบังคับเข้าทั้งรุ่น", `<div class="kv">
       <dt>รายการ</dt><dd>${esc(presTypeOf(type).th)}</dd>
+      ${ihPreset?.topic ? `<dt>หัวข้อประจำสัปดาห์</dt><dd>${esc(ihPreset.topic)}${ihPreset.sub ? ` <span class="tag b">${esc(SUB_BY_ID[ihPreset.sub]?.en || ihPreset.sub)}</span>` : ""}${
+        ihPreset.onsite ? ` <span class="tag warn">Onsite — สถาบันกรุงเทพและปริมณฑล</span>` : ""}</dd>` : ""}
       <dt>วันที่</dt><dd>${fmtDate(iso)}${ih.start ? " · " + esc(ih.start) + (ih.end ? "–" + esc(ih.end) : "") + " น." : ""}</dd>
       <dt>ใครต้องเข้า</dt><dd>${yrs.length ? "แพทย์ประจำบ้าน" + yearsLabel(yrs) + " ทุกคน" + (who.length ? " (" + who.length + " คน)" : "") : "—"}</dd>
     </div>

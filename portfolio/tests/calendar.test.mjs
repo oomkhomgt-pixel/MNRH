@@ -304,8 +304,8 @@ export default async function run() {
         r.dlgTitle.startsWith("จัดการเช้าวันพฤหัสฯ") && r.lectureFieldsShown && r.after6?.type === "lecture" && r.after6?.title === "Pelvic ring injuries", JSON.stringify([r.dlgTitle, r.after6]));
       t.check("วันพฤหัสฯ ที่เป็นวันหยุดขึ้นป้ายวันหยุดแทนป้ายธีม", /วันเข้าพรรษา/.test(r.holidayBadge), r.holidayBadge);
       t.check("ธีมกำหนดทับรายสัปดาห์ได้ และกลับมาวนตามรอบเมื่อล้าง", r.themeOverride === "Hand" && r.themeAuto === "Trauma", r.themeOverride + "/" + r.themeAuto);
-      t.check("กล่องการประชุมภายนอก: มี 4 รายการจากตารางจริง (Regional Hand · THOFAS · KOKU · RCOST) เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง",
-        r.extRows === 4 && r.addedShown, r.extRows + " " + r.addedShown);
+      t.check("กล่องการประชุมภายนอก: มี 11 รายการจากตารางจริง (Regional Hand · THOFAS · KOKU · RCOST · 7 งานที่แทนช่วงบ่าย Inter-hospital) เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง",
+        r.extRows === 11 && r.addedShown, r.extRows + " " + r.addedShown);
       t.check("ประเภทใหม่ Kahoot quiz / กำกับการนำเสนอ โผล่ในหน้าความครอบคลุม", r.covHasQuiz && r.covHasSup);
       t.check("เช้าวันพฤหัสฯ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
@@ -405,6 +405,46 @@ export default async function run() {
         t.check("กดซ้ำแล้วยกเลิกการลงชื่อได้", r.second[0] === "ยกเลิกการลงชื่อ" && r.left === 0, JSON.stringify([r.second, r.left]));
       }
       t.check("ลงชื่อเข้าร่วม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- หัวข้อ Inter-hospital conference ช่วงบ่ายตลอดปีการศึกษา 2569 (INTERHOSPITAL_PRESETS) ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        /* ยอดสะสมต้องตรงตารางต้นฉบับทุกอนุสาขา รวม 45 สัปดาห์ */
+        const tally = {};
+        Object.values(INTERHOSPITAL_PRESETS).forEach(x => { tally[x.topic] = (tally[x.topic] || 0) + 1; });
+        const expectTally = { Trauma:9, Hand:8, Pediatric:7, "Hip & Knee":5, "Sports Medicine":5, Spine:5, "Foot and Ankle":2, Metabolic:2, Tumor:2 };
+        const tallyMatches = Object.keys(expectTally).every(k => tally[k] === expectTally[k]) &&
+          Object.values(tally).reduce((a, b) => a + b, 0) === 45;
+        const chipOf = (d) => { const p = presentationsForDate(d).find(x => x.type === "interhospital"); return p ? infoChipName(p) : ""; };
+        const extTitlesOf = (d) => presentationsForDate(d).filter(x => x.type === "external").map(x => x.title);
+        return {
+          tallyMatches, tally,
+          normalWeek: chipOf("2026-07-09"),                              /* หัวข้อ Spine ธรรมดา */
+          onsiteWeek: chipOf("2026-09-10"),                               /* Hip & Knee (Onsite) */
+          noTeachingSuppressed: chipOf("2026-07-02"),                     /* ต้องว่าง — ไม่ขึ้นชิป I สัปดาห์ TOSSM */
+          noTeachingExt: extTitlesOf("2026-07-02"),                       /* แต่ยังเห็นชิป X ของ TOSSM */
+          rcostSuppressed: chipOf("2026-10-22"),                          /* wholeDay เดิมกันไว้แล้ว ยังต้องว่าง */
+          newHolidaySuppressed: chipOf("2026-12-10") + "|" + chipOf("2026-12-31") + "|" +
+            chipOf("2027-04-15") + "|" + chipOf("2027-05-20") + "|" + chipOf("2027-06-03"),
+          newHolidayNoteOne: dayNote("2026-12-10"),
+          newConfTitles: ["2026-07-02", "2026-08-27", "2026-09-03", "2026-11-19", "2026-12-03", "2027-01-14", "2027-02-18", "2027-03-18"]
+            .map(extTitlesOf).flat()
+        };
+      });
+      t.check("ยอดสะสมหัวข้อ Inter-hospital ตลอดปีตรงตารางต้นฉบับทุกอนุสาขา (รวม 45 สัปดาห์)", r.tallyMatches, JSON.stringify(r.tally));
+      t.eq("สัปดาห์ปกติขึ้นหัวข้อในชิป I", r.normalWeek, "Inter-hospital conference: Spine · ปี 4 ทุกคน");
+      t.eq("สัปดาห์ Onsite ขึ้นหมายเหตุ (Onsite) ต่อท้ายหัวข้อ", r.onsiteWeek, "Inter-hospital conference: Hip & Knee (Onsite) · ปี 4 ทุกคน");
+      t.eq("สัปดาห์ \"ไม่มีการสอน\" (TOSSM) ไม่ขึ้นชิป I แต่ยังเห็นชิป X ของการประชุมนั้น", [r.noTeachingSuppressed, r.noTeachingExt], ["", ["TOSSM 2026"]]);
+      t.eq("22 ต.ค. (RCOST wholeDay เดิม) ยังไม่ขึ้นชิป I ซ้อนกับ X", r.rcostSuppressed, "");
+      t.eq("วันหยุดใหม่ทั้งห้าวัน (รธน./สิ้นปี/สงกรานต์/วิสาขบูชา/เฉลิมพระชนมพรรษา) ตัดชิป I ทิ้งหมด", r.newHolidaySuppressed, "||||");
+      t.check("วันหยุดใหม่มีชื่อวันหยุดในป้าย", /วันรัฐธรรมนูญ/.test(r.newHolidayNoteOne), r.newHolidayNoteOne);
+      t.eq("งานประชุมที่แทนช่วงบ่ายทั้งแปดสัปดาห์ขึ้นเป็นชิป X ครบ",
+        r.newConfTitles.sort(),
+        ["AOTrauma Basic Course Y2", "Annual Meeting 2027", "MBOG 2026", "SST 2027", "THOFAS", "THKS 2026", "TOSSM 2026", "TOTAC 2027"].sort());
+      t.check("หัวข้อ Inter-hospital รายสัปดาห์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
