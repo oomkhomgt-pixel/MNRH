@@ -564,7 +564,7 @@ export default async function run() {
       });
       t.check("สไลด์ PPTX เป็น zip ที่มีส่วนครบ (presentation, master, layout, theme, slide)", px.pk && px.parts && px.slides >= 5, JSON.stringify(px));
       t.check("สไลด์เป็นกราฟล้วน — ไม่มีตาราง และข้อความยาวต่อหน้าไม่เกินชื่อเรื่อง+คำอธิบาย", px.noTables && px.maxLong <= 2, "long " + px.maxLong);
-      t.check("มีสไลด์ logbook รายคน (ผู้ผ่าตัดหลัก/ผู้ช่วย)", px.logbookSlides >= 2, String(px.logbookSlides));
+      t.check("มีสไลด์ logbook รายคนครบสามบทบาท (ผู้ผ่าตัดหลัก/ผู้ช่วยขึ้นไป/ผู้สังเกตการณ์ขึ้นไป)", px.logbookSlides >= 3, String(px.logbookSlides));
       t.check("สไลด์ PPTX ของแพทย์ประจำบ้านมีชื่อตัวเอง ไม่หลุดชื่อคนอื่น และไฟล์เล็ก (< 2 MB)", px.mine && px.leaked.length === 0 && px.kb < 2048, px.leaked.join(", ") + " · " + px.kb + " KB");
       await page.close();
 

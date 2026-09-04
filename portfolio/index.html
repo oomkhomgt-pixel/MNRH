@@ -1153,11 +1153,14 @@ function demoTalkEval(type, mean, by, at, seed) {
 }
 
 const DEFAULT_REQUIREMENTS = {
-  /* quiz / supervise / attend ไม่บังคับ (0) — นับได้ แต่ไม่ถูกคิดเป็นส่วนขาด */
-  1: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:0, subspecialties:3, caseSurgeon:20,  caseAssist:60 },
-  2: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:2, subspecialties:5, caseSurgeon:50,  caseAssist:80 },
-  3: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:3, subspecialties:7, caseSurgeon:90,  caseAssist:80 },
-  4: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:2, subspecialties:8, caseSurgeon:120, caseAssist:60 }
+  /* quiz / supervise / attend ไม่บังคับ (0) — นับได้ แต่ไม่ถูกคิดเป็นส่วนขาด
+     เคสผ่าตัด (caseSurgeon/caseAssist/caseObserve) เป็นเกณฑ์ของราชวิทยาลัยฯ จากภาคผนวกที่ 4
+     "ประสบการณ์การสะสมจำนวนหัตถการใน Electronic logbook" — ตัวเลขคือยอดสะสมตลอดหลักสูตรถึงจบชั้นปีนั้น
+     ไม่ใช่โควตาต่อปี และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ (ดู progressFor()) */
+  1: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:0, subspecialties:3, caseSurgeon:0,  caseAssist:0,   caseObserve:30 },
+  2: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:2, subspecialties:5, caseSurgeon:10, caseAssist:30,  caseObserve:30 },
+  3: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:3, subspecialties:7, caseSurgeon:30, caseAssist:60,  caseObserve:30 },
+  4: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:2, subspecialties:8, caseSurgeon:50, caseAssist:100, caseObserve:30 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -4163,19 +4166,26 @@ function progressFor(res, ay = currentAY()) {
   const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
   const subsNeed = +(req.subspecialties || 0);
   const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
-  const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0);
-  const surgeonDone = roleCount(casesYear, "surgeon");
-  const assistDone  = roleCount(casesYear, "assist1") + roleCount(casesYear, "assist2");
-  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + surgeonNeed + assistNeed;
+  /* เคสผ่าตัด (เกณฑ์ RCOST ภาคผนวก 4) สะสมตลอดหลักสูตร ไม่รีเซตรายปีเหมือนกิจกรรมวิชาการด้านบน
+     และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ — ผ่าตัดเองเข้าเกณฑ์ทั้งผู้ผ่าตัดหลัก+ผู้ช่วย+ผู้สังเกตการณ์
+     ช่วยผ่าตัดเข้าเกณฑ์ทั้งผู้ช่วย+ผู้สังเกตการณ์ */
+  const performedCount = roleCount(myCases, "surgeon");
+  const assistedCount  = roleCount(myCases, "assist1") + roleCount(myCases, "assist2");
+  const observedCount  = roleCount(myCases, "observer");
+  const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0), observeNeed = +(req.caseObserve || 0);
+  const surgeonDone  = performedCount;
+  const assistDone   = performedCount + assistedCount;
+  const observerDone = performedCount + assistedCount + observedCount;
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + surgeonNeed + assistNeed + observeNeed;
   const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0)
-    + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed);
+    + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed) + Math.min(observerDone, observeNeed);
   return {
     ay, lines, subsDone, subsNeed, missingSubs,
     logbook: {
       total: myCases.length, inYear: casesYear.length,
-      surgeon: { done: surgeonDone, need: surgeonNeed, pct: pct(surgeonDone, surgeonNeed) },
-      assist:  { done: assistDone,  need: assistNeed,  pct: pct(assistDone, assistNeed) },
-      observer: roleCount(myCases, "observer"),
+      surgeon:  { done: surgeonDone,  need: surgeonNeed,  pct: pct(surgeonDone, surgeonNeed) },
+      assist:   { done: assistDone,   need: assistNeed,   pct: pct(assistDone, assistNeed) },
+      observer: { done: observerDone, need: observeNeed,  pct: pct(observerDone, observeNeed) },
       verified: myCases.filter(c => c.participants.some(x => x.residentId === res.id && x.verified)).length,
       subs: new Set(myCases.filter(c => c.subspecialty !== "general").map(c => c.subspecialty))
     },
@@ -4207,11 +4217,15 @@ function gapsFor(res) {
   });
   if (p.logbook.surgeon.need && p.logbook.surgeon.done < p.logbook.surgeon.need) out.push({
     level: p.logbook.surgeon.done === 0 ? "bad" : "warn",
-    text: "เคสที่เป็นผู้ผ่าตัดหลัก " + p.logbook.surgeon.done + "/" + p.logbook.surgeon.need + " ในปีการศึกษา " + p.ay
+    text: "เคสที่เป็นผู้ผ่าตัดหลัก (สะสม) " + p.logbook.surgeon.done + "/" + p.logbook.surgeon.need
   });
   if (p.logbook.assist.need && p.logbook.assist.done < p.logbook.assist.need) out.push({
-    level:"warn",
-    text: "เคสที่เป็นผู้ช่วยผ่าตัด " + p.logbook.assist.done + "/" + p.logbook.assist.need + " ในปีการศึกษา " + p.ay
+    level: p.logbook.assist.done === 0 ? "bad" : "warn",
+    text: "เคสที่เป็นผู้ช่วยผ่าตัดขึ้นไป (สะสม) " + p.logbook.assist.done + "/" + p.logbook.assist.need
+  });
+  if (p.logbook.observer.need && p.logbook.observer.done < p.logbook.observer.need) out.push({
+    level: p.logbook.observer.done === 0 ? "bad" : "warn",
+    text: "เคสที่สังเกตการณ์ขึ้นไป (สะสม) " + p.logbook.observer.done + "/" + p.logbook.observer.need
   });
   const rotNow = rotationOn(res.id, todayISO());
   if (!rotNow) out.push({ level:"warn", text:"ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้" });
@@ -4220,8 +4234,6 @@ function gapsFor(res) {
   return out;
 }
 
-const roleCountAll = (residentId, role) => (store.data.cases || []).filter(c =>
-  c.participants?.some(x => x.residentId === residentId && x.role === role)).length;
 const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ? "low" : ""}" style="width:${Math.max(2, v)}%"></i></div>`;
 
 /* =====================================================================
@@ -6526,10 +6538,11 @@ function renderResidentDetail() {
       <div class="stat"><b>${p.subsDone.size}/${p.subsNeed || "—"}</b><span>อนุสาขาที่ครอบคลุม</span></div>
       <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
       <div class="stat"><b>${p.logbook.total}</b><span>เคสผ่าตัดใน logbook</span></div>
-      <div class="stat"><b>${roleCountAll(r.id, "surgeon")}</b><span>เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)</span></div>
+      <div class="stat"><b>${p.logbook.observer.done}</b><span>เคสที่สังเกตการณ์ขึ้นไป (สะสม)</span></div>
     </div>
 
     <h3>ความก้าวหน้าตามเกณฑ์ ปีการศึกษา ${p.ay}</h3>
+    <p class="small muted" style="margin:-.3rem 0 .4rem">แถวกิจกรรมวิชาการนับเฉพาะปีการศึกษานี้ · สามแถวเคสผ่าตัดด้านล่างเป็นยอดสะสมตลอดหลักสูตร (เคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้)</p>
     <div class="tbl-wrap"><table>
       <thead><tr><th>กิจกรรม</th><th>ทำแล้ว</th><th>เกณฑ์</th><th style="min-width:140px">ความก้าวหน้า</th><th>หลักฐาน WFME</th></tr></thead>
       <tbody>${p.lines.map(l => `<tr>
@@ -6537,12 +6550,15 @@ function renderResidentDetail() {
         <td>${barFor(l.pct)}</td>
         <td class="small">${l.type.wfme.map(id => `<span class="tag">${id}</span>`).join(" ")}</td>
       </tr>`).join("")}
-      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook, สะสม)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
         <td>${barFor(p.logbook.surgeon.pct)}</td>
         <td class="small"><span class="tag">2.3</span> <span class="tag">2.6</span> <span class="tag">3.1</span></td></tr>
-      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด (logbook)</td><td><b>${p.logbook.assist.done}</b></td><td>${p.logbook.assist.need || "—"}</td>
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัดขึ้นไป (logbook, สะสม)</td><td><b>${p.logbook.assist.done}</b></td><td>${p.logbook.assist.need || "—"}</td>
         <td>${barFor(p.logbook.assist.pct)}</td>
         <td class="small"><span class="tag">2.6</span> <span class="tag">6.2</span></td></tr>
+      <tr><td>เคสผ่าตัด — ผู้สังเกตการณ์ขึ้นไป (logbook, สะสม)</td><td><b>${p.logbook.observer.done}</b></td><td>${p.logbook.observer.need || "—"}</td>
+        <td>${barFor(p.logbook.observer.pct)}</td>
+        <td class="small"><span class="tag">2.6</span></td></tr>
       </tbody></table></div>
 
     <h3 style="margin-top:1rem">อนุสาขาที่มีผลงานแล้ว</h3>
@@ -8861,14 +8877,18 @@ function renderSettings() {
     <tbody>
       ${ACTIVITY_TYPES.map(t => `<tr><td>${esc(t.th)}</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|${t.id}" value="${store.data.requirements[y]?.[t.id] ?? 0}" /></td>`).join("")}</tr>`).join("")}
-      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก</td>${years.map(y => `
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (สะสมตลอดหลักสูตร)</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseSurgeon" value="${store.data.requirements[y]?.caseSurgeon ?? 0}" /></td>`).join("")}</tr>
-      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด</td>${years.map(y => `
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัดขึ้นไป (สะสมตลอดหลักสูตร)</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseAssist" value="${store.data.requirements[y]?.caseAssist ?? 0}" /></td>`).join("")}</tr>
+      <tr><td>เคสผ่าตัด — ผู้สังเกตการณ์ขึ้นไป (สะสมตลอดหลักสูตร)</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|caseObserve" value="${store.data.requirements[y]?.caseObserve ?? 0}" /></td>`).join("")}</tr>
       <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
         <td><input type="number" min="0" max="12" style="width:80px" data-req="${y}|subspecialties" value="${store.data.requirements[y]?.subspecialties ?? 0}" /></td>`).join("")}</tr>
     </tbody></table>
-    <p class="small muted" style="margin-top:.5rem">แก้แล้วบันทึกทันที ตัวเลขจะไปคิดความก้าวหน้าในหน้าอื่นทันที</p>`;
+    <p class="small muted" style="margin-top:.5rem">แก้แล้วบันทึกทันที ตัวเลขจะไปคิดความก้าวหน้าในหน้าอื่นทันที
+      · เคสผ่าตัดสามแถวเป็นยอดสะสมตลอดหลักสูตรตามเกณฑ์ราชวิทยาลัยฯ (ไม่รีเซตทุกปีการศึกษาเหมือนแถวอื่น)
+      และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ (ผ่าตัดหลักนับเป็นทั้งผู้ผ่าตัดหลัก ผู้ช่วย และผู้สังเกตการณ์)</p>`;
   $$("#requirementEditor [data-req]").forEach(inp => inp.addEventListener("change", () => {
     const [y, k] = inp.dataset.req.split("|");
     store.data.requirements[y] ||= {};
@@ -9975,7 +9995,7 @@ function residentDashboardHtml(residentId) {
   return `<div class="tiles">
   ${tile(p.overall + "%", "ความก้าวหน้าเทียบเกณฑ์ปี " + ay, vizStatus(p.overall))}
   ${tile(inYear.length, "กิจกรรมในปีการศึกษานี้ (สะสมทั้งหมด " + acts.length + ")")}
-  ${tile(p.logbook.surgeon.done + " / " + (p.logbook.surgeon.need || "—"), "เคสที่เป็นผู้ผ่าตัดหลักปีนี้",
+  ${tile(p.logbook.surgeon.done + " / " + (p.logbook.surgeon.need || "—"), "เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)",
          p.logbook.surgeon.need ? vizStatus(p.logbook.surgeon.pct) : VIZ.ink)}
   ${tile(p.subsDone.size + " / " + (p.subsNeed || subs.length), "อนุสาขาที่มีผลงานแล้ว",
          p.subsNeed ? vizStatus(p.subsPct) : VIZ.ink)}
@@ -9989,12 +10009,14 @@ function residentDashboardHtml(residentId) {
     <div class="sub" style="margin-bottom:8px">ขีดดำท้ายแถบคือเกณฑ์ของชั้นปี ${r.year}
       · <span style="color:${VIZ.ok}">เขียว = ถึงแล้ว</span>
       · <span style="color:${VIZ.warn}">เหลือง = เกินครึ่งทาง</span>
-      · <span style="color:${VIZ.bad}">แดง = ยังไม่ถึงครึ่ง</span></div>
+      · <span style="color:${VIZ.bad}">แดง = ยังไม่ถึงครึ่ง</span>
+      · เคสผ่าตัดสามแถวล่างเป็นยอดสะสมตลอดหลักสูตร ไม่รีเซตรายปี</div>
     <table><tbody>
       ${p.lines.map(l => barRow(TYPE_BY_ID[l.type.id]?.th || l.type.id, l.done, l.need, BW)).join("")}
-      <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน</td></tr>
+      <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน (สะสมตลอดหลักสูตร)</td></tr>
       ${barRow("เคสที่เป็นผู้ผ่าตัดหลัก", p.logbook.surgeon.done, p.logbook.surgeon.need, BW)}
-      ${barRow("เคสที่เป็นผู้ช่วยผ่าตัด", p.logbook.assist.done, p.logbook.assist.need, BW)}
+      ${barRow("เคสที่เป็นผู้ช่วยผ่าตัดขึ้นไป", p.logbook.assist.done, p.logbook.assist.need, BW)}
+      ${barRow("เคสที่สังเกตการณ์ขึ้นไป", p.logbook.observer.done, p.logbook.observer.need, BW)}
       ${barRow("ความครอบคลุมอนุสาขา", p.subsDone.size, p.subsNeed, BW)}
     </tbody></table>
   </div>
@@ -10337,14 +10359,17 @@ function dashboardPptxSlides() {
                  color: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : hex(VIZ.ok),
                  labelColor: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : "12181F", labelBold: behindTarget }; })];
     });
-    const needOf = (yr) => +(store.data.requirements?.[yr]?.[key === "surgeon" ? "caseSurgeon" : "caseAssist"] || 0);
+    /* เคสผ่าตัดเป็นเกณฑ์สะสมตลอดหลักสูตร (progressFor นับแบบเคสขั้นสูงกว่าแทนขั้นต่ำกว่าได้แล้ว) ไม่ใช่โควตาต่อปี */
+    const REQ_KEY = { surgeon:"caseSurgeon", assist:"caseAssist", observer:"caseObserve" };
+    const needOf = (yr) => +(store.data.requirements?.[yr]?.[REQ_KEY[key]] || 0);
     const anyTarget = years.some(yr => needOf(yr) > 0);
     const max = Math.max(1, ...rows.map(x => Math.max(x.p.logbook[key].done, x.p.logbook[key].need)));
-    return pptxPersonPages(title, "ปีการศึกษา " + ay + " · ขีดดำ = เกณฑ์ของชั้นปี" + (anyTarget ? "" : " (ยังไม่ตั้ง — ใส่ได้ที่หน้าตั้งค่า › เกณฑ์)") + " · แดง ต่ำกว่าเกณฑ์ · ส้ม ต่ำกว่ามัธยฐานของรุ่น",
-      groups, foot, max, { yearNote: (yr) => needOf(yr) ? "เกณฑ์ " + needOf(yr) + " เคส" : "ยังไม่ตั้งเกณฑ์" });
+    return pptxPersonPages(title, "สะสมตลอดหลักสูตร ณ ปีการศึกษา " + ay + " · ขีดดำ = เกณฑ์สะสมของชั้นปี" + (anyTarget ? "" : " (ยังไม่ตั้ง — ใส่ได้ที่หน้าตั้งค่า › เกณฑ์)") + " · แดง ต่ำกว่าเกณฑ์ · ส้ม ต่ำกว่ามัธยฐานของรุ่น",
+      groups, foot, max, { yearNote: (yr) => needOf(yr) ? "เกณฑ์สะสม " + needOf(yr) + " เคส" : "ยังไม่ตั้งเกณฑ์" });
   };
-  slides.push(...logbookPages("surgeon", "Logbook รายคน — ผู้ผ่าตัดหลัก"));
-  slides.push(...logbookPages("assist", "Logbook รายคน — ผู้ช่วยผ่าตัด"));
+  slides.push(...logbookPages("surgeon", "Logbook รายคน — ผู้ผ่าตัดหลัก (สะสม)"));
+  slides.push(...logbookPages("assist", "Logbook รายคน — ผู้ช่วยผ่าตัดขึ้นไป (สะสม)"));
+  slides.push(...logbookPages("observer", "Logbook รายคน — ผู้สังเกตการณ์ขึ้นไป (สะสม)"));
   /* 5 เคสตามอนุสาขา: แถบเข้ม = ผู้ผ่าตัดหลัก · แถบอ่อนต่อท้าย = ผู้ช่วย */
   const visibleIds = new Set(list.map(r => r.id));
   const roleIn = (c, roles) => (c.participants || []).some(p => visibleIds.has(p.residentId) && roles.includes(p.role));

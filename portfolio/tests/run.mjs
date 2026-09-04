@@ -12,8 +12,9 @@ import topicconf from "./topicconf.test.mjs";
 import calendar from "./calendar.test.mjs";
 import dialogs from "./dialogs.test.mjs";
 import feedback from "./feedback.test.mjs";
+import logbook from "./logbook.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback };
+const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 
