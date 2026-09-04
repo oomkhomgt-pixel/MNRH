@@ -541,7 +541,7 @@ export default async function run() {
         const d = store.data;
         const bad = rotationYearWarnings(d.rotations, d.services, d.residents);
         /* ปี 1 ต้องไปวน Trauma Surgery ของศัลยกรรมอุบัติเหตุ ไม่ใช่หน่วย trauma ของออร์โธฯ */
-        const r1 = d.residents.find(r => r.name.includes("อัฐท์"));
+        const r1 = d.residents.find(r => r.name.includes("อัทธ์"));
         const aug = d.rotations.find(x => x.residentId === r1?.id && (x.start || "").startsWith("2026-08"));
         const augSvc = d.services.find(x => x.id === aug?.serviceId);
         /* ยัดรอบผิดกติกาเข้าไปหนึ่งรายการ ต้องได้คำเตือนที่ระบุตัวคนและหน่วย */
