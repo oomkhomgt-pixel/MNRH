@@ -905,18 +905,18 @@ export default async function run() {
         await new Promise(r => setTimeout(r, 200));
         const saved = store.data.activities.find(x => x.id === a.id).assessment;
         /* ข้อเฉพาะประเภทต้องเปลี่ยนตามชนิดของงานนำเสนอ ไม่ใช่ชุดเดียวใช้ทุกแบบ */
-        const perType = Object.fromEntries(ACTIVITY_TYPES.map(t =>
+        const perType = Object.fromEntries(ACTIVITY_TYPES.filter(t => !t.noEval).map(t =>
           [t.id, talkEvalItemsFor(t.id).length]));
         const base = TALK_EVAL_ITEMS.length;
-        const extraIds = ACTIVITY_TYPES.map(t => talkEvalItemsFor(t.id).slice(-1)[0].id);
+        const extraIds = ACTIVITY_TYPES.filter(t => !t.noEval).map(t => talkEvalItemsFor(t.id).slice(-1)[0].id);
         const csv = activityCsvRows([store.data.activities.find(x => x.id === a.id)]);
         return { type: a.type, sels: sels.length, expected, saved, perType,
-                 base, uniqueExtras: new Set(extraIds).size, nTypes: ACTIVITY_TYPES.length,
+                 base, uniqueExtras: new Set(extraIds).size, nTypes: ACTIVITY_TYPES.filter(t => !t.noEval).length,
                  csvHasItem: csv[0].some(h => /^ประเมิน: /.test(h)),
                  csvOutcome: csv[1][csv[0].indexOf("ผลการประเมิน")] };
       });
       t.eq("ฟอร์มประเมินการนำเสนอมีข้อครบตามประเภทกิจกรรม", talk.sels, talk.expected);
-      t.check("ทุกประเภทได้ข้อเฉพาะเพิ่มมาหนึ่งข้อ",
+      t.check("ทุกประเภทที่มีแบบประเมินได้ข้อเฉพาะเพิ่มมาหนึ่งข้อ (attend ไม่มีแบบประเมิน)",
               Object.values(talk.perType).every(n => n === talk.base + 1), JSON.stringify(talk.perType));
       t.eq("ข้อเฉพาะประเภทไม่ซ้ำกัน — คนละประเภทดูคนละเรื่อง", talk.uniqueExtras, talk.nTypes);
       t.eq("ค่าเฉลี่ยคิดจากเฉพาะข้อที่ให้คะแนน ไม่นับข้อที่เว้นว่าง", talk.saved?.score, 4);
@@ -1139,6 +1139,9 @@ export default async function run() {
         const from = monthStartISO(ayMonths(ay)[0]), to = monthEndISO(ayMonths(ay)[11]);
         const inYearCount = () => store.data.rotations.filter(x => x.start >= from && x.start <= to).length;
 
+        /* ปีนี้มีตารางจริงของกลุ่มงานครบทุกคน ตัวจัดแผนจึงไม่มีใครให้จัด — เพิ่มคนใหม่ที่ไม่อยู่ในตารางจริงก่อน */
+        store.data.residents.push({ id:"res_plan_bk_test", name:"นพ. ทดสอบแผน", nick:"TEST", year:1, cohort:"2569", advisor:"", email:"" });
+        renderAll();
         const before = inYearCount();
         const beforeBk = (store.data.rotationPlanBackups || []).length;
 
@@ -1234,13 +1237,21 @@ export default async function run() {
                        nathaphat_aug: cell("ณภัทร", 1), tawan_jul: cell("ตะวัน", 0) };
         const supervisorsFilled = inYear().every(x => typeof x.supervisorId === "string");
 
-        /* เผลอกด "สร้างแผนอัตโนมัติ" → ตารางเปลี่ยน → กด "ใช้ตารางจริงของกลุ่มงาน" → กลับเป็นตารางจริง */
+        /* ตารางจริงมาก่อนเสมอ: ปีที่มีตารางจริง ปุ่ม "ใช้ตารางจริง" เป็นปุ่มหลักและอยู่ก่อน "สร้างแผนอัตโนมัติ" */
         const presetBtnShown = !document.querySelector("#presetWrap").hidden && !document.querySelector("#btnApplyPreset").hidden;
-        const bkBefore = (store.data.rotationPlanBackups || []).length;
+        const presetIsPrimary = document.querySelector("#btnApplyPreset").classList.contains("btn-primary") &&
+          !document.querySelector("#btnGeneratePlan").classList.contains("btn-primary") &&
+          (document.querySelector("#presetWrap").compareDocumentPosition(document.querySelector("#btnGeneratePlan")) &
+            Node.DOCUMENT_POSITION_FOLLOWING) > 0;
+        /* กด "สร้างแผนอัตโนมัติ" ทั้งที่ทุกคนอยู่ในตารางจริง → ไม่มีกล่องยืนยัน ไม่แตะตาราง */
+        const snapshot = JSON.stringify(inYear());
         document.querySelector("#btnGeneratePlan").click();
-        await new Promise(res => setTimeout(res, 100));
-        document.querySelector("#dlgFoot .btn-primary").click();
-        await new Promise(res => setTimeout(res, 100));
+        await new Promise(res => setTimeout(res, 120));
+        const generateRefused = document.querySelector("#dlg")?.open !== true && JSON.stringify(inYear()) === snapshot;
+        /* จำลองตารางที่ถูกแก้จนไม่ตรงตารางจริง แล้วกด "ใช้ตารางจริงของกลุ่มงาน" → กลับเป็นตารางจริง */
+        const bkBefore = (store.data.rotationPlanBackups || []).length;
+        inYear().slice(0, 30).forEach(x => { x.serviceId = "svc_white"; });
+        store.save(); renderAll();
         const changedByGenerate = preset.rows.some(pr => pr.months.some((sid, m) =>
           inYear().find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid));
 
@@ -1269,6 +1280,7 @@ export default async function run() {
         const lastBkSource = bks[bks.length - 1]?.source;
         const noteShown = /ตารางจริงของกลุ่มงาน/.test(document.querySelector("#planNotes")?.textContent || "");
         return { allMapped, uniqueMapped, seedCount, mismatches, spot, supervisorsFilled, presetBtnShown, changedByGenerate,
+                 presetIsPrimary, generateRefused,
                  dlgRows, prefilledAll, dupBlocked, dlgClosed, restoredMismatch, bkBefore, bkAfter, lastBkSource, noteShown };
       });
       t.check("ทุกแถวของตารางจริง 2569 จับคู่กับคนสาธิตได้ครบและไม่ซ้ำ", r.allMapped && r.uniqueMapped);
@@ -1281,15 +1293,54 @@ export default async function run() {
       t.eq("ตะวัน ก.ค. = elective (ปี 3 elective ไม่ติดกันตามตารางจริง)", r.spot.tawan_jul, "svc_elective");
       t.check("ทุกบล็อกมีช่องอาจารย์ผู้กำกับ (ว่างได้เฉพาะหน่วยนอกกลุ่มงาน)", r.supervisorsFilled);
       t.check("admin เห็นปุ่ม 'ใช้ตารางจริงของกลุ่มงาน' ในปีที่มีตารางฝังไว้", r.presetBtnShown);
-      t.check("สร้างแผนอัตโนมัติแล้วตารางเปลี่ยนไปจากตารางจริง (จำลองการเผลอกด)", r.changedByGenerate);
+      t.check("ปีที่มีตารางจริง: 'ใช้ตารางจริงของกลุ่มงาน' เป็นปุ่มหลักและอยู่ก่อน 'สร้างแผนอัตโนมัติ'", r.presetIsPrimary);
+      t.check("กดสร้างแผนอัตโนมัติทั้งที่ทุกคนอยู่ในตารางจริง: ไม่มีกล่องยืนยันและตารางไม่ถูกแตะ", r.generateRefused);
+      t.check("ตารางที่ถูกแก้จนไม่ตรงตารางจริง (จำลอง)", r.changedByGenerate);
       t.eq("กล่องจับคู่มีครบ 20 แถว", r.dlgRows, 20);
       t.check("กล่องจับคู่เดาชื่อจริงให้ครบทุกแถว", r.prefilledAll);
       t.check("เลือกคนเดียวกันสองแถวถูกกันด้วยข้อความในกล่อง ไม่ปิดกล่อง", r.dupBlocked);
       t.check("กดใช้ตารางแล้วกล่องปิด และตารางกลับเป็นตารางจริงทุกช่อง", r.dlgClosed && r.restoredMismatch.length === 0, r.restoredMismatch.slice(0, 5).join(" "));
-      t.check("ทั้งสร้างแผนและใช้ตารางจริงต่างสำรองของเดิมไว้ก่อน (2 ชุดใหม่ ชุดล่าสุด source=preset)",
-        r.bkAfter === r.bkBefore + 2 && r.lastBkSource === "preset", r.bkBefore + "→" + r.bkAfter + " " + r.lastBkSource);
+      t.check("ใช้ตารางจริงสำรองของเดิมไว้ก่อน (source=preset)",
+        r.bkAfter === r.bkBefore + 1 && r.lastBkSource === "preset", r.bkBefore + "→" + r.bkAfter + " " + r.lastBkSource);
       t.check("แถบสรุปบอกว่าลงตารางจริงของกลุ่มงานแล้ว", r.noteShown);
       t.check("ตารางจริงของกลุ่มงาน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- ตารางจริงมาก่อนเสมอ: สร้างแผนอัตโนมัติเติมเฉพาะคนที่ไม่อยู่ในตารางจริง · ปีที่ว่างได้ตารางจริงคืนตอนโหลด ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const wait = (ms) => new Promise(res => setTimeout(res, ms));
+        const preset = ROTATION_PRESETS["2569"], months = ayMonths("2569");
+        const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+        const inYear = () => store.data.rotations.filter(x => x.start >= from && x.start <= to);
+        const mapping = matchPresetRows(preset, store.data.residents);
+        const offPreset = (map) => { let n = 0; preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
+          if (inYear().find(x => x.residentId === map[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid) n++; })); return n; };
+        showView("rotation");
+        /* คนใหม่ที่ไม่อยู่ในตารางจริง */
+        store.data.residents.push({ id:"res_new_test", name:"นพ. คนใหม่", nick:"NEW", year:2, cohort:"2568", advisor:"", email:"" });
+        store.save(); renderAll();
+        document.querySelector("#btnGeneratePlan").click(); await wait(120);
+        const asked = /ไม่อยู่ในตารางจริง/.test(document.querySelector("#dlgBody")?.textContent || "");
+        document.querySelector("#dlgFoot .btn-primary").click(); await wait(150);
+        const newBlocks = inYear().filter(x => x.residentId === "res_new_test").length;
+        const presetStillRight = offPreset(mapping);
+        /* ปีที่ว่างเปล่าแม้ตั้งธงแล้ว: โหลดใหม่ต้องได้ตารางจริงกลับมา */
+        store.data.residents = store.data.residents.filter(x => x.id !== "res_new_test");
+        store.data.rotations = store.data.rotations.filter(x => x.start < from || x.start > to);
+        store.data.meta.rotationPresetApplied = { "2569": new Date().toISOString() };
+        store.save(); store.load();
+        const backAfterEmpty = offPreset(matchPresetRows(preset, store.data.residents));
+        return { asked, newBlocks, presetStillRight, backAfterEmpty, count: inYear().length };
+      });
+      t.check("กล่องยืนยันบอกว่าจะเติมเฉพาะคนที่ไม่อยู่ในตารางจริง", r.asked);
+      t.eq("คนใหม่ที่ไม่อยู่ในตารางจริงได้บล็อกครบ 12 เดือน", r.newBlocks, 12);
+      t.eq("20 แถวของตารางจริงยังตรงทุกช่องหลังสร้างแผน", r.presetStillRight, 0);
+      t.check("ปีที่ข้อมูลหายไปทั้งปี (แม้ตั้งธงแล้ว) โหลดใหม่ได้ตารางจริงกลับมาครบ",
+        r.backAfterEmpty === 0 && r.count === 240, r.backAfterEmpty + " " + r.count);
+      t.check("ตารางจริงมาก่อนเสมอ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
@@ -1302,10 +1353,12 @@ export default async function run() {
         const mapping = matchPresetRows(preset, store.data.residents);
         const mismatches = () => { let n = 0; preset.rows.forEach(pr => pr.months.forEach((sid, m) => {
           if (store.data.rotations.find(x => x.residentId === mapping[pr.row] && x.start === monthStartISO(months[m]))?.serviceId !== sid) n++; })); return n; };
-        /* จำลองข้อมูลเก่า: แผนอัตโนมัติทับตารางจริง และไม่มีธงว่าตรวจ preset แล้ว */
+        /* จำลองข้อมูลเก่า: ตารางในเครื่องไม่ตรงตารางจริง และไม่มีธงว่าตรวจ preset แล้ว */
         showView("rotation");
-        document.querySelector("#btnGeneratePlan").click(); await new Promise(res => setTimeout(res, 100));
-        document.querySelector("#dlgFoot .btn-primary").click(); await new Promise(res => setTimeout(res, 100));
+        const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
+        store.data.rotations.filter(x => x.start >= from && x.start <= to).slice(0, 40)
+          .forEach(x => { x.serviceId = "svc_white"; });
+        store.save(); renderAll();
         const staleDiff = mismatches();
         delete store.data.meta.rotationPresetApplied;
         store.data.rotationPlanBackups = [];
@@ -1326,7 +1379,8 @@ export default async function run() {
         delete store.data.meta.rotationPresetApplied;
         const before = JSON.stringify(store.data.rotations);
         store.migrate();
-        const untouched = JSON.stringify(store.data.rotations) === before && !!store.data.meta.rotationPresetApplied?.["2569"];
+        /* จับคู่ไม่ครบ = ไม่เดา ไม่แตะตาราง และไม่ตั้งธง — พอแก้ทะเบียนชื่อให้ครบแล้วโหลดใหม่ ตารางจริงจะลงเอง */
+        const untouched = JSON.stringify(store.data.rotations) === before && !store.data.meta.rotationPresetApplied?.["2569"];
         store.data.residents.push(removed);
         store.load();
         return { staleDiff, afterLoadDiff, autoBk, flagSet, noticeQueued, keptManual, noSecondBk, untouched };
@@ -1336,7 +1390,7 @@ export default async function run() {
       t.check("ลงให้อัตโนมัติก็สำรองชุดเดิมไว้ (source preset-auto โดย 'ระบบ')", r.autoBk);
       t.check("ตั้งธง meta.rotationPresetApplied และเตรียมข้อความแจ้ง", r.flagSet && r.noticeQueued);
       t.check("ทำครั้งเดียว — ช่องที่ผู้ใช้แก้เองภายหลังไม่ถูกทับ และไม่สำรองซ้ำ", r.keptManual && r.noSecondBk);
-      t.check("จับคู่แถวไม่ครบ: ไม่แตะตาราง แต่ไม่ถามซ้ำทุกครั้งที่เปิด", r.untouched);
+      t.check("จับคู่แถวไม่ครบ: ไม่แตะตาราง และยังไม่ตั้งธง (แก้ชื่อครบแล้วตารางจริงจะลงเองรอบหน้า)", r.untouched);
       t.check("ลงตารางจริงอัตโนมัติ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

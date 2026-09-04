@@ -295,6 +295,8 @@ table.cal td.today{outline:2px solid var(--brand);border-radius:8px}
 .gcal-week-sub{display:block;width:100%;min-height:0;height:auto;text-align:left;font:inherit;font-size:.66rem;font-weight:650;color:var(--brand-ink);background:#eef3f8;border:0;border-radius:4px;padding:0 .3rem;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button.gcal-week-sub{cursor:pointer}
 button.gcal-week-sub:hover{background:#dfe8f2}
+.gcal-week-sub.holiday{background:#fdf1e6;color:#9a3412}
+button.gcal-week-sub.holiday:hover{background:#fae4d0}
 .gcal-month-note{margin:0 0 .5rem;line-height:1.4}
 /* chip = ตัวย่อประเภท + ชื่อผู้นำเสนอ บรรทัดหนึ่ง · หัวข้อย่อบรรทัดสอง — สีขอบ/ตัวย่อตามประเภท (--pres จาก PRESENTATION_COLOUR)
    พื้นตามสถานะใช้ .done/.due ของ .sess · ช่องประจำที่ยังไม่มีคน = .slot เส้นประ · รายละเอียดเต็มอยู่ในกล่องตอนกด */
@@ -499,14 +501,16 @@ button.gcal-week-sub:hover{background:#dfe8f2}
         <div class="between">
           <div>
             <h2>ตารางหมุนเวียนรายเดือน</h2>
-            <p class="muted small">แถว = แพทย์ประจำบ้าน · คอลัมน์ = เดือนของปีการศึกษา · สี = สาย/หน่วย · กดช่องเพื่อแก้</p>
+            <p class="muted small">แถว = แพทย์ประจำบ้าน · คอลัมน์ = เดือนของปีการศึกษา · สี = สาย/หน่วย · กดช่องเพื่อแก้
+              · ปีที่มีตารางจริงของกลุ่มงาน ระบบใช้ตารางจริงก่อนเสมอ — สร้างแผนอัตโนมัติเติมเฉพาะคนที่ไม่อยู่ในตาราง</p>
           </div>
           <div class="row no-print">
             <select id="ayPick"></select>
+            <!-- ตารางจริงของกลุ่มงานที่ฝังไว้ในระบบ (ROTATION_PRESETS) มาก่อนเสมอ และเป็นปุ่มหลักในปีที่มีตาราง
+                 โผล่เฉพาะปีการศึกษาที่มีตาราง · ซ่อน/แสดงด้วย wrapper ที่ไม่มี data-perm
+                 เพราะ applyPermissions() เขียนทับ hidden ของปุ่มที่มี data-perm -->
+            <span id="presetWrap" hidden><button class="btn-sm btn-primary" id="btnApplyPreset" data-perm="admin">ใช้ตารางจริงของกลุ่มงาน</button></span>
             <button class="btn-sm btn-primary" id="btnGeneratePlan" data-perm="admin">สร้างแผนอัตโนมัติ</button>
-            <!-- ตารางจริงของกลุ่มงานที่ฝังไว้ในระบบ (ROTATION_PRESETS) — โผล่เฉพาะปีการศึกษาที่มีตาราง
-                 ซ่อน/แสดงด้วย wrapper ที่ไม่มี data-perm เพราะ applyPermissions() เขียนทับ hidden ของปุ่มที่มี data-perm -->
-            <span id="presetWrap" hidden><button class="btn-sm" id="btnApplyPreset" data-perm="admin">ใช้ตารางจริงของกลุ่มงาน</button></span>
             <button class="btn-sm" id="btnPlanHistory" data-perm="admin">ประวัติแผนอัตโนมัติ</button>
             <button class="btn-sm" id="btnPrintMonth">พิมพ์</button>
             <button class="btn-sm" id="btnMonthCsv">CSV</button>
@@ -521,8 +525,10 @@ button.gcal-week-sub:hover{background:#dfe8f2}
             <li><b>ปี 4</b> วนตาม sub/สาย ถึงเดือนกุมภาพันธ์ จากนั้น free elective พร้อมกันทั้งชั้นปี มี.ค.–มิ.ย.</li>
             <li>การวนนอกภาควิชาไม่ให้ชนกันในชั้นปีเดียวกัน และการลงสายแบ่งจำนวนคนให้เท่ากันที่สุด</li>
             <li>หน่วยอนุสาขาที่อยู่คู่กัน: Trauma/Paediatrics · Hand/Tumour · Foot &amp; Ankle/Sports (Spine และ Arthroplasty แยกหน่วย)</li>
-            <li>ปีการศึกษาที่มี<b>ตารางจริงของกลุ่มงาน</b>ฝังไว้ (ตอนนี้: 2569) ใช้ปุ่ม “ใช้ตารางจริงของกลุ่มงาน” ลงตารางทั้งปีได้ทันที
-              โดยจับคู่แถวกับแพทย์ประจำบ้านให้ตรวจก่อน — ตารางจริงไม่จำเป็นต้องตรงกติกาข้างบนทุกข้อ (เช่น elective ปี 3 ไม่ติดกัน)</li>
+            <li>ปีการศึกษาที่มี<b>ตารางจริงของกลุ่มงาน</b>ฝังไว้ (ตอนนี้: 2569) <b>ใช้ตารางจริงก่อนเสมอ</b> — ระบบลงให้เองเมื่อปีนั้นยังว่าง
+              และปุ่ม “ใช้ตารางจริงของกลุ่มงาน” ลงทั้งปีได้ทันทีโดยจับคู่แถวกับแพทย์ประจำบ้านให้ตรวจก่อน
+              · ตารางจริงไม่จำเป็นต้องตรงกติกาข้างบนทุกข้อ (เช่น elective ปี 3 ไม่ติดกัน)
+              · “สร้างแผนอัตโนมัติ” ในปีนั้น<b>เติมเฉพาะคนที่ไม่อยู่ในตารางจริง</b> ไม่แตะแถวของตารางจริง</li>
           </ul></details>
         <div id="planNotes"></div>
         <div id="presetNotes"></div>
@@ -544,6 +550,7 @@ button.gcal-week-sub:hover{background:#dfe8f2}
             <button class="btn-sm" id="tcPrev">‹ เดือนก่อน</button>
             <b class="small" id="tcLabel">—</b>
             <button class="btn-sm" id="tcNext">เดือนถัดไป ›</button>
+            <button class="btn-sm" id="btnThuPreset" data-perm="admin">ลงตารางกิจกรรมจริง</button>
           </div>
         </div>
         <details class="hint"><summary>คำอธิบายและวิธีใช้</summary><p class="muted small">กำหนดอาจารย์ผู้นิเทศและสายที่อยู่เวรของคาบ Topic conference / Journal club / Staff lecture
@@ -1003,14 +1010,19 @@ const ACTIVITY_TYPES = [
   { id:"journal",    th:"Journal club", en:"Journal club", icon:"J",
     kw:["journal club","critical appraisal","randomized controlled trial","meta-analysis","systematic review","level of evidence","วารสารสโมสร","วิจารณ์บทความ"],
     wfme:["2.2","6.5","3.1"] },
-  /* ช่วงปิดเช้าวันพฤหัสฯ บางสัปดาห์เป็น Kahoot quiz แทน Journal club — ผู้จัด 2 คน (ปกติปี 4) ต่างได้กิจกรรมคนละชุด */
+  /* ช่วงปิดเช้าวันพฤหัสฯ บางสัปดาห์เป็น Kahoot quiz แทน Journal club — ผู้จัดกี่คนก็ได้ ชั้นปีใดก็ได้ ต่างได้กิจกรรมคนละชุด */
   { id:"quiz",       th:"Kahoot quiz", en:"Kahoot quiz", icon:"K",
-    desc:"ช่วงปิดเช้าวันพฤหัสฯ แทน Journal club — ผู้จัด 2 คนตั้งคำถามให้ทั้งกลุ่มตอบ",
+    desc:"ช่วงปิดเช้าวันพฤหัสฯ แทน Journal club — ผู้จัดตั้งคำถามให้ทั้งกลุ่มตอบ (จัดร่วมกันได้หลายคน)",
     kw:["kahoot","quiz","แบบทดสอบ","ตอบคำถาม"], wfme:["2.3","6.5"] },
   /* chief ปี 3–4 ที่กำกับผู้นำเสนอ Topic ของสัปดาห์นั้น (อาจารย์กำกับอีกชั้น) — ระบบบันทึกให้เมื่อผู้นำเสนอบันทึกกิจกรรม */
   { id:"supervise",  th:"กำกับการนำเสนอ (chief)", en:"Supervising a presentation", icon:"S",
     desc:"chief ที่กำกับผู้นำเสนอ Topic ในสัปดาห์นั้น — บันทึกให้อัตโนมัติเมื่อผู้นำเสนอบันทึกกิจกรรม",
     kw:["supervising resident","chief supervis","กำกับการนำเสนอ"], wfme:["2.3","6.5"] },
+  /* งานประชุม/workshop เต็มวันที่แทนกิจกรรมเช้าวันพฤหัสฯ ทั้งหมด — นับว่าไปมาแล้วเท่านั้น
+     ไม่มีผู้นำเสนอรายคน จึงไม่มีแบบประเมิน (noEval) และไม่ถูกนับเป็นส่วนขาด */
+  { id:"attend",     th:"เข้าร่วมประชุม/workshop", en:"Conference attendance", icon:"A", noEval:true,
+    desc:"ลงชื่อเข้าร่วมงานประชุมหรือ workshop ที่กลุ่มงานกำหนด — ไม่มีแบบประเมิน",
+    kw:["conference attendance","workshop","annual meeting","เข้าร่วมประชุม","อบรม"], wfme:["2.4","6.5"] },
   { id:"research",   th:"Research progression", en:"Research progression", icon:"R",
     desc:"รายงานความก้าวหน้างานวิจัยของแพทย์ประจำบ้านตามขั้นของโครงการ",
     kw:["research progress","proposal","thesis","dissertation","irb","ethics committee","data collection","preliminary result","งานวิจัย","โครงร่างวิจัย","ความก้าวหน้า","จริยธรรมการวิจัย"],
@@ -1141,11 +1153,14 @@ function demoTalkEval(type, mean, by, at, seed) {
 }
 
 const DEFAULT_REQUIREMENTS = {
-  /* quiz / supervise ไม่บังคับ (0) — นับและประเมินได้ แต่ไม่ถูกคิดเป็นส่วนขาด */
-  1: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, research:0, subspecialties:3, caseSurgeon:20,  caseAssist:60 },
-  2: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, research:2, subspecialties:5, caseSurgeon:50,  caseAssist:80 },
-  3: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, research:3, subspecialties:7, caseSurgeon:90,  caseAssist:80 },
-  4: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, research:2, subspecialties:8, caseSurgeon:120, caseAssist:60 }
+  /* quiz / supervise / attend ไม่บังคับ (0) — นับได้ แต่ไม่ถูกคิดเป็นส่วนขาด
+     เคสผ่าตัด (caseSurgeon/caseAssist/caseObserve) เป็นเกณฑ์ของราชวิทยาลัยฯ จากภาคผนวกที่ 4
+     "ประสบการณ์การสะสมจำนวนหัตถการใน Electronic logbook" — ตัวเลขคือยอดสะสมตลอดหลักสูตรถึงจบชั้นปีนั้น
+     ไม่ใช่โควตาต่อปี และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ (ดู progressFor()) */
+  1: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:0, subspecialties:3, caseSurgeon:0,  caseAssist:0,   caseObserve:30 },
+  2: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:2, subspecialties:5, caseSurgeon:10, caseAssist:30,  caseObserve:30 },
+  3: { topic:6, preop:24, traumafilm:8,  journal:3, quiz:0, supervise:0, attend:0, research:3, subspecialties:7, caseSurgeon:30, caseAssist:60,  caseObserve:30 },
+  4: { topic:4, preop:20, traumafilm:6,  journal:2, quiz:0, supervise:0, attend:0, research:2, subspecialties:8, caseSurgeon:50, caseAssist:100, caseObserve:30 }
 };
 const RESEARCH_STAGES = [
   { id:"topic",     th:"อนุมัติหัวข้อ" },
@@ -1255,14 +1270,175 @@ const THURSDAY_THEME_DEFAULT = {
   blocks: { opening: { start:"08:00", end:"09:00" }, topic1: { start:"09:00", end:"10:00" },
             topic2:  { start:"10:00", end:"11:00" }, closing: { start:"11:00", end:"12:00" } }
 };
+/* ตารางกิจกรรมวิชาการเช้าวันพฤหัสฯ ตัวจริงของกลุ่มงาน ไตรมาสแรกปีการศึกษา 2569 (ก.ค.–ต.ค. 2569)
+   อยู่นอกฟังก์ชันสร้างข้อมูลสาธิต เพราะเครื่องที่มีข้อมูลอยู่แล้วต้องได้ตารางนี้ด้วย (store.applyThursdayPresetOnce)
+     theme     ธีมประจำสัปดาห์ (ต้องเป็น label ใน THURSDAY_THEME_DEFAULT.cycle จึงจะเลือกซ้ำได้จากกล่องจัดการ)
+     opening   ช่วงเปิด 08:00–09:00 มี 4 แบบ
+                 {kind:"case"}                                          Interesting Case Conference (ค่าปกติ)
+                 {kind:"lecture", title, staff}                         Staff Lecture — staff เป็นชื่อเล่นของอาจารย์
+                 {kind:"pedconf"}                                       Pediatric inter-hospital conference
+                 {kind:"topic", title, sub, presenter, chief}           สัปดาห์ที่มีหัวข้อ 3 เรื่อง หัวข้อแรกมาอยู่ช่วงเปิด
+     topics    [[หัวข้อ, อนุสาขา, ผู้นำเสนอ, chief], …] — รายการว่างแปลว่าสัปดาห์นั้นไม่มีหัวข้อ (1 และ 8 ต.ค.)
+     closing   {kind:"journal", host, title, sub} | {kind:"quiz", hosts:[…], title, sub} — ผู้จัด quiz กี่คนก็ได้ ชั้นปีใดก็ได้
+     event     งานเต็มเช้าของกลุ่มงานที่แทน 4 คาบทั้งหมด (thursdayEvents)
+     holiday   วันหยุดราชการ — ตัดทุกคาบทิ้งทั้งวัน
+   ชื่อคนเก็บเป็นชื่อเล่นไทย จับคู่กับทะเบียนด้วย stripName ตอนลงจริง (ชื่อที่จับคู่ไม่ได้จะถูกข้าม ไม่เดา) */
+const THURSDAY_PRESETS = {
+  "2026-07-02": { theme:"Trauma", opening:{ kind:"lecture", title:"Absolute and Relative Fracture Stability", staff:"ธน" },
+    topics:[["Principles of External Fixation","trauma","พัชศกรส์","พิทักษ์ชน"],
+            ["Principles of Internal Fixation","trauma","พัชรพล","ณภัทร"]],
+    closing:{ kind:"quiz", hosts:["พิทักษ์ชน","ณภัทร"], title:"Kahoot quiz: Trauma", sub:"trauma" } },
+  "2026-07-09": { theme:"Hand", opening:{ kind:"lecture", title:"Flexor and Extensor Tendon Injury: What Every Resident Must Not Miss !!", staff:"ณภัทร" },
+    topics:[["Flexor Tendon Injuries","hand","ศาศวัต","ฉัตรพงศ์"],
+            ["Extensor Tendon Injuries","hand","อัฐท์","ชญา"]],
+    closing:{ kind:"journal", host:"ปภพ" } },
+  "2026-07-16": { theme:"Tumour", opening:{ kind:"topic", title:"General Principle & Management of Tumor", sub:"oncology", presenter:"เก่งกาจ", chief:"ฉัตรพงศ์" },
+    topics:[["Benign/Benign Aggressive Bone Tumor","oncology","พัชศกรส์","ปภพ"],
+            ["Malignant Bone Tumor","oncology","นราวิชญ์","ชญา"]],
+    closing:{ kind:"quiz", hosts:["ฉัตรพงศ์","ปภพ","ชญา"], title:"Kahoot quiz: Tumour", sub:"oncology" } },
+  "2026-07-23": { theme:"Paediatric", opening:{ kind:"pedconf" },
+    topics:[["Supracondylar Fractures","pediatric","ศุภกฤต","ฉัตรพงศ์"],
+            ["Medial Epicondylar & Lateral Condylar Fractures","pediatric","ณัฐพร","ชญา"]],
+    closing:{ kind:"journal", host:"ฉัตรพงศ์" } },
+  "2026-07-30": { holiday:"วันหยุดนักขัตฤกษ์ วันเข้าพรรษา" },
+  "2026-08-06": { theme:"Trauma", opening:{ kind:"case" },
+    topics:[["Fracture-related infection","trauma","พัชรพล","ชญา"],
+            ["Bone Loss Management","trauma","ศุภกฤต","ฐาปกร"]],
+    closing:{ kind:"journal", host:"กนกขวัญ", title:"Fracture-related infection: การวิจารณ์ consensus ฉบับล่าสุด", sub:"trauma" } },
+  "2026-08-13": { theme:"Spine", opening:{ kind:"lecture", title:"TL spine injuries", staff:"คงธัช" },
+    topics:[["Spinal Cord Injury","spine","นราวิชญ์","ฐาปกร"],
+            ["Osteoporotic Vertebral Compression Fracture","spine","ณัฐพร","กนกขวัญ"]],
+    closing:{ kind:"quiz", hosts:["ฐาปกร","กนกขวัญ"], title:"Kahoot quiz: Spine", sub:"spine" } },
+  "2026-08-20": { theme:"Metabolic bone", opening:{ kind:"case" },
+    topics:[["Sarcopenia and Fall","trauma","พีรณัฐ","วิพุธ"],
+            ["Male Osteoporosis","trauma","พัชศกรส์","ตะวัน"]],
+    closing:{ kind:"journal", host:"ตะวัน", title:"Denosumab กับ bisphosphonate ในผู้ป่วยกระดูกพรุน: การวิจารณ์ RCT", sub:"trauma" } },
+  "2026-08-27": { theme:"Shoulder & Sports", opening:{ kind:"case" },
+    topics:[["Calcific tendinitis and Impingement syndrome","sports","เก่งกาจ","ตะวัน"],
+            ["Rotator Cuff Injury","sports","ณัฐวลัญช์","วิพุธ"]],
+    closing:{ kind:"journal", host:"รุ่งกฤษ", title:"Rotator cuff repair with augmentation เทียบวิธีมาตรฐาน: systematic review", sub:"sports" } },
+  "2026-09-03": { theme:"Foot & Ankle", opening:{ kind:"case" },
+    topics:[["Charcot Neuropathy","foot","ศาศวัต","กนกขวัญ"],
+            ["Diabetic foot ulcer","foot","อัฐท์","ชญา"]],
+    closing:{ kind:"journal", host:"ฐาปกร" } },
+  "2026-09-10": { theme:"Tumour", opening:{ kind:"case" },
+    topics:[["Malignant Bone Tumor","oncology","นราวิชญ์","ชญา"],
+            ["Metastatic Bone Disease","oncology","ศุภกฤต","กนกขวัญ"]],
+    closing:{ kind:"quiz", hosts:["ชญา","กนกขวัญ"], title:"Kahoot quiz: Tumour", sub:"oncology" } },
+  /* 17 ก.ย. KOKU 2026 และ 22–24 ต.ค. RCOST เป็นงานประชุมนอกโรงพยาบาล อยู่ใน EXTERNAL_CONF_PRESETS (wholeDay) */
+  "2026-09-24": { theme:"Paediatric", opening:{ kind:"pedconf" },
+    topics:[["Pediatric Hip Fractures and Dislocation","pediatric","นราวิชญ์","ฐาปกร"],
+            ["Pediatric Proximal Humerus Fracture","pediatric","ณัฐวลัญช์","กนกขวัญ"]],
+    closing:{ kind:"journal", host:"ชญา" } },
+  "2026-10-01": { opening:{ kind:"case" }, topics:[], closing:{ kind:"journal" } },
+  "2026-10-08": { opening:{ kind:"case" }, topics:[], closing:{ kind:"journal" } },
+  "2026-10-15": { event:{ kind:"workshop", title:"Sport Physical Examination Workshop",
+    parts:["Part I: Shoulder R /R", "Part II: Knee R /R"], staff:["ศุภศักดิ์","พาชิน"] } },
+  "2026-10-29": { event:{ kind:"interdept", title:"Ortho-Rehab-Anes Interdepartmental Conference & Workshop",
+    sessions:[["09:00","09:30","Peri-operative pain management","อาจารย์ มัลลิกา"],
+              ["09:30","10:00","Chronic Pain Management in MPS","อาจารย์ มัลลิกา"],
+              ["10:00","10:30","Myofascial Pain Syndrome","Resident Rehab"],
+              ["10:30","12:00","Dry Needling Workshop","อาจารย์ หทัยมาศ"]],
+    staff:["ศรุต","อุรวิศ","เทอดพงษ์","คงธัช"],
+    note:"Rehab: อาจารย์ หทัยมาศ · Anes: อาจารย์ มัลลิกา" } }
+};
+/* การประชุมนอกโรงพยาบาลของไตรมาสแรก — wholeDay:true แปลว่ากินเช้าวันพฤหัสฯ ทั้งหมด (ไม่มี 4 คาบวันนั้น)
+   Regional Hand ตรงกับวันพฤหัสฯ 20 ส.ค. แต่ตารางจริงยังมีกิจกรรมครบ จึงไม่ใช่ wholeDay */
+const EXTERNAL_CONF_PRESETS = [
+  { title:"Regional Hand", start:"2026-08-20", end:"2026-08-21", years:[4], subspecialty:"hand" },
+  { title:"THOFAS", start:"2026-08-26", end:"2026-08-28", years:[4], subspecialty:"foot", note:"Thai Orthopaedic Foot and Ankle Society" },
+  { title:"KOKU 2026", start:"2026-09-17", end:"2026-09-17", years:[1,2,3,4], wholeDay:true },
+  { title:"RCOST Annual Meeting 2026", start:"2026-10-22", end:"2026-10-24", years:[1,2,3,4], location:"พัทยา", wholeDay:true }
+];
+const THURSDAY_PRESET_VERSION = "2569-q1";
+/* ลงตารางจริงลงในก้อนข้อมูลหนึ่งก้อน — ใช้ทั้งตอนโหลดอัตโนมัติ (store.applyThursdayPresetOnce) และปุ่มของผู้จัดหลักสูตร
+   กติกาเดียว: วันไหนมีแถวของตัวเองอยู่แล้ว (topicConf / topic-journal-quiz / งานเต็มวัน) ถือว่าจัดเองแล้ว ข้ามทั้งวัน
+   ชื่อคนที่จับคู่กับทะเบียนไม่ได้จะถูกปล่อยว่างไว้ (แถวยังขึ้นปฏิทิน แต่ยังไม่ระบุผู้นำเสนอ) และรายงานกลับไปใน missing */
+function applyThursdayPresets(d) {
+  const out = { days:0, talks:0, confs:0, events:0, missing:[] };
+  const res = (n) => {
+    if (!n) return null;
+    const r = findByName(d.residents, n);
+    if (!r) out.missing.push(n);
+    return r;
+  };
+  const stf = (n) => findByName(d.staff, n);
+  const blocks = d.programme?.thursdayTheme?.blocks || THURSDAY_THEME_DEFAULT.blocks;
+  const room = "ห้องประชุมกลุ่มงานออร์โธปิดิกส์ ชั้น 5";
+  Object.entries(THURSDAY_PRESETS).forEach(([date, wk]) => {
+    const taken = (d.topicConf || []).some(x => x.date === date)
+      || (d.schedule || []).some(t => t.date === date && ["topic", "journal", "quiz"].includes(t.type))
+      || (d.thursdayEvents || []).some(e => e.date === date)
+      || (d.duty || []).some(x => x.date === date && x.holiday);
+    if (taken) return;
+    out.days++;
+    if (wk.holiday) {
+      const row = (d.duty ||= []).find(x => x.date === date);
+      if (row) { row.holiday = true; row.note ||= wk.holiday; }
+      else d.duty.push({ id: uid("duty"), date, holiday:true, note: wk.holiday,
+                         opdServiceId:"", opdStaffIds:[], erServiceId:"", erStaffIds:[], erResidentIds:[] });
+      return;
+    }
+    if (wk.event) {
+      (d.thursdayEvents ||= []).push({ id: uid("thev"), date, kind: wk.event.kind, title: wk.event.title,
+        parts: (wk.event.parts || []).slice(), sessions: (wk.event.sessions || []).map(x => x.slice()),
+        staffIds: (wk.event.staff || []).map(n => stf(n)?.id).filter(Boolean), note: wk.event.note || "" });
+      out.events++;
+      return;
+    }
+    const op = wk.opening || { kind:"case" };
+    (d.topicConf ||= []).push({ id: uid("tc"), date, staffId:"", teamServiceId:"", theme: wk.theme || "",
+      opening: op.kind === "case" ? "" : op.kind,
+      lectureTitle: op.kind === "lecture" ? op.title : "",
+      lectureStaffId: op.kind === "lecture" ? (stf(op.staff)?.id || "") : "",
+      topicSlots: (wk.topics || []).length + (op.kind === "topic" ? 1 : 0) });
+    const push = (b, type, slot, title, sub, rid, chiefId, coIds) => {
+      (d.schedule ||= []).push({ id: uid("talk"), date, start: b.start, end: b.end, slot, type,
+        residentId: rid || "", chiefId: chiefId || "",
+        ...(type === "quiz" ? { coResidentIds: coIds || [], coActivityIds: [] } : {}),
+        title: title || "", subspecialty: sub || "", location: room, moderatorId:"", activityId: null, note:"" });
+      out.talks++;
+    };
+    if (op.kind === "topic")
+      push(blocks.opening, "topic", "Topic presentation", op.title, op.sub, res(op.presenter)?.id, res(op.chief)?.id);
+    (wk.topics || []).forEach(([title, sub, pr, ch], i) =>
+      push(i === 0 ? blocks.topic1 : blocks.topic2, "topic", "Topic presentation", title, sub, res(pr)?.id, res(ch)?.id));
+    const cl = wk.closing;
+    if (cl?.kind === "quiz" && (cl.hosts || []).length)
+      push(blocks.closing, "quiz", "Kahoot quiz", cl.title, cl.sub, res(cl.hosts[0])?.id, "",
+           cl.hosts.slice(1).map(n => res(n)?.id).filter(Boolean));
+    else if (cl?.host)
+      push(blocks.closing, "journal", "Journal club", cl.title, cl.sub, res(cl.host)?.id);
+  });
+  EXTERNAL_CONF_PRESETS.forEach(x => {
+    if ((d.externalConfs || []).some(e => e.title === x.title && e.start === x.start)) return;
+    (d.externalConfs ||= []).push({ id: uid("ext"), title: x.title, start: x.start, end: x.end,
+      years: (x.years || []).slice(), residentIds: [], subspecialty: x.subspecialty || "",
+      location: x.location || "", wholeDay: !!x.wholeDay, note: x.note || "" });
+    out.confs++;
+  });
+  out.missing = [...new Set(out.missing)];
+  return out;
+}
 /* รายการบนปฏิทินที่ไม่ใช่ประเภทกิจกรรมในแฟ้ม (ไม่มีใน ACTIVITY_TYPES) — แสดงอย่างเดียว ไม่มีผู้นำเสนอ ไม่มีการประเมิน:
    interhospital = บังคับเข้าทั้งรุ่น · caseconf/lecture = ช่วงเปิดเช้าวันพฤหัสฯ ของอาจารย์ · external = การประชุมภายนอกที่ชั้นปีหนึ่งต้องไป */
 const CALENDAR_INFO = {
   interhospital: { icon:"I", th:"Inter-hospital conference", en:"Inter-hospital conference" },
   caseconf:      { icon:"C", th:"Interesting Case Conference", en:"Interesting Case Conference" },
   lecture:       { icon:"L", th:"Staff Lecture", en:"Staff Lecture" },
+  pedconf:       { icon:"D", th:"Pediatric inter-hospital conference", en:"Pediatric inter-hospital conference" },
+  interdept:     { icon:"M", th:"ประชุมร่วมต่างภาควิชา", en:"Interdepartmental conference" },
+  workshop:      { icon:"W", th:"Workshop", en:"Workshop" },
   external:      { icon:"X", th:"การประชุมภายนอก", en:"External conference" }
 };
+/* ช่วงเปิดเช้าวันพฤหัสฯ 4 แบบ ("" = case คือค่าปกติของแถวเก่าที่ไม่เคยตั้ง)
+   topic = สัปดาห์ที่มีหัวข้อ 3 เรื่อง หัวข้อแรกใช้เวลาช่วงเปิด จึงเป็นแถว schedule ปกติ ไม่ใช่รายการแสดงอย่างเดียว */
+const OPENING_KINDS = [
+  { id:"case",    th:"Interesting Case Conference" },
+  { id:"lecture", th:"Staff Lecture" },
+  { id:"pedconf", th:"Pediatric inter-hospital conference" },
+  { id:"topic",   th:"หัวข้อของ resident (สัปดาห์นี้มี 3 หัวข้อ)" }
+];
 const yearsLabel = (years) => (years || []).length ? "ปี " + years.join("/") : "";
 /* กิจกรรมวิชาการเป็นหน้าที่แรกของแพทย์ประจำบ้าน มาก่อนงานบริการทุกอย่าง
    การบันทึกรายวันจึงชนะได้แค่คาบงานบริการด้วยกัน ไม่ชนะกิจกรรมวิชาการ */
@@ -1729,6 +1905,15 @@ const store = {
     d.programme.thursdayTheme.blocks ||= structuredClone(THURSDAY_THEME_DEFAULT.blocks);
     /* การประชุมภายนอกที่ชั้นปีหนึ่งต้องไป (เช่น "20-21 Regional Hand: R4") — ซิงก์ข้ามเครื่องเหมือนตาราง */
     d.externalConfs ||= [];
+    /* งานเต็มเช้าวันพฤหัสฯ ของกลุ่มงานเอง (workshop / ประชุมร่วมต่างภาควิชา) — แทน 4 คาบทั้งหมดของวันนั้น */
+    d.thursdayEvents ||= [];
+    /* ผู้จัด Kahoot quiz เดิมเก็บได้คนเดียว ตารางจริงมีได้ถึงสามคน — ย้ายเป็นรายการ (แถวเก่ายังอ่านค่าเดิมได้) */
+    (d.schedule || []).forEach(t => {
+      if (t.type !== "quiz") return;
+      if (!Array.isArray(t.coResidentIds)) t.coResidentIds = t.coResidentId ? [t.coResidentId] : [];
+      if (!Array.isArray(t.coActivityIds)) t.coActivityIds = t.coActivityId ? [t.coActivityId] : [];
+      delete t.coResidentId; delete t.coActivityId;
+    });
     d.programme.morningConference.interHospital ||= structuredClone(MORNING_CONFERENCE_DEFAULT.interHospital);
     d.programme.morningConference.interHospital.years ||= [...MORNING_CONFERENCE_DEFAULT.interHospital.years];
     /* การเลือกรายวันว่าวันนั้นไปเข้าคาบไหน และใครเป็นอาจารย์ที่คุม
@@ -1844,6 +2029,7 @@ const store = {
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
     this.applyRotationPresetOnce("2569");
+    this.applyThursdayPresetOnce();
   },
   /* ลงตารางจริงของกลุ่มงานให้เองครั้งเดียวต่อปีการศึกษา — เครื่องที่มีข้อมูลเก่าอยู่แล้ว (เช่น แผนที่ "สร้างแผนอัตโนมัติ" เขียนทับ)
      เปิดเวอร์ชันใหม่มาต้องเห็นตารางจริงเลย ไม่ต้องรอ admin กดปุ่ม · ทำเฉพาะเมื่อจับคู่แถวกับแพทย์ประจำบ้านได้ครบทุกแถวไม่ซ้ำ
@@ -1853,18 +2039,39 @@ const store = {
     const d = this.data;
     const preset = ROTATION_PRESETS[ay]; if (!preset) return;
     d.meta.rotationPresetApplied ||= {};
-    if (d.meta.rotationPresetApplied[ay]) return;
-    d.meta.rotationPresetApplied[ay] = new Date().toISOString();
     const mapping = matchPresetRows(preset, d.residents || []);
     const ids = Object.values(mapping).filter(Boolean);
     if (ids.length !== preset.rows.length || new Set(ids).size !== ids.length) return;   /* จับคู่ไม่ครบ — ไม่เดา ให้ admin กดเอง */
     const months = ayMonths(ay);
     const cellOf = (rid, mm) => (d.rotations || []).find(r => r.residentId === rid && r.start === monthStartISO(mm))?.serviceId || "";
+    /* ปีนั้นยังไม่มีบล็อกของคนในตารางจริงเลย = เครื่องที่ล้างข้อมูลหรือนำเข้าไฟล์ที่ไม่มีตารางปีนี้
+       ต้องลงตารางจริงให้ใหม่แม้เคยตั้งธงไว้แล้ว — ตารางจริงมาก่อนเสมอ */
+    const emptyYear = !preset.rows.some(pr => pr.months.some((sid, m) => cellOf(mapping[pr.row], months[m])));
+    if (d.meta.rotationPresetApplied[ay] && !emptyYear) return;
+    d.meta.rotationPresetApplied[ay] = new Date().toISOString();
     const differs = preset.rows.some(pr => pr.months.some((sid, m) => cellOf(mapping[pr.row], months[m]) !== sid));
     if (!differs) return;
     const rots = presetRotationsFor(ay, ay, mapping, d.residents, d.services, d.staff);
     applyRotationPlanForAY(ay, rots, "preset-auto", "ระบบ — อัปเดตตารางจริงปี " + ay);
     this.pendingNotice = "ลงตารางหมุนเวียนจริงของกลุ่มงาน ปีการศึกษา " + ay + " ให้แล้ว " + rots.length + " บล็อก — ชุดเดิมสำรองไว้ใน “ประวัติแผนอัตโนมัติ”";
+  },
+  /* ลงตารางกิจกรรมวิชาการเช้าวันพฤหัสฯ ตัวจริง (THURSDAY_PRESETS + EXTERNAL_CONF_PRESETS) ให้เองครั้งเดียว
+     เหตุผลเดียวกับตารางหมุนเวียน: ตารางนี้เคยอยู่ในข้อมูลสาธิตอย่างเดียว เครื่องที่ใช้งานจริงจึงไม่เคยได้
+     ลงเฉพาะวันที่ยังว่าง — วันไหนมีแถวของตัวเองแล้วไม่แตะ จะได้ไม่ทับสิ่งที่ผู้จัดหลักสูตรแก้เอง
+     คืนค่าเป็นสรุปจำนวน เพื่อให้ปุ่ม "ลงตารางกิจกรรมจริง" ของ admin เรียกซ้ำแล้วรายงานผลได้ */
+  applyThursdayPresetOnce(force) {
+    const d = this.data;
+    d.meta.thursdayPresetApplied ||= "";
+    if (d.meta.thursdayPresetApplied === THURSDAY_PRESET_VERSION && !force) return null;
+    d.meta.thursdayPresetApplied = THURSDAY_PRESET_VERSION;
+    const out = applyThursdayPresets(d);
+    if (!out.days && !out.confs && !out.events) return out;
+    audit("ลงตารางกิจกรรมวิชาการจริงของกลุ่มงาน",
+      out.days + " สัปดาห์ · " + out.talks + " รายการ" + (out.missing.length ? " · ข้ามชื่อที่จับคู่ไม่ได้: " + out.missing.join(", ") : ""));
+    if (!force)
+      this.pendingNotice = "ลงตารางกิจกรรมวิชาการเช้าวันพฤหัสฯ ของกลุ่มงาน (ก.ค.–ต.ค. 2569) ให้แล้ว " + out.days + " สัปดาห์" +
+        (out.missing.length ? " — ข้ามชื่อที่จับคู่ไม่ได้ " + out.missing.length + " ชื่อ" : "");
+    return out;
   },
   save() {
     try {
@@ -2249,11 +2456,26 @@ function topicConfInfo(iso) {
     teamLabel: team ? team.name : "ยังไม่ได้กำหนด",
     chiefLabel: !team ? "ยังไม่ได้กำหนด" : chief ? chief.name : "— (สายนี้ไม่มีหัวหน้าสายในเดือนนี้)",
     theme: thursdayThemeOf(iso), themeLabel: thursdayThemeLabel(iso) || "ยังไม่ได้กำหนด",
-    opening: row?.opening === "lecture" ? "lecture" : "case",
+    opening: OPENING_KINDS.some(k => k.id === row?.opening) ? row.opening : "case",
     openingLabel: row?.opening === "lecture"
       ? "Staff Lecture: " + (row.lectureTitle || "—") + (row.lectureStaffId ? " · " + staffName(row.lectureStaffId) : "")
-      : "Interesting Case Conference"
+      : (OPENING_KINDS.find(k => k.id === row?.opening) || OPENING_KINDS[0]).th,
+    topicSlots: row?.topicSlots
   };
+}
+/* ป้ายวันหยุดของวันหนึ่ง (ว่าง = ไม่ใช่วันหยุด) — ช่องวันที่ว่างเปล่าต้องบอกได้ว่าว่างเพราะเป็นวันหยุด */
+const holidayOn = (iso) => {
+  const d = (store.data.duty || []).find(x => x.date === iso);
+  return d?.holiday ? (d.note || "วันหยุดราชการ") : "";
+};
+/* วันพฤหัสฯ ที่ไม่มี 4 คาบตามปกติ — วันหยุด หรืองานเต็มเช้า (ใช้ในตารางผู้นิเทศให้เห็นว่าสัปดาห์นั้นไม่ต้องจัดคน) */
+function dayNote(iso) {
+  const duty = (store.data.duty || []).find(x => x.date === iso);
+  if (duty?.holiday) return "วันหยุดราชการ" + (duty.note ? " — " + duty.note : "");
+  const ev = (store.data.thursdayEvents || []).find(e => e.date === iso);
+  if (ev) return "งานเต็มเช้า — " + (ev.title || "");
+  const ext = (store.data.externalConfs || []).find(x => x.wholeDay && x.start && x.start <= iso && (x.end || x.start) >= iso);
+  return ext ? "ประชุมภายนอกทั้งวัน — " + (ext.title || "") : "";
 }
 const serviceAbbr = (id) => {
   const svc = serviceById(id);
@@ -2975,7 +3197,8 @@ function seedData() {
   /* --- ตารางนำเสนอที่ลงล่วงหน้า: เช้าวันพฤหัสฯ 4 ช่วงตาม THURSDAY_THEME_DEFAULT.blocks — Topic ×2 (ผู้นำเสนอปี 1–2 + chief ปี 3–4 กำกับ)
          และช่วงปิด Journal club (ปี 3–4) หรือ Kahoot quiz (ผู้จัด 2 คน) · Research progress ศุกร์แรกของเดือน
          Trauma film / Pre-post-op ไม่ลงตารางล่วงหน้า (ดูกิจกรรมย้อนหลังด้านล่าง)
-         เดือน ส.ค. 2569 ใช้ตารางจริงของกลุ่มงาน (AUG_THURSDAYS) สัปดาห์อื่นวนคน/หัวข้อตามธีมประจำสัปดาห์ --- */
+         วันพฤหัสฯ ที่มีในตารางจริงของกลุ่มงาน (THURSDAY_PRESETS — ก.ค.–ต.ค. 2569) ลงตามตารางจริง
+         สัปดาห์อื่นวนคน/หัวข้อตามธีมประจำสัปดาห์ --- */
   const TB = THURSDAY_THEME_DEFAULT.blocks, THU = THURSDAY_THEME_DEFAULT.day;
   const TALK_SLOTS = [
     { dow:THU, start:TB.topic1.start,  end:TB.topic1.end,  type:"topic",   slot:"Topic presentation" },
@@ -3010,7 +3233,7 @@ function seedData() {
   };
   const schedule = [];
   const talkRoom = "ห้องประชุมกลุ่มงานออร์โธปิดิกส์ ชั้น 5";
-  const byName = (n) => residents.find(r => stripName(r.name).startsWith(stripName(n)));
+  const byName = (n) => findByName(residents, n);
   const juniors = residents.filter(r => r.year <= 2), seniors = residents.filter(r => r.year >= 3);
   /* ธีมของสัปดาห์ตามรอบตั้งต้น (store ยังไม่มีตอน seed จึงคำนวณเองจากค่าคงที่ · สัปดาห์ก่อนวันเริ่มรอบวนย้อนหลังให้มีหัวข้อครบ) */
   const themeFor = (date) => {
@@ -3018,53 +3241,54 @@ function seedData() {
     const weeks = Math.round((Date.parse(mondayOf(date)) - Date.parse(mondayOf(cfg.startDate))) / (7 * 86400000));
     return cfg.cycle[((weeks % n) + n) % n];
   };
-  /* ตารางวันพฤหัสฯ เดือน ส.ค. 2569 ของกลุ่มงาน — topics: [หัวข้อ, อนุสาขา, ผู้นำเสนอ, chief] · closing: [ประเภท, ผู้นำเสนอ/ผู้จัด, ผู้จัดร่วม, หัวข้อ, อนุสาขา]
-     (13 ส.ค. ช่วงเปิดเป็น Staff lecture "TL spine injuries" อ.คงธัช และช่วงปิดเป็น Kahoot quiz — ดู topicConf ด้านล่าง) */
-  const AUG_THURSDAYS = {
-    "2026-08-06": { topics: [["Fracture-related infection","trauma","พัชรพล","ชญา"], ["Bone Loss Management","trauma","ศุภกฤต","ฐาปกร"]],
-                    closing: ["journal","กนกขวัญ","","Fracture-related infection: การวิจารณ์ consensus ฉบับล่าสุด","trauma"] },
-    "2026-08-13": { topics: [["Spinal Cord Injury","spine","นราวิชญ์","ฐาปกร"], ["Osteoporotic Vertebral Compression Fracture","spine","ณัฐพร","กนกขวัญ"]],
-                    closing: ["quiz","ฐาปกร","กนกขวัญ","Kahoot quiz: Spine","spine"] },
-    "2026-08-20": { topics: [["Sarcopenia and Fall","trauma","พีรณัฐ","วิพุธ"], ["Male Osteoporosis","trauma","พัชศกรส์","ตะวัน"]],
-                    closing: ["journal","ตะวัน","","Denosumab กับ bisphosphonate ในผู้ป่วยกระดูกพรุน: การวิจารณ์ RCT","trauma"] },
-    "2026-08-27": { topics: [["Calcific tendinitis and Impingement syndrome","sports","เก่งกาจ","ตะวัน"], ["Rotator Cuff Injury","sports","ณัฐวลัญช์","วิพุธ"]],
-                    closing: ["journal","รุ่งกฤษ","","Rotator cuff repair with augmentation เทียบวิธีมาตรฐาน: systematic review","sports"] }
-  };
   /* ขั้นแรก: วางแผนทุกสัปดาห์ (ใคร หัวข้อ อนุสาขา คู่) · ขั้นสอง: สร้างแถว + กิจกรรมที่ผูก */
   const plan = [];
   let jt = 0, st = 0, rt = 0, tt = 0;
   const thisMonday = mondayOf(todayISO());
-  for (let w = -8; w <= 8; w++) {
+  const TB2 = THURSDAY_THEME_DEFAULT.blocks;
+  /* วันที่การประชุมภายนอกกินทั้งวัน (KOKU · RCOST) — ไม่มีกิจกรรมของกลุ่มงานเลย */
+  const offSiteDays = new Set(EXTERNAL_CONF_PRESETS.filter(x => x.wholeDay)
+    .flatMap(x => { const out = []; for (let d = x.start; d <= (x.end || x.start); d = addDaysISO(d, 1)) out.push(d); return out; }));
+  /* ครอบ 2 ก.ค. ถึง 29 ต.ค. 2569 ให้ครบทุกสัปดาห์ของตารางจริง (ลูปเดิม ±8 สัปดาห์เริ่มหลัง 2 ก.ค.) */
+  for (let w = -10; w <= 8; w++) {
     const weekMon = addDaysISO(thisMonday, w * 7);
+    const thuDate = addDaysISO(weekMon, THU - 1);
+    const real = THURSDAY_PRESETS[thuDate];
+    /* สัปดาห์ที่มีตารางจริง: ลงตามนั้นทั้งวัน (จำนวนหัวข้อไม่คงที่ — 0, 2 หรือ 3) วันหยุด/งานเต็มเช้าไม่มีรายการนำเสนอ */
+    if (real && !plan.some(p => p.date === thuDate)) {
+      const op = real.opening || {};
+      const mk = (b, type, slot, title, sub, pr, ch, hosts) =>
+        plan.push({ date: thuDate, sl: { dow: THU, start: b.start, end: b.end, type, slot },
+                    presenter: byName(pr), partner: byName(ch), partners: (hosts || []).map(byName).filter(Boolean), title, sub });
+      if (op.kind === "topic") mk(TB2.opening, "topic", "Topic presentation", op.title, op.sub, op.presenter, op.chief);
+      (real.topics || []).forEach(([title, sub, pr, ch], i) =>
+        mk(i === 0 ? TB2.topic1 : TB2.topic2, "topic", "Topic presentation", title, sub, pr, ch));
+      const cl = real.closing;
+      if (cl?.kind === "quiz" && (cl.hosts || []).length)
+        mk(TB2.closing, "quiz", "Kahoot quiz", cl.title, cl.sub, cl.hosts[0], "", cl.hosts.slice(1));
+      else if (cl?.host) mk(TB2.closing, "journal", "Journal club", cl.title, cl.sub, cl.host);
+    }
     TALK_SLOTS.forEach((sl, si) => {
       const date = addDaysISO(weekMon, sl.dow - 1);
+      if (THURSDAY_PRESETS[date] || offSiteDays.has(date)) return; /* สัปดาห์ที่มีตารางจริงจัดไปแล้วข้างบน · วันที่ไปประชุมนอกทั้งวัน */
       if (sl.monthlyFirst && +date.slice(8, 10) > 7) return;      /* research progress เดือนละครั้ง */
-      const real = AUG_THURSDAYS[date];
-      if (real && sl.type === "topic") {
-        const [title, sub, pr, ch] = real.topics[plan.filter(p => p.date === date && p.sl.type === "topic").length];
-        plan.push({ date, sl, presenter: byName(pr), partner: byName(ch), title, sub }); return;
-      }
-      if (real && sl.type === "journal") {
-        const [type, pr, co, title, sub] = real.closing;
-        plan.push({ date, sl: type === "quiz" ? { ...sl, type:"quiz", slot:"Kahoot quiz" } : sl, presenter: byName(pr), partner: byName(co), title, sub }); return;
-      }
       const presenter = sl.type === "topic" ? juniors[tt++ % juniors.length] : sl.type === "journal" ? seniors[jt++ % seniors.length] : residents[rt++ % residents.length];
       const partner = sl.type === "topic" ? seniors[st++ % seniors.length] : null;
       const pool = PLANNED[sl.type] || PLANNED.topic;
       const theme = sl.dow === THU ? themeFor(date) : null;
       const themed = theme ? pool.filter(p => p[1] === theme.sub) : [];
       const use = themed.length ? themed : pool;
-      const pick = use[(w + 8 + si) % use.length];
+      const pick = use[(w + 10 + si) % use.length];
       plan.push({ date, sl, presenter, partner, title: pick[0], sub: pick[1] });
     });
   }
-  plan.forEach(({ date, sl, presenter, partner, title, sub }, i) => {
+  plan.forEach(({ date, sl, presenter, partner, partners, title, sub }, i) => {
     if (!presenter) return;
     /* รายการที่ผ่านมาแล้ว: ถ้ามีกิจกรรมที่บันทึกไว้ตรงกัน ให้ผูกเข้าด้วยกัน */
     let link = null;
-    const real = !!AUG_THURSDAYS[date];
+    const real = !!THURSDAY_PRESETS[date];
     if (date < todayISO()) {
-      /* แถวจริงของ ส.ค. ใช้หัวข้อตามตารางจริง ไม่ผูกกับกิจกรรมสาธิตเรื่องอื่นที่บังเอิญวันใกล้กัน */
+      /* แถวจากตารางจริง ใช้หัวข้อตามตารางจริง ไม่ผูกกับกิจกรรมสาธิตเรื่องอื่นที่บังเอิญวันใกล้กัน */
       link = real ? null : activities.find(a => a.residentId === presenter.id && a.type === sl.type &&
         Math.abs((Date.parse(a.date) - Date.parse(date)) / 86400000) <= 3 &&
         !schedule.some(x => x.activityId === a.id));
@@ -3090,7 +3314,7 @@ function seedData() {
       id: uid("talk"), date, start: sl.start, end: sl.end, slot: sl.slot, type: sl.type,
       residentId: presenter.id,
       chiefId: sl.type === "topic" && partner ? partner.id : "",
-      coResidentId: sl.type === "quiz" && partner ? partner.id : "",
+      ...(sl.type === "quiz" ? { coResidentIds: (partners || [partner]).filter(Boolean).map(x => x.id), coActivityIds: [] } : {}),
       title: link ? link.title : title,
       subspecialty: link ? link.subspecialty : sub,
       location: talkRoom,
@@ -3099,11 +3323,12 @@ function seedData() {
       note: ""
     };
     schedule.push(row);
-    /* กิจกรรมพ่วงของแถวที่มีบันทึกแล้ว: chief ได้ "กำกับการนำเสนอ" · ผู้จัดร่วม Kahoot ได้ quiz อีกชุด (เหมือน ensureLinkedTalkActivities) */
-    if (link && partner && partner.id !== presenter.id) {
+    /* กิจกรรมพ่วงของแถวที่มีบันทึกแล้ว: chief ได้ "กำกับการนำเสนอ" · ผู้จัดร่วม Kahoot ได้ quiz คนละชุด (เหมือน ensureLinkedTalkActivities) */
+    const linked = sl.type === "quiz" ? (partners || [partner]).filter(Boolean) : partner ? [partner] : [];
+    if (link) linked.filter(x => x.id !== presenter.id).forEach((mate, k) => {
       const type = sl.type === "quiz" ? "quiz" : "supervise";
       const a = {
-        id: uid("act"), residentId: partner.id, type, subspecialty: row.subspecialty,
+        id: uid("act"), residentId: mate.id, type, subspecialty: row.subspecialty,
         title: type === "quiz" ? row.title : "กำกับ: " + row.title, date, academicYear: academicYear(date), source: "schedule",
         evidence: null, wfme: (TYPE_BY_ID[type]?.wfme || []).slice(),
         assessment: i % 2 === 0 ? demoTalkEval(type, 4, staffBySub(sub, i + 3), date, i + 1) : null,
@@ -3113,20 +3338,30 @@ function seedData() {
         scheduleId: row.id, createdAt: date + "T12:00:00"
       };
       activities.push(a);
-      if (type === "quiz") row.coActivityId = a.id; else row.chiefActivityId = a.id;
-    }
+      if (type === "quiz") (row.coActivityIds ||= [])[k] = a.id; else row.chiefActivityId = a.id;
+    });
   });
-  /* แถวจัดการวันพฤหัสฯ ของ ส.ค.: 13 ส.ค. Staff lecture "TL spine injuries" อ.คงธัช (อาจารย์ spine) */
-  const lecturer = staffRoster.find(s => /คงธัช/.test(s.name)) || staffRoster.find(s => s.subspecialty === "spine") || staffRoster[0];
-  const topicConf = [
-    { id: uid("tc"), date:"2026-08-13", staffId: lecturer.id, teamServiceId:"", theme:"", opening:"lecture",
-      lectureTitle:"TL spine injuries", lectureStaffId: lecturer.id }
-  ];
-  /* การประชุมภายนอกจากหัวตารางของกลุ่มงาน: "20-21 Regional Hand: R4" · "26-28 THOFAS: R4" */
-  const externalConfs = [
-    { id: uid("ext"), title:"Regional Hand", start:"2026-08-20", end:"2026-08-21", years:[4], subspecialty:"hand", location:"", note:"" },
-    { id: uid("ext"), title:"THOFAS", start:"2026-08-26", end:"2026-08-28", years:[4], subspecialty:"foot", location:"", note:"Thai Orthopaedic Foot and Ankle Society" }
-  ];
+  /* ธีมประจำสัปดาห์ · ช่วงเปิด · จำนวนช่อง Topic ของแต่ละวันพฤหัสฯ ในตารางจริง (13 ส.ค. เป็น Staff lecture, 23 ก.ค. เป็น Pediatric inter-hospital ฯลฯ) */
+  const staffByName = (n) => findByName(staffRoster, n);
+  const topicConf = Object.entries(THURSDAY_PRESETS)
+    .filter(([, wk]) => !wk.holiday && !wk.event)
+    .map(([date, wk]) => {
+      const op = wk.opening || { kind:"case" };
+      return { id: uid("tc"), date, staffId:"", teamServiceId:"", theme: wk.theme || "",
+        opening: op.kind === "case" ? "" : op.kind,
+        lectureTitle: op.kind === "lecture" ? op.title : "",
+        lectureStaffId: op.kind === "lecture" ? (staffByName(op.staff)?.id || "") : "",
+        topicSlots: (wk.topics || []).length + (op.kind === "topic" ? 1 : 0) };
+    });
+  /* งานเต็มเช้าของกลุ่มงาน (15 และ 29 ต.ค. 2569) */
+  const thursdayEvents = Object.entries(THURSDAY_PRESETS).filter(([, wk]) => wk.event).map(([date, wk]) => ({
+    id: uid("thev"), date, kind: wk.event.kind, title: wk.event.title,
+    parts: (wk.event.parts || []).slice(), sessions: (wk.event.sessions || []).map(x => x.slice()),
+    staffIds: (wk.event.staff || []).map(n => staffByName(n)?.id).filter(Boolean), note: wk.event.note || "" }));
+  /* การประชุมภายนอกจากหัวตารางของกลุ่มงาน (Regional Hand · THOFAS · KOKU · RCOST) */
+  const externalConfs = EXTERNAL_CONF_PRESETS.map(x => ({ id: uid("ext"), title: x.title, start: x.start, end: x.end,
+    years: (x.years || []).slice(), residentIds: [], subspecialty: x.subspecialty || "", location: x.location || "",
+    wholeDay: !!x.wholeDay, note: x.note || "" }));
 
   /* Trauma film / Pre-post-op ไม่มีการ fix ผู้นำเสนอล่วงหน้า — รู้ว่าใครนำเสนอจากสไลด์ที่ส่งเข้ามาเท่านั้น
      สร้างกิจกรรมย้อนหลังตามรูปแบบ morning conference ประมาณ 2 ใน 3 วัน (ที่เหลือปล่อยว่างให้เห็นช่องที่ไม่มีสไลด์ส่ง)
@@ -3170,7 +3405,11 @@ function seedData() {
 
   return {
     residents, activities, research, programme,
-    staff: staffRoster, services, rotations, rotationEvals, schedule, topicConf, externalConfs, cases, users, audit: [],
+    staff: staffRoster, services, rotations, rotationEvals, schedule, topicConf, externalConfs, thursdayEvents, cases, users, audit: [],
+    /* วันหยุดนักขัตฤกษ์ที่ตรงวันพฤหัสฯ ในตารางจริง — ทำเครื่องหมายเฉพาะวันนั้น ตัดกิจกรรมของวันนั้นทั้งหมด */
+    duty: Object.entries(THURSDAY_PRESETS).filter(([, wk]) => wk.holiday).map(([date, wk]) => ({
+      id: uid("duty"), date, holiday: true, note: wk.holiday,
+      opdServiceId:"", opdStaffIds:[], erServiceId:"", erStaffIds:[], erResidentIds:[] })),
     epas, epaTargets, epaAssessments,
     backup: { lastAt:"", lastTarget:"", everyDays:7, keep:20, folderName:"" }, backupLog: [],
     sync: { url:"", cloudUrl:"", mode:"logbook", token:"", user:"", residentId:"", auto:true, withRole:false,
@@ -3395,6 +3634,13 @@ function guessDate(parsed) {
 
 /* จับคู่ชื่อกับรายชื่อแพทย์ประจำบ้าน (ตัดคำนำหน้าออกก่อน) ใช้ทั้งกับไฟล์สไลด์และข้อมูลจากระบบคิว */
 const stripName = (s) => normalise(s).replace(/^(นพ\.|พญ\.|นาย|นาง|นางสาว|dr\.?|md)\s*/g, "").replace(/[.\s]/g, "");
+/* หาคนจากชื่อเล่นที่ตารางของกลุ่มงานเขียนไว้ — ตรงทั้งชื่อมาก่อนเสมอ
+   ไม่งั้น "ธน" จะไปเจอ "ธนัท" ที่มาก่อนในทะเบียน ส่วนชื่อที่เขียนสั้นกว่าจริง (ณภัทร → "ณภัทร (R3)") ยังจับด้วยการขึ้นต้น */
+const findByName = (list, n) => {
+  if (!n) return null;
+  const k = stripName(n);
+  return (list || []).find(x => stripName(x.name) === k) || (list || []).find(x => stripName(x.name).startsWith(k)) || null;
+};
 function residentByName(name) {
   const c = stripName(name);
   if (c.length < 3) return null;
@@ -3920,19 +4166,26 @@ function progressFor(res, ay = currentAY()) {
   const subsDone = new Set(all.filter(a => a.subspecialty !== "general").map(a => a.subspecialty));
   const subsNeed = +(req.subspecialties || 0);
   const missingSubs = SUBSPECIALTIES.filter(s => s.id !== "general" && !subsDone.has(s.id));
-  const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0);
-  const surgeonDone = roleCount(casesYear, "surgeon");
-  const assistDone  = roleCount(casesYear, "assist1") + roleCount(casesYear, "assist2");
-  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + surgeonNeed + assistNeed;
+  /* เคสผ่าตัด (เกณฑ์ RCOST ภาคผนวก 4) สะสมตลอดหลักสูตร ไม่รีเซตรายปีเหมือนกิจกรรมวิชาการด้านบน
+     และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ — ผ่าตัดเองเข้าเกณฑ์ทั้งผู้ผ่าตัดหลัก+ผู้ช่วย+ผู้สังเกตการณ์
+     ช่วยผ่าตัดเข้าเกณฑ์ทั้งผู้ช่วย+ผู้สังเกตการณ์ */
+  const performedCount = roleCount(myCases, "surgeon");
+  const assistedCount  = roleCount(myCases, "assist1") + roleCount(myCases, "assist2");
+  const observedCount  = roleCount(myCases, "observer");
+  const surgeonNeed = +(req.caseSurgeon || 0), assistNeed = +(req.caseAssist || 0), observeNeed = +(req.caseObserve || 0);
+  const surgeonDone  = performedCount;
+  const assistDone   = performedCount + assistedCount;
+  const observerDone = performedCount + assistedCount + observedCount;
+  const requiredTotal = lines.reduce((n, l) => n + l.need, 0) + surgeonNeed + assistNeed + observeNeed;
   const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0)
-    + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed);
+    + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed) + Math.min(observerDone, observeNeed);
   return {
     ay, lines, subsDone, subsNeed, missingSubs,
     logbook: {
       total: myCases.length, inYear: casesYear.length,
-      surgeon: { done: surgeonDone, need: surgeonNeed, pct: pct(surgeonDone, surgeonNeed) },
-      assist:  { done: assistDone,  need: assistNeed,  pct: pct(assistDone, assistNeed) },
-      observer: roleCount(myCases, "observer"),
+      surgeon:  { done: surgeonDone,  need: surgeonNeed,  pct: pct(surgeonDone, surgeonNeed) },
+      assist:   { done: assistDone,   need: assistNeed,   pct: pct(assistDone, assistNeed) },
+      observer: { done: observerDone, need: observeNeed,  pct: pct(observerDone, observeNeed) },
       verified: myCases.filter(c => c.participants.some(x => x.residentId === res.id && x.verified)).length,
       subs: new Set(myCases.filter(c => c.subspecialty !== "general").map(c => c.subspecialty))
     },
@@ -3964,11 +4217,15 @@ function gapsFor(res) {
   });
   if (p.logbook.surgeon.need && p.logbook.surgeon.done < p.logbook.surgeon.need) out.push({
     level: p.logbook.surgeon.done === 0 ? "bad" : "warn",
-    text: "เคสที่เป็นผู้ผ่าตัดหลัก " + p.logbook.surgeon.done + "/" + p.logbook.surgeon.need + " ในปีการศึกษา " + p.ay
+    text: "เคสที่เป็นผู้ผ่าตัดหลัก (สะสม) " + p.logbook.surgeon.done + "/" + p.logbook.surgeon.need
   });
   if (p.logbook.assist.need && p.logbook.assist.done < p.logbook.assist.need) out.push({
-    level:"warn",
-    text: "เคสที่เป็นผู้ช่วยผ่าตัด " + p.logbook.assist.done + "/" + p.logbook.assist.need + " ในปีการศึกษา " + p.ay
+    level: p.logbook.assist.done === 0 ? "bad" : "warn",
+    text: "เคสที่เป็นผู้ช่วยผ่าตัดขึ้นไป (สะสม) " + p.logbook.assist.done + "/" + p.logbook.assist.need
+  });
+  if (p.logbook.observer.need && p.logbook.observer.done < p.logbook.observer.need) out.push({
+    level: p.logbook.observer.done === 0 ? "bad" : "warn",
+    text: "เคสที่สังเกตการณ์ขึ้นไป (สะสม) " + p.logbook.observer.done + "/" + p.logbook.observer.need
   });
   const rotNow = rotationOn(res.id, todayISO());
   if (!rotNow) out.push({ level:"warn", text:"ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้" });
@@ -3977,8 +4234,6 @@ function gapsFor(res) {
   return out;
 }
 
-const roleCountAll = (residentId, role) => (store.data.cases || []).filter(c =>
-  c.participants?.some(x => x.residentId === residentId && x.role === role)).length;
 const barFor = (v) => `<div class="bar"><i class="${v >= 100 ? "done" : v < 40 ? "low" : ""}" style="width:${Math.max(2, v)}%"></i></div>`;
 
 /* =====================================================================
@@ -4678,6 +4933,8 @@ function renderCalMonth(box) {
   const legend = `<div class="row gcal-legend" style="margin-bottom:.5rem;gap:.35rem">
     ${PRESENTATION_TYPES.map(ty => `<span class="swatch"><i style="background:${PRESENTATION_COLOUR[ty]}"></i><b>${esc(TYPE_BY_ID[ty].icon)}</b><span class="lg-name">&nbsp;${esc(TYPE_BY_ID[ty].en)}</span></span>`).join("")}
     <span class="swatch" title="ช่วงเปิดเช้าพฤหัสฯ ของอาจารย์ ไม่มีการประเมิน"><i style="background:${PRESENTATION_COLOUR.caseconf}"></i><b>C</b>/<b>L</b><span class="lg-name">&nbsp;Case conf / Staff lecture</span></span>
+    <span class="swatch" title="Pediatric inter-hospital conference — ช่วงเปิดของบางสัปดาห์"><i style="background:${PRESENTATION_COLOUR.pedconf}"></i><b>D</b><span class="lg-name">&nbsp;Pediatric inter-hospital</span></span>
+    <span class="swatch" title="งานเต็มเช้าวันพฤหัสฯ — แทนทั้ง 4 คาบ ลงชื่อเข้าร่วมได้"><i style="background:${PRESENTATION_COLOUR.interdept}"></i><b>M</b>/<b>W</b><span class="lg-name">&nbsp;ประชุมร่วม / Workshop</span></span>
     <span class="swatch" title="บังคับเข้าทั้งรุ่น ไม่มีการประเมิน"><i style="background:${PRESENTATION_COLOUR.interhospital}"></i><b>I</b><span class="lg-name">&nbsp;Inter-hospital</span></span>
     <span class="swatch" title="การประชุมภายนอกที่ชั้นปีนั้นต้องไป"><i style="background:${PRESENTATION_COLOUR.external}"></i><b>X</b><span class="lg-name">&nbsp;ประชุมภายนอก</span></span>
     <span class="swatch"><i style="background:var(--ok-soft)"></i>บันทึกสไลด์แล้ว</span>
@@ -4695,14 +4952,19 @@ function renderCalMonth(box) {
       /* "ของฉัน" = ของตัวเอง (ผู้นำเสนอ / chief ผู้กำกับ / ผู้จัดร่วม) + กิจกรรมบังคับทั้งรุ่นที่ชั้นปีของฉันต้องเข้า
          (ช่องประจำเปล่าไม่มีเจ้าของ และช่วงเปิดของอาจารย์ ไม่โผล่) */
       const me = mine ? myResidentId() : "", myYear = mine ? +store.resident(me)?.year : 0;
-      const items = presentationsForDate(iso).filter(p => !mine || (p.residentId && p.residentId === me) || p.chiefId === me || p.coResidentId === me ||
-        (p.kind === "info" && (p.years || []).includes(myYear)));
-      const theme = thuDay === new Date(iso + "T00:00:00").getDay() ? thursdayThemeLabel(iso) : "";
+      const items = presentationsForDate(iso).filter(p => !mine || (p.residentId && p.residentId === me) || p.chiefId === me || (p.coResidentIds || []).includes(me) ||
+        (p.kind === "info" && ((p.years || []).includes(myYear) || (p.residentIds || []).includes(me))));
+      /* ป้ายธีมมีความหมายเฉพาะสัปดาห์ที่มีหัวข้อจริง — วันหยุด งานเต็มวัน หรือสัปดาห์ที่ไม่มีหัวข้อ ไม่ต้องขึ้นธีมวนมาให้สับสน */
+      const tcRow = (store.data.topicConf || []).find(x => x.date === iso);
+      const theme = thuDay === new Date(iso + "T00:00:00").getDay() && !dayNote(iso) && +tcRow?.topicSlots !== 0
+        ? thursdayThemeLabel(iso) : "";
       const themeTitle = "ธีมประจำสัปดาห์ของกิจกรรมเช้าวันพฤหัสฯ — ทุกหัวข้อสัปดาห์นี้อยู่ในธีมนี้" + (manage ? " · กดเพื่อจัดการวันพฤหัสฯ นี้" : "");
       return `<div class="gcal-cell ${inMonth ? "" : "outside"} ${iso === today ? "today" : ""}">
         <span class="gcal-date">${Number(iso.slice(8))}</span>
         ${theme ? (manage ? `<button class="gcal-week-sub" data-thu="${iso}" title="${esc(themeTitle)}">${esc(theme)}</button>`
                           : `<span class="gcal-week-sub" title="${esc(themeTitle)}">${esc(theme)}</span>`) : ""}
+        ${holidayOn(iso) ? (manage ? `<button class="gcal-week-sub holiday" data-thu="${iso}" title="${esc(holidayOn(iso))} · กดเพื่อจัดการวันนี้">${esc(holidayOn(iso))}</button>`
+                                   : `<span class="gcal-week-sub holiday">${esc(holidayOn(iso))}</span>`) : ""}
         ${items.map(presentationChip).join("")}
       </div>`;
     }).join("")}
@@ -4831,9 +5093,12 @@ function renderMonthGrid() {
   const planBkCount = rotationPlanBackupsFor(ayView).length;
   const planBkBtn = $("#btnPlanHistory");
   if (planBkBtn) planBkBtn.textContent = "ประวัติแผนอัตโนมัติ" + (planBkCount ? ` (${planBkCount})` : "");
-  /* ปุ่มใช้ตารางจริงมีเฉพาะปีที่ฝังตารางไว้ */
+  /* ปุ่มใช้ตารางจริงมีเฉพาะปีที่ฝังตารางไว้ — และในปีนั้นตารางจริงเป็นปุ่มหลัก "สร้างแผนอัตโนมัติ" เป็นปุ่มรอง
+     ปีที่ไม่มีตารางจริง สร้างแผนกลับมาเป็นปุ่มหลักเหมือนเดิม */
   const presetWrap = $("#presetWrap");
-  if (presetWrap) presetWrap.hidden = !ROTATION_PRESETS[String(ayView)];
+  const hasPreset = !!ROTATION_PRESETS[String(ayView)];
+  if (presetWrap) presetWrap.hidden = !hasPreset;
+  $("#btnGeneratePlan")?.classList.toggle("btn-primary", !hasPreset);
   const months = ayMonths(ayView);
   /* ปีที่มีตารางจริงฝังไว้: เรียงแถวตามตารางต้นฉบับ (4.1 … 1.5) และบอกรหัสแถว จะได้เทียบกับกระดาษของกลุ่มงานได้ทันที
      คนที่ไม่อยู่ในตาราง (หรือปีอื่น) เรียงตามชั้นปี/ชื่อเหมือนเดิมต่อท้าย */
@@ -5098,7 +5363,8 @@ function matchTalk(residentId, type, date) {
 const PRESENTATION_TYPES = ["traumafilm", "preop", "topic", "journal", "quiz"];
 /* สีประจำประเภทบนปฏิทิน (ที่อื่นในแอปไม่มีสีของประเภทกิจกรรม มีแต่สีของหน่วย) — ที่เดียวที่ทั้ง chip และคำอธิบายสีอ่าน */
 const PRESENTATION_COLOUR = { topic:"#1d4ed8", preop:"#7c3aed", traumafilm:"#ea580c", journal:"#0f766e", quiz:"#b45309",
-                              interhospital:"#64748b", caseconf:"#475569", lecture:"#9f1239", external:"#9333ea" };
+                              interhospital:"#64748b", caseconf:"#475569", lecture:"#9f1239", external:"#9333ea",
+                              pedconf:"#0369a1", interdept:"#a16207", workshop:"#4d7c0f" };
 /* ป้ายประเภทของรายการบนปฏิทิน — รวมรายการแสดงอย่างเดียวที่ไม่มีใน ACTIVITY_TYPES */
 const presTypeOf = (type) => TYPE_BY_ID[type] || CALENDAR_INFO[type] || { icon:"?", th:type, en:type };
 
@@ -5121,7 +5387,9 @@ function presentationsForDate(iso) {
   const slots = [];
   const mc = morningConference();
   const dow = new Date(iso + "T00:00:00").getDay(), holiday = !!dutyOn(iso)?.holiday;
-  if ((mc.days || []).includes(dow) && !holiday) {
+  /* ประชุมภายนอกที่กินทั้งวัน = ทั้งกลุ่มงานไม่อยู่ — ไม่มีคาบประจำและไม่มีกิจกรรมบังคับของวันนั้น */
+  const offSite = (store.data.externalConfs || []).some(x => x.wholeDay && x.start && x.start <= iso && (x.end || x.start) >= iso);
+  if ((mc.days || []).includes(dow) && !holiday && !offSite) {
     ["traumafilm", "preop"].forEach(ty => {
       if (fromSchedule.some(p => p.type === ty) || fromActivity.some(p => p.type === ty)) return;
       const tm = mc[ty] || {};
@@ -5131,36 +5399,55 @@ function presentationsForDate(iso) {
   /* 4) Inter-hospital conference — กิจกรรมบังคับเข้าทั้งรุ่น (kind "info") ไม่มีผู้นำเสนอ ไม่มีการประเมิน
         years บอกว่าชั้นปีไหนต้องไป (โหมด "ของฉัน" ใช้เลือกว่าโผล่ไหม) */
   const ih = mc.interHospital;
-  if (ih && +ih.day === dow && !holiday)
+  if (ih && +ih.day === dow && !holiday && !offSite)
     slots.push({ kind:"info", id: "interhospital:" + iso, type:"interhospital", date: iso, start: ih.start || "", end: ih.end || "",
                  residentId:"", title:"", years: (ih.years || []).map(Number) });
-  /* 5) เช้าวันพฤหัสฯ 4 ช่วง: ช่วงเปิดของอาจารย์ (kind "info" caseconf/lecture ตามแถว topicConf ของวันนั้น) แล้วช่องประจำ T ×2 + J
-        ที่ยังไม่ได้ลงตาราง (แถว schedule ที่ลงแล้วแทนที่ช่องเปล่าตามลำดับ · Kahoot quiz แทนที่ช่อง J) */
+  /* 5) เช้าวันพฤหัสฯ: บางสัปดาห์เป็นงานเต็มเช้า (workshop / ประชุมร่วมต่างภาควิชาของกลุ่มงาน หรือการประชุมภายนอกที่ตั้ง wholeDay)
+        ซึ่งแทนทั้ง 4 คาบ · สัปดาห์ปกติ = ช่วงเปิด + ช่อง Topic + ช่องปิด
+        ช่วงเปิดมี 4 แบบ: Interesting case (ค่าปกติ) · Staff lecture · Pediatric inter-hospital · หัวข้อของ resident (วันนั้นมี 3 หัวข้อ)
+        จำนวนช่อง Topic ของสัปดาห์อ่านจาก topicConf.topicSlots (ว่าง = 2 · 0 = สัปดาห์นั้นไม่มีหัวข้อ เช่น 1 และ 8 ต.ค. 2569)
+        แถว schedule ที่ลงแล้วแทนที่ช่องเปล่าตามลำดับ · Kahoot quiz แทนที่ช่อง J */
   if (dow === thursdayDay() && !holiday) {
     const th = thursdayTheme(), b = th.blocks || {};
-    const row = (store.data.topicConf || []).find(x => x.date === iso) || {};
-    const lecture = row.opening === "lecture";
-    slots.push({ kind:"info", id: (lecture ? "lecture" : "caseconf") + ":" + iso, type: lecture ? "lecture" : "caseconf", date: iso,
-                 start: b.opening?.start || "", end: b.opening?.end || "", residentId:"", years: [],
-                 title: lecture ? (row.lectureTitle || "") : "", staffId: lecture ? (row.lectureStaffId || "") : "" });
-    const nTopic = fromSchedule.filter(p => p.type === "topic").length;
-    [b.topic1, b.topic2].slice(nTopic).forEach((tm, i) =>
-      slots.push({ kind:"slot", id: "topic:" + iso + (nTopic + i ? "#" + (nTopic + i + 1) : ""), type:"topic", date: iso,
-                   start: tm?.start || "", end: tm?.end || "", residentId:"", title:"", thursday: true }));
-    if (!fromSchedule.some(p => p.type === "journal" || p.type === "quiz"))
-      slots.push({ kind:"slot", id: "journal:" + iso, type:"journal", date: iso, start: b.closing?.start || "", end: b.closing?.end || "",
-                   residentId:"", title:"", thursday: true });
+    const ev = (store.data.thursdayEvents || []).find(e => e.date === iso);
+    if (ev)
+      slots.push({ kind:"info", id: "thev:" + ev.id, type: ev.kind === "workshop" ? "workshop" : "interdept", date: iso,
+                   start: b.opening?.start || "", end: b.closing?.end || "", residentId:"", years: [],
+                   title: ev.title || "", evId: ev.id });
+    else if (!offSite) {
+      const row = (store.data.topicConf || []).find(x => x.date === iso) || {};
+      const op = row.opening || "", openingIsTopic = op === "topic";
+      if (!openingIsTopic) {
+        const ty = op === "lecture" ? "lecture" : op === "pedconf" ? "pedconf" : "caseconf";
+        slots.push({ kind:"info", id: ty + ":" + iso, type: ty, date: iso,
+                     start: b.opening?.start || "", end: b.opening?.end || "", residentId:"", years: [],
+                     title: ty === "lecture" ? (row.lectureTitle || "") : "", staffId: ty === "lecture" ? (row.lectureStaffId || "") : "" });
+      }
+      const blockList = openingIsTopic ? [b.opening, b.topic1, b.topic2] : [b.topic1, b.topic2];
+      const want = row.topicSlots == null ? blockList.length
+        : Math.max(0, Math.min(blockList.length, Math.round(+row.topicSlots) || 0));
+      const nTopic = fromSchedule.filter(p => p.type === "topic").length;
+      blockList.slice(0, want).slice(nTopic).forEach((tm, i) =>
+        slots.push({ kind:"slot", id: "topic:" + iso + (nTopic + i ? "#" + (nTopic + i + 1) : ""), type:"topic", date: iso,
+                     start: tm?.start || "", end: tm?.end || "", residentId:"", title:"", thursday: true }));
+      if (!fromSchedule.some(p => p.type === "journal" || p.type === "quiz"))
+        slots.push({ kind:"slot", id: "journal:" + iso, type:"journal", date: iso, start: b.closing?.start || "", end: b.closing?.end || "",
+                     residentId:"", title:"", thursday: true });
+    }
   }
   /* 6) การประชุมภายนอกที่คร่อมวันนี้ — ทั้งวัน (ไม่มีเวลา จึงขึ้นบนสุด) ชั้นปีที่ต้องไปอยู่ใน years */
   (store.data.externalConfs || []).filter(x => x.start && x.start <= iso && (x.end || x.start) >= iso).forEach(x =>
     slots.push({ kind:"info", id: "external:" + x.id, type:"external", date: iso, start:"", end:"", residentId:"",
-                 title: x.title || "", years: (x.years || []).map(Number), extId: x.id }));
+                 title: x.title || "", years: (x.years || []).map(Number), residentIds: (x.residentIds || []).slice(), extId: x.id }));
   return fromSchedule.concat(fromActivity, slots)
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 }
-/* วันที่ iso ชั้นปี year มีการประชุมภายนอกไหม — ใช้เตือนตอนลงตารางว่าผู้นำเสนอ/chief อาจไม่อยู่ */
-const externalConfsOn = (iso, year) => (store.data.externalConfs || []).filter(x =>
-  x.start && x.start <= iso && (x.end || x.start) >= iso && (!year || !(x.years || []).length || (x.years || []).map(Number).includes(+year)));
+/* วันที่ iso คนคนนี้มีการประชุมภายนอกไหม — ใช้เตือนตอนลงตารางว่าผู้นำเสนอ/chief อาจไม่อยู่
+   งานหนึ่งระบุผู้ไปได้สองแบบพร้อมกัน: ทั้งชั้นปี (years) และรายคน (residentIds — ตารางจริงมีแบบ "R4 + R3 วิพุธ") */
+const externalConfsOn = (iso, year, residentId) => (store.data.externalConfs || []).filter(x =>
+  x.start && x.start <= iso && (x.end || x.start) >= iso &&
+  (!year || !(x.years || []).length || (x.years || []).map(Number).includes(+year) ||
+   (residentId && (x.residentIds || []).includes(residentId))));
 /* ทุกรายการของเดือนหนึ่ง — ใช้กับพิมพ์/CSV ของปฏิทิน */
 const presentationsInMonth = (ym) => monthDays(ym).flatMap(presentationsForDate);
 
@@ -5169,25 +5456,39 @@ const presentationsInMonth = (ym) => monthDays(ym).flatMap(presentationsForDate)
    · บันทึกจากไฟล์สไลด์ที่ไม่ได้ลงตารางไว้ถือว่านำเสนอแล้วเสมอ · ช่องประจำ (slot) ยังไม่มีคน: อนาคต = เส้นประ "ยังไม่ระบุผู้นำเสนอ"
      อดีต = จาง "ไม่มีสไลด์ส่ง" (ไม่ใช้พื้นส้ม .due ซึ่งสงวนให้แถวที่ระบุคนแล้วยังไม่ส่ง) */
 /* ชื่อบน chip ของรายการแสดงอย่างเดียว: Inter-hospital/การประชุมภายนอก บอกชั้นปีที่ต้องไป · Staff lecture บอกหัวข้อ+อาจารย์ */
+/* ใครต้องไปงานนี้: ทั้งชั้นปี และ/หรือ รายคน (ตารางจริงเขียนแบบ "R4 + R3 วิพุธ") */
+const goersLabel = (p) => [p.years?.length ? yearsLabel(p.years) + " ทุกคน" : "",
+  (p.residentIds || []).map(id => store.resident(id)?.name).filter(Boolean).join(" ")].filter(Boolean).join(" + ");
 const infoChipName = (p) =>
   p.type === "lecture" ? "Staff Lecture: " + (p.title || "—") + (p.staffId ? " · " + staffName(p.staffId) : "")
-  : p.type === "external" ? (p.title || "การประชุมภายนอก") + (p.years?.length ? " · " + yearsLabel(p.years) + " ทุกคน" : "")
-  : presTypeOf(p.type).th + (p.years?.length ? " · " + yearsLabel(p.years) + " ทุกคน" : "");
-/* คู่ของแถว: topic = chief ผู้กำกับ · quiz = ผู้จัดร่วม (ชื่อที่สองในตารางของกลุ่มงาน) */
-const talkPartner = (p) => p.type === "topic" ? store.resident(p.chiefId) : p.type === "quiz" ? store.resident(p.coResidentId) : null;
+  : p.type === "external" || p.type === "interdept" || p.type === "workshop"
+    ? (p.title || presTypeOf(p.type).th) + (goersLabel(p) ? " · " + goersLabel(p) : "")
+  : presTypeOf(p.type).th + (goersLabel(p) ? " · " + goersLabel(p) : "");
+/* คู่ของแถว: topic = chief ผู้กำกับ (คนเดียว) · quiz = ผู้จัดร่วมทุกคน
+   ตารางจริงของกลุ่มงานมีผู้จัด Kahoot quiz ตั้งแต่สองถึงสามคน และไม่ได้เป็นปี 4 เสมอ (2 ก.ค. 2569 เป็น R3 สองคน)
+   จึงเก็บเป็น coResidentIds — แถวเก่าที่มี coResidentId เดี่ยวยังอ่านได้ (migrate แปลงให้แล้ว) */
+const talkPartners = (p) => (p.type === "topic" ? [p.chiefId]
+  : p.type === "quiz" ? (Array.isArray(p.coResidentIds) ? p.coResidentIds : [p.coResidentId])
+  : []).map(id => store.resident(id)).filter(Boolean);
+const talkPartnerLabel = (p) => talkPartners(p).map(x => x.name).join(" / ");
+/* กิจกรรมพ่วงของผู้จัดร่วมคนที่ i — เก็บคู่ขนานกับ coResidentIds */
+const coActivityIdsOf = (t) => Array.isArray(t.coActivityIds) ? t.coActivityIds : (t.coActivityId ? [t.coActivityId] : []);
 
 function presentationChip(p) {
-  const r = store.resident(p.residentId), co = talkPartner(p);
+  const r = store.resident(p.residentId), co = talkPartnerLabel(p);
   const type = presTypeOf(p.type), colour = PRESENTATION_COLOUR[p.type] || "var(--brand)";
   const isSlot = p.kind === "slot", isInfo = p.kind === "info", past = p.date < todayISO();
   const status = isSlot || isInfo ? "" : p.kind === "schedule" ? talkStatus(p) : "done";
   const cls = "sess gcal-chip pres-" + p.type +
     (isInfo ? " info" : isSlot ? (past ? " slot muted-sess" : " slot") : status === "done" ? " done" : status === "missing" ? " due" : "");
   const name = isInfo ? infoChipName(p)
-    : r ? r.name + (co ? " / " + co.name : "") : isSlot && past && !p.thursday ? "ไม่มีสไลด์ส่ง" : isSlot && p.thursday ? "ยังไม่ลงตาราง" : "ยังไม่ระบุผู้นำเสนอ";
-  const line2 = p.title || (p.start ? p.start + (p.end ? "–" + p.end : "") : "");
-  const hint = isInfo ? name + (p.type === "caseconf" || p.type === "lecture" ? " · ช่วงเปิดเช้าพฤหัสฯ ของอาจารย์ ไม่มีการประเมิน"
-                                : p.type === "external" ? " · ต้องไปทั้งชั้นปี" : " · บังคับเข้าทั้งรุ่น ไม่มีการประเมิน")
+    : r ? r.name + (co ? " / " + co : "") : isSlot && past && !p.thursday ? "ไม่มีสไลด์ส่ง" : isSlot && p.thursday ? "ยังไม่ลงตาราง" : "ยังไม่ระบุผู้นำเสนอ";
+  /* รายการแสดงอย่างเดียวมีชื่องานอยู่ในบรรทัดแรกแล้ว บรรทัดสองจึงเป็นเวลา ไม่ใช่ชื่อซ้ำ */
+  const line2 = isInfo ? (p.start ? p.start + (p.end ? "–" + p.end : "") : "")
+    : (p.title || (p.start ? p.start + (p.end ? "–" + p.end : "") : ""));
+  const hint = isInfo ? name + (p.type === "caseconf" || p.type === "lecture" || p.type === "pedconf" ? " · ช่วงเปิดเช้าพฤหัสฯ ของอาจารย์ ไม่มีการประเมิน"
+                                : p.type === "interdept" || p.type === "workshop" ? " · งานเต็มเช้าวันพฤหัสฯ — กดเพื่อลงชื่อเข้าร่วม"
+                                : p.type === "external" ? " · ต้องไปตามที่ระบุ" : " · บังคับเข้าทั้งรุ่น ไม่มีการประเมิน")
     : type.th + " · " + name + (p.title ? " — " + p.title : "") + (isSlot ? "" : " · " + TALK_STATUS_TAG[status][1]);
   return `<button class="${cls}" data-pres="${p.kind}:${esc(p.id)}" style="border-left-color:${colour};--pres:${colour}" title="${esc(hint)}">
     <b class="abbr">${esc(type.icon)}</b> <span class="nm${r || isInfo ? "" : " muted"}">${esc(name)}</span>
@@ -5202,7 +5503,8 @@ function presentationDetailDialog(kind, id) {
   if (kind === "info") {
     const i = id.indexOf(":"), type = id.slice(0, i), iso = id.slice(i + 1);
     if (type === "external") { externalConfDetailDialog(iso); return; }   /* ส่วนหลัง ":" คือ id ของรายการ ไม่ใช่วันที่ */
-    if (type === "caseconf" || type === "lecture") {
+    if (type === "thev") { thursdayEventDialog(iso); return; }            /* ส่วนหลัง ":" คือ id ของงาน ไม่ใช่วันที่ */
+    if (type === "caseconf" || type === "lecture" || type === "pedconf") {
       const tc = topicConfInfo(iso), b = thursdayTheme().blocks?.opening || {};
       const row = (store.data.topicConf || []).find(x => x.date === iso) || {};
       const buttons = canManage() ? [{ label:"จัดการวันพฤหัสฯ นี้", cls:"btn-primary", onClick: () => { closeDialog(); thursdayDialog(iso); return false; } }] : [];
@@ -5213,7 +5515,7 @@ function presentationDetailDialog(kind, id) {
         <dt>ธีมประจำสัปดาห์</dt><dd>${esc(tc.themeLabel)}</dd>
         <dt>ผู้นิเทศวันพฤหัสฯ</dt><dd class="tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</dd>
       </div>
-      <p class="small muted">ช่วงเปิดเป็นของอาจารย์ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน · ปกติเป็น Interesting Case Conference สัปดาห์ที่มี Staff lecture ตั้งหัวข้อ/อาจารย์ที่ “จัดการวันพฤหัสฯ นี้”</p>`, buttons);
+      <p class="small muted">ช่วงเปิดเป็นของอาจารย์ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน · เลือกได้ 4 แบบ (Interesting case / Staff lecture / Pediatric inter-hospital / หัวข้อของ resident) ที่ “จัดการวันพฤหัสฯ นี้”</p>`, buttons);
       return;
     }
     const ih = morningConference().interHospital || {};
@@ -5256,7 +5558,7 @@ function presentationDetailDialog(kind, id) {
   const rec = kind === "schedule" ? (store.data.schedule || []).find(x => x.id === id)
                                   : (store.data.activities || []).find(x => x.id === id);
   if (!rec) return;
-  const r = store.resident(rec.residentId), co = kind === "schedule" ? talkPartner(rec) : null;
+  const r = store.resident(rec.residentId), cos = kind === "schedule" ? talkPartners(rec) : [];
   const status = kind === "schedule" ? talkStatus(rec) : "done";
   const tag = TALK_STATUS_TAG[status];
   const tc = (rec.type === "topic" || rec.type === "journal" || rec.type === "quiz") ? topicConfInfo(rec.date) : null;
@@ -5264,10 +5566,12 @@ function presentationDetailDialog(kind, id) {
   const actExists = (aid) => !!aid && store.data.activities.some(a => a.id === aid);
   const body = `<div class="kv">
     <dt>${rec.type === "quiz" ? "ผู้จัด" : "ผู้นำเสนอ"}</dt><dd>${r ? esc(r.name) + " (ชั้นปีที่ " + esc(String(r.year || "—")) + ")" : "ยังไม่ระบุผู้นำเสนอ"}</dd>
-    ${co ? `<dt>${rec.type === "quiz" ? "ผู้จัดร่วม" : "chief ผู้กำกับ"}</dt><dd>${esc(co.name)} (ชั้นปีที่ ${esc(String(co.year || "—"))})
-        ${actExists(rec.type === "quiz" ? rec.coActivityId : rec.chiefActivityId)
+    ${cos.length ? `<dt>${rec.type === "quiz" ? "ผู้จัดร่วม" : "chief ผู้กำกับ"}</dt><dd>${cos.map((c, ci) => {
+        const linked = rec.type === "quiz" ? actExists(coActivityIdsOf(rec)[ci]) : actExists(rec.chiefActivityId);
+        return esc(c.name) + " (ชั้นปีที่ " + esc(String(c.year || "—")) + ")" + (linked
           ? ` <span class="tag ok">${rec.type === "quiz" ? "บันทึกกิจกรรมแล้ว" : "บันทึกการกำกับแล้ว"}</span>`
-          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับการนำเสนอ” เมื่อผู้นำเสนอบันทึก)</span>` : ""}</dd>` : ""}
+          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับการนำเสนอ” เมื่อผู้นำเสนอบันทึก)</span>` : "");
+      }).join("<br />")}</dd>` : ""}
     <dt>ประเภท</dt><dd>${esc(TYPE_BY_ID[rec.type]?.th || rec.type)}${rec.slot ? " · " + esc(rec.slot) : ""}</dd>
     <dt>หัวข้อ</dt><dd><b>${esc(rec.title || "—")}</b>${rec.subspecialty
       ? ` <span class="tag b">${esc(SUB_BY_ID[rec.subspecialty]?.en || rec.subspecialty)}</span>` : ""}</dd>
@@ -5281,8 +5585,8 @@ function presentationDetailDialog(kind, id) {
     ${tc ? `<dt>ธีมประจำสัปดาห์</dt><dd class="week-sub">${esc(tc.themeLabel)}${tc.theme?.sub && rec.subspecialty && rec.subspecialty !== tc.theme.sub
         ? ` <span class="tag warn">หัวข้อนี้อยู่นอกธีมประจำสัปดาห์</span>` : ""}</dd>
     <dt>ผู้นิเทศวันพฤหัสฯ</dt><dd class="tc-info">ผู้นิเทศ: ${esc(tc.staffLabel)} · สาย: ${esc(tc.teamLabel)} · หัวหน้าสาย: ${esc(tc.chiefLabel)}</dd>` : ""}
-    ${kind === "schedule" && [r, co].some(x => x && externalConfsOn(rec.date, x.year).length)
-      ? `<dt>ข้อควรระวัง</dt><dd><span class="tag warn">วันนี้ชั้นปีของ${[r, co].filter(x => x && externalConfsOn(rec.date, x.year).length).map(x => " " + esc(x.name)).join(" /")} มีการประชุมภายนอก</span></dd>` : ""}
+    ${kind === "schedule" && [r, ...cos].some(x => x && externalConfsOn(rec.date, x.year, x.id).length)
+      ? `<dt>ข้อควรระวัง</dt><dd><span class="tag warn">วันนี้${[r, ...cos].filter(x => x && externalConfsOn(rec.date, x.year, x.id).length).map(x => " " + esc(x.name)).join(" /")} ต้องไปประชุมภายนอก</span></dd>` : ""}
   </div>`;
   const buttons = [];
   if (kind === "schedule" && canManage())
@@ -5311,6 +5615,9 @@ function editTalk(id, preset = {}) {
   const tcRow = (store.data.topicConf || []).find(x => x.date === curDate);
   const defaultChief = tcRow?.teamServiceId ? chiefResidentOfTeam(tcRow.teamServiceId, curDate)?.id : "";
   const curChief = t?.chiefId ?? (preset.chiefId || defaultChief || "");
+  const curCo = (Array.isArray(t?.coResidentIds) ? t.coResidentIds
+    : t?.coResidentId ? [t.coResidentId] : preset.coResidentIds || []).filter(Boolean);
+  const checkedCoIds = () => $$('#dlgBody [name="co"]:checked').map(el => el.value);
   const seniors = store.data.residents.filter(r => +r.year >= 3);
   const resOpts = (sel, list) => list.map(r => `<option value="${r.id}" ${sel === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("");
   const body = `
@@ -5325,8 +5632,10 @@ function editTalk(id, preset = {}) {
         <option value="" ${!t?.residentId ? "selected" : ""}>— ยังไม่ระบุ (ให้ผู้ที่ส่งสไลด์เป็นผู้นำเสนอ) —</option>${resOpts(t?.residentId, store.data.residents)}</select></label>
       <label class="f" data-only-type="topic"><span>chief ผู้กำกับ (ปี 3–4)</span><select name="chiefId">
         <option value="">— ไม่มี —</option>${resOpts(curChief, seniors)}</select></label>
-      <label class="f" data-only-type="quiz"><span>ผู้จัดร่วม</span><select name="coResidentId">
-        <option value="">— ไม่มี —</option>${resOpts(t?.coResidentId || preset.coResidentId || "", store.data.residents)}</select></label>
+      <div class="f" data-only-type="quiz"><span>ผู้จัดร่วม (ติ๊กได้หลายคน ชั้นปีใดก็ได้)</span>
+        <div class="row" data-field="cohosts" style="gap:.35rem .7rem">${store.data.residents.map(x =>
+          `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
+            <input type="checkbox" name="co" value="${x.id}" ${curCo.includes(x.id) ? "checked" : ""} /> ${esc(x.name)}</label>`).join("")}</div></div>
     </div>
     <p class="small warn" data-ext-warn hidden></p>
     <label class="f"><span>หัวข้อ</span><input name="title" value="${esc(t?.title || "")}" placeholder="ชื่อเรื่องที่จะนำเสนอ" /></label>
@@ -5344,11 +5653,11 @@ function editTalk(id, preset = {}) {
         const date = dlgVal("date"), title = dlgVal("title"), type = dlgVal("type");
         if (!date) return fieldError("date", "กรุณาเลือกวันที่");
         if (!title) return fieldError("title", "กรุณาใส่หัวข้อ");
-        const chiefId = type === "topic" ? dlgVal("chiefId") : "", coResidentId = type === "quiz" ? dlgVal("coResidentId") : "";
+        const chiefId = type === "topic" ? dlgVal("chiefId") : "", coResidentIds = type === "quiz" ? checkedCoIds() : [];
         if (chiefId && chiefId === dlgVal("residentId")) return fieldError("chiefId", "chief ผู้กำกับต้องไม่ใช่ผู้นำเสนอเอง");
-        if (coResidentId && coResidentId === dlgVal("residentId")) return fieldError("coResidentId", "ผู้จัดร่วมต้องไม่ใช่คนเดียวกับผู้จัด");
+        if (coResidentIds.includes(dlgVal("residentId"))) return fieldError("residentId", "ผู้จัดร่วมต้องไม่ใช่คนเดียวกับผู้จัด");
         const rec = { date, start: dlgVal("start"), end: dlgVal("end"), slot: dlgVal("slot"), type,
-                      residentId: dlgVal("residentId"), chiefId, coResidentId, title, subspecialty: dlgVal("subspecialty"),
+                      residentId: dlgVal("residentId"), chiefId, coResidentIds, title, subspecialty: dlgVal("subspecialty"),
                       location: dlgVal("location"), moderatorId: dlgVal("moderatorId") };
         if (t) Object.assign(t, rec); else store.data.schedule.push({ id: uid("talk"), activityId: null, note:"", ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -5365,20 +5674,21 @@ function editTalk(id, preset = {}) {
     $$("#dlgBody [data-only-type]").forEach(el => { el.hidden = el.dataset.onlyType !== type; });
     const pl = $("#dlgBody [data-presenter-label]"); if (pl) pl.textContent = type === "quiz" ? "ผู้จัด" : "ผู้นำเสนอ";
     const warn = $("#dlgBody [data-ext-warn]"); if (!warn) return;
-    const people = [dlgVal("residentId"), type === "topic" ? dlgVal("chiefId") : type === "quiz" ? dlgVal("coResidentId") : ""]
+    const people = [dlgVal("residentId"), ...(type === "topic" ? [dlgVal("chiefId")] : type === "quiz" ? checkedCoIds() : [])]
       .map(id => store.resident(id)).filter(Boolean);
-    const hits = people.filter(r => externalConfsOn(date, r.year).length);
+    const hits = people.filter(r => externalConfsOn(date, r.year, r.id).length);
     warn.hidden = !hits.length;
-    warn.textContent = hits.length ? "วันนี้ชั้นปีของ " + hits.map(r => r.name).join(" / ") + " ต้องไปประชุมภายนอก: " +
-      [...new Set(hits.flatMap(r => externalConfsOn(date, r.year).map(x => x.title)))].join(", ") : "";
+    warn.textContent = hits.length ? "วันนี้ " + hits.map(r => r.name).join(" / ") + " ต้องไปประชุมภายนอก: " +
+      [...new Set(hits.flatMap(r => externalConfsOn(date, r.year, r.id).map(x => x.title)))].join(", ") : "";
   };
   sync();
-  ["type", "date", "residentId", "chiefId", "coResidentId"].forEach(n => $('#dlgBody [name="' + n + '"]')?.addEventListener("change", sync));
+  ["type", "date", "residentId", "chiefId"].forEach(n => $('#dlgBody [name="' + n + '"]')?.addEventListener("change", sync));
+  $$('#dlgBody [name="co"]').forEach(el => el.addEventListener("change", sync));
 }
 
 /* กิจกรรมพ่วงของแถวเดียวกัน — สร้างครั้งเดียว (ข้ามถ้าเรคคอร์ดที่อ้างยังอยู่):
    topic + chiefId → chief ได้ "กำกับการนำเสนอ" เมื่อผู้นำเสนอมีกิจกรรมแล้ว (ระบบสร้างให้ ไม่ต้องรอ chief กด)
-   quiz + coResidentId → ผู้จัดร่วมได้ Kahoot quiz อีกชุด · ทั้งคู่ verified:false รออาจารย์รับรอง/ประเมินเหมือนกิจกรรมอื่น */
+   quiz + coResidentIds → ผู้จัดร่วมทุกคนได้ Kahoot quiz คนละชุด · ทุกชุด verified:false รออาจารย์รับรอง/ประเมินเหมือนกิจกรรมอื่น */
 function ensureLinkedTalkActivities(t) {
   if (!t?.activityId || !store.data.activities.some(a => a.id === t.activityId)) return;
   const has = (id) => !!id && store.data.activities.some(a => a.id === id);
@@ -5392,9 +5702,15 @@ function ensureLinkedTalkActivities(t) {
     const a = mk(t.chiefId, "supervise", "กำกับ: " + (t.title || ""), "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter);
     store.data.activities.push(a); t.chiefActivityId = a.id;
   }
-  if (t.type === "quiz" && t.coResidentId && t.coResidentId !== t.residentId && !has(t.coActivityId)) {
-    const a = mk(t.coResidentId, "quiz", t.title || "Kahoot quiz", "สร้างอัตโนมัติจากตารางนำเสนอ — ผู้จัดร่วมกับ " + presenter);
-    store.data.activities.push(a); t.coActivityId = a.id;
+  if (t.type === "quiz") {
+    const ids = Array.isArray(t.coResidentIds) ? t.coResidentIds : [t.coResidentId].filter(Boolean);
+    const acts = coActivityIdsOf(t).slice();
+    ids.forEach((rid, i) => {
+      if (!rid || rid === t.residentId || has(acts[i])) return;
+      const a = mk(rid, "quiz", t.title || "Kahoot quiz", "สร้างอัตโนมัติจากตารางนำเสนอ — ผู้จัดร่วมกับ " + presenter);
+      store.data.activities.push(a); acts[i] = a.id;
+    });
+    t.coActivityIds = acts;
   }
 }
 
@@ -5417,7 +5733,8 @@ function recordFromTalk(id) {
   if (!t.residentId) t.residentId = rid;
   ensureLinkedTalkActivities(t);
   store.save(); renderAll();
-  toast("บันทึกเข้าแฟ้มแล้ว — ยังไม่มีไฟล์สไลด์แนบ" + (t.chiefActivityId ? " · บันทึกการกำกับให้ chief แล้ว" : t.coActivityId ? " · บันทึกให้ผู้จัดร่วมแล้ว" : ""));
+  toast("บันทึกเข้าแฟ้มแล้ว — ยังไม่มีไฟล์สไลด์แนบ" + (t.chiefActivityId ? " · บันทึกการกำกับให้ chief แล้ว"
+    : coActivityIdsOf(t).length ? " · บันทึกให้ผู้จัดร่วมแล้ว" : ""));
 }
 
 /* สถานะเป็นคำ ใช้ทั้ง CSV และรายงานพิมพ์ — ช่องประจำไม่มีสถานะแบบแถวที่ระบุคนแล้ว */
@@ -5430,10 +5747,10 @@ const presentationStatusLabel = (p) =>
 function talkCsvRows() {
   const head = ["วันที่","วัน","เวลาเริ่ม","เวลาสิ้นสุด","รายการ","ประเภท","ผู้นำเสนอ","ชั้นปี","chief ผู้กำกับ / ผู้จัดร่วม","หัวข้อ","Subspecialty","ธีมประจำสัปดาห์","สถานที่","อาจารย์กำกับ","สถานะ"];
   return [head].concat(presentationsInMonth(calMonth).map(p => {
-    const r = store.resident(p.residentId), co = p.kind === "schedule" ? talkPartner(p) : null;
+    const r = store.resident(p.residentId), co = p.kind === "schedule" ? talkPartnerLabel(p) : "";
     const who = p.kind === "info" ? infoChipName(p) : r?.name || "";
     return [p.date, DAY_NAMES[new Date(p.date + "T00:00:00").getDay()], p.start || "", p.end || "", p.slot || "",
-      presTypeOf(p.type).en, who, r?.year || "", co?.name || "", p.title || "",
+      presTypeOf(p.type).en, who, r?.year || "", co, p.title || "",
       SUB_BY_ID[p.subspecialty]?.en || "", new Date(p.date + "T00:00:00").getDay() === thursdayDay() ? thursdayThemeLabel(p.date) : "",
       p.location || "", staffName(p.moderatorId || p.staffId), presentationStatusLabel(p)];
   }));
@@ -5445,12 +5762,12 @@ function printTalks() {
   <div class="card"><table>
     <thead><tr><th>วันที่</th><th>เวลา</th><th>ประเภท</th><th>ผู้นำเสนอ / chief</th><th>หัวข้อ</th><th>อาจารย์กำกับ</th><th>สถานะ</th></tr></thead>
     <tbody>${rows.map(p => {
-      const r = store.resident(p.residentId), co = p.kind === "schedule" ? talkPartner(p) : null;
+      const r = store.resident(p.residentId), co = p.kind === "schedule" ? talkPartnerLabel(p) : "";
       const thu = new Date(p.date + "T00:00:00").getDay() === thursdayDay();
       return `<tr><td>${DAY_SHORT[new Date(p.date + "T00:00:00").getDay()]} ${fmtDate(p.date)}${thu && thursdayThemeLabel(p.date) ? `<br /><span class="small muted">${esc(thursdayThemeLabel(p.date))}</span>` : ""}</td>
         <td>${esc(p.start || "")}${p.end ? "–" + esc(p.end) : ""}</td>
         <td>${esc(presTypeOf(p.type).th)}${p.slot ? `<br /><span class="small muted">${esc(p.slot)}</span>` : ""}</td>
-        <td>${p.kind === "info" ? esc(infoChipName(p)) : esc(r?.name || "—") + (co ? `<br /><span class="small muted">${p.type === "quiz" ? "ผู้จัดร่วม" : "chief"}: ${esc(co.name)}</span>` : "")}</td>
+        <td>${p.kind === "info" ? esc(infoChipName(p)) : esc(r?.name || "—") + (co ? `<br /><span class="small muted">${p.type === "quiz" ? "ผู้จัดร่วม" : "chief"}: ${esc(co)}</span>` : "")}</td>
         <td>${esc(p.title || "")}${p.subspecialty ? `<br /><span class="small muted">${esc(SUB_BY_ID[p.subspecialty]?.en || "")}</span>` : ""}</td>
         <td>${esc(staffName(p.moderatorId || p.staffId))}</td><td class="small">${esc(presentationStatusLabel(p))}</td></tr>`;
     }).join("")}</tbody></table></div>`;
@@ -5609,7 +5926,7 @@ function renderTopicConfTable() {
       return `<tr>
         <td class="small">${fmtDate(iso).replace(/ \d{4}$/, "")}</td>
         <td><select data-tc="${iso}|theme">${themeOptions(iso, row.theme)}</select></td>
-        <td class="small ${row.opening === "lecture" ? "" : "muted"}">${esc(info.openingLabel)}</td>
+        <td class="small ${row.opening ? "" : "muted"}">${esc(dayNote(iso) || info.openingLabel)}</td>
         <td><select data-tc="${iso}|staffId">${opts(staff, row.staffId, "— ยังไม่ได้กำหนด —")}</select></td>
         <td><select data-tc="${iso}|teamServiceId">${opts(teams, row.teamServiceId, "— ยังไม่ได้กำหนด —")}</select></td>
         <td class="small muted">${esc(info.chiefLabel)}</td>
@@ -5647,23 +5964,31 @@ function thursdayDialog(iso) {
     list.map(x => `<option value="${x.id}" ${sel === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("");
   const talks = (store.data.schedule || []).filter(t => t.date === iso && ["topic", "journal", "quiz"].includes(t.type))
     .sort((x, y) => (x.start || "").localeCompare(y.start || ""));
+  const duty = (store.data.duty || []).find(x => x.date === iso);
+  const ev = (store.data.thursdayEvents || []).find(e => e.date === iso);
   const tm = (k) => b[k]?.start ? esc(b[k].start) + "–" + esc(b[k].end || "") : "";
   const body = `
     <div class="grid g2">
       <label class="f"><span>ธีมประจำสัปดาห์</span><select name="theme">${themeOptions(iso, row.theme)}</select></label>
-      <label class="f"><span>ช่วงเปิด ${tm("opening")}</span><select name="opening">
-        <option value="" ${row.opening !== "lecture" ? "selected" : ""}>Interesting Case Conference</option>
-        <option value="lecture" ${row.opening === "lecture" ? "selected" : ""}>Staff Lecture</option></select></label>
+      <label class="f"><span>ช่วงเปิด ${tm("opening")}</span><select name="opening">${OPENING_KINDS.map(k =>
+        `<option value="${k.id === "case" ? "" : k.id}" ${info.opening === k.id ? "selected" : ""}>${esc(k.th)}</option>`).join("")}</select></label>
       <label class="f" data-lecture-only><span>หัวข้อ Staff lecture</span><input name="lectureTitle" value="${esc(row.lectureTitle || "")}" placeholder="เช่น TL spine injuries" /></label>
       <label class="f" data-lecture-only><span>อาจารย์ผู้บรรยาย</span><select name="lectureStaffId">${opts(staff, row.lectureStaffId, "—")}</select></label>
       <label class="f"><span>อาจารย์ผู้นิเทศ</span><select name="staffId">${opts(staff, row.staffId, "— ยังไม่ได้กำหนด —")}</select></label>
       <label class="f"><span>สายที่อยู่เวร (หัวหน้าสาย: ${esc(info.chiefLabel)})</span><select name="teamServiceId">${opts(teams, row.teamServiceId, "— ยังไม่ได้กำหนด —")}</select></label>
+      <label class="f"><span>จำนวนช่อง Topic สัปดาห์นี้</span><select name="topicSlots">
+        <option value="" ${row.topicSlots == null ? "selected" : ""}>ตามปกติ (2 · ช่วงเปิดเป็นหัวข้อ = 3)</option>
+        ${[0, 1, 2, 3].map(n => `<option value="${n}" ${+row.topicSlots === n && row.topicSlots != null ? "selected" : ""}>${n} ช่อง</option>`).join("")}</select></label>
     </div>
+    <label class="tag" style="cursor:pointer;display:inline-flex;gap:.35rem;align-items:center;margin:.2rem 0">
+      <input type="checkbox" name="holiday" ${duty?.holiday ? "checked" : ""} /> วันหยุดราชการ — ตัดคาบประจำและกิจกรรมบังคับของวันนี้ (แถวที่ลงตารางไว้แล้วยังอยู่ ลบเองได้ที่ปฏิทิน)</label>
+    <label class="f" data-holiday-only><span>ชื่อวันหยุด</span><input name="holidayNote" value="${esc(duty?.note || "")}" placeholder="เช่น วันเข้าพรรษา" /></label>
     <h4 style="margin:.6rem 0 .3rem">ช่วง Topic ${tm("topic1")} / ${tm("topic2")} · ช่วงปิด ${tm("closing")}</h4>
-    ${talks.length ? `<ul class="clean small">${talks.map(t => { const r = store.resident(t.residentId), co = talkPartner(t);
-        return `<li><b>${esc(TYPE_BY_ID[t.type]?.icon || "")}</b> ${esc(t.start || "")} ${esc(t.title || "—")} — ${esc(r?.name || "ยังไม่ระบุ")}${co ? " / " + esc(co.name) : ""}</li>`; }).join("")}</ul>`
+    ${talks.length ? `<ul class="clean small">${talks.map(t => { const r = store.resident(t.residentId), co = talkPartnerLabel(t);
+        return `<li><b>${esc(TYPE_BY_ID[t.type]?.icon || "")}</b> ${esc(t.start || "")} ${esc(t.title || "—")} — ${esc(r?.name || "ยังไม่ระบุ")}${co ? " / " + esc(co) : ""}</li>`; }).join("")}</ul>`
       : `<p class="small muted">ยังไม่ได้ลงตาราง Topic/Journal ของวันนี้ — ลงได้จากช่องเปล่าบนปฏิทิน</p>`}
-    ${talks.some(t => t.type === "quiz") ? "" : `<p class="small muted">สัปดาห์นี้ช่วงปิดเป็น Journal club — ถ้าเป็น Kahoot quiz กดปุ่มด้านล่าง (แทนที่ช่อง J)</p>`}`;
+    ${talks.some(t => t.type === "quiz") ? "" : `<p class="small muted">สัปดาห์นี้ช่วงปิดเป็น Journal club — ถ้าเป็น Kahoot quiz กดปุ่มด้านล่าง (แทนที่ช่อง J)</p>`}
+    ${ev ? `<p class="notice small">สัปดาห์นี้เป็นงานเต็มเช้า “${esc(ev.title)}” — แทนทั้ง 4 คาบ</p>` : ""}`;
   showDialog("จัดการเช้าวันพฤหัสฯ " + fmtDate(iso), body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const opening = dlgVal("opening");
@@ -5673,18 +5998,31 @@ function thursdayDialog(iso) {
         r.lectureTitle = opening === "lecture" ? dlgVal("lectureTitle") : "";
         r.lectureStaffId = opening === "lecture" ? dlgVal("lectureStaffId") : "";
         r.staffId = dlgVal("staffId"); r.teamServiceId = dlgVal("teamServiceId");
-        audit("จัดการเช้าวันพฤหัสฯ", fmtDate(iso) + (r.theme ? " · ธีม " + r.theme : "") + (opening === "lecture" ? " · Staff lecture: " + r.lectureTitle : ""));
+        const ts = dlgVal("topicSlots");
+        if (ts === "") delete r.topicSlots; else r.topicSlots = +ts;
+        /* วันหยุดเก็บที่แถวตารางเวรของวันนั้น (ที่เดียวกับที่ทั้งแอปอ่าน) — ติ๊กเฉพาะวันที่ต้องการ ไม่มีรายการวันหยุดกลาง */
+        const dr = dlgChecked("holiday") ? dutyRow(iso) : (store.data.duty || []).find(x => x.date === iso);
+        if (dr) { dr.holiday = dlgChecked("holiday"); dr.note = dlgVal("holidayNote"); }
+        audit("จัดการเช้าวันพฤหัสฯ", fmtDate(iso) + (r.theme ? " · ธีม " + r.theme : "") + (opening === "lecture" ? " · Staff lecture: " + r.lectureTitle : "")
+          + (dr?.holiday ? " · วันหยุด" : ""));
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(talks.some(t => t.type === "quiz") ? [] : [{ label:"ลง Kahoot quiz สัปดาห์นี้", onClick: () => {
         closeDialog();
         editTalk(null, { date: iso, type:"quiz", slot:"Kahoot quiz", start: b.closing?.start, end: b.closing?.end });
         return false;
-      }}])
+      }}]),
+    { label: ev ? "แก้งานเต็มเช้า" : "ลงงานเต็มเช้า (workshop / ประชุมร่วม)", onClick: () => {
+        closeDialog(); editThursdayEvent(iso, ev?.id); return false;
+      }}
   ]);
-  const syncLecture = () => $$("#dlgBody [data-lecture-only]").forEach(el => { el.hidden = dlgVal("opening") !== "lecture"; });
-  syncLecture();
-  $('#dlgBody [name="opening"]')?.addEventListener("change", syncLecture);
+  const syncKinds = () => {
+    $$("#dlgBody [data-lecture-only]").forEach(el => { el.hidden = dlgVal("opening") !== "lecture"; });
+    $$("#dlgBody [data-holiday-only]").forEach(el => { el.hidden = !dlgChecked("holiday"); });
+  };
+  syncKinds();
+  $('#dlgBody [name="opening"]')?.addEventListener("change", syncKinds);
+  $('#dlgBody [name="holiday"]')?.addEventListener("change", syncKinds);
 }
 
 /* --- การประชุมภายนอกที่ชั้นปีหนึ่งต้องไป (externalConfs) — ขึ้นปฏิทินทุกวันในช่วง เป็น info ของชั้นปีนั้น --- */
@@ -5719,11 +6057,17 @@ function editExternalConf(id, preset = {}) {
       <label class="f"><span>วันเริ่ม</span><input type="date" name="start" value="${esc(x?.start || preset.start || todayISO())}" /></label>
       <label class="f"><span>วันสิ้นสุด</span><input type="date" name="end" value="${esc(x?.end || preset.end || x?.start || preset.start || todayISO())}" /></label>
       <label class="f"><span>ชั้นปีที่ต้องไป (คั่นด้วย , · ว่าง = ทุกชั้นปี)</span><input name="years" value="${esc((x?.years || preset.years || []).join(","))}" placeholder="เช่น 4" /></label>
+      <label class="tag" style="cursor:pointer;display:inline-flex;gap:.35rem;align-items:center">
+        <input type="checkbox" name="wholeDay" ${x?.wholeDay ? "checked" : ""} /> กินเวลาทั้งวัน (วันพฤหัสฯ ไม่มี 4 คาบ)</label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty"><option value="">—</option>${SUBSPECIALTIES.filter(s => s.id !== "general").map(s =>
         `<option value="${s.id}" ${(x?.subspecialty || preset.subspecialty) === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>สถานที่</span><input name="location" value="${esc(x?.location || "")}" /></label>
       <label class="f"><span>หมายเหตุ</span><input name="note" value="${esc(x?.note || "")}" /></label>
-    </div>`;
+    </div>
+    <div class="f"><span>ระบุรายคนเพิ่ม (นอกจากชั้นปีข้างบน — ตารางจริงเขียนแบบ “R4 + R3 วิพุธ”)</span>
+      <div class="row" data-field="extres" style="gap:.35rem .7rem">${(store.data.residents || []).map(r =>
+        `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
+          <input type="checkbox" name="ext_res" value="${r.id}" ${(x?.residentIds || []).includes(r.id) ? "checked" : ""} /> ${esc(r.name)}</label>`).join("")}</div></div>`;
   showDialog(x ? "แก้ไขการประชุมภายนอก" : "เพิ่มการประชุมภายนอก", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const title = dlgVal("title"), start = dlgVal("start"), end = dlgVal("end") || start;
@@ -5731,7 +6075,9 @@ function editExternalConf(id, preset = {}) {
         if (!start) return fieldError("start", "กรุณาเลือกวันเริ่ม");
         if (end < start) return fieldError("end", "วันสิ้นสุดต้องไม่ก่อนวันเริ่ม");
         const years = dlgVal("years").split(/[,\s]+/).map(Number).filter(n => n >= 1 && n <= 4);
-        const rec = { title, start, end, years, subspecialty: dlgVal("subspecialty"), location: dlgVal("location"), note: dlgVal("note") };
+        const rec = { title, start, end, years, residentIds: $$('#dlgBody [name="ext_res"]:checked').map(el => el.value),
+                      wholeDay: dlgChecked("wholeDay"), subspecialty: dlgVal("subspecialty"),
+                      location: dlgVal("location"), note: dlgVal("note") };
         if (x) Object.assign(x, rec); else (store.data.externalConfs ||= []).push({ id: uid("ext"), ...rec });
         audit(x ? "แก้การประชุมภายนอก" : "เพิ่มการประชุมภายนอก", title + " " + start + (end !== start ? "–" + end : ""));
         store.save(); renderAll(); toast("บันทึกแล้ว");
@@ -5742,17 +6088,122 @@ function editExternalConf(id, preset = {}) {
 /* กล่องของ chip X บนปฏิทิน — ใครต้องไป ช่วงวัน และ (ผู้จัดหลักสูตร) ปุ่มแก้ไข */
 function externalConfDetailDialog(id) {
   const x = (store.data.externalConfs || []).find(e => e.id === id); if (!x) return;
-  const yrs = (x.years || []).map(Number);
-  const who = yrs.length ? store.data.residents.filter(r => yrs.includes(+r.year)) : store.data.residents;
-  const buttons = canManage() ? [{ label:"แก้ไข", cls:"btn-primary", onClick: () => { closeDialog(); editExternalConf(x.id); return false; } }] : [];
+  const yrs = (x.years || []).map(Number), named = (x.residentIds || []);
+  const who = (yrs.length || named.length)
+    ? store.data.residents.filter(r => yrs.includes(+r.year) || named.includes(r.id))
+    : store.data.residents;
+  const at = x.wholeDay ? attendanceParts(x.id, x.title, x.start) : null;
+  const buttons = (at?.buttons || []).concat(canManage()
+    ? [{ label:"แก้ไข", cls: at ? "" : "btn-primary", onClick: () => { closeDialog(); editExternalConf(x.id); return false; } }] : []);
   showDialog("การประชุมภายนอก", `<div class="kv">
       <dt>งาน</dt><dd><b>${esc(x.title || "—")}</b>${x.subspecialty ? ` <span class="tag b">${esc(SUB_BY_ID[x.subspecialty]?.en || "")}</span>` : ""}</dd>
       <dt>ช่วงวัน</dt><dd>${fmtDate(x.start)}${x.end && x.end !== x.start ? " – " + fmtDate(x.end) : ""}</dd>
-      <dt>ใครต้องไป</dt><dd>${yrs.length ? "แพทย์ประจำบ้าน" + yearsLabel(yrs) + " ทุกคน" : "ทุกชั้นปี"}${who.length ? " (" + who.length + " คน)" : ""}</dd>
+      <dt>ใครต้องไป</dt><dd>${goersLabel({ years: yrs, residentIds: named }) || "ทุกชั้นปี"}${who.length ? " (" + who.length + " คน)" : ""}</dd>
       ${x.location ? `<dt>สถานที่</dt><dd>${esc(x.location)}</dd>` : ""}${x.note ? `<dt>หมายเหตุ</dt><dd>${esc(x.note)}</dd>` : ""}
+      ${at ? at.html : ""}
     </div>
     ${who.length ? `<p class="small">${who.map(r => esc(r.name)).join(" · ")}</p>` : ""}
-    <p class="small muted">การประชุมภายนอกไม่ใช่การนำเสนอ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน ขึ้นปฏิทินให้เห็นว่าวันนั้นชั้นปีนี้ไม่อยู่</p>`, buttons);
+    ${at ? at.list : ""}
+    <p class="small muted">${at ? "งานนี้กินเวลาทั้งวัน — วันพฤหัสฯ นี้ไม่มี 4 คาบ ลงชื่อเข้าร่วมได้ ไม่มีการประเมิน"
+      : "การประชุมภายนอกไม่ใช่การนำเสนอ — ไม่มีผู้นำเสนอ ไม่มีการประเมิน ขึ้นปฏิทินให้เห็นว่าวันนั้นคนกลุ่มนี้ไม่อยู่"}</p>`, buttons);
+}
+
+/* --- งานเต็มเช้าวันพฤหัสฯ ของกลุ่มงาน (thursdayEvents) — workshop และประชุมร่วมต่างภาควิชา ---
+   แทน 4 คาบทั้งหมดของวันนั้น ไม่มีผู้นำเสนอรายคน สิ่งที่แพทย์ประจำบ้านทำได้คือ "ลงชื่อเข้าร่วม"
+   ซึ่งบันทึกเป็นกิจกรรมชนิด attend ในแฟ้มของตัวเอง — นับจำนวนได้ แต่ไม่มีแบบประเมิน */
+const attendanceOf = (eventId) => (store.data.activities || []).filter(a => a.type === "attend" && a.eventId === eventId);
+function toggleAttendance(eventId, title, date) {
+  const me = myResidentId();
+  if (!me) { toast("ลงชื่อเข้าร่วมได้เฉพาะบัญชีที่ผูกกับแพทย์ประจำบ้าน"); return; }
+  const mine = (store.data.activities || []).find(a => a.type === "attend" && a.eventId === eventId && a.residentId === me);
+  if (mine) {
+    store.data.activities = store.data.activities.filter(a => a !== mine);
+    audit("ยกเลิกการลงชื่อเข้าร่วม", title + " · " + fmtDate(date));
+    store.save(); renderAll(); toast("ยกเลิกการลงชื่อแล้ว");
+    return;
+  }
+  store.data.activities.push({ id: uid("act"), residentId: me, type:"attend", subspecialty:"general",
+    title, date, academicYear: academicYear(date), source:"schedule", evidence: null,
+    wfme: (TYPE_BY_ID.attend?.wfme || []).slice(), assessment: null, verified: false, verifiedBy:"",
+    note:"ลงชื่อเข้าร่วมจากปฏิทิน", eventId, createdAt: new Date().toISOString() });
+  audit("ลงชื่อเข้าร่วม", title + " · " + fmtDate(date));
+  store.save(); renderAll(); toast("ลงชื่อเข้าร่วมแล้ว — เข้าแฟ้มสะสมงานของคุณแล้ว (ไม่มีแบบประเมิน)");
+}
+/* ปุ่มลงชื่อ + รายชื่อผู้ลงชื่อ ใช้ร่วมกันระหว่างงานของกลุ่มงานและการประชุมภายนอกที่กินทั้งวัน */
+function attendanceParts(eventId, title, date) {
+  const me = myResidentId(), going = attendanceOf(eventId);
+  const names = going.map(a => store.resident(a.residentId)?.name).filter(Boolean);
+  return {
+    html: `<dt>ลงชื่อเข้าร่วมแล้ว</dt><dd>${going.length ? going.length + " คน" : "ยังไม่มีใครลงชื่อ"}</dd>`,
+    list: names.length ? `<p class="small">${names.map(esc).join(" · ")}</p>` : "",
+    buttons: me ? [{ label: going.some(a => a.residentId === me) ? "ยกเลิกการลงชื่อ" : "ลงชื่อเข้าร่วม",
+                     cls:"btn-primary", onClick: () => toggleAttendance(eventId, title, date) }] : []
+  };
+}
+const eventSessionLines = (ev) => (ev.sessions || []).map(x => x[0] + "-" + x[1] + " " + x[2] + (x[3] ? " — " + x[3] : ""))
+  .concat(ev.parts || []).join("\n");
+function thursdayEventDialog(id) {
+  const ev = (store.data.thursdayEvents || []).find(e => e.id === id); if (!ev) return;
+  const b = thursdayTheme().blocks || {};
+  const at = attendanceParts(ev.id, ev.title, ev.date);
+  const staff = (ev.staffIds || []).map(staffName).filter(Boolean).join(" · ");
+  const buttons = at.buttons.concat(canManage()
+    ? [{ label:"แก้ไข", onClick: () => { closeDialog(); editThursdayEvent(ev.date, ev.id); return false; } }] : []);
+  showDialog(presTypeOf(ev.kind === "workshop" ? "workshop" : "interdept").th, `<div class="kv">
+      <dt>งาน</dt><dd><b>${esc(ev.title || "—")}</b></dd>
+      <dt>วันที่</dt><dd>${fmtDate(ev.date)}${b.opening?.start ? " · " + esc(b.opening.start) + "–" + esc(b.closing?.end || "") + " น." : ""}</dd>
+      ${staff ? `<dt>อาจารย์</dt><dd>${esc(staff)}</dd>` : ""}
+      ${ev.note ? `<dt>หมายเหตุ</dt><dd>${esc(ev.note)}</dd>` : ""}
+      ${at.html}
+    </div>
+    ${(ev.sessions || []).length ? `<ul class="clean small">${ev.sessions.map(x =>
+      `<li><b>${esc(x[0])}–${esc(x[1])}</b> ${esc(x[2])}${x[3] ? " — " + esc(x[3]) : ""}</li>`).join("")}</ul>` : ""}
+    ${(ev.parts || []).length ? `<ul class="clean small">${ev.parts.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${at.list}
+    <p class="small muted">งานนี้แทนกิจกรรมเช้าวันพฤหัสฯ ทั้ง 4 คาบ — ไม่มีผู้นำเสนอรายคน ไม่มีการประเมิน มีแค่การลงชื่อเข้าร่วม</p>`, buttons);
+}
+/* ตัวแก้ของผู้จัดหลักสูตร — ช่วงย่อยพิมพ์บรรทัดละหนึ่งช่วง บรรทัดที่ขึ้นต้นด้วยเวลาจะถูกเก็บเป็น session ที่เหลือเป็นหัวข้อย่อย */
+function editThursdayEvent(iso, id) {
+  if (!canManage()) { toast("การจัดกิจกรรมเช้าวันพฤหัสฯ เป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
+  const ev = id ? (store.data.thursdayEvents || []).find(e => e.id === id) : null;
+  const staff = store.data.staff || [];
+  const body = `
+    <div class="grid g2">
+      <label class="f"><span>วันที่</span><input type="date" name="date" value="${esc(ev?.date || iso)}" /></label>
+      <label class="f"><span>ประเภท</span><select name="kind">
+        <option value="interdept" ${ev?.kind !== "workshop" ? "selected" : ""}>ประชุมร่วมต่างภาควิชา</option>
+        <option value="workshop" ${ev?.kind === "workshop" ? "selected" : ""}>Workshop</option></select></label>
+    </div>
+    <label class="f"><span>ชื่องาน</span><input name="title" value="${esc(ev?.title || "")}" placeholder="เช่น Sport Physical Examination Workshop" /></label>
+    <label class="f"><span>ช่วงย่อย (บรรทัดละหนึ่งบรรทัด · ขึ้นต้นด้วย 09:00-09:30 ถ้ามีเวลา)</span>
+      <textarea name="lines" rows="5">${esc(eventSessionLines(ev || {}))}</textarea></label>
+    <div class="f"><span>อาจารย์ของกลุ่มงานที่ร่วม</span>
+      <div class="row" data-field="evstaff" style="gap:.35rem .7rem">${staff.map(x =>
+        `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
+          <input type="checkbox" name="ev_staff" value="${x.id}" ${(ev?.staffIds || []).includes(x.id) ? "checked" : ""} /> ${esc(x.name)}</label>`).join("")}</div></div>
+    <label class="f"><span>หมายเหตุ (เช่น อาจารย์จากภาควิชาอื่น)</span><input name="note" value="${esc(ev?.note || "")}" /></label>`;
+  showDialog(ev ? "แก้ไขงานเต็มเช้าวันพฤหัสฯ" : "เพิ่มงานเต็มเช้าวันพฤหัสฯ", body, [
+    { label:"บันทึก", cls:"btn-primary", onClick: () => {
+        const title = dlgVal("title"), date = dlgVal("date");
+        if (!title) return fieldError("title", "กรุณาใส่ชื่องาน");
+        if (!date) return fieldError("date", "กรุณาเลือกวันที่");
+        const sessions = [], parts = [];
+        dlgVal("lines").split(/\r?\n/).map(x => x.trim()).filter(Boolean).forEach(line => {
+          const m = line.match(/^(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})\s+(.*)$/);
+          if (!m) { parts.push(line); return; }
+          const [, st, en, rest] = m, cut = rest.split(/\s+[—–-]\s+/);
+          sessions.push([st.replace(".", ":"), en.replace(".", ":"), cut[0].trim(), (cut[1] || "").trim()]);
+        });
+        const rec = { date, kind: dlgVal("kind"), title, sessions, parts,
+                      staffIds: $$('#dlgBody [name="ev_staff"]:checked').map(el => el.value), note: dlgVal("note") };
+        if (ev) Object.assign(ev, rec); else (store.data.thursdayEvents ||= []).push({ id: uid("thev"), ...rec });
+        audit(ev ? "แก้งานเต็มเช้าวันพฤหัสฯ" : "เพิ่มงานเต็มเช้าวันพฤหัสฯ", title + " · " + fmtDate(date));
+        store.save(); renderAll(); toast("บันทึกแล้ว");
+      }},
+    ...(ev ? [{ label:"ลบงานนี้", cls:"btn-danger", onClick: () => {
+        removeWithUndo("ลบงานเต็มเช้าวันพฤหัสฯ แล้ว", [{ list:"thursdayEvents", keep: x => x.id !== ev.id }]);
+      }}] : [])
+  ]);
 }
 
 /* --- ช่วงหมุนเวียน --- */
@@ -6087,10 +6538,11 @@ function renderResidentDetail() {
       <div class="stat"><b>${p.subsDone.size}/${p.subsNeed || "—"}</b><span>อนุสาขาที่ครอบคลุม</span></div>
       <div class="stat"><b>${meanScore}</b><span>คะแนนประเมินเฉลี่ย (เต็ม 5)</span></div>
       <div class="stat"><b>${p.logbook.total}</b><span>เคสผ่าตัดใน logbook</span></div>
-      <div class="stat"><b>${roleCountAll(r.id, "surgeon")}</b><span>เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)</span></div>
+      <div class="stat"><b>${p.logbook.observer.done}</b><span>เคสที่สังเกตการณ์ขึ้นไป (สะสม)</span></div>
     </div>
 
     <h3>ความก้าวหน้าตามเกณฑ์ ปีการศึกษา ${p.ay}</h3>
+    <p class="small muted" style="margin:-.3rem 0 .4rem">แถวกิจกรรมวิชาการนับเฉพาะปีการศึกษานี้ · สามแถวเคสผ่าตัดด้านล่างเป็นยอดสะสมตลอดหลักสูตร (เคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้)</p>
     <div class="tbl-wrap"><table>
       <thead><tr><th>กิจกรรม</th><th>ทำแล้ว</th><th>เกณฑ์</th><th style="min-width:140px">ความก้าวหน้า</th><th>หลักฐาน WFME</th></tr></thead>
       <tbody>${p.lines.map(l => `<tr>
@@ -6098,12 +6550,15 @@ function renderResidentDetail() {
         <td>${barFor(l.pct)}</td>
         <td class="small">${l.type.wfme.map(id => `<span class="tag">${id}</span>`).join(" ")}</td>
       </tr>`).join("")}
-      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (logbook, สะสม)</td><td><b>${p.logbook.surgeon.done}</b></td><td>${p.logbook.surgeon.need || "—"}</td>
         <td>${barFor(p.logbook.surgeon.pct)}</td>
         <td class="small"><span class="tag">2.3</span> <span class="tag">2.6</span> <span class="tag">3.1</span></td></tr>
-      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด (logbook)</td><td><b>${p.logbook.assist.done}</b></td><td>${p.logbook.assist.need || "—"}</td>
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัดขึ้นไป (logbook, สะสม)</td><td><b>${p.logbook.assist.done}</b></td><td>${p.logbook.assist.need || "—"}</td>
         <td>${barFor(p.logbook.assist.pct)}</td>
         <td class="small"><span class="tag">2.6</span> <span class="tag">6.2</span></td></tr>
+      <tr><td>เคสผ่าตัด — ผู้สังเกตการณ์ขึ้นไป (logbook, สะสม)</td><td><b>${p.logbook.observer.done}</b></td><td>${p.logbook.observer.need || "—"}</td>
+        <td>${barFor(p.logbook.observer.pct)}</td>
+        <td class="small"><span class="tag">2.6</span></td></tr>
       </tbody></table></div>
 
     <h3 style="margin-top:1rem">อนุสาขาที่มีผลงานแล้ว</h3>
@@ -6410,7 +6865,9 @@ function rotationsToAssess(month) {
 }
 
 /* งานนำเสนอที่ยังไม่ได้ประเมินหรือยังไม่ได้รับรอง */
-const talksToAssess = () => visibleActivities().filter(a => !a.assessment || !a.verified);
+/* ประเภทที่ไม่มีแบบประเมิน (เช่น การลงชื่อเข้าร่วมประชุม) ไม่เข้าคิวประเมิน — ไม่งั้นคิวจะค้างตลอดกาล */
+const noEvalType = (type) => !!TYPE_BY_ID[type]?.noEval;
+const talksToAssess = () => visibleActivities().filter(a => !noEvalType(a.type) && (!a.assessment || !a.verified));
 
 function renderAssess() {
   if (!$("#assessNav")) return;
@@ -6929,7 +7386,7 @@ function syncSettingsDialog() {
    ===================================================================== */
 const SYNCED_KEYS = ["residents","staff","services","rotations","schedule","sessionPicks","activities",
   "research","cases","epas","epaTargets","epaAssessments","requirements","programme","keywords","users",
-  "duty","swaps","visits","rotationEvals","rotationForm","externalConfs"];
+  "duty","swaps","visits","rotationEvals","rotationForm","externalConfs","thursdayEvents"];
 
 function fullPayload() {
   const out = {};
@@ -6956,7 +7413,7 @@ const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
    โดยไม่บันทึกเป็นรายการที่ชนกันด้วยซ้ำ — เท่ากับข้อมูลที่เครื่องนี้เพิ่งบันทึกหายเงียบ ๆ
    (rotationEvals เคยตกหล่นมาแล้ว มีข้อทดสอบใน sync.test.mjs กันไว้) */
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionPicks",
-  "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals","externalConfs"];
+  "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals","externalConfs","thursdayEvents"];
 /* ก้อนคอนฟิกที่รวมกันทั้งชุด ไม่ใช่รายการที่ merge ทีละตัว — แบบประเมินลงกองอยู่ตรงนี้
    เพราะ merge รายข้อจะทำลายลำดับ และปล่อยให้สองเครื่องเอาข้อของตัวเองมาสลับกัน
    จนได้ฟอร์มที่ไม่มีใครออกแบบ */
@@ -7240,6 +7697,7 @@ function renderConflictList() {
     cases:"เคสผ่าตัด", epas:"หัวข้อ EPA", epaAssessments:"ผลประเมิน EPA", users:"บัญชีผู้ใช้",
     duty:"ตารางเวรรายเดือน", swaps:"การแลกวัน OR", visits:"คำขอไป attend activity",
     rotationEvals:"ผลประเมินลงกอง", rotationForm:"แบบประเมินลงกอง", externalConfs:"การประชุมภายนอก",
+    thursdayEvents:"งานเต็มเช้าวันพฤหัสฯ",
     requirements:"เกณฑ์", epaTargets:"เป้าหมาย EPA", programme:"ข้อมูลหลักสูตร", keywords:"คำสำคัญ" };
   box.innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>เวลา</th><th>ส่วนข้อมูล</th><th>รายการ</th><th>ผลที่ระบบเลือก</th></tr></thead>
@@ -8419,14 +8877,18 @@ function renderSettings() {
     <tbody>
       ${ACTIVITY_TYPES.map(t => `<tr><td>${esc(t.th)}</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|${t.id}" value="${store.data.requirements[y]?.[t.id] ?? 0}" /></td>`).join("")}</tr>`).join("")}
-      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก</td>${years.map(y => `
+      <tr><td>เคสผ่าตัด — ผู้ผ่าตัดหลัก (สะสมตลอดหลักสูตร)</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseSurgeon" value="${store.data.requirements[y]?.caseSurgeon ?? 0}" /></td>`).join("")}</tr>
-      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัด</td>${years.map(y => `
+      <tr><td>เคสผ่าตัด — ผู้ช่วยผ่าตัดขึ้นไป (สะสมตลอดหลักสูตร)</td>${years.map(y => `
         <td><input type="number" min="0" style="width:80px" data-req="${y}|caseAssist" value="${store.data.requirements[y]?.caseAssist ?? 0}" /></td>`).join("")}</tr>
+      <tr><td>เคสผ่าตัด — ผู้สังเกตการณ์ขึ้นไป (สะสมตลอดหลักสูตร)</td>${years.map(y => `
+        <td><input type="number" min="0" style="width:80px" data-req="${y}|caseObserve" value="${store.data.requirements[y]?.caseObserve ?? 0}" /></td>`).join("")}</tr>
       <tr><td>จำนวนอนุสาขาที่ต้องครอบคลุม (สะสม)</td>${years.map(y => `
         <td><input type="number" min="0" max="12" style="width:80px" data-req="${y}|subspecialties" value="${store.data.requirements[y]?.subspecialties ?? 0}" /></td>`).join("")}</tr>
     </tbody></table>
-    <p class="small muted" style="margin-top:.5rem">แก้แล้วบันทึกทันที ตัวเลขจะไปคิดความก้าวหน้าในหน้าอื่นทันที</p>`;
+    <p class="small muted" style="margin-top:.5rem">แก้แล้วบันทึกทันที ตัวเลขจะไปคิดความก้าวหน้าในหน้าอื่นทันที
+      · เคสผ่าตัดสามแถวเป็นยอดสะสมตลอดหลักสูตรตามเกณฑ์ราชวิทยาลัยฯ (ไม่รีเซตทุกปีการศึกษาเหมือนแถวอื่น)
+      และเคสขั้นสูงกว่านับแทนขั้นต่ำกว่าได้เสมอ (ผ่าตัดหลักนับเป็นทั้งผู้ผ่าตัดหลัก ผู้ช่วย และผู้สังเกตการณ์)</p>`;
   $$("#requirementEditor [data-req]").forEach(inp => inp.addEventListener("change", () => {
     const [y, k] = inp.dataset.req.split("|");
     store.data.requirements[y] ||= {};
@@ -8643,6 +9105,8 @@ const dlgVal = (name) => {
   if (el.type === "radio") { const c = $('#dlgBody [name="' + name + '"]:checked'); return c ? c.value.trim() : ""; }
   return el.value.trim();
 };
+/* checkbox: dlgVal คืน value ("on") ไม่ว่าติ๊กหรือไม่ — สถานะติ๊กต้องอ่านจาก .checked */
+const dlgChecked = (name) => !!$('#dlgBody [name="' + name + '"]')?.checked;
 /* ปิดกล่องปัจจุบันก่อนเปิดกล่องใหม่ — showModal ซ้อนกันไม่ได้ */
 const closeDialog = () => $("#dlg")?.close();
 
@@ -8678,7 +9142,9 @@ function openActivity(id, opts = {}) {
       <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
     </div>
     ${evalFirst ? "" : metaBlock}
-    <div data-talkform>${talkEvalFormHtml(a)}</div>
+    <div data-talkform>${noEvalType(a.type)
+      ? `<p class="notice small">${esc(TYPE_BY_ID[a.type]?.th || "")} — เป็นการลงชื่อเข้าร่วม ไม่มีแบบประเมิน อาจารย์รับรองได้เลยว่าเข้าร่วมจริง</p>`
+      : talkEvalFormHtml(a)}</div>
     ${evalFirst ? metaBlock : ""}
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note">${esc(a.note || "")}</textarea></label>
     ${e.fileName ? `<hr /><h4>หลักฐานจากไฟล์</h4>
@@ -8694,7 +9160,7 @@ function openActivity(id, opts = {}) {
   /* การรับรอง = บอกว่างานนี้ผ่านสายตาอาจารย์แล้ว จึงต้องมีผลประเมินอย่างน้อยหนึ่งอย่าง (คะแนนหรือผลโดยรวม)
      ฟอร์มว่างเปล่ารับรองไม่ได้ — ไม่งั้นคิวงานประเมินหายไปโดยไม่มีใครประเมินจริง (ยกเลิกการรับรองไม่ต้องเช็ค) */
   const verify = () => {
-    if (!a.verified) {
+    if (!a.verified && !noEvalType(a.type)) {
       const got = readTalkEval({ ...a });
       if (!got || (!Object.keys(got.scores).length && !got.outcome))
         return fieldError("tvOutcome", "ยังไม่มีผลประเมิน — ให้คะแนนหรือเลือกผลโดยรวมก่อนรับรอง");
@@ -8725,7 +9191,7 @@ function openActivity(id, opts = {}) {
 
   /* ค่าเฉลี่ยสด + ผลโดยรวมที่แนะนำ — เติมให้เฉพาะตอนที่อาจารย์ยังไม่ได้เลือกเอง (แตะช่องผลโดยรวมเมื่อไรเลิกเติม)
      listener ผูกกับกล่องฟอร์มที่ถูกวาดใหม่ทุกครั้ง ไม่ผูกกับ #dlgBody ไม่งั้นค้างข้ามกล่อง */
-  if (canAssess()) {
+  if (canAssess() && !noEvalType(a.type)) {
     const form = $("#dlgBody [data-talkform]"), sel = $('#dlgBody [name="tvOutcome"]');
     let touched = !!a.assessment?.outcome;
     sel?.addEventListener("change", () => { touched = true; });
@@ -9529,7 +9995,7 @@ function residentDashboardHtml(residentId) {
   return `<div class="tiles">
   ${tile(p.overall + "%", "ความก้าวหน้าเทียบเกณฑ์ปี " + ay, vizStatus(p.overall))}
   ${tile(inYear.length, "กิจกรรมในปีการศึกษานี้ (สะสมทั้งหมด " + acts.length + ")")}
-  ${tile(p.logbook.surgeon.done + " / " + (p.logbook.surgeon.need || "—"), "เคสที่เป็นผู้ผ่าตัดหลักปีนี้",
+  ${tile(p.logbook.surgeon.done + " / " + (p.logbook.surgeon.need || "—"), "เคสที่เป็นผู้ผ่าตัดหลัก (สะสม)",
          p.logbook.surgeon.need ? vizStatus(p.logbook.surgeon.pct) : VIZ.ink)}
   ${tile(p.subsDone.size + " / " + (p.subsNeed || subs.length), "อนุสาขาที่มีผลงานแล้ว",
          p.subsNeed ? vizStatus(p.subsPct) : VIZ.ink)}
@@ -9543,12 +10009,14 @@ function residentDashboardHtml(residentId) {
     <div class="sub" style="margin-bottom:8px">ขีดดำท้ายแถบคือเกณฑ์ของชั้นปี ${r.year}
       · <span style="color:${VIZ.ok}">เขียว = ถึงแล้ว</span>
       · <span style="color:${VIZ.warn}">เหลือง = เกินครึ่งทาง</span>
-      · <span style="color:${VIZ.bad}">แดง = ยังไม่ถึงครึ่ง</span></div>
+      · <span style="color:${VIZ.bad}">แดง = ยังไม่ถึงครึ่ง</span>
+      · เคสผ่าตัดสามแถวล่างเป็นยอดสะสมตลอดหลักสูตร ไม่รีเซตรายปี</div>
     <table><tbody>
       ${p.lines.map(l => barRow(TYPE_BY_ID[l.type.id]?.th || l.type.id, l.done, l.need, BW)).join("")}
-      <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน</td></tr>
+      <tr><td class="grp" colspan="3">เคสผ่าตัดและการประเมิน (สะสมตลอดหลักสูตร)</td></tr>
       ${barRow("เคสที่เป็นผู้ผ่าตัดหลัก", p.logbook.surgeon.done, p.logbook.surgeon.need, BW)}
-      ${barRow("เคสที่เป็นผู้ช่วยผ่าตัด", p.logbook.assist.done, p.logbook.assist.need, BW)}
+      ${barRow("เคสที่เป็นผู้ช่วยผ่าตัดขึ้นไป", p.logbook.assist.done, p.logbook.assist.need, BW)}
+      ${barRow("เคสที่สังเกตการณ์ขึ้นไป", p.logbook.observer.done, p.logbook.observer.need, BW)}
       ${barRow("ความครอบคลุมอนุสาขา", p.subsDone.size, p.subsNeed, BW)}
     </tbody></table>
   </div>
@@ -9891,14 +10359,17 @@ function dashboardPptxSlides() {
                  color: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : hex(VIZ.ok),
                  labelColor: behindTarget ? hex(VIZ.bad) : behindPeers ? hex(VIZ.warn) : "12181F", labelBold: behindTarget }; })];
     });
-    const needOf = (yr) => +(store.data.requirements?.[yr]?.[key === "surgeon" ? "caseSurgeon" : "caseAssist"] || 0);
+    /* เคสผ่าตัดเป็นเกณฑ์สะสมตลอดหลักสูตร (progressFor นับแบบเคสขั้นสูงกว่าแทนขั้นต่ำกว่าได้แล้ว) ไม่ใช่โควตาต่อปี */
+    const REQ_KEY = { surgeon:"caseSurgeon", assist:"caseAssist", observer:"caseObserve" };
+    const needOf = (yr) => +(store.data.requirements?.[yr]?.[REQ_KEY[key]] || 0);
     const anyTarget = years.some(yr => needOf(yr) > 0);
     const max = Math.max(1, ...rows.map(x => Math.max(x.p.logbook[key].done, x.p.logbook[key].need)));
-    return pptxPersonPages(title, "ปีการศึกษา " + ay + " · ขีดดำ = เกณฑ์ของชั้นปี" + (anyTarget ? "" : " (ยังไม่ตั้ง — ใส่ได้ที่หน้าตั้งค่า › เกณฑ์)") + " · แดง ต่ำกว่าเกณฑ์ · ส้ม ต่ำกว่ามัธยฐานของรุ่น",
-      groups, foot, max, { yearNote: (yr) => needOf(yr) ? "เกณฑ์ " + needOf(yr) + " เคส" : "ยังไม่ตั้งเกณฑ์" });
+    return pptxPersonPages(title, "สะสมตลอดหลักสูตร ณ ปีการศึกษา " + ay + " · ขีดดำ = เกณฑ์สะสมของชั้นปี" + (anyTarget ? "" : " (ยังไม่ตั้ง — ใส่ได้ที่หน้าตั้งค่า › เกณฑ์)") + " · แดง ต่ำกว่าเกณฑ์ · ส้ม ต่ำกว่ามัธยฐานของรุ่น",
+      groups, foot, max, { yearNote: (yr) => needOf(yr) ? "เกณฑ์สะสม " + needOf(yr) + " เคส" : "ยังไม่ตั้งเกณฑ์" });
   };
-  slides.push(...logbookPages("surgeon", "Logbook รายคน — ผู้ผ่าตัดหลัก"));
-  slides.push(...logbookPages("assist", "Logbook รายคน — ผู้ช่วยผ่าตัด"));
+  slides.push(...logbookPages("surgeon", "Logbook รายคน — ผู้ผ่าตัดหลัก (สะสม)"));
+  slides.push(...logbookPages("assist", "Logbook รายคน — ผู้ช่วยผ่าตัดขึ้นไป (สะสม)"));
+  slides.push(...logbookPages("observer", "Logbook รายคน — ผู้สังเกตการณ์ขึ้นไป (สะสม)"));
   /* 5 เคสตามอนุสาขา: แถบเข้ม = ผู้ผ่าตัดหลัก · แถบอ่อนต่อท้าย = ผู้ช่วย */
   const visibleIds = new Set(list.map(r => r.id));
   const roleIn = (c, roles) => (c.participants || []).some(p => visibleIds.has(p.residentId) && roles.includes(p.role));
@@ -10463,10 +10934,27 @@ function init() {
     const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
     const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
     if (!store.data.residents.length) { toast("ยังไม่มีรายชื่อแพทย์ประจำบ้าน"); return; }
-    if (!(await confirmDialog("สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
-                 "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
-                 { title: "สร้างแผนอัตโนมัติ", okLabel: "สร้างแผน" }))) return;
-    const plan = buildRotationPlan(ay, store.data.residents, store.data.services, store.data.staff);
+    /* ปีที่มีตารางจริงของกลุ่มงาน: ตารางจริงมาก่อนเสมอ ตัวจัดแผนได้จัดแค่คนที่ไม่อยู่ในตารางจริง
+       (เคยกดปุ่มนี้แล้วตารางจริงทั้งปีหายไป จนต้องไปกู้จากประวัติ) */
+    const preset = ROTATION_PRESETS[String(ay)];
+    const mapping = preset ? matchPresetRows(preset, store.data.residents) : {};
+    const mappedIds = new Set(Object.values(mapping).filter(Boolean));
+    const keepPreset = !!preset && mappedIds.size > 0;
+    const todo = keepPreset ? store.data.residents.filter(r => !mappedIds.has(r.id)) : store.data.residents;
+    if (keepPreset && !todo.length) {
+      toast("ทุกคนอยู่ในตารางจริงของกลุ่มงานแล้ว — ไม่มีใครให้จัดเพิ่ม แก้รายช่องได้ที่ตาราง", 7000);
+      return;
+    }
+    if (!(await confirmDialog(keepPreset
+                 ? "ปีการศึกษา " + ay + " มีตารางจริงของกลุ่มงาน — ตัวจัดแผนจะเติมเฉพาะ " + todo.length +
+                   " คนที่ไม่อยู่ในตารางจริง ไม่แตะแถวของตารางจริง\nเลิกทำได้ทันทีหลังสร้าง"
+                 : "สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
+                   "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
+                 { title: "สร้างแผนอัตโนมัติ", okLabel: keepPreset ? "เติมคนที่เหลือ" : "สร้างแผน" }))) return;
+    const plan = buildRotationPlan(ay, todo, store.data.services, store.data.staff);
+    if (keepPreset)
+      plan.rotations = presetRotationsFor(ay, String(ay), mapping, store.data.residents, store.data.services, store.data.staff)
+        .concat(plan.rotations);
     const { prevRotations } = applyRotationPlanForAY(ay, plan.rotations, "generate");
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
     store.save(); renderAll();
@@ -10518,6 +11006,15 @@ function init() {
   });
   $("#tcPrev").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, -1); renderTopicConfTable(); });
   $("#tcNext").addEventListener("click", () => { tcMonth = shiftMonth(tcMonth, 1); renderTopicConfTable(); });
+  /* ลงตารางกิจกรรมจริงของกลุ่มงานซ้ำด้วยมือ — เติมเฉพาะวันที่ยังว่าง ไม่ทับสัปดาห์ที่จัดเองแล้ว */
+  $("#btnThuPreset")?.addEventListener("click", () => {
+    if (!canManage()) { toast("การลงตารางกิจกรรมเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
+    const out = store.applyThursdayPresetOnce(true);
+    store.save(); renderAll();
+    toast(!out || (!out.days && !out.confs) ? "ทุกสัปดาห์ในตารางจริงมีรายการอยู่แล้ว — ไม่มีอะไรต้องเติม"
+      : "ลงตารางจริงเพิ่มให้ " + out.days + " สัปดาห์ · " + out.talks + " รายการ" +
+        (out.missing.length ? " · ข้ามชื่อที่จับคู่ไม่ได้: " + out.missing.join(", ") : ""), 8000);
+  });
   $("#calScopeAll").addEventListener("click", () => { calScope = "all"; renderCalendar(); });
   $("#calScopeMine").addEventListener("click", () => { calScope = "mine"; renderCalendar(); });
   $("#calPrev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });

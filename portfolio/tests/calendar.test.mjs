@@ -69,7 +69,7 @@ export default async function run() {
         const titled = named.filter(b => recOf(b)?.title).every(b => !!b.querySelector(".ttl"));
         const slotChips = chips.filter(b => recOf(b)?.kind === "slot");
         const slotLabelOk = slotChips.length > 0 && slotChips.every(b => b.classList.contains("slot") &&
-          /ยังไม่ระบุผู้นำเสนอ|ไม่มีสไลด์ส่ง/.test(b.querySelector(".nm")?.textContent || ""));
+          /ยังไม่ระบุผู้นำเสนอ|ไม่มีสไลด์ส่ง|ยังไม่ลงตาราง/.test(b.querySelector(".nm")?.textContent || ""));
         const residentIds = new Set(named.map(b => recOf(b).residentId));
 
         /* กดช่องประจำ → กล่องมีปุ่มไปหน้ารับสไลด์ และ admin มีปุ่มลงตารางล่วงหน้า */
@@ -216,8 +216,10 @@ export default async function run() {
       const r = await page.evaluate(async () => {
         const wait = (ms) => new Promise(res => setTimeout(res, ms));
         showView("calendar"); calMonth = "2026-08"; renderCalendar();
-        const badges = [...document.querySelectorAll("#calGrid .gcal-week-sub")].slice(0, 4).map(b => b.textContent);
-        const badgeIsButton = document.querySelector("#calGrid .gcal-week-sub")?.tagName === "BUTTON";
+        const badges = [...document.querySelectorAll("#calGrid .gcal-week-sub:not(.holiday)")].slice(0, 4).map(b => b.textContent);
+        const badgeIsButton = document.querySelector("#calGrid .gcal-week-sub:not(.holiday)")?.tagName === "BUTTON";
+        /* 30 ก.ค. ที่ค้างอยู่หัวตารางเดือน ส.ค. ขึ้นป้ายวันหยุดแทนป้ายธีม */
+        const holidayBadge = document.querySelector("#calGrid .gcal-week-sub.holiday")?.textContent || "";
         const seq = (d) => presentationsForDate(d).filter(p => p.kind !== "activity").map(p => p.kind + ":" + p.type);
         const aug6 = seq("2026-08-06"), aug13 = seq("2026-08-13");
         const t6 = presentationsForDate("2026-08-06").filter(p => p.type === "topic");
@@ -250,7 +252,8 @@ export default async function run() {
           store.load();
         }
         const quizActs = quiz ? { host: store.data.activities.some(a => a.id === quiz.activityId && a.type === "quiz"),
-                                  co: store.data.activities.some(a => a.id === quiz.coActivityId && a.type === "quiz" && a.residentId === quiz.coResidentId) } : null;
+                                  co: (quiz.coResidentIds || []).length > 0 && (quiz.coResidentIds || []).every((rid, i) =>
+                                    store.data.activities.some(a => a.id === (quiz.coActivityIds || [])[i] && a.type === "quiz" && a.residentId === rid)) } : null;
         /* กล่องจัดการวันพฤหัสฯ: เปลี่ยนช่วงเปิดเป็น Staff lecture */
         thursdayDialog("2026-08-06"); await wait(50);
         const dlgTitle = document.querySelector("#dlgTitle").textContent;
@@ -279,7 +282,7 @@ export default async function run() {
         showView("coverage"); await wait(50);
         const covText = document.querySelector("#view-coverage")?.textContent || "";
         return { badges, badgeIsButton, aug6, aug13, chiefNames, chip6, quizChip, lectureChip, ext, noExt19, note, emptyThu, sup, quizActs,
-                 dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
+                 holidayBadge, dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
                  covHasQuiz: covText.includes("Kahoot quiz"), covHasSup: covText.includes("กำกับการนำเสนอ") };
       });
       t.eq("ป้ายธีม 4 สัปดาห์ของ ส.ค. 2569 ตรงตารางจริง (Trauma → Spine → Metabolic bone → Shoulder & Sports)", r.badges, ["Trauma", "Spine", "Metabolic bone", "Shoulder & Sports"]);
@@ -299,10 +302,109 @@ export default async function run() {
       t.check("Kahoot quiz: ผู้จัดทั้งสองคนมีกิจกรรมประเภท quiz คนละชุด", !!r.quizActs && r.quizActs.host && r.quizActs.co, JSON.stringify(r.quizActs));
       t.check("กล่องจัดการวันพฤหัสฯ: เลือก Staff lecture แล้วช่องหัวข้อ/อาจารย์โผล่ บันทึกแล้ว chip C กลายเป็น L",
         r.dlgTitle.startsWith("จัดการเช้าวันพฤหัสฯ") && r.lectureFieldsShown && r.after6?.type === "lecture" && r.after6?.title === "Pelvic ring injuries", JSON.stringify([r.dlgTitle, r.after6]));
+      t.check("วันพฤหัสฯ ที่เป็นวันหยุดขึ้นป้ายวันหยุดแทนป้ายธีม", /วันเข้าพรรษา/.test(r.holidayBadge), r.holidayBadge);
       t.check("ธีมกำหนดทับรายสัปดาห์ได้ และกลับมาวนตามรอบเมื่อล้าง", r.themeOverride === "Hand" && r.themeAuto === "Trauma", r.themeOverride + "/" + r.themeAuto);
-      t.check("กล่องการประชุมภายนอก: มี 2 รายการสาธิต เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง", r.extRows === 2 && r.addedShown, r.extRows + " " + r.addedShown);
+      t.check("กล่องการประชุมภายนอก: มี 4 รายการจากตารางจริง (Regional Hand · THOFAS · KOKU · RCOST) เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง",
+        r.extRows === 4 && r.addedShown, r.extRows + " " + r.addedShown);
       t.check("ประเภทใหม่ Kahoot quiz / กำกับการนำเสนอ โผล่ในหน้าความครอบคลุม", r.covHasQuiz && r.covHasSup);
       t.check("เช้าวันพฤหัสฯ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- ตารางกิจกรรมจริง ก.ค.–ต.ค. 2569: คาบแรก 4 แบบ · จำนวนหัวข้อไม่คงที่ · quiz หลายผู้จัด ·
+                  งานเต็มเช้า · วันหยุดเฉพาะวัน · ลงชื่อเข้าร่วม ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        const wait = (ms) => new Promise(res => setTimeout(res, ms));
+        const at = (iso) => presentationsForDate(iso);
+        const sig = (iso) => at(iso).map(p => p.kind + "/" + p.type).join(" ");
+        /* 16 ก.ค. คาบแรกเป็นหัวข้อของ resident → มี topic 3 ช่อง และ quiz มีผู้จัดสามคน */
+        const jul16 = at("2026-07-16");
+        const quiz16 = jul16.find(p => p.type === "quiz");
+        const hosts16 = [quiz16?.residentId, ...(quiz16?.coResidentIds || [])].filter(Boolean).length;
+        const jul16Topics = jul16.filter(p => p.type === "topic").map(p => p.start);
+        const noOpeningInfo = !jul16.some(p => p.kind === "info" && ["caseconf", "lecture", "pedconf"].includes(p.type));
+        /* 23 ก.ค. คาบแรกเป็น Pediatric inter-hospital conference */
+        const ped = at("2026-07-23").find(p => p.kind === "info" && p.type === "pedconf");
+        /* 1 ต.ค. ไม่มีหัวข้อ เหลือ case conference + ช่อง Journal */
+        const oct1 = sig("2026-10-01");
+        /* 30 ก.ค. วันหยุด → ไม่มีอะไรเลย */
+        const jul30 = at("2026-07-30").length, jul30Note = dayNote("2026-07-30");
+        /* 17 ก.ย. KOKU และ 15/29 ต.ค. งานของกลุ่มงาน → แทน 4 คาบทั้งหมด */
+        const koku = at("2026-09-17").map(p => p.type);
+        const oct15 = at("2026-10-15").map(p => p.type);
+        const oct29 = at("2026-10-29").find(p => p.type === "interdept");
+        const oct29Sessions = (store.data.thursdayEvents.find(e => e.date === "2026-10-29")?.sessions || []).length;
+        /* ผู้จัด quiz ทุกคนได้กิจกรรม quiz คนละชุดเมื่อผู้จัดหลักบันทึก */
+        const row = store.data.schedule.find(t => t.date === "2026-07-16" && t.type === "quiz");
+        row.activityId = null;
+        recordFromTalk(row.id); await wait(60);
+        const after = store.data.schedule.find(t => t.id === row.id);
+        const quizActs = (after.coResidentIds || []).every((rid, i) =>
+          store.data.activities.some(a => a.id === (after.coActivityIds || [])[i] && a.type === "quiz" && a.residentId === rid));
+        /* ติ๊กวันหยุดจากกล่องจัดการวันพฤหัสฯ (เลือก 1 ต.ค. ที่ยังไม่มีแถวลงตาราง) */
+        thursdayDialog("2026-10-01"); await wait(50);
+        const hol = document.querySelector('#dlgBody [name="holiday"]');
+        hol.checked = true; hol.dispatchEvent(new Event("change"));
+        document.querySelector('#dlgBody [name="holidayNote"]').value = "ทดสอบวันหยุด";
+        document.querySelector("#dlgFoot .btn-primary").click(); await wait(100);
+        const sep3After = at("2026-10-01").length, sep3Note = dayNote("2026-10-01");
+        return { hosts16, jul16Topics, noOpeningInfo, pedOk: !!ped, oct1, jul30, jul30Note,
+                 koku, oct15, oct29: oct29?.title || "", oct29Sessions, quizActs, sep3After, sep3Note };
+      });
+      t.eq("16 ก.ค. คาบแรกเป็นหัวข้อของ resident → มีช่อง Topic สามช่องตั้งแต่ 08:00", r.jul16Topics, ["08:00", "09:00", "10:00"]);
+      t.check("สัปดาห์นั้นไม่มีรายการช่วงเปิดของอาจารย์ซ้อน", r.noOpeningInfo);
+      t.eq("Kahoot quiz 16 ก.ค. มีผู้จัดสามคน", r.hosts16, 3);
+      t.check("ผู้จัดร่วมทุกคนได้กิจกรรม Kahoot quiz คนละชุด", r.quizActs);
+      t.check("23 ก.ค. คาบแรกเป็น Pediatric inter-hospital conference", r.pedOk);
+      t.eq("1 ต.ค. ไม่มีหัวข้อ เหลือ Interesting case + ช่อง Journal", r.oct1, "info/caseconf slot/journal info/interhospital");
+      t.check("30 ก.ค. วันหยุดนักขัตฤกษ์: ไม่มีกิจกรรมเลย และมีป้ายวันหยุด",
+        r.jul30 === 0 && /วันเข้าพรรษา/.test(r.jul30Note), r.jul30 + " " + r.jul30Note);
+      t.eq("17 ก.ย. KOKU 2026 แทนทั้งวัน", r.koku, ["external"]);
+      t.eq("15 ต.ค. Sport PE Workshop แทนทั้งเช้า (บ่ายยังมี Inter-hospital ตามปกติ)", r.oct15, ["workshop", "interhospital"]);
+      t.check("29 ต.ค. ประชุมร่วมต่างภาควิชา มีช่วงย่อยสี่ช่วง",
+        /Ortho-Rehab-Anes/.test(r.oct29) && r.oct29Sessions === 4, r.oct29 + " " + r.oct29Sessions);
+      t.check("ติ๊กวันหยุดในกล่องจัดการวันพฤหัสฯ แล้วกิจกรรมของวันนั้นหายหมด",
+        r.sep3After === 0 && /ทดสอบวันหยุด/.test(r.sep3Note), r.sep3After + " " + r.sep3Note);
+      t.check("ตารางจริงสี่เดือน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- ลงชื่อเข้าร่วมงานเต็มวัน = กิจกรรม attend ที่ไม่มีแบบประเมิน ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "resident");
+      const r = await page.evaluate(async () => {
+        const wait = (ms) => new Promise(res => setTimeout(res, ms));
+        calMonth = "2026-10"; showView("calendar"); renderCalendar();
+        const chip = [...document.querySelectorAll("#calGrid [data-pres]")].find(b => /^info:thev:/.test(b.dataset.pres));
+        if (!chip) return { none: true };
+        chip.click(); await wait(60);
+        const foot = () => [...document.querySelectorAll("#dlgFoot button")].map(b => b.textContent);
+        const first = foot();
+        document.querySelector("#dlgFoot button").click(); await wait(120);
+        const acts = store.data.activities.filter(a => a.type === "attend");
+        openActivity(acts[0].id); await wait(80);
+        const noForm = !document.querySelector("#dlgBody .scale-pick");
+        const note = /ไม่มีแบบประเมิน/.test(document.querySelector("#dlgBody").textContent || "");
+        document.querySelector("#dlg").close();
+        const inQueue = talksToAssess().some(a => a.type === "attend");
+        /* กดซ้ำ = ยกเลิก */
+        chip.click(); await wait(60);
+        const second = foot();
+        document.querySelector("#dlgFoot button").click(); await wait(120);
+        return { first, second, made: acts.length, mine: acts[0]?.residentId === myResidentId(),
+                 noForm, note, inQueue, left: store.data.activities.filter(a => a.type === "attend").length };
+      });
+      if (r.none) t.check("ไม่มีงานเต็มเช้าในเดือนนี้ให้ทดสอบ", false);
+      else {
+        t.check("resident เห็นปุ่มลงชื่อเข้าร่วม", r.first[0] === "ลงชื่อเข้าร่วม", JSON.stringify(r.first));
+        t.check("ลงชื่อแล้วได้กิจกรรม attend ของตัวเองหนึ่งชุด", r.made === 1 && r.mine, r.made + " " + r.mine);
+        t.check("กิจกรรม attend ไม่มีแบบประเมิน และไม่เข้าคิวประเมิน", r.noForm && r.note && !r.inQueue,
+          JSON.stringify([r.noForm, r.note, r.inQueue]));
+        t.check("กดซ้ำแล้วยกเลิกการลงชื่อได้", r.second[0] === "ยกเลิกการลงชื่อ" && r.left === 0, JSON.stringify([r.second, r.left]));
+      }
+      t.check("ลงชื่อเข้าร่วม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
