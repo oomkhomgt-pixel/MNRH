@@ -1447,31 +1447,75 @@ export default async function run() {
       await page.close();
     }
 
-    /* ---------- migrate() เก็บกวาดแถวเก่าที่หลุดไปวันอื่น (ข้อมูลจากรุ่นก่อนที่ยังไม่ตรวจวันที่) ---------- */
+    /* ---------- migrate() เก็บกวาดแถวเก่าที่หลุดไปวันอื่น (ข้อมูลจากรุ่นก่อนที่ยังไม่ตรวจวันที่) — ครั้งเดียว ไม่ใช่ทุกครั้งที่โหลด ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
       const r = await page.evaluate(() => {
         let wed = todayISO(); while (new Date(wed + "T00:00:00").getDay() !== 3) wed = addDaysISO(wed, 1);
-        const actId = uid("act");
-        store.data.activities.push({ id: actId, residentId: store.data.residents[0].id, type:"journal", subspecialty:"trauma",
-          title:"ของเก่าที่หลุดวัน", date: wed, academicYear: academicYear(wed), source:"manual", evidence:null,
-          wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString() });
+        delete store.data.meta.thursdayScheduleCleaned; /* จำลองเครื่องที่ยังไม่เคยกวาดล้างครั้งนี้เลย */
+        const actId = uid("act"), chiefActId = uid("act"), coActId = uid("act");
+        store.data.activities.push(
+          { id: actId, residentId: store.data.residents[0].id, type:"journal", subspecialty:"trauma",
+            title:"ของเก่าที่หลุดวัน", date: wed, academicYear: academicYear(wed), source:"manual", evidence:null,
+            wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString() },
+          { id: chiefActId, residentId: store.data.residents[1].id, type:"supervise", subspecialty:"trauma",
+            title:"กำกับ: ของเก่าที่หลุดวัน", date: wed, academicYear: academicYear(wed), source:"schedule", evidence:null,
+            wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString() },
+          { id: coActId, residentId: store.data.residents[2].id, type:"quiz", subspecialty:"trauma",
+            title:"ของเก่าที่หลุดวัน", date: wed, academicYear: academicYear(wed), source:"schedule", evidence:null,
+            wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString() });
         const badId = uid("talk");
         store.data.schedule.push({ id: badId, date: wed, start:"08:00", end:"09:00", slot:"Journal club", type:"journal",
-          residentId: store.data.residents[0].id, chiefId:"", title:"ของเก่าที่หลุดวัน", subspecialty:"trauma",
-          location:"", moderatorId:"", activityId: actId, note:"" });
+          residentId: store.data.residents[0].id, chiefId: store.data.residents[1].id, coResidentIds:[store.data.residents[2].id],
+          coActivityIds:[coActId], title:"ของเก่าที่หลุดวัน", subspecialty:"trauma",
+          location:"", moderatorId:"", activityId: actId, chiefActivityId: chiefActId, note:"" });
         const a = store.data.activities.find(x => x.id === actId); a.scheduleId = badId;
+        const validCount0 = store.data.schedule.filter(t => ["topic","journal","quiz"].includes(t.type) &&
+          new Date(t.date + "T00:00:00").getDay() === 4).length;
+        const auditBefore = store.data.audit.length;
         const before = { schedRow: !!store.data.schedule.find(x => x.id === badId), actLinked: a.scheduleId === badId };
         store.migrate();
         const after = { schedRow: !!store.data.schedule.find(x => x.id === badId),
                          actStillExists: !!store.data.activities.find(x => x.id === actId),
-                         actUnlinked: !store.data.activities.find(x => x.id === actId)?.scheduleId };
-        return { before, after };
+                         actUnlinked: !store.data.activities.find(x => x.id === actId)?.scheduleId,
+                         chiefUnlinked: !store.data.activities.find(x => x.id === chiefActId)?.scheduleId,
+                         coUnlinked: !store.data.activities.find(x => x.id === coActId)?.scheduleId,
+                         validUntouched: store.data.schedule.filter(t => ["topic","journal","quiz"].includes(t.type) &&
+                           new Date(t.date + "T00:00:00").getDay() === 4).length === validCount0,
+                         auditGrew: store.data.audit.length > auditBefore, notice: store.pendingNotice };
+        /* โหลดใหม่/migrate ซ้ำอีกครั้ง (จำลองรีเฟรชหน้า) ต้องไม่ไปกวาดอะไรเพิ่มอีก เพราะทำครั้งเดียวไปแล้ว */
+        const badId2 = uid("talk");
+        store.data.schedule.push({ id: badId2, date: wed, start:"08:00", end:"09:00", slot:"Journal club", type:"journal",
+          residentId: store.data.residents[0].id, chiefId:"", title:"แถวใหม่หลังกวาดครั้งแรกไปแล้ว", subspecialty:"trauma",
+          location:"", moderatorId:"", activityId: null, note:"" });
+        store.migrate();
+        const secondRunUntouched = !!store.data.schedule.find(x => x.id === badId2);
+        return { before, after, secondRunUntouched };
       });
       t.check("ก่อน migrate: แถวที่หลุดวันมีอยู่จริง และผูกกิจกรรมไว้", r.before.schedRow && r.before.actLinked, JSON.stringify(r.before));
       t.check("migrate() ตัดแถวตารางที่หลุดไปวันอื่นออก", !r.after.schedRow);
-      t.check("กิจกรรมที่เคยผูกไว้ยังอยู่ในแฟ้มเดิม แค่เลิกผูกกับตาราง", r.after.actStillExists && r.after.actUnlinked, JSON.stringify(r.after));
+      t.check("กิจกรรมที่เคยผูกไว้ (ผู้นำเสนอ) ยังอยู่ในแฟ้มเดิม แค่เลิกผูกกับตาราง", r.after.actStillExists && r.after.actUnlinked, JSON.stringify(r.after));
+      t.check("กิจกรรมของ chief ที่กำกับก็เลิกผูกด้วย ไม่ใช่แค่ของผู้นำเสนอ", r.after.chiefUnlinked, JSON.stringify(r.after));
+      t.check("กิจกรรมของผู้จัดร่วม Kahoot ก็เลิกผูกด้วย", r.after.coUnlinked, JSON.stringify(r.after));
+      t.check("แถวที่ถูกต้องอยู่แล้ว (วันพฤหัสฯ) ไม่ถูกแตะ", r.after.validUntouched, JSON.stringify(r.after));
+      t.check("มีบันทึกลง audit และตั้งข้อความแจ้งเมื่อกวาดเจอของจริง", r.after.auditGrew && !!r.after.notice, r.after.notice);
+      t.check("กวาดครั้งเดียวแล้ว โหลด/migrate ซ้ำอีกครั้งไม่ไปแตะแถวอื่นเพิ่ม (ไม่ใช่ทุกครั้งที่โหลด)", r.secondRunUntouched);
       t.check("เก็บกวาดแถวหลุดวัน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- เปลี่ยนวันประชุมประจำสัปดาห์ทีหลัง (thursdayTheme.day) ต้องไม่ไปลบตารางที่มีอยู่แล้วทิ้ง ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const before = store.data.schedule.filter(t => ["topic", "journal", "quiz"].includes(t.type)).length;
+        store.data.programme.thursdayTheme.day = 3; /* ผู้จัดหลักสูตรเปลี่ยนวันประชุมเป็นวันพุธ */
+        store.save(); store.migrate(); /* จำลองรีเฟรชหน้าหลังเปลี่ยนค่า */
+        const after = store.data.schedule.filter(t => ["topic", "journal", "quiz"].includes(t.type)).length;
+        return { before, after };
+      });
+      t.eq("เปลี่ยนวันประชุมประจำสัปดาห์แล้ว รายการหัวข้อ/journal/quiz เดิมยังอยู่ครบ ไม่ถูกลบทิ้ง", r.after, r.before);
+      t.check("เปลี่ยนวันประชุม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 

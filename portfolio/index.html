@@ -2116,16 +2116,27 @@ const store = {
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
-    /* หัวข้อ/Journal club/Kahoot quiz ลงได้เฉพาะวันพฤหัสฯ — แถวเก่าที่หลุดไปวันอื่น (จากตอนที่ยังไม่มีการตรวจวันที่) ตัดออกจากตาราง
-       กิจกรรมที่เคยผูกไว้ (ถ้ามี) ยังอยู่ในแฟ้มของเจ้าของตามเดิม แค่เลิกผูกกับตาราง */
-    (d.schedule || []).filter(t => ["topic", "journal", "quiz"].includes(t.type) &&
-      new Date(t.date + "T00:00:00").getDay() !== thursdayDay()).forEach(t => {
-        if (!t.activityId) return;
-        const a = (d.activities || []).find(x => x.id === t.activityId);
-        if (a) delete a.scheduleId;
+    /* หัวข้อ/Journal club/Kahoot quiz ลงได้เฉพาะวันพฤหัสฯ — แถวเก่าที่หลุดไปวันอื่น (จากตอนที่ยังไม่มีการตรวจวันที่ใน editTalk)
+       ตัดออกจากตารางครั้งเดียว (ธง meta.thursdayScheduleCleaned) เทียบกับวันพฤหัสฯ จริง (เลข 4 ตรงๆ) ไม่ใช่วันประชุมที่ตั้งค่าไว้ตอนนี้
+       เพราะแถวที่ต้องกวาดเป็นของยุคก่อนที่ยังยึดวันพฤหัสฯ เสมอ — ผู้จัดหลักสูตรเปลี่ยนวันประชุมภายหลังจะไม่ไปโดนกวาดซ้ำทุกครั้งที่โหลด
+       กิจกรรมที่เคยผูกไว้ (chief กำกับ / ผู้จัดร่วม Kahoot) ยังอยู่ในแฟ้มของเจ้าของตามเดิม แค่เลิกผูกกับตาราง */
+    if (!d.meta.thursdayScheduleCleaned) {
+      d.meta.thursdayScheduleCleaned = true;
+      const bad = (d.schedule || []).filter(t => ["topic", "journal", "quiz"].includes(t.type) &&
+        new Date(t.date + "T00:00:00").getDay() !== 4);
+      bad.forEach(t => {
+        [t.activityId, t.chiefActivityId, ...coActivityIdsOf(t)].filter(Boolean).forEach(id => {
+          const a = (d.activities || []).find(x => x.id === id);
+          if (a) delete a.scheduleId;
+        });
       });
-    d.schedule = (d.schedule || []).filter(t => !(["topic", "journal", "quiz"].includes(t.type) &&
-      new Date(t.date + "T00:00:00").getDay() !== thursdayDay()));
+      if (bad.length) {
+        d.schedule = (d.schedule || []).filter(t => !bad.includes(t));
+        audit("เก็บกวาดแถวตารางนำเสนอที่หลุดวันพฤหัสฯ", bad.length + " แถว");
+        this.pendingNotice = "พบรายการหัวข้อ/Journal club/Kahoot quiz " + bad.length +
+          " รายการที่ลงวันอื่นนอกจากวันพฤหัสฯ (ข้อมูลจากรุ่นก่อนที่ยังไม่มีการตรวจ) ตัดออกจากตารางนำเสนอแล้ว — กิจกรรมที่เคยผูกไว้ยังอยู่ในแฟ้มของเจ้าของเดิม";
+      }
+    }
     this.applyRotationPresetOnce("2569");
     this.applyThursdayPresetOnce();
   },
