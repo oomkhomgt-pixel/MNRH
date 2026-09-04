@@ -1475,6 +1475,33 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- ชื่อสะกดผิดเก่า "อัฐท์" ที่ค้างอยู่ในข้อมูลเดิม (ก่อนรุ่นที่แก้เป็น "อัทธ์") ถูกกวาดล้างทุกจุดตอน migrate ---------- */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const r = store.data.residents.find(x => x.id === "res_o");
+        r.name = "นพ. อัฐท์"; /* จำลองข้อมูลเก่าก่อนรุ่นที่แก้ชื่อ */
+        const u = store.data.users.find(x => x.residentId === "res_o");
+        if (u) u.displayName = "นพ. อัฐท์";
+        const c = store.data.cases[0];
+        c.createdByName = "นพ. อัฐท์";
+        /* ข้อความฝังลึกในบันทึกกิจกรรม (ไม่ใช่แค่ค่าตรงๆ ของช่องชื่อ) ก็ต้องถูกกวาดด้วย */
+        const a = store.data.activities[0];
+        a.note = "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ นพ. อัฐท์";
+        store.migrate();
+        return { residentName: r.name, userDisplayName: u?.displayName, caseCreatedBy: c.createdByName, activityNote: a.note,
+                 stillHasOld: JSON.stringify(store.data).includes("อัฐท์") };
+      });
+      t.check("ชื่อระเบียนหลักถูกแก้กลับเป็น อัทธ์", r.residentName === "นพ. อัทธ์", r.residentName);
+      t.check("สำเนาชื่อในบัญชีผู้ใช้ถูกแก้ตาม", r.userDisplayName === "นพ. อัทธ์", r.userDisplayName);
+      t.check("สำเนาชื่อในผู้ลงข้อมูลเคสถูกแก้ตาม", r.caseCreatedBy === "นพ. อัทธ์", r.caseCreatedBy);
+      t.check("ชื่อที่ฝังอยู่ในข้อความบันทึกกิจกรรม (ไม่ใช่ค่าตรงๆ ของช่อง) ก็ถูกแก้ด้วย",
+              r.activityNote.includes("นพ. อัทธ์") && !r.activityNote.includes("อัฐท์"), r.activityNote);
+      t.check("ไม่มีคำว่า 'อัฐท์' หลงเหลืออยู่ที่ไหนในข้อมูลทั้งก้อนแล้ว", !r.stillHasOld);
+      t.check("กวาดล้างชื่อสะกดผิดเก่า: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     await srv.close();

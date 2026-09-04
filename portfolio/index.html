@@ -2099,6 +2099,20 @@ const store = {
       const subs = st.subspecialties?.length ? st.subspecialties : [st.subspecialty];
       if (!subs.includes("trauma")) st.subspecialties = [...subs, "trauma"];
     });
+    /* ชื่อแพทย์ประจำบ้าน "อัทธ์" สะกดผิดเป็น "อัฐท์" ในโค้ดรุ่นก่อน — กวาดทุกจุดที่คำนี้ฝังอยู่ในข้อมูลเดิม
+       (ชื่อระเบียนหลัก บัญชีผู้ใช้ ผู้ลงข้อมูลเคส และข้อความบันทึก/ประวัติที่สร้างไว้ตอน seed) คำสะกดนี้เฉพาะเจาะจง
+       พอที่จะแทนที่ได้ทุกที่โดยไม่กระทบข้อความอื่น เช็ค includes ก่อนกันเสียเวลาไล่ทั้งก้อนซ้ำทุกครั้งที่โหลด */
+    if (JSON.stringify(d).includes("อัฐท์")) {
+      const walk = (o) => {
+        if (Array.isArray(o)) { o.forEach(walk); return; }
+        if (!o || typeof o !== "object") return;
+        Object.keys(o).forEach(k => {
+          if (typeof o[k] === "string") o[k] = o[k].replace(/อัฐท์/g, "อัทธ์");
+          else walk(o[k]);
+        });
+      };
+      walk(d);
+    }
     d.programme.documents ||= []; d.programme.outcomes ||= [];
     d.keywords ||= {};
     d.meta ||= { created: new Date().toISOString() };
