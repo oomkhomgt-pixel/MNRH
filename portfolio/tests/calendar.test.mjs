@@ -283,7 +283,7 @@ export default async function run() {
         const covText = document.querySelector("#view-coverage")?.textContent || "";
         return { badges, badgeIsButton, aug6, aug13, chiefNames, chip6, quizChip, lectureChip, ext, noExt19, note, emptyThu, sup, quizActs,
                  holidayBadge, dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
-                 covHasQuiz: covText.includes("Kahoot quiz"), covHasSup: covText.includes("กำกับการนำเสนอ") };
+                 covHasQuiz: covText.includes("Kahoot quiz"), covHasSup: covText.includes("กำกับผู้นำเสนอหัวข้อ") };
       });
       t.eq("ป้ายธีม 4 สัปดาห์ของ ส.ค. 2569 ตรงตารางจริง (Trauma → Spine → Metabolic bone → Shoulder & Sports)", r.badges, ["Trauma", "Spine", "Metabolic bone", "Shoulder & Sports"]);
       t.check("admin: ป้ายธีมกดได้ (เปิดกล่องจัดการวันพฤหัสฯ)", r.badgeIsButton);
@@ -306,7 +306,7 @@ export default async function run() {
       t.check("ธีมกำหนดทับรายสัปดาห์ได้ และกลับมาวนตามรอบเมื่อล้าง", r.themeOverride === "Hand" && r.themeAuto === "Trauma", r.themeOverride + "/" + r.themeAuto);
       t.check("กล่องการประชุมภายนอก: มี 11 รายการจากตารางจริง (Regional Hand · THOFAS · KOKU · RCOST · 7 งานที่แทนช่วงบ่าย Inter-hospital) เพิ่มรายการใหม่ (ปี 2) แล้วขึ้นปฏิทินทุกวันในช่วง",
         r.extRows === 11 && r.addedShown, r.extRows + " " + r.addedShown);
-      t.check("ประเภทใหม่ Kahoot quiz / กำกับการนำเสนอ โผล่ในหน้าความครอบคลุม", r.covHasQuiz && r.covHasSup);
+      t.check("ประเภทใหม่ Kahoot quiz / กำกับผู้นำเสนอหัวข้อ โผล่ในหน้าความครอบคลุม", r.covHasQuiz && r.covHasSup);
       t.check("เช้าวันพฤหัสฯ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
