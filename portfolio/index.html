@@ -1014,10 +1014,12 @@ const ACTIVITY_TYPES = [
   { id:"quiz",       th:"Kahoot quiz", en:"Kahoot quiz", icon:"K",
     desc:"ช่วงปิดเช้าวันพฤหัสฯ แทน Journal club — ผู้จัดตั้งคำถามให้ทั้งกลุ่มตอบ (จัดร่วมกันได้หลายคน)",
     kw:["kahoot","quiz","แบบทดสอบ","ตอบคำถาม"], wfme:["2.3","6.5"] },
-  /* chief ปี 3–4 ที่กำกับผู้นำเสนอ Topic ของสัปดาห์นั้น (อาจารย์กำกับอีกชั้น) — ระบบบันทึกให้เมื่อผู้นำเสนอบันทึกกิจกรรม */
-  { id:"supervise",  th:"กำกับการนำเสนอ (chief)", en:"Supervising a presentation", icon:"S",
-    desc:"chief ที่กำกับผู้นำเสนอ Topic ในสัปดาห์นั้น — บันทึกให้อัตโนมัติเมื่อผู้นำเสนอบันทึกกิจกรรม",
-    kw:["supervising resident","chief supervis","กำกับการนำเสนอ"], wfme:["2.3","6.5"] },
+  /* chief ปี 3–4 ที่กำกับผู้นำเสนอ Topic ของสัปดาห์นั้น (อาจารย์กำกับอีกชั้น) — ระบบบันทึกให้เมื่อผู้นำเสนอบันทึกกิจกรรม
+     ไม่ใช่การเป็นประธาน/ดำเนินรายการของ Topic conference — เป็นการดูแล "คน" ที่นำเสนอ ไม่ใช่ดูแล "ห้องประชุม" */
+  { id:"supervise",  th:"กำกับผู้นำเสนอหัวข้อ (chief)", en:"Supervising a presentation", icon:"S",
+    desc:"chief ปี 3–4 ที่ดูแลผู้นำเสนอ Topic ของสัปดาห์นั้น — ช่วยวางกรอบเนื้อหา ตรวจสไลด์ก่อนวันนำเสนอ และเสริมประเด็นตอนอภิปราย " +
+         "(ไม่ใช่การเป็นประธานหรือดำเนินรายการที่ประชุม) · ระบบบันทึกให้อัตโนมัติเมื่อผู้นำเสนอบันทึกกิจกรรม",
+    kw:["supervising resident","chief supervis","กำกับการนำเสนอ","กำกับผู้นำเสนอ"], wfme:["2.3","6.5"] },
   /* งานประชุม/workshop เต็มวันที่แทนกิจกรรมเช้าวันพฤหัสฯ ทั้งหมด — นับว่าไปมาแล้วเท่านั้น
      ไม่มีผู้นำเสนอรายคน จึงไม่มีแบบประเมิน (noEval) และไม่ถูกนับเป็นส่วนขาด */
   { id:"attend",     th:"เข้าร่วมประชุม/workshop", en:"Conference attendance", icon:"A", noEval:true,
@@ -1564,7 +1566,7 @@ const TALK_EVAL_EXTRA = {
   journal:    { id:"appraisal", th:"การวิจารณ์ระเบียบวิธีวิจัยและความน่าเชื่อถือของงานวิจัย", wfme:["2.2"] },
   research:   { id:"progress",  th:"ความก้าวหน้าเทียบแผน และความเป็นไปได้ของงานในเวลาที่เหลือ", wfme:["2.2","7.1"] },
   quiz:       { id:"questions", th:"คุณภาพของคำถาม (ตรงธีม ครอบคลุม ระดับความยากเหมาะกับทุกชั้นปี) และการอภิปรายเฉลย", wfme:["2.3","6.5"] },
-  supervise:  { id:"guidance",  th:"การกำกับผู้นำเสนอ — ช่วยกำหนดกรอบ ตรวจเนื้อหาก่อนวัน และเสริมประเด็นระหว่างอภิปราย", wfme:["2.3","6.5"] }
+  supervise:  { id:"guidance",  th:"การกำกับผู้นำเสนอหัวข้อ — ช่วยวางกรอบ ตรวจเนื้อหาก่อนวันนำเสนอ และเสริมประเด็นระหว่างอภิปราย", wfme:["2.3","6.5"] }
 };
 const TALK_SCALE = [
   { v:5, th:"ดีมาก — เกินระดับที่คาดหวังของชั้นปี" },
@@ -3443,7 +3445,7 @@ function seedData() {
         assessment: i % 2 === 0 ? demoTalkEval(type, 4, staffBySub(sub, i + 3), date, i + 1) : null,
         verified: i % 2 === 0, verifiedBy: i % 2 === 0 ? staffBySub(sub, i + 3) : "",
         note: type === "quiz" ? "สร้างอัตโนมัติจากตารางนำเสนอ — ผู้จัดร่วมกับ " + presenter.name
-                              : "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter.name,
+                              : "สร้างอัตโนมัติจากตารางนำเสนอ — ทำหน้าที่ chief กำกับผู้นำเสนอหัวข้อของ " + presenter.name,
         scheduleId: row.id, createdAt: date + "T12:00:00"
       };
       activities.push(a);
@@ -5688,7 +5690,7 @@ function presentationDetailDialog(kind, id) {
         const linked = rec.type === "quiz" ? actExists(coActivityIdsOf(rec)[ci]) : actExists(rec.chiefActivityId);
         return esc(c.name) + " (ชั้นปีที่ " + esc(String(c.year || "—")) + ")" + (linked
           ? ` <span class="tag ok">${rec.type === "quiz" ? "บันทึกกิจกรรมแล้ว" : "บันทึกการกำกับแล้ว"}</span>`
-          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับการนำเสนอ” เมื่อผู้นำเสนอบันทึก)</span>` : "");
+          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับผู้นำเสนอหัวข้อ” เมื่อผู้นำเสนอบันทึก)</span>` : "");
       }).join("<br />")}</dd>` : ""}
     <dt>ประเภท</dt><dd>${esc(TYPE_BY_ID[rec.type]?.th || rec.type)}${rec.slot ? " · " + esc(rec.slot) : ""}</dd>
     <dt>หัวข้อ</dt><dd><b>${esc(rec.title || "—")}</b>${rec.subspecialty
@@ -5748,7 +5750,7 @@ function editTalk(id, preset = {}) {
         `<option value="${x.id}" ${curType === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></label>
       <label class="f"><span data-presenter-label>${curType === "quiz" ? "ผู้จัด" : "ผู้นำเสนอ"}</span><select name="residentId">
         <option value="" ${!t?.residentId ? "selected" : ""}>— ยังไม่ระบุ (ให้ผู้ที่ส่งสไลด์เป็นผู้นำเสนอ) —</option>${resOpts(t?.residentId, store.data.residents)}</select></label>
-      <label class="f" data-only-type="topic"><span>chief ผู้กำกับ (ปี 3–4)</span><select name="chiefId">
+      <label class="f" data-only-type="topic"><span>chief ผู้กำกับ (ปี 3–4) <span class="muted">— ดูแลผู้นำเสนอ ไม่ใช่ประธานที่ประชุม</span></span><select name="chiefId">
         <option value="">— ไม่มี —</option>${resOpts(curChief, seniors)}</select></label>
       <div class="f" data-only-type="quiz"><span>ผู้จัดร่วม (ติ๊กได้หลายคน ชั้นปีใดก็ได้)</span>
         <div class="row" data-field="cohosts" style="gap:.35rem .7rem">${store.data.residents.map(x =>
@@ -5819,7 +5821,7 @@ function ensureLinkedTalkActivities(t) {
     assessment: null, verified: false, verifiedBy: "", note, scheduleId: t.id, createdAt: new Date().toISOString()
   });
   if (t.type === "topic" && t.chiefId && t.chiefId !== t.residentId && !has(t.chiefActivityId)) {
-    const a = mk(t.chiefId, "supervise", "กำกับ: " + (t.title || ""), "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter);
+    const a = mk(t.chiefId, "supervise", "กำกับ: " + (t.title || ""), "สร้างอัตโนมัติจากตารางนำเสนอ — ทำหน้าที่ chief กำกับผู้นำเสนอหัวข้อของ " + presenter);
     store.data.activities.push(a); t.chiefActivityId = a.id;
   }
   if (t.type === "quiz") {
