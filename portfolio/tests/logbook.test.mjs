@@ -127,6 +127,22 @@ export default async function run() {
       importCaseList([{ ...queued, icd9:"81.53", icd10:"S72.08" }], "ทดสอบไฟล์", { fromFile: true });
       const q3 = store.data.cases.find(x => x.sourceRef === "q_edit");
       out.afterFile = [q3.icd9, q3.icd10];
+      /* ไฟล์ที่คนแก้เองแล้วนำเข้า ต้องปักธงให้ด้วย ไม่งั้นการดึงคิวรอบถัดไปย้อนรหัสกลับ */
+      const fileCase = store.data.cases.find(x => x.sourceRef === "q_edit");
+      fileCase.icdEdited = false; store.save();
+      importCaseList([{ ...queued, icd9:"81.531", icd10:"S72.081" }], "ทดสอบไฟล์", { fromFile: true });
+      importCaseList([queued], "ทดสอบคิว");
+      const q4 = store.data.cases.find(x => x.sourceRef === "q_edit");
+      out.fileThenQueue = [q4.icd9, q4.icd10];
+
+      /* ไฟล์ CSV ที่แอปนี้ export เอง ต้องนำเข้ากลับได้: จับคู่เคสเดิมได้ ไม่สร้างซ้ำ และอ่านรหัส ICD ที่แก้มาได้ */
+      const before = store.data.cases.length;
+      const csvText = toCsv(caseCsvRows([store.data.cases.find(x => x.sourceRef === "q_edit")]));
+      const edited = csvText.replace("81.531", "81.599");
+      importCaseList(casesFromCsv(edited), "ทดสอบ export กลับเข้า", { fromFile: true });
+      const q5 = store.data.cases.find(x => x.sourceRef === "q_edit");
+      out.roundTrip = { grew: store.data.cases.length - before, icd9: q5.icd9, icd10: q5.icd10 };
+
       store.data.cases = store.data.cases.filter(x => !["q_keep", "q_edit"].includes(x.sourceRef));
       store.save();
       return out;
@@ -139,6 +155,10 @@ export default async function run() {
     t.eq("เคสจากระบบคิวได้รหัสมาเอง แล้วคนแก้ให้ตรงรายการราชวิทยาลัย: ดึงรอบใหม่ไม่ย้อนรหัสกลับ · ไฟล์ที่คนนำเข้าเองยังทับได้",
          [reimport.fromQueue, reimport.afterRepull, reimport.afterFile],
          [["81.52", "S72.09"], ["81.521", "S72.001"], ["81.53", "S72.08"]]);
+    t.eq("แก้รหัสผ่านไฟล์นำเข้าก็นับว่าคนแก้เอง — ดึงคิวรอบถัดไปไม่ย้อนกลับ",
+         reimport.fileThenQueue, ["81.531", "S72.081"]);
+    t.eq("ไฟล์ CSV ที่แอปนี้ export เอง นำเข้ากลับได้: จับคู่เคสเดิม ไม่สร้างเคสซ้ำ และรับรหัสที่แก้มา",
+         [reimport.roundTrip.grew, reimport.roundTrip.icd9, reimport.roundTrip.icd10], [0, "81.599", "S72.081"]);
 
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);

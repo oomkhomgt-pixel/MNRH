@@ -4049,6 +4049,8 @@ function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
       if (rec.icd9 === undefined || keepEdited) delete rec.icd9;
       if (rec.icd10 === undefined || keepEdited) delete rec.icd10;
       Object.assign(old, rec, { id: old.id, participants: keep });
+      /* ไฟล์ที่คนแก้เองแล้วนำเข้ามา ถือเป็นรหัสที่คนยืนยัน เท่ากับแก้ในกล่องเคส — ปักธงกันการดึงคิวรอบหน้าทับกลับ */
+      if (fromFile && (rec.icd9 !== undefined || rec.icd10 !== undefined)) old.icdEdited = true;
       updated++;
     } else {
       rec.participants = autoParticipants(rec);
@@ -4124,7 +4126,7 @@ const CSV_ALIASES = {
   diagnosisText:["diagnosis","diagnosistext","การวินิจฉัย"],
   subspecialty:["subspecialty","อนุสาขา"], primarySurgeonName:["surgeon","primarysurgeon","ศัลยแพทย์","อาจารย์ผู้ผ่าตัด"],
   orRoomName:["room","or","ห้องผ่าตัด"], anesthesiaType:["anesthesia","anaesthesia","ระงับความรู้สึก"],
-  asaClass:["asa"], caseClass:["caseclass","ประเภทเคส"], id:["id","caseid","เลขที่เคส"],
+  asaClass:["asa"], caseClass:["caseclass","ประเภทเคส"], id:["id","caseid","เลขที่เคส","เลขที่เคสในระบบคิว"],
   operativeSide:["side","ข้าง"], estimatedDurationMin:["duration","durationmin","นาที"],
   assistantSurgeonNames:["assistant","assistants","ผู้ช่วย"], age:["age","อายุ"], sex:["sex","เพศ"],
   icd9:["icd9","icd9cm","procedurecode","รหัสหัตถการ"], icd10:["icd10","icd10tm","diagnosiscode","รหัสวินิจฉัย"]
@@ -4132,7 +4134,8 @@ const CSV_ALIASES = {
 function casesFromCsv(text) {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
-  const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/\s|_/g, ""));
+  /* ตัดขีดกลางออกด้วย ไม่งั้นหัวคอลัมน์ของไฟล์ที่แอปนี้ export เอง ("ICD-9" / "ICD-10") จะจับคู่ไม่ติด */
+  const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/[\s_-]/g, ""));
   const col = {};
   Object.entries(CSV_ALIASES).forEach(([field, names]) => {
     const i = head.findIndex(h => names.includes(h));
