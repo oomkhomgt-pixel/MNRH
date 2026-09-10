@@ -8007,6 +8007,19 @@ const rcostMatch = (p, want) => !want ? true
   : want === "yes" ? !!p?.rcost?.done
   : want === "validated" ? !!p?.rcost?.validated : true;
 const rcostTodo = (residentId) => casesOf(residentId).filter(c => rcostMatch(c.participants.find(p => p.residentId === residentId), "todo"));
+/* ตัวกรอง RCOSTLog ยึด "คนเดียว" เสมอ — แพทย์ประจำบ้านคือตัวเอง (ตัวกรองเลือกคนของเขาว่างตลอด)
+   อาจารย์/ผู้จัดหลักสูตรตามคนที่เลือกไว้ ถ้าไม่ได้เลือกจึงเป็นการดูทั้งกลุ่ม */
+const rcostTarget = () => caseFilter.residentId || (isResident() ? myResidentId() : "");
+/* ดูทั้งกลุ่ม: "ลงแล้ว/Validated" = มีคนลงแล้ว · "ยังไม่ได้ลง/รอลง" = ยังไม่มีใครลงเลย
+   สองฝั่งต้องไม่ทับกัน ไม่งั้นเคสเดียวโผล่ทั้งสองตัวกรองและนับซ้ำกับตัวเลขบนหน้า "วันนี้" */
+const rcostMatchCase = (c, want) => {
+  if (!want) return true;
+  const rid = rcostTarget(), ps = c.participants || [];
+  if (rid) return rcostMatch(ps.find(p => p.residentId === rid), want);
+  if (want === "yes" || want === "validated") return ps.some(p => rcostMatch(p, want));
+  const noneDone = ps.length > 0 && !ps.some(p => p.rcost?.done);
+  return want === "todo" ? noneDone && ps.some(p => p.verified) : noneDone;
+};
 /* ค่าที่ RCOSTLog ใช้ — บทบาทของเราสามระดับ → Performing Level ของเขา · เพศเป็นภาษาอังกฤษ · วันที่แบบ "25 February 2026" */
 const RCOST_LEVEL = { surgeon:"Performer", assist1:"Assistant", assist2:"Assistant", observer:"Observer" };
 const rcostSex = (s) => /^(m|male|ชาย)$/i.test(String(s || "").trim()) ? "Male" : /^(f|female|หญิง)$/i.test(String(s || "").trim()) ? "Female" : String(s || "");
@@ -8189,7 +8202,7 @@ function renderCaseTable(cases = store.data.cases || []) {
   const rows = filterCases();
   const shown = rows.slice(0, moreLimit("cases", 30));
   /* ปุ่ม "ลงใน RCOSTLog" มีความหมายต่อคนคนเดียว — แพทย์ประจำบ้านคือตัวเอง · อาจารย์ต้องกรองเลือกคนก่อน */
-  const target = isResident() ? myResidentId() : caseFilter.residentId;
+  const target = rcostTarget();
   const rcostBtn = (c) => {
     const p = target ? (c.participants || []).find(x => x.residentId === target) : null;
     if (!p) return "";
@@ -8231,9 +8244,7 @@ function filterCases() {
     (caseFilter.residentId || !caseFilter.role || c.participants?.some(p => p.role === caseFilter.role)) &&
     (!caseFilter.subspecialty || c.subspecialty === caseFilter.subspecialty) &&
     (!caseFilter.ay || (c.date && academicYear(c.date) === caseFilter.ay)) &&
-    (!caseFilter.rcost || (caseFilter.residentId
-      ? rcostMatch(c.participants?.find(p => p.residentId === caseFilter.residentId), caseFilter.rcost)
-      : (c.participants || []).some(p => rcostMatch(p, caseFilter.rcost)))) &&
+    rcostMatchCase(c, caseFilter.rcost) &&
     (!q || (c.operation + " " + c.diagnosis).toLowerCase().includes(q))
   ).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }

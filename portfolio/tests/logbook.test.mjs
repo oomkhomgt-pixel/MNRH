@@ -112,6 +112,27 @@ export default async function run() {
     t.eq("ตัวกรอง 'ลงแล้ว' และ 'validated แล้ว'", [flt.yes, flt.validated], [["case_rc_done", "case_rc_val"], ["case_rc_val"]]);
     t.check("rcostTodo() นับเท่าตัวกรอง todo (รวมเคสสาธิตของคนนี้)", flt.todoCount === flt.todoAll && flt.todoCount >= 1, flt.todoCount + " vs " + flt.todoAll);
 
+    /* มุมทั้งกลุ่มงานของอาจารย์ (ไม่ได้เลือกคน): "ลงแล้ว" กับ "ยังไม่ได้ลง" ต้องไม่ทับกัน
+       เคสที่คนหนึ่งลงแล้วอีกคนยังไม่ลง ต้องนับเป็น "ลงแล้ว" ไม่ใช่โผล่ทั้งสองฝั่ง */
+    const grp = await page.evaluate(() => {
+      const [a, b] = store.data.residents.filter(x => x.year === 2).slice(0, 2);
+      const mk = (id, ps) => ({ id, date: todayISO(), subspecialty:"trauma", operation:"OP " + id, diagnosis:"DX",
+        complications:[], note:"", hn:"HN", age: 30, sex:"male", participants: ps });
+      store.data.cases.push(
+        mk("case_gr_half", [{ residentId: a.id, role:"surgeon", verified:true, rcost:{ done:true, at: todayISO() } },
+                            { residentId: b.id, role:"assist1", verified:true, rcost:{ done:false, at:"" } }]),
+        mk("case_gr_none", [{ residentId: a.id, role:"surgeon", verified:true, rcost:{ done:false, at:"" } },
+                            { residentId: b.id, role:"assist1", verified:true, rcost:{ done:false, at:"" } }]));
+      const ids = (want) => { caseFilter.residentId = ""; caseFilter.rcost = want;
+        return filterCases().map(c => c.id).filter(x => x.startsWith("case_gr_")).sort(); };
+      const out = { yes: ids("yes"), no: ids("no"), todo: ids("todo") };
+      store.data.cases = store.data.cases.filter(c => !c.id.startsWith("case_gr_"));
+      caseFilter.residentId = ""; caseFilter.rcost = "";
+      return out;
+    });
+    t.eq("ดูทั้งกลุ่ม: เคสที่มีคนลงแล้ว = 'ลงแล้ว' · เคสที่ยังไม่มีใครลง = 'ยังไม่ได้ลง/รอลง' และไม่ทับกัน",
+         [grp.yes, grp.no, grp.todo], [["case_gr_half"], ["case_gr_none"], ["case_gr_none"]]);
+
     /* อาจารย์ติ๊ก Validated ในกล่องแก้ไขเคส → ถือว่าลงแล้วด้วย และบันทึกจริง */
     const val = await page.evaluate(async () => {
       editCaseParticipants("case_rc_todo");
@@ -189,6 +210,26 @@ export default async function run() {
       t.check("กด 'ลง RCOSTLog แล้ว' → เปลี่ยนสถานะ บันทึกวันที่ ลง audit และปิดกล่อง",
               r.after.done && r.after.at === r.today && r.after.auditGrew && r.after.closed, JSON.stringify(r.after));
       t.check("เคสของคนอื่นเปิดกล่องไม่ได้ (สิทธิ์เห็นเฉพาะของตัวเอง)", !r.openOther);
+
+      /* ตัวกรองของแพทย์ประจำบ้านไม่เคยเลือกคน (เห็นแค่ตัวเอง) — ต้องยึดตัวเองเสมอ
+         เคสที่ฉันลงแล้วแต่ผู้ช่วยยังไม่ลง ต้องไม่โผล่ใน "รอลง" ของฉัน ไม่งั้นจะลอกซ้ำลง RCOSTLog */
+      const mine = await page.evaluate(() => {
+        const me = myResidentId();
+        const other = store.data.residents.find(x => x.id !== me).id;
+        store.data.cases.push({ id:"case_rc_shared", date: todayISO(), subspecialty:"trauma", operation:"Shared case",
+          diagnosis:"DX", hn:"9", age: 40, sex:"male", complications:[], note:"",
+          participants:[{ residentId: me, role:"surgeon", verified:true, verifiedBy:"อ.", rcost:{ done:true, at: todayISO() } },
+                        { residentId: other, role:"assist1", verified:true, verifiedBy:"อ.", rcost:{ done:false, at:"" } }] });
+        const ids = (want) => { caseFilter.residentId = ""; caseFilter.rcost = want; return filterCases().map(c => c.id); };
+        const todo = ids("todo"), yes = ids("yes");
+        const todoMatchesTile = todo.length === rcostTodo(me).length;
+        store.data.cases = store.data.cases.filter(c => c.id !== "case_rc_shared");
+        caseFilter.rcost = "";
+        return { inTodo: todo.includes("case_rc_shared"), inYes: yes.includes("case_rc_shared"), todoMatchesTile };
+      });
+      t.check("เคสที่ฉันลงแล้วแต่เพื่อนร่วมเคสยังไม่ลง: ไม่อยู่ใน 'รอลง' ของฉัน แต่อยู่ใน 'ลงแล้ว'",
+              !mine.inTodo && mine.inYes, JSON.stringify(mine));
+      t.check("จำนวนแถวในตัวกรอง 'รอลง' เท่ากับตัวเลขบนหน้าวันนี้", mine.todoMatchesTile);
       t.check("RCOSTLog (resident): ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
