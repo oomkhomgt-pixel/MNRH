@@ -804,6 +804,8 @@ button.gcal-week-sub.holiday:hover{background:#fae4d0}
       <h2>เตรียมปีการศึกษา — สิ่งที่ต้องตั้งให้ครบ</h2>
       <p class="muted small">คำนวณสดจากข้อมูลจริง — ข้อไหนยังไม่ครบ กดปุ่มไปทำได้เลย ตามลำดับบนลงล่าง</p>
       <div id="yearChecklist"></div>
+      <h3 style="margin-top:1rem">วงจรชั้นปีและรุ่น</h3>
+      <div id="yearRollPanel"></div>
     </div>
     <div class="card" data-anchor="บัญชีผู้ใช้" data-fold="set-บัญชีผู้ใช้" data-fold-closed>
       <div class="between"><h2>บัญชีผู้ใช้และสิทธิ์</h2>
@@ -1014,10 +1016,12 @@ const ACTIVITY_TYPES = [
   { id:"quiz",       th:"Kahoot quiz", en:"Kahoot quiz", icon:"K",
     desc:"ช่วงปิดเช้าวันพฤหัสฯ แทน Journal club — ผู้จัดตั้งคำถามให้ทั้งกลุ่มตอบ (จัดร่วมกันได้หลายคน)",
     kw:["kahoot","quiz","แบบทดสอบ","ตอบคำถาม"], wfme:["2.3","6.5"] },
-  /* chief ปี 3–4 ที่กำกับผู้นำเสนอ Topic ของสัปดาห์นั้น (อาจารย์กำกับอีกชั้น) — ระบบบันทึกให้เมื่อผู้นำเสนอบันทึกกิจกรรม */
-  { id:"supervise",  th:"กำกับการนำเสนอ (chief)", en:"Supervising a presentation", icon:"S",
-    desc:"chief ที่กำกับผู้นำเสนอ Topic ในสัปดาห์นั้น — บันทึกให้อัตโนมัติเมื่อผู้นำเสนอบันทึกกิจกรรม",
-    kw:["supervising resident","chief supervis","กำกับการนำเสนอ"], wfme:["2.3","6.5"] },
+  /* chief ปี 3–4 ที่กำกับผู้นำเสนอ Topic ของสัปดาห์นั้น (อาจารย์กำกับอีกชั้น) — ระบบบันทึกให้เมื่อผู้นำเสนอบันทึกกิจกรรม
+     ไม่ใช่การเป็นประธาน/ดำเนินรายการของ Topic conference — เป็นการดูแล "คน" ที่นำเสนอ ไม่ใช่ดูแล "ห้องประชุม" */
+  { id:"supervise",  th:"กำกับผู้นำเสนอหัวข้อ (chief)", en:"Supervising a presentation", icon:"S",
+    desc:"chief ปี 3–4 ที่ดูแลผู้นำเสนอ Topic ของสัปดาห์นั้น — ช่วยวางกรอบเนื้อหา ตรวจสไลด์ก่อนวันนำเสนอ และเสริมประเด็นตอนอภิปราย " +
+         "(ไม่ใช่การเป็นประธานหรือดำเนินรายการที่ประชุม) · ระบบบันทึกให้อัตโนมัติเมื่อผู้นำเสนอบันทึกกิจกรรม",
+    kw:["supervising resident","chief supervis","กำกับการนำเสนอ","กำกับผู้นำเสนอ"], wfme:["2.3","6.5"] },
   /* งานประชุม/workshop เต็มวันที่แทนกิจกรรมเช้าวันพฤหัสฯ ทั้งหมด — นับว่าไปมาแล้วเท่านั้น
      ไม่มีผู้นำเสนอรายคน จึงไม่มีแบบประเมิน (noEval) และไม่ถูกนับเป็นส่วนขาด */
   { id:"attend",     th:"เข้าร่วมประชุม/workshop", en:"Conference attendance", icon:"A", noEval:true,
@@ -1432,7 +1436,7 @@ function applyThursdayPresets(d) {
   const out = { days:0, talks:0, confs:0, events:0, missing:[] };
   const res = (n) => {
     if (!n) return null;
-    const r = findByName(d.residents, n);
+    const r = findByName((d.residents || []).filter(x => x.active !== false), n);
     if (!r) out.missing.push(n);
     return r;
   };
@@ -1564,7 +1568,7 @@ const TALK_EVAL_EXTRA = {
   journal:    { id:"appraisal", th:"การวิจารณ์ระเบียบวิธีวิจัยและความน่าเชื่อถือของงานวิจัย", wfme:["2.2"] },
   research:   { id:"progress",  th:"ความก้าวหน้าเทียบแผน และความเป็นไปได้ของงานในเวลาที่เหลือ", wfme:["2.2","7.1"] },
   quiz:       { id:"questions", th:"คุณภาพของคำถาม (ตรงธีม ครอบคลุม ระดับความยากเหมาะกับทุกชั้นปี) และการอภิปรายเฉลย", wfme:["2.3","6.5"] },
-  supervise:  { id:"guidance",  th:"การกำกับผู้นำเสนอ — ช่วยกำหนดกรอบ ตรวจเนื้อหาก่อนวัน และเสริมประเด็นระหว่างอภิปราย", wfme:["2.3","6.5"] }
+  supervise:  { id:"guidance",  th:"การกำกับผู้นำเสนอหัวข้อ — ช่วยวางกรอบ ตรวจเนื้อหาก่อนวันนำเสนอ และเสริมประเด็นระหว่างอภิปราย", wfme:["2.3","6.5"] }
 };
 const TALK_SCALE = [
   { v:5, th:"ดีมาก — เกินระดับที่คาดหวังของชั้นปี" },
@@ -1948,6 +1952,7 @@ const store = {
       }
     }
     this.data = seedData();
+    this.rollAcademicYearOnce();   /* ข้อมูลสาธิตอธิบายปี 2569 — เปิดครั้งแรกปีหลังจากนั้นต้องเลื่อนชั้นปีให้ตรงก่อนใช้ */
     this.save();
   },
   migrate() {
@@ -1977,6 +1982,12 @@ const store = {
     d.programme.thursdayTheme ||= structuredClone(THURSDAY_THEME_DEFAULT);
     if (!(d.programme.thursdayTheme.cycle || []).length) d.programme.thursdayTheme.cycle = structuredClone(THURSDAY_THEME_DEFAULT.cycle);
     d.programme.thursdayTheme.blocks ||= structuredClone(THURSDAY_THEME_DEFAULT.blocks);
+    /* วงจรชั้นปี: ทุกคนมีธง active · ปีที่เข้า (cohort) ถ้าว่างคำนวณย้อนจากชั้นปีปัจจุบัน เพื่อให้หา "รุ่น" ได้ */
+    d.programme.batchBase ||= BATCH_BASE_DEFAULT;
+    (d.residents || []).forEach(r => {
+      if (r.active == null) r.active = true;
+      if (!r.cohort && r.year) r.cohort = String(+currentAY() - (+r.year - 1));
+    });
     /* การประชุมภายนอกที่ชั้นปีหนึ่งต้องไป (เช่น "20-21 Regional Hand: R4") — ซิงก์ข้ามเครื่องเหมือนตาราง */
     d.externalConfs ||= [];
     /* งานเต็มเช้าวันพฤหัสฯ ของกลุ่มงานเอง (workshop / ประชุมร่วมต่างภาควิชา) — แทน 4 คาบทั้งหมดของวันนั้น */
@@ -2137,6 +2148,7 @@ const store = {
           " รายการที่ลงวันอื่นนอกจากวันพฤหัสฯ (ข้อมูลจากรุ่นก่อนที่ยังไม่มีการตรวจ) ตัดออกจากตารางนำเสนอแล้ว — กิจกรรมที่เคยผูกไว้ยังอยู่ในแฟ้มของเจ้าของเดิม";
       }
     }
+    this.rollAcademicYearOnce();
     this.applyRotationPresetOnce("2569");
     this.applyThursdayPresetOnce();
   },
@@ -2144,6 +2156,61 @@ const store = {
      เปิดเวอร์ชันใหม่มาต้องเห็นตารางจริงเลย ไม่ต้องรอ admin กดปุ่ม · ทำเฉพาะเมื่อจับคู่แถวกับแพทย์ประจำบ้านได้ครบทุกแถวไม่ซ้ำ
      และตารางที่เก็บอยู่ต่างจาก preset · สำรองชุดเดิมไว้ใน rotationPlanBackups เสมอ (กู้คืนได้ที่ "ประวัติแผนอัตโนมัติ")
      · จำไว้ใน meta.rotationPresetApplied[ay] ว่าตรวจแล้ว จะได้ไม่ทับสิ่งที่ผู้ใช้แก้เองภายหลัง */
+  /* เลื่อนชั้นปีอัตโนมัติเมื่อขึ้นปีการศึกษาใหม่ (1 ก.ค.) — ทำครั้งเดียวต่อปี
+     ธง meta.yearRolledAY = ปีการศึกษาที่ทะเบียนชั้นปี "ตรงกับความจริง" แล้ว
+     · เครื่องเก่าที่ยังไม่มีธง: ถือว่าทะเบียนเป็นปัจจุบัน (ตั้งธง ไม่เลื่อน)
+     · ข้อมูลสาธิตตั้งธงไว้ที่ปีของตารางจริง (2569) เปิดครั้งแรกปีถัดไปจึงเลื่อนให้เอง
+     · เปิดแอปข้ามหลายปี → เลื่อนทีละปีจนทัน · ชุดก่อนเลื่อนเก็บที่ meta.lastYearRoll ย้อนกลับได้ที่หน้าตั้งค่า */
+  rollAcademicYearOnce() {
+    const d = this.data; d.meta ||= {};
+    const ay = String(currentAY());
+    if (!d.meta.yearRolledAY) { d.meta.yearRolledAY = ay; return null; }
+    if (+d.meta.yearRolledAY >= +ay) return null;
+    return this.rollAcademicYear(ay, "auto");
+  },
+  /* เลื่อนชั้นปีจนถึงปีการศึกษา toAY (ทีละปี) — ใช้ทั้งอัตโนมัติและปุ่มของผู้จัดหลักสูตร
+     ปี 4 → จบ: active:false · graduatedAY = ปีการศึกษาที่เรียนจบ · ชื่อต่อท้าย "(รุ่น N)" (ตามด้วยบัญชีที่ผูก) */
+  rollAcademicYear(toAY, how) {
+    const d = this.data; d.meta ||= {};
+    const fromAY = String(d.meta.yearRolledAY || currentAY());
+    if (+toAY <= +fromAY) return null;
+    const before = (d.residents || []).map(r => ({ id: r.id, year: r.year, active: r.active !== false, name: r.name, graduatedAY: r.graduatedAY || "" }));
+    let promoted = 0; const graduated = [];
+    for (let y = +fromAY + 1; y <= +toAY; y++) {
+      (d.residents || []).forEach(r => {
+        if (r.active === false) return;
+        if (+r.year >= 4) {
+          r.active = false; r.graduatedAY = String(y - 1);
+          const b = batchOf(r);
+          if (b !== "" && !/\(รุ่น\s*\d+\)\s*$/.test(r.name)) {
+            const newName = r.name.trim() + " (รุ่น " + b + ")";
+            (d.users || []).forEach(u => { if (u.residentId === r.id && u.displayName === r.name) u.displayName = newName; });
+            r.name = newName;
+          }
+          graduated.push(r.name);
+        } else { r.year = +r.year + 1; promoted++; }
+      });
+    }
+    d.meta.yearRolledAY = String(toAY);
+    d.meta.lastYearRoll = { fromAY, toAY: String(toAY), at: new Date().toISOString(), how, before };
+    audit("เลื่อนชั้นปีขึ้นปีการศึกษา " + toAY, (how === "auto" ? "อัตโนมัติ" : "ผู้จัดหลักสูตรสั่ง") + " · เลื่อน " + promoted + " คน · จบ " + graduated.length + " คน");
+    this.pendingNotice = "ขึ้นปีการศึกษา " + toAY + " แล้ว — เลื่อนชั้นปีให้ " + promoted + " คน" +
+      (graduated.length ? " · จบการศึกษา " + graduated.length + " คน (" + graduated.join(", ") + ") เก็บไว้เป็น inactive" : "") +
+      " · ย้อนกลับได้ที่หน้าตั้งค่า › เตรียมปีการศึกษา";
+    return { promoted, graduated, fromAY, toAY: String(toAY) };
+  },
+  undoYearRoll() {
+    const d = this.data, lr = d.meta?.lastYearRoll; if (!lr) return false;
+    lr.before.forEach(b => {
+      const r = (d.residents || []).find(x => x.id === b.id); if (!r) return;
+      (d.users || []).forEach(u => { if (u.residentId === r.id && u.displayName === r.name) u.displayName = b.name; });
+      r.year = b.year; r.active = b.active; r.name = b.name; r.graduatedAY = b.graduatedAY;
+    });
+    d.meta.yearRolledAY = lr.fromAY;
+    delete d.meta.lastYearRoll;
+    audit("ย้อนกลับการเลื่อนชั้นปี", lr.toAY + " → " + lr.fromAY);
+    return true;
+  },
   applyRotationPresetOnce(ay) {
     const d = this.data;
     const preset = ROTATION_PRESETS[ay]; if (!preset) return;
@@ -2242,6 +2309,23 @@ const canEditResidentData = (rid) => isStaff() || (!!rid && rid === myResidentId
 const canAssess = () => isStaff();
 const canManage = () => isAdmin();
 const visibleResidents = () => (store.data.residents || []).filter(r => canSeeResident(r.id));
+/* วงจรชั้นปี: ทุก 1 ก.ค. (ขึ้นปีการศึกษาใหม่) เลื่อนชั้นปี +1 · ปี 4 จบการศึกษา → active:false เก็บไว้วิเคราะห์ พร้อมป้ายรุ่นต่อท้ายชื่อ
+   "รุ่น" = ปีการศึกษาที่เข้า − batchBase · ตั้งจากข้อเท็จจริงของกลุ่มงาน: ปี 4 ของปีการศึกษา 2569 (เข้า 2566) = รุ่น 25 → base 2541
+   หน้าปฏิบัติงาน (ตาราง วันนี้ ตัวเลือกคน แผนหมุนเวียน) ใช้ activeResidents() · หน้าวิเคราะห์ย้อนหลังยังเห็นคนที่จบแล้วผ่าน visibleResidents() */
+const BATCH_BASE_DEFAULT = 2541;
+const isActiveResident = (r) => !!r && r.active !== false;
+const activeResidents = () => (store.data.residents || []).filter(isActiveResident);
+const visibleActiveResidents = () => visibleResidents().filter(isActiveResident);
+const batchBase = () => +(store.data.programme?.batchBase || BATCH_BASE_DEFAULT);
+const entryAYOf = (r) => +r?.cohort || (r?.year ? +currentAY() - (+r.year - 1) : 0);
+const batchOf = (r) => { const e = entryAYOf(r); return e ? e - batchBase() : ""; };
+const batchLabel = (r) => batchOf(r) !== "" ? "รุ่น " + batchOf(r) : "";
+/* รายการคนสำหรับตัวเลือก: คนที่ยังฝึกอบรมอยู่ + คนที่แถวนั้นอ้างถึงอยู่แล้ว (แม้จบไปแล้ว) จะได้ไม่หลุดตอนแก้ของเก่า */
+const residentsPlus = (list, ...ids) => {
+  const out = list.slice();
+  ids.filter(Boolean).forEach(id => { if (!out.some(r => r.id === id)) { const r = store.resident(id); if (r) out.push(r); } });
+  return out;
+};
 const visibleActivities = () => (store.data.activities || []).filter(a => canSeeResident(a.residentId));
 
 function audit(action, detail) {
@@ -2532,7 +2616,7 @@ function isChiefOn(residentId, iso) {
 /* หัวหน้าสาย (ปี 3 หรือปี 4 เมื่อไม่มีปี 3) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา */
 function chiefResidentOfTeam(serviceId, iso) {
   if (!serviceId) return null;
-  return (store.data.residents || []).find(r =>
+  return activeResidents().find(r =>
     rotationOn(r.id, iso)?.serviceId === serviceId && isChiefOn(r.id, iso)) || null;
 }
 /* ข้อมูลผู้นิเทศ + หัวหน้าสายของ Topic conference วันที่ iso — คำนวณสดทุกครั้ง ไม่เก็บชื่อไว้ตรง ๆ
@@ -2889,6 +2973,7 @@ function seedData() {
     { id:"res_s", name:"นพ. ปภพ", nick:"SUB-1", year:4, cohort:"2566", advisor:"", email:"" },
     { id:"res_t", name:"นพ. ฉัตรพงศ์", nick:"SUB-2", year:4, cohort:"2566", advisor:"", email:"" }
   ];
+  residents.forEach(r => { r.active = true; });
 
   /* [ผู้นำเสนอ, ประเภท, อนุสาขา, ชื่อเรื่อง, กี่วันก่อน, คะแนน(ถ้ามี)] */
   const rows = [
@@ -3443,7 +3528,7 @@ function seedData() {
         assessment: i % 2 === 0 ? demoTalkEval(type, 4, staffBySub(sub, i + 3), date, i + 1) : null,
         verified: i % 2 === 0, verifiedBy: i % 2 === 0 ? staffBySub(sub, i + 3) : "",
         note: type === "quiz" ? "สร้างอัตโนมัติจากตารางนำเสนอ — ผู้จัดร่วมกับ " + presenter.name
-                              : "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter.name,
+                              : "สร้างอัตโนมัติจากตารางนำเสนอ — ทำหน้าที่ chief กำกับผู้นำเสนอหัวข้อของ " + presenter.name,
         scheduleId: row.id, createdAt: date + "T12:00:00"
       };
       activities.push(a);
@@ -3526,7 +3611,8 @@ function seedData() {
     orQueue: { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" },
     requirements: structuredClone(DEFAULT_REQUIREMENTS),
     keywords: {},
-    meta: { created:new Date().toISOString(), demo:true }
+    /* yearRolledAY = ปีการศึกษาที่ทะเบียนชั้นปีข้างบนตรงกับความจริง — เปิดครั้งแรกปีถัดไป ระบบเลื่อนชั้นปีให้เอง */
+    meta: { created:new Date().toISOString(), demo:true, yearRolledAY:"2569" }
   };
 }
 
@@ -3753,7 +3839,7 @@ const findByName = (list, n) => {
 function residentByName(name) {
   const c = stripName(name);
   if (c.length < 3) return null;
-  return (store.data.residents || []).find(r => {
+  return activeResidents().find(r => {
     const full = stripName(r.name), nick = stripName(r.nick || "");
     const given = stripName(r.name.split(/\s+/).slice(1).join(""));
     return (full && (c.includes(full) || full.includes(c))) ||
@@ -3765,7 +3851,7 @@ function matchResident(parsed) {
   const strip = stripName;
   const cands = [parsed.meta?.author, parsed.meta?.lastBy, parsed.fileName].filter(Boolean).map(strip);
   let best = null;
-  for (const r of store.data.residents) {
+  for (const r of activeResidents()) {
     const keys = [strip(r.name), strip(r.nick || "")].filter(k => k.length >= 3);
     for (const k of keys) {
       for (const c of cands) {
@@ -3911,7 +3997,7 @@ function autoParticipants(rec) {
 /* ถ้าเดาจากชื่อไม่ได้ ให้เสนอจากตารางหมุนเวียน: ใครอยู่หน่วยที่ตรงกับอนุสาขาของเคสในวันนั้น */
 function suggestAttendees(rec) {
   if (!rec.date) return [];
-  return (store.data.residents || []).map(r => {
+  return activeResidents().map(r => {
     const rot = rotationOn(r.id, rec.date);
     const svc = rot ? serviceById(rot.serviceId) : null;
     if (!svc) return null;
@@ -4128,7 +4214,7 @@ function renderIngestQueue() {
           <label class="f"><span>ผู้นำเสนอ</span>
             <select data-f="residentId" data-k="${key}">
               <option value="">— เลือกแพทย์ประจำบ้าน —</option>
-              ${visibleResidents().map(r => `<option value="${r.id}" ${form.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}
+              ${visibleActiveResidents().map(r => `<option value="${r.id}" ${form.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}
             </select>
           </label>
           <label class="f"><span>ชื่อเรื่อง</span>
@@ -4620,7 +4706,7 @@ function todayForStaff(iso, all) {
 /* --- ผู้จัดหลักสูตร: ภาพรวมของวันนั้น และช่องโหว่ที่ต้องรู้วันนี้ --- */
 function todayForAdmin(iso, all) {
   const out = [];
-  const rs = store.data.residents || [];
+  const rs = activeResidents();
   const withSession = new Set(all.map(x => x.residentId));
   const idle = rs.filter(r => !withSession.has(r.id));
   const noRotation = rs.filter(r => !rotationOn(r.id, iso));
@@ -5086,7 +5172,7 @@ function calMonthNote(ym) {
   const mm = { y: +ym.slice(0, 4), m: +ym.slice(5, 7) - 1 };
   const short = (r) => "R" + (r.year || "?") + " " + String(r.name || "").replace(/^(นพ\.|พญ\.)\s*/, "").replace(/\s*\(.*\)$/, "");
   const groups = [];
-  const inSvc = (pred) => store.data.residents.filter(r => rotationsInMonth(r.id, mm).some(x => pred(serviceById(x.serviceId) || {})))
+  const inSvc = (pred) => activeResidents().filter(r => rotationsInMonth(r.id, mm).some(x => pred(serviceById(x.serviceId) || {})))
     .sort((a, b) => a.year - b.year || a.name.localeCompare(b.name, "th"));
   (store.data.services || []).filter(s => s.external).forEach(s => {
     const ppl = inSvc(x => x.id === s.id);
@@ -5136,7 +5222,7 @@ function renderRotation() {
 
   /* --- ตอนนี้ใครอยู่หน่วยไหน --- */
   const todaySessions = sessionsForDate(today);
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = activeResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const nowCard = $("#nowBoard").closest("[data-fold]"); if (nowCard) nowCard.dataset.foldSum = rs.length ? rs.length + " คน" : "";
   $("#nowBoard").innerHTML = rs.length ? `<div class="grid g2">${rs.map(r => {
     const rot = rotationOn(r.id, today);
@@ -5212,9 +5298,9 @@ function renderMonthGrid() {
   /* ปีที่มีตารางจริงฝังไว้: เรียงแถวตามตารางต้นฉบับ (4.1 … 1.5) และบอกรหัสแถว จะได้เทียบกับกระดาษของกลุ่มงานได้ทันที
      คนที่ไม่อยู่ในตาราง (หรือปีอื่น) เรียงตามชั้นปี/ชื่อเหมือนเดิมต่อท้าย */
   const preset = ROTATION_PRESETS[String(ayView)];
-  const presetMap = preset ? matchPresetRows(preset, store.data.residents) : {};
+  const presetMap = preset ? matchPresetRows(preset, activeResidents()) : {};
   const rowOf = {}; (preset?.rows || []).forEach((pr, i) => { if (presetMap[pr.row]) rowOf[presetMap[pr.row]] = { i, row: pr.row }; });
-  const rs = store.data.residents.slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = activeResidents().slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
   const usedIds = new Set();
   /* ผู้จัดหลักสูตร: ถ้าตารางที่บันทึกไว้ยังไม่ตรงตารางจริง (หรือจับคู่ชื่อไม่ครบ) บอกไว้เหนือตารางพร้อมทางไป — ไม่ต้องเดาว่าทำไมหน้าเว็บไม่เหมือนกระดาษ */
@@ -5236,7 +5322,7 @@ function renderMonthGrid() {
   }
 
   /* ตรวจตารางจริงที่ป้อนไว้ ไม่ใช่แค่แผนที่ระบบสร้าง — จุดที่พลาดคือตอนป้อนตารางด้วยมือ */
-  const ruleWarn = rotationYearWarnings(store.data.rotations, store.data.services, store.data.residents);
+  const ruleWarn = rotationYearWarnings(store.data.rotations, store.data.services, activeResidents());
   const notes = $("#rotationRuleNotes");
   if (notes) notes.innerHTML = ruleWarn.length
     ? `<div class="notice warn small"><b>ตารางที่บันทึกไว้ขัดกติกาชั้นปีของหน่วย</b><br />• ${ruleWarn.map(esc).join("<br />• ")}</div>`
@@ -5273,7 +5359,7 @@ function renderMonthGrid() {
       <tbody>${teamSvcs.map(t => `<tr>
         <th class="who"><span style="color:${serviceInk(t.id)};font-weight:650">${esc(t.name)}</span></th>
         ${months.map(mm => {
-          const people = store.data.residents.filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
+          const people = activeResidents().filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
           const sen = people.filter(r => r.year >= 3).length, jun = people.length - sen;
           /* สัญลักษณ์กำกับด้วย เพื่อให้อ่านออกตอนพิมพ์ขาวดำหรือเมื่อแยกสีไม่ได้ */
           const state = !people.length ? ["bad", "✕", "ไม่มีคนลงสาย"]
@@ -5293,7 +5379,7 @@ function renderMonthGrid() {
 
 function monthCsvRows() {
   const months = ayMonths(ayView || currentAY());
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
   const head = ["แพทย์ประจำบ้าน","ชั้นปี", ...months.map(monthLabel)];
   return [head].concat(rs.map(r => [r.name, r.year, ...months.map(mm =>
     rotationsInMonth(r.id, mm).map(rot => serviceById(rot.serviceId)?.name || "").join(" / "))]));
@@ -5301,7 +5387,7 @@ function monthCsvRows() {
 
 function printMonthGrid() {
   const months = ayMonths(ayView || currentAY());
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
   const html = reportHead("ตารางหมุนเวียนรายเดือน", "ปีการศึกษา " + (ayView || currentAY())) + `
   <div class="card"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
@@ -5374,9 +5460,9 @@ function applyPresetDialog() {
   const months = ayMonths(ay);
   const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
   const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
-  const guess = matchPresetRows(preset, store.data.residents);
+  const guess = matchPresetRows(preset, activeResidents());
   const opts = (pr) => {
-    const rs = store.data.residents.slice().sort((a, b) => (+b.year === +pr.year) - (+a.year === +pr.year) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+    const rs = activeResidents().slice().sort((a, b) => (+b.year === +pr.year) - (+a.year === +pr.year) || b.year - a.year || a.name.localeCompare(b.name, "th"));
     return `<option value="">— ไม่ลงแถวนี้ —</option>` + rs.map(r =>
       `<option value="${r.id}" ${guess[pr.row] === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${esc(String(r.year))})</option>`).join("");
   };
@@ -5635,7 +5721,7 @@ function presentationDetailDialog(kind, id) {
     }
     const ih = morningConference().interHospital || {};
     const yrs = (ih.years || []).map(Number);
-    const who = yrs.length ? store.data.residents.filter(r => yrs.includes(+r.year)) : [];
+    const who = yrs.length ? activeResidents().filter(r => yrs.includes(+r.year)) : [];
     const ihPreset = type === "interhospital" ? INTERHOSPITAL_PRESETS[iso] : null;
     showDialog("กิจกรรมบังคับเข้าทั้งรุ่น", `<div class="kv">
       <dt>รายการ</dt><dd>${esc(presTypeOf(type).th)}</dd>
@@ -5688,7 +5774,7 @@ function presentationDetailDialog(kind, id) {
         const linked = rec.type === "quiz" ? actExists(coActivityIdsOf(rec)[ci]) : actExists(rec.chiefActivityId);
         return esc(c.name) + " (ชั้นปีที่ " + esc(String(c.year || "—")) + ")" + (linked
           ? ` <span class="tag ok">${rec.type === "quiz" ? "บันทึกกิจกรรมแล้ว" : "บันทึกการกำกับแล้ว"}</span>`
-          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับการนำเสนอ” เมื่อผู้นำเสนอบันทึก)</span>` : "");
+          : rec.type === "topic" ? ` <span class="small muted">(ได้กิจกรรม “กำกับผู้นำเสนอหัวข้อ” เมื่อผู้นำเสนอบันทึก)</span>` : "");
       }).join("<br />")}</dd>` : ""}
     <dt>ประเภท</dt><dd>${esc(TYPE_BY_ID[rec.type]?.th || rec.type)}${rec.slot ? " · " + esc(rec.slot) : ""}</dd>
     <dt>หัวข้อ</dt><dd><b>${esc(rec.title || "—")}</b>${rec.subspecialty
@@ -5736,7 +5822,7 @@ function editTalk(id, preset = {}) {
   const curCo = (Array.isArray(t?.coResidentIds) ? t.coResidentIds
     : t?.coResidentId ? [t.coResidentId] : preset.coResidentIds || []).filter(Boolean);
   const checkedCoIds = () => $$('#dlgBody [name="co"]:checked').map(el => el.value);
-  const seniors = store.data.residents.filter(r => +r.year >= 3);
+  const seniors = residentsPlus(activeResidents().filter(r => +r.year >= 3), curChief);
   const resOpts = (sel, list) => list.map(r => `<option value="${r.id}" ${sel === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("");
   const body = `
     <div class="grid g2">
@@ -5747,11 +5833,11 @@ function editTalk(id, preset = {}) {
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.filter(x => x.id !== "supervise").map(x =>
         `<option value="${x.id}" ${curType === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></label>
       <label class="f"><span data-presenter-label>${curType === "quiz" ? "ผู้จัด" : "ผู้นำเสนอ"}</span><select name="residentId">
-        <option value="" ${!t?.residentId ? "selected" : ""}>— ยังไม่ระบุ (ให้ผู้ที่ส่งสไลด์เป็นผู้นำเสนอ) —</option>${resOpts(t?.residentId, store.data.residents)}</select></label>
-      <label class="f" data-only-type="topic"><span>chief ผู้กำกับ (ปี 3–4)</span><select name="chiefId">
+        <option value="" ${!t?.residentId ? "selected" : ""}>— ยังไม่ระบุ (ให้ผู้ที่ส่งสไลด์เป็นผู้นำเสนอ) —</option>${resOpts(t?.residentId, residentsPlus(activeResidents(), t?.residentId))}</select></label>
+      <label class="f" data-only-type="topic"><span>chief ผู้กำกับ (ปี 3–4) <span class="muted">— ดูแลผู้นำเสนอ ไม่ใช่ประธานที่ประชุม</span></span><select name="chiefId">
         <option value="">— ไม่มี —</option>${resOpts(curChief, seniors)}</select></label>
       <div class="f" data-only-type="quiz"><span>ผู้จัดร่วม (ติ๊กได้หลายคน ชั้นปีใดก็ได้)</span>
-        <div class="row" data-field="cohosts" style="gap:.35rem .7rem">${store.data.residents.map(x =>
+        <div class="row" data-field="cohosts" style="gap:.35rem .7rem">${residentsPlus(activeResidents(), ...curCo).map(x =>
           `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
             <input type="checkbox" name="co" value="${x.id}" ${curCo.includes(x.id) ? "checked" : ""} /> ${esc(x.name)}</label>`).join("")}</div></div>
     </div>
@@ -5819,7 +5905,7 @@ function ensureLinkedTalkActivities(t) {
     assessment: null, verified: false, verifiedBy: "", note, scheduleId: t.id, createdAt: new Date().toISOString()
   });
   if (t.type === "topic" && t.chiefId && t.chiefId !== t.residentId && !has(t.chiefActivityId)) {
-    const a = mk(t.chiefId, "supervise", "กำกับ: " + (t.title || ""), "สร้างอัตโนมัติจากตารางนำเสนอ — กำกับการนำเสนอของ " + presenter);
+    const a = mk(t.chiefId, "supervise", "กำกับ: " + (t.title || ""), "สร้างอัตโนมัติจากตารางนำเสนอ — ทำหน้าที่ chief กำกับผู้นำเสนอหัวข้อของ " + presenter);
     store.data.activities.push(a); t.chiefActivityId = a.id;
   }
   if (t.type === "quiz") {
@@ -6185,7 +6271,7 @@ function editExternalConf(id, preset = {}) {
       <label class="f"><span>หมายเหตุ</span><input name="note" value="${esc(x?.note || "")}" /></label>
     </div>
     <div class="f"><span>ระบุรายคนเพิ่ม (นอกจากชั้นปีข้างบน — ตารางจริงเขียนแบบ “R4 + R3 วิพุธ”)</span>
-      <div class="row" data-field="extres" style="gap:.35rem .7rem">${(store.data.residents || []).map(r =>
+      <div class="row" data-field="extres" style="gap:.35rem .7rem">${activeResidents().map(r =>
         `<label class="small" style="display:inline-flex;gap:.3rem;align-items:center">
           <input type="checkbox" name="ext_res" value="${r.id}" ${(x?.residentIds || []).includes(r.id) ? "checked" : ""} /> ${esc(r.name)}</label>`).join("")}</div></div>`;
   showDialog(x ? "แก้ไขการประชุมภายนอก" : "เพิ่มการประชุมภายนอก", body, [
@@ -6210,8 +6296,8 @@ function externalConfDetailDialog(id) {
   const x = (store.data.externalConfs || []).find(e => e.id === id); if (!x) return;
   const yrs = (x.years || []).map(Number), named = (x.residentIds || []);
   const who = (yrs.length || named.length)
-    ? store.data.residents.filter(r => yrs.includes(+r.year) || named.includes(r.id))
-    : store.data.residents;
+    ? activeResidents().filter(r => yrs.includes(+r.year) || named.includes(r.id))
+    : activeResidents();
   const at = x.wholeDay ? attendanceParts(x.id, x.title, x.start) : null;
   const buttons = (at?.buttons || []).concat(canManage()
     ? [{ label:"แก้ไข", cls: at ? "" : "btn-primary", onClick: () => { closeDialog(); editExternalConf(x.id); return false; } }] : []);
@@ -6333,7 +6419,7 @@ function editRotation(id) {
   const body = `
     <div class="grid g2">
       <label class="f"><span>แพทย์ประจำบ้าน</span><select name="residentId">
-        ${store.data.residents.map(r => `<option value="${r.id}" ${rot?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+        ${residentsPlus(activeResidents(), rot?.residentId).map(r => `<option value="${r.id}" ${rot?.residentId === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
       <label class="f"><span>หน่วย (service)</span><select name="serviceId">
         ${rotatableServices().map(x => `<option value="${x.id}" ${rot?.serviceId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
       <label class="f"><span>ยังสังกัดสายนี้ด้วย (ถ้ามี)</span><select name="alsoServiceId"><option value="">— ไม่มี —</option>
@@ -6548,7 +6634,7 @@ function editService(id) {
 
 function printRoster() {
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(mondayOf(todayISO()), i));
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
   const html = reportHead("ตารางหมุนเวียนและเวรประจำสัปดาห์", fmtDate(days[0]) + " – " + fmtDate(days[6])) + `
   <div class="card"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th><th>หน่วย</th>${days.map(iso => `<th>${DAY_SHORT[new Date(iso + "T00:00:00").getDay()]}<br />${fmtDate(iso).replace(/ \d{4}$/, "")}</th>`).join("")}</tr></thead>
@@ -6572,8 +6658,10 @@ let selectedResident = null;
 
 function renderResidents() {
   const list = $("#residentList");
-  const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
-  if (!rs.length) {
+  const all = visibleResidents();
+  const rs = all.filter(isActiveResident).sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const gone = all.filter(r => !isActiveResident(r)).sort((a, b) => String(b.graduatedAY || "").localeCompare(String(a.graduatedAY || "")) || a.name.localeCompare(b.name, "th"));
+  if (!all.length) {
     /* บัญชี resident ที่ไม่ได้ผูกกับใครเห็นหน้าว่าง — ต้องบอกสาเหตุ ไม่ใช่แค่ "ไม่มีสิทธิ์" */
     list.innerHTML = `<p class="empty">${isResident() && !myResidentId()
       ? "บัญชีนี้ยังไม่ได้ผูกกับแพทย์ประจำบ้านคนใด — แจ้งผู้จัดหลักสูตรให้ผูกบัญชีที่หน้าตั้งค่า (บัญชีผู้ใช้และสิทธิ์)"
@@ -6587,7 +6675,7 @@ function renderResidents() {
       const p = progressFor(r), g = gapsFor(r);
       const bad = g.filter(x => x.level === "bad").length;
       return `<tr>
-        <td><b>${esc(r.name)}</b><br /><span class="small muted">${esc(r.nick || "")} · รุ่น ${esc(r.cohort || "—")}</span></td>
+        <td><b>${esc(r.name)}</b><br /><span class="small muted">${esc(r.nick || "")} · ${esc(batchLabel(r) || "รุ่น —")} · เข้า ${esc(r.cohort || "—")}</span></td>
         <td>ปี ${r.year}</td>
         <td class="small">${esc(r.advisor || "—")}</td>
         <td>${barFor(p.overall)}<span class="small muted">${p.overall}% · ${p.inYear} กิจกรรมปีนี้</span></td>
@@ -6598,8 +6686,25 @@ function renderResidents() {
           ${linked.has(r.id) ? "" : `<div style="margin-top:.3rem"><span class="tag warn">ยังไม่มีบัญชี</span>
             <button class="btn-sm no-print" data-mkuser="${r.id}" data-perm="admin">สร้างบัญชี</button></div>`}</td>
       </tr>`;
-    }).join("")}</tbody></table></div>`;
+    }).join("")}</tbody></table></div>
+    ${rs.length ? "" : `<p class="empty">ไม่มีแพทย์ประจำบ้านที่ฝึกอบรมอยู่ — ทุกคนในทะเบียนจบการศึกษาแล้ว</p>`}
+    ${gone.length ? `<details style="margin-top:.8rem"><summary class="small muted" style="cursor:pointer">จบการศึกษาแล้ว / inactive · ${gone.length} คน (เก็บไว้เพื่อวิเคราะห์ข้อมูล ไม่ขึ้นในตารางและตัวเลือกคน)</summary>
+      <div class="tbl-wrap" style="margin-top:.4rem"><table>
+        <thead><tr><th>ชื่อ</th><th>รุ่น</th><th>เข้า</th><th>จบปีการศึกษา</th><th>กิจกรรมสะสม</th><th>เคสใน logbook</th><th></th></tr></thead>
+        <tbody>${gone.map(r => `<tr>
+          <td>${esc(r.name)}</td><td>${esc(batchLabel(r) || "—")}</td><td>${esc(r.cohort || "—")}</td><td>${esc(r.graduatedAY || "—")}</td>
+          <td>${store.activitiesOf(r.id).length}</td><td>${casesOf(r.id).length}</td>
+          <td><button class="btn-sm" data-res="${r.id}">เปิดแฟ้ม</button>
+            <button class="btn-sm no-print" data-reactivate="${r.id}" data-perm="admin">กลับมาฝึกอบรม</button></td>
+        </tr>`).join("")}</tbody></table></div></details>` : ""}`;
   list.querySelectorAll("[data-res]").forEach(b => b.addEventListener("click", () => openResident(b.dataset.res)));
+  list.querySelectorAll("[data-reactivate]").forEach(b => b.addEventListener("click", async () => {
+    const r = store.resident(b.dataset.reactivate); if (!r || !canManage()) return;
+    if (!(await confirmDialog("ให้ " + r.name + " กลับมาเป็นแพทย์ประจำบ้านที่ฝึกอบรมอยู่ (ชั้นปีที่ 4)?", { okLabel: "กลับมาฝึกอบรม" }))) return;
+    r.active = true; r.graduatedAY = ""; r.year = Math.min(4, +r.year || 4);
+    audit("เปิดใช้งานแพทย์ประจำบ้านที่จบแล้ว", r.name);
+    store.save(); renderAll(); toast("เปิดใช้งานแล้ว — แก้ชั้นปี/ชื่อได้ที่ปุ่มแก้ไขข้อมูล");
+  }));
   list.querySelectorAll("[data-mkuser]").forEach(b => b.addEventListener("click", () => {
     const r = store.resident(b.dataset.mkuser); if (!r) return;
     editUser(null, { residentId: r.id, displayName: r.name, role: "resident", username: suggestUsername() });
@@ -6613,13 +6718,13 @@ function openResident(id) {
 
 function renderResidentDetail() {
   const box = $("#residentDetail");
-  const rs = visibleResidents().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = visibleResidents().sort((a, b) => (isActiveResident(b) - isActiveResident(a)) || b.year - a.year || a.name.localeCompare(b.name, "th"));
   if (!selectedResident || !rs.some(x => x.id === selectedResident)) selectedResident = rs[0]?.id || null;
   /* ตัวเลือกคน — เฉพาะเมื่อเห็นได้มากกว่าหนึ่งคน (แพทย์ประจำบ้านเห็นแค่ตัวเอง ไม่มีอะไรให้เลือก) */
   const pick = $("#resPick");
   if (pick) {
     pick.hidden = rs.length < 2;
-    pick.innerHTML = rs.map(x => `<option value="${x.id}" ${x.id === selectedResident ? "selected" : ""}>${esc(x.name)} · ปี ${x.year}</option>`).join("");
+    pick.innerHTML = rs.map(x => `<option value="${x.id}" ${x.id === selectedResident ? "selected" : ""}>${esc(x.name)} · ${isActiveResident(x) ? "ปี " + x.year : "จบแล้ว"}</option>`).join("");
   }
   const r = store.resident(selectedResident);
   if (!r) { box.innerHTML = `<p class="empty">${rs.length ? "" : "ไม่มีแฟ้มที่บัญชีนี้มีสิทธิ์เห็น"}</p>`; return; }
@@ -6635,8 +6740,9 @@ function renderResidentDetail() {
   <div class="card">
     <div class="between">
       <div>
-        <h2 style="margin-bottom:.1rem">${esc(r.name)} <span class="tag b">ชั้นปีที่ ${r.year}</span></h2>
-        <p class="small muted" style="margin:0">รุ่น ${esc(r.cohort || "—")} · อาจารย์ที่ปรึกษา ${esc(r.advisor || "—")} · ปีการศึกษา ${p.ay}</p>
+        <h2 style="margin-bottom:.1rem">${esc(r.name)} ${isActiveResident(r) ? `<span class="tag b">ชั้นปีที่ ${r.year}</span>`
+          : `<span class="tag warn">จบการศึกษาแล้ว${r.graduatedAY ? " · ปีการศึกษา " + esc(String(r.graduatedAY)) : ""}</span>`}</h2>
+        <p class="small muted" style="margin:0">${esc(batchLabel(r) || "รุ่น —")} · เข้าปีการศึกษา ${esc(r.cohort || "—")} · อาจารย์ที่ปรึกษา ${esc(r.advisor || "—")} · ปีการศึกษา ${p.ay}</p>
         ${(() => {
           const rot = rotationOn(r.id, todayISO()); const svc = rot ? serviceById(rot.serviceId) : null;
           return svc ? `<p class="small" style="margin:.2rem 0 0">ขณะนี้อยู่หน่วย <b style="color:${serviceInk(svc.id)}">${esc(svc.name)}</b>
@@ -8082,6 +8188,8 @@ function editCaseParticipants(id) {
   /* แพทย์ประจำบ้านระบุได้เฉพาะบทบาทของตัวเองในเคส ส่วนช่อง "อาจารย์รับรอง"
      เป็นของอาจารย์เท่านั้น เพราะเป็นสิ่งที่ใช้อ้างอิงตอนพิมพ์ logbook ส่งราชวิทยาลัย */
   const rowEditable = (rid) => isStaff() || rid === myResidentId();
+  /* แถวคน: คนที่ยังฝึกอบรมอยู่ + คนที่อยู่ในเคสนี้แล้ว (จบไปแล้วก็ยังต้องเห็น ไม่งั้นตอนบันทึกจะหลุดจากเคส) */
+  const caseResidents = residentsPlus(activeResidents(), ...(c.participants || []).map(p => p.residentId));
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>วันที่</dt><dd>${fmtDate(c.date)} · ${esc(c.room || "—")} ${c.caseClass === "emergency" ? '<span class="tag bad">ฉุกเฉิน</span>' : ""}</dd>
@@ -8095,7 +8203,7 @@ function editCaseParticipants(id) {
     <h4>ใครร่วมผ่าตัดเคสนี้</h4>
     ${sug.length ? `<p class="small muted">ข้อเสนอจากตารางหมุนเวียน: ${sug.map(x => esc(store.resident(x.residentId)?.name || "")).join(", ")}</p>` : ""}
     <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th><th>ลงระบบราชวิทยาลัยแล้ว</th></tr></thead>
-      <tbody>${store.data.residents.map(r => {
+      <tbody>${caseResidents.map(r => {
         const p = (c.participants || []).find(x => x.residentId === r.id);
         const isSug = sug.some(x => x.residentId === r.id);
         return `<tr>
@@ -8111,7 +8219,7 @@ function editCaseParticipants(id) {
   const buttons = [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const list = [];
-        store.data.residents.forEach(r => {
+        caseResidents.forEach(r => {
           const old = (c.participants || []).find(x => x.residentId === r.id);
           /* แถวที่บัญชีนี้แก้ไม่ได้ ให้คงของเดิมไว้ทั้งแถว ไม่ให้เขียนทับกันข้ามคน */
           if (!rowEditable(r.id)) { if (old) list.push(old); return; }
@@ -8323,7 +8431,7 @@ function renderEpa() {
 
   /* ภาพรวมทั้งกลุ่มงาน */
   if (!isStaff()) { $("#epaMatrix").innerHTML = ""; return; }
-  const rs = visibleResidents().sort((a, b) => b.year - a.year);
+  const rs = visibleActiveResidents().sort((a, b) => b.year - a.year);
   $("#epaMatrix").innerHTML = `<div class="tbl-wrap"><table class="month">
     <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${epas.map(e => `<th title="${esc(e.title)}">${esc(e.code)}</th>`).join("")}</tr></thead>
     <tbody>${rs.map(x => `<tr>
@@ -9111,7 +9219,7 @@ function renderSettings() {
   }
   const raw = localStorage.getItem(APP.key) || "";
   $("#storageInfo").textContent =
-    "แพทย์ประจำบ้าน " + store.data.residents.length + " คน · กิจกรรม " + store.data.activities.length + " รายการ · โครงการวิจัย " +
+    "แพทย์ประจำบ้าน " + activeResidents().length + " คน · กิจกรรม " + store.data.activities.length + " รายการ · โครงการวิจัย " +
     store.data.research.length + " โครงการ · ขนาดข้อมูลในเครื่องประมาณ " + Math.round(raw.length / 1024) + " KB" +
     (store.data.meta?.updated ? " · แก้ไขล่าสุด " + fmtDateTime(store.data.meta.updated) : "");
 }
@@ -9247,7 +9355,7 @@ function openActivity(id, opts = {}) {
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${a.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>วันที่นำเสนอ</span><input type="date" name="date" value="${esc(a.date)}" /></label>
       <label class="f"><span>ผู้นำเสนอ</span>${canManage()
-        ? `<select name="residentId">${store.data.residents.map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`
+        ? `<select name="residentId">${residentsPlus(activeResidents(), a.residentId).map(x => `<option value="${x.id}" ${a.residentId === x.id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`
         : `<input value="${esc(r?.name || "—")}" disabled />`}</label>
     </div>`;
   const metaBlock = evalFirst
@@ -9414,7 +9522,7 @@ function manualAdd() {
   const body = `
     <p class="small muted">ใช้เมื่อไม่มีไฟล์สไลด์ เช่น การอ่านฟิล์มหน้าจอ หรือกิจกรรมที่นำเสนอด้วยปากเปล่า</p>
     <div class="grid g2">
-      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${visibleResidents().map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้นำเสนอ</span><select name="residentId">${visibleActiveResidents().map(r => `<option value="${r.id}">${esc(r.name)} (ปี ${r.year})</option>`).join("")}</select></label>
       <label class="f"><span>วันที่</span><input type="date" name="date" value="${todayISO()}" /></label>
       <label class="f"><span>ประเภทกิจกรรม</span><select name="type">${ACTIVITY_TYPES.map(t => `<option value="${t.id}">${esc(t.th)}</option>`).join("")}</select></label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}">${esc(s.en)}</option>`).join("")}</select></label>
@@ -9442,9 +9550,16 @@ function editResident(id) {
     <div class="grid g2">
       <label class="f"><span>ชื่อย่อในระบบ</span><input name="nick" value="${esc(r?.nick || "")}" placeholder="เช่น R2-A" /></label>
       <label class="f"><span>ชั้นปี</span><select name="year">${[1,2,3,4].map(y => `<option value="${y}" ${r?.year === y ? "selected" : ""}>ชั้นปีที่ ${y}</option>`).join("")}</select></label>
-      <label class="f"><span>รุ่น (ปีที่เข้าฝึกอบรม)</span><input name="cohort" value="${esc(r?.cohort || "")}" placeholder="เช่น 2567" /></label>
+      <label class="f"><span>ปีการศึกษาที่เข้าฝึกอบรม <span class="muted">(รุ่น = ปีนี้ − ${batchBase()})</span></span>
+        <input name="cohort" value="${esc(r?.cohort || String(+currentAY() - ((r?.year || 1) - 1)))}" placeholder="เช่น 2567" inputmode="numeric" /></label>
       <label class="f"><span>อาจารย์ที่ปรึกษา</span><input name="advisor" value="${esc(r?.advisor || "")}" /></label>
     </div>
+    <p class="small muted" data-batch-preview style="margin:-.2rem 0 .5rem">${esc(r ? (batchLabel(r) || "รุ่น —") : "")}</p>
+    ${r ? `<div class="grid g2">
+      <label class="tag" style="cursor:pointer;align-self:start"><input type="checkbox" name="active" ${isActiveResident(r) ? "checked" : ""} /> ยังฝึกอบรมอยู่ (ไม่ติ๊ก = จบ/พ้นสภาพ เก็บไว้เป็น inactive)</label>
+      <label class="f"><span>จบปีการศึกษา</span><input name="graduatedAY" value="${esc(r.graduatedAY || "")}" placeholder="เช่น 2569" inputmode="numeric" /></label>
+    </div>
+    <p class="small muted">ชั้นปีเลื่อนให้เองทุก 1 ก.ค. และปี 4 จะถูกย้ายเป็น inactive อัตโนมัติ — ช่องนี้ใช้เมื่อต้องแก้ด้วยมือ</p>` : ""}
     ${r ? (() => {
         const lu = (store.data.users || []).find(u => u.residentId === r.id);
         return lu ? `<p class="small muted">บัญชีผู้ใช้ที่ผูกไว้: <span class="mono">${esc(lu.username)}</span></p>`
@@ -9457,10 +9572,18 @@ function editResident(id) {
             <label class="f"><span>ชื่อผู้ใช้</span><input name="username" value="${esc(suggestUsername())}" /></label>
             <label class="f"><span>รหัสผ่าน</span><input name="pin" placeholder="เช่น ตัวเลข 4 หลัก" inputmode="numeric" /></label>
           </div></div>`}`;
+  /* ตัวอย่างรุ่นเปลี่ยนตามปีที่เข้าที่พิมพ์ — จะได้เห็นทันทีว่า 2566 = รุ่น 25 */
+  const previewBatch = () => {
+    const el = $("#dlgBody [data-batch-preview]"); if (!el) return;
+    const e = +($('#dlgBody [name="cohort"]')?.value || 0);
+    el.textContent = e ? "รุ่น " + (e - batchBase()) + " (เข้าปีการศึกษา " + e + ")" : "";
+  };
   showDialog(r ? "แก้ไขข้อมูลแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อ");
         const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort: dlgVal("cohort"), advisor: dlgVal("advisor") };
+        if (r) { rec.active = !!$('#dlgBody [name="active"]')?.checked; rec.graduatedAY = rec.active ? "" : dlgVal("graduatedAY"); }
+        else { rec.active = true; rec.graduatedAY = ""; }
         /* ตรวจบัญชีให้ผ่านก่อนค่อยสร้างคน — ไม่งั้นจะได้คนครึ่งเดียวค้างไว้ตอน return false */
         let mkUser = null;
         if (!r && $('#dlgBody [name="mkUser"]')?.checked) {
@@ -9490,6 +9613,8 @@ function editResident(id) {
           { list:"research", keep: p => p.residentId !== r.id }], () => { selectedResident = r.id; });
       }}] : [])
   ]);
+  previewBatch();
+  $('#dlgBody [name="cohort"]')?.addEventListener("input", previewBatch);
 }
 
 function editResearch(id) {
@@ -9497,7 +9622,7 @@ function editResearch(id) {
   const body = `
     <label class="f"><span>ชื่อโครงการ</span><input name="title" value="${esc(pj?.title || "")}" /></label>
     <div class="grid g2">
-      <label class="f"><span>ผู้วิจัย</span><select name="residentId">${visibleResidents().map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
+      <label class="f"><span>ผู้วิจัย</span><select name="residentId">${residentsPlus(visibleActiveResidents(), pj?.residentId).map(r => `<option value="${r.id}" ${pj?.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>
       <label class="f"><span>อาจารย์ที่ปรึกษางานวิจัย</span><input name="advisor" value="${esc(pj?.advisor || "")}" /></label>
       <label class="f"><span>อนุสาขา</span><select name="subspecialty">${SUBSPECIALTIES.map(s => `<option value="${s.id}" ${pj?.subspecialty === s.id ? "selected" : ""}>${esc(s.en)}</option>`).join("")}</select></label>
       <label class="f"><span>รูปแบบการวิจัย</span><input name="type" value="${esc(pj?.type || "")}" placeholder="เช่น Retrospective cohort" /></label>
@@ -9635,12 +9760,12 @@ function printPortfolio(residentId) {
 
 function printWfmeReport() {
   const ev = wfmeEvidence();
-  const rs = store.data.residents.slice().sort((a, b) => b.year - a.year);
+  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
   const html = reportHead("รายงานหลักฐานตามมาตรฐาน WFME", "หลักสูตรการฝึกอบรมแพทย์ประจำบ้าน สาขาออร์โธปิดิกส์") + `
   <div class="card">
     <h2>สรุปภาพรวม</h2>
     <table><thead><tr><th>รายการ</th><th>จำนวน</th></tr></thead><tbody>
-      <tr><td>แพทย์ประจำบ้านในระบบ</td><td>${store.data.residents.length}</td></tr>
+      <tr><td>แพทย์ประจำบ้านที่ฝึกอบรมอยู่</td><td>${activeResidents().length}</td></tr>
       <tr><td>กิจกรรมที่บันทึกไว้ทั้งหมด</td><td>${store.data.activities.length}</td></tr>
       <tr><td>กิจกรรมที่บันทึกอัตโนมัติจากไฟล์สไลด์</td><td>${store.data.activities.filter(a => a.source === "slides").length}</td></tr>
       <tr><td>กิจกรรมที่มีแบบประเมิน</td><td>${store.data.activities.filter(a => a.assessment).length}</td></tr>
@@ -9845,7 +9970,7 @@ function typeSubTableHtml(acts) {
    เกณฑ์เป็นรายชั้นปี เอายอดสะสมตลอดหลักสูตรมาเทียบไม่ได้ */
 function covMatrixHtml(acts, typeId, showNeed) {
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
-  const rs = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = visibleActiveResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   if (!rs.length) return `<p class="empty" style="color:#6b7a89">ยังไม่มีแพทย์ประจำบ้านในระบบ</p>`;
   const n = (rid, sid) => acts.filter(a => a.residentId === rid && a.subspecialty === sid).length;
   return `<div class="tbl-wrap"><table class="cvt">
@@ -9873,7 +9998,7 @@ function covMatrixHtml(acts, typeId, showNeed) {
 /* ตัวเลขนำสายตาของหน้าประเภทเดียว — เขียนสิ่งที่ขาดไว้เป็นตัวหนังสือ ไม่ให้ต้องไปนับเอาจากตาราง */
 function typeStatsHtml(acts, typeId, showNeed) {
   const subs = SUBSPECIALTIES.filter(x => x.id !== "general");
-  const rs = visibleResidents();
+  const rs = visibleActiveResidents();
   const zeroPeople = rs.filter(r => !acts.some(a => a.residentId === r.id));
   const zeroSubs = subs.filter(sx => !acts.some(a => a.subspecialty === sx.id));
   const shortPeople = rs.filter(r => {
@@ -9895,7 +10020,7 @@ function typeStatsHtml(acts, typeId, showNeed) {
 
 function dashboardHtml() {
   const ay = currentAY();
-  const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const list = visibleActiveResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const mine = myResidentId();
   const scope = mine ? "เฉพาะข้อมูลของ " + (store.resident(mine)?.name || "") : "ทั้งกลุ่มงาน";
 
@@ -10429,7 +10554,7 @@ function pptxPersonPages(title, sub, byYear, foot, max, opts = {}) {
 /* แดชบอร์ดของกลุ่มงาน (หรือของฉัน) เป็นสไลด์ — กราฟล้วน ตัวเลขชุดเดียวกับ dashboardHtml */
 function dashboardPptxSlides() {
   const ay = currentAY();
-  const list = visibleResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const list = visibleActiveResidents().slice().sort((a, b) => b.year - a.year || a.name.localeCompare(b.name, "th"));
   const mine = myResidentId();
   const scope = mine ? "เฉพาะข้อมูลของ " + (store.resident(mine)?.name || "") : "ทั้งกลุ่มงาน";
   const acts = visibleActivities().filter(a => a.academicYear === ay);
@@ -10599,7 +10724,7 @@ function renderStoreState() {
 function renderIngestStats() {
   /* หน้าแรกต้องกรองตามสิทธิ์เหมือนหน้าอื่น — บัญชีแพทย์ประจำบ้านเห็นเฉพาะกิจกรรมของตัวเอง */
   const acts = visibleActivities(), ay = currentAY();
-  const behind = visibleResidents().filter(r => gapsFor(r).some(g => g.level === "bad")).length;
+  const behind = visibleActiveResidents().filter(r => gapsFor(r).some(g => g.level === "bad")).length;
   $("#ingestStats").innerHTML = `
     <div class="stat"><b>${acts.length}</b><span>กิจกรรมสะสมทั้งหมด</span></div>
     <div class="stat"><b>${acts.filter(a => a.academicYear === ay).length}</b><span>กิจกรรมในปีการศึกษา ${ay}</span></div>
@@ -10643,6 +10768,7 @@ function renderAll() {
   renderSettings();
   renderSettingsNav();
   renderYearChecklist();
+  renderYearRollPanel();
   renderProgramme();
   if (session) applyPermissions();   /* ปุ่มที่เพิ่งวาดใหม่ต้องถูกซ่อนตามสิทธิ์ด้วย */
   markScrollable(); syncHeader(); annotateDates(); applyFolds();
@@ -10702,17 +10828,18 @@ function renderYearChecklist() {
   const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
   const ym = todayISO().slice(0, 7);
   const linked = new Set((d.users || []).filter(u => u.residentId).map(u => u.residentId));
-  const noAcct = (d.residents || []).filter(r => !linked.has(r.id));
-  const noRot = (d.residents || []).filter(r => !(d.rotations || []).some(x => x.residentId === r.id && x.start >= from && x.start <= to));
+  const cur = activeResidents();
+  const noAcct = cur.filter(r => !linked.has(r.id));
+  const noRot = cur.filter(r => !(d.rotations || []).some(x => x.residentId === r.id && x.start >= from && x.start <= to));
   const weekPane = (sel) => { showView("rotation"); $('#calSeg [data-seg="week"]')?.click(); $(sel)?.scrollIntoView({ block: "start" }); };
   const items = [
     { ok: (d.staff || []).length > 0, th: "รายชื่ออาจารย์", detail: (d.staff || []).length + " คน", go: () => gotoAnchor("อาจารย์") },
     { ok: (d.services || []).some(s => (s.template || []).length), th: "หน่วยและตารางประจำสัปดาห์",
       detail: (d.services || []).filter(s => (s.template || []).length).length + " หน่วยมีตาราง", go: () => gotoAnchor("หน่วย") },
-    { ok: (d.residents || []).length > 0, th: "รายชื่อแพทย์ประจำบ้าน", detail: (d.residents || []).length + " คน", go: () => showView("residents") },
+    { ok: cur.length > 0, th: "รายชื่อแพทย์ประจำบ้าน", detail: cur.length + " คนที่ฝึกอบรมอยู่", go: () => showView("residents") },
     { ok: !noAcct.length, th: "บัญชีผู้ใช้ของแพทย์ประจำบ้านทุกคน",
       detail: noAcct.length ? "ยังไม่มีบัญชี " + noAcct.length + " คน" : "ครบ", go: () => noAcct.length ? showView("residents") : gotoAnchor("บัญชี") },
-    { ok: (d.residents || []).length > 0 && !noRot.length, th: "ช่วงหมุนเวียนปีการศึกษา " + ay,
+    { ok: cur.length > 0 && !noRot.length, th: "ช่วงหมุนเวียนปีการศึกษา " + ay,
       detail: noRot.length ? "ยังไม่มี " + noRot.length + " คน" : "ครบทุกคน", go: () => showView("rotation") },
     { ok: (d.topicConf || []).some(x => x.date.startsWith(ym) && x.staffId),
       th: "ผู้นิเทศ Topic conference เดือน " + ymLabel(ym), go: () => weekPane("#tcTable") },
@@ -10723,6 +10850,48 @@ function renderYearChecklist() {
       <span><span class="tag ${it.ok ? "ok" : "warn"}">${it.ok ? "✓ ครบ" : "ยังไม่ครบ"}</span> ${esc(it.th)}${it.detail ? ` <span class="small muted">· ${esc(it.detail)}</span>` : ""}</span>
       <button type="button" class="btn-sm no-print" data-ycl="${i}">${it.ok ? "ดู" : "ไปทำ"}</button></li>`).join("")}</ul>`;
   $$("#yearChecklist [data-ycl]").forEach(b => b.addEventListener("click", () => items[+b.dataset.ycl].go()));
+}
+/* กติกาวงจรชั้นปี — เลื่อนอัตโนมัติ 1 ก.ค. · ปี 4 จบเป็น inactive · รุ่น = ปีที่เข้า − base
+   ปุ่มเลื่อนเองไว้กรณีต้องทำก่อนวันจริง (เช่น ทดสอบ หรือเครื่องตั้งวันผิด) · ปุ่มย้อนกลับกันพลาดจากการเลื่อนอัตโนมัติ */
+function renderYearRollPanel() {
+  const box = $("#yearRollPanel"); if (!box) return;
+  const d = store.data, ay = String(currentAY()), rolled = String(d.meta?.yearRolledAY || ay), lr = d.meta?.lastYearRoll;
+  const cur = activeResidents(), byYear = [1, 2, 3, 4].map(y => cur.filter(r => +r.year === y).length);
+  const gone = (d.residents || []).filter(r => !isActiveResident(r)).length;
+  const y4 = cur.filter(r => +r.year === 4);
+  box.innerHTML = `
+    <ul class="clean small" style="margin:0 0 .6rem">
+      <li>ทุก <b>1 กรกฎาคม</b> (ขึ้นปีการศึกษาใหม่) ระบบเลื่อนชั้นปีให้ทุกคน +1 โดยอัตโนมัติ · ปี 4 จบการศึกษา → เก็บเป็น <b>inactive</b> พร้อมป้ายรุ่นต่อท้ายชื่อ ไม่ขึ้นในตารางและตัวเลือกคน แต่แฟ้ม/logbook ยังเปิดดูได้</li>
+      <li><b>รุ่น</b> = ปีการศึกษาที่เข้า − <input name="batchBase" value="${esc(String(batchBase()))}" inputmode="numeric" style="width:5.5rem" /> (ตั้งจากข้อเท็จจริง: ปี 4 ของปีการศึกษา 2569 = รุ่น 25)</li>
+    </ul>
+    <p class="small" style="margin:.2rem 0">ปีการศึกษาปัจจุบัน <b>${esc(ay)}</b> · ทะเบียนชั้นปีตรงกับปี <b>${esc(rolled)}</b>
+      ${+rolled >= +ay ? '<span class="tag ok">เป็นปัจจุบัน</span>' : '<span class="tag warn">ยังไม่ได้เลื่อน</span>'}
+      · ปี 1–4: ${byYear.join(" / ")} คน · จบแล้ว ${gone} คน</p>
+    ${lr ? `<p class="small muted" style="margin:.2rem 0">เลื่อนล่าสุด ${esc(lr.fromAY)} → ${esc(lr.toAY)} เมื่อ ${fmtDateTime(lr.at)} (${lr.how === "auto" ? "อัตโนมัติ" : "สั่งเอง"}) · ย้อนกลับได้ตราบใดที่ยังไม่เลื่อนรอบใหม่</p>` : ""}
+    <div class="row no-print" style="margin-top:.4rem">
+      <button class="btn-sm" id="btnRollYear" data-perm="admin">เลื่อนชั้นปีตอนนี้ (ขึ้นปีการศึกษา ${esc(String(+rolled + 1))})</button>
+      ${lr ? `<button class="btn-sm" id="btnUndoRoll" data-perm="admin">ย้อนกลับการเลื่อนล่าสุด</button>` : ""}
+    </div>`;
+  $("#yearRollPanel [name=batchBase]").addEventListener("change", (e) => {
+    const v = +e.target.value; if (!v) { e.target.value = String(batchBase()); return; }
+    d.programme.batchBase = v; store.save(); renderAll(); toast("ตั้งฐานคำนวณรุ่นเป็น " + v + " แล้ว");
+  });
+  $("#btnRollYear")?.addEventListener("click", async () => {
+    if (!canManage()) return;
+    const to = String(+rolled + 1);
+    const ok = await confirmDialog("เลื่อนชั้นปีขึ้นปีการศึกษา " + to + " ตอนนี้?\n" +
+      "ทุกคนที่ฝึกอบรมอยู่จะเลื่อน +1 ชั้นปี · ปี 4 จำนวน " + y4.length + " คน" + (y4.length ? " (" + y4.map(r => r.name).join(", ") + ")" : "") +
+      " จะจบการศึกษาและกลายเป็น inactive · ย้อนกลับได้จากปุ่มในหน้านี้", { okLabel: "เลื่อนชั้นปี", danger: true });
+    if (!ok) return;
+    const out = store.rollAcademicYear(to, "manual");
+    store.save(); renderAll();
+    toast(out ? "เลื่อนแล้ว " + out.promoted + " คน · จบการศึกษา " + out.graduated.length + " คน" : "ไม่มีอะไรต้องเลื่อน", 7000);
+  });
+  $("#btnUndoRoll")?.addEventListener("click", async () => {
+    if (!canManage()) return;
+    if (!(await confirmDialog("ย้อนกลับการเลื่อนชั้นปี " + lr.fromAY + " → " + lr.toAY + "? ชั้นปี สถานะ และชื่อจะกลับเป็นชุดก่อนเลื่อน", { okLabel: "ย้อนกลับ" }))) return;
+    store.undoYearRoll(); store.save(); renderAll(); toast("ย้อนกลับแล้ว — ทะเบียนชั้นปีกลับเป็นปี " + lr.fromAY);
+  });
 }
 /* ชื่อผู้ใช้ตั้งต้นสำหรับบัญชีแพทย์ประจำบ้านใหม่ — resident<เลขถัดไป> ที่ยังไม่ซ้ำ */
 function suggestUsername() {
@@ -11057,10 +11226,10 @@ function init() {
     /* ปีที่มีตารางจริงของกลุ่มงาน: ตารางจริงมาก่อนเสมอ ตัวจัดแผนได้จัดแค่คนที่ไม่อยู่ในตารางจริง
        (เคยกดปุ่มนี้แล้วตารางจริงทั้งปีหายไป จนต้องไปกู้จากประวัติ) */
     const preset = ROTATION_PRESETS[String(ay)];
-    const mapping = preset ? matchPresetRows(preset, store.data.residents) : {};
+    const mapping = preset ? matchPresetRows(preset, activeResidents()) : {};
     const mappedIds = new Set(Object.values(mapping).filter(Boolean));
     const keepPreset = !!preset && mappedIds.size > 0;
-    const todo = keepPreset ? store.data.residents.filter(r => !mappedIds.has(r.id)) : store.data.residents;
+    const todo = keepPreset ? activeResidents().filter(r => !mappedIds.has(r.id)) : activeResidents();
     if (keepPreset && !todo.length) {
       toast("ทุกคนอยู่ในตารางจริงของกลุ่มงานแล้ว — ไม่มีใครให้จัดเพิ่ม แก้รายช่องได้ที่ตาราง", 7000);
       return;
@@ -11073,7 +11242,7 @@ function init() {
                  { title: "สร้างแผนอัตโนมัติ", okLabel: keepPreset ? "เติมคนที่เหลือ" : "สร้างแผน" }))) return;
     const plan = buildRotationPlan(ay, todo, store.data.services, store.data.staff);
     if (keepPreset)
-      plan.rotations = presetRotationsFor(ay, String(ay), mapping, store.data.residents, store.data.services, store.data.staff)
+      plan.rotations = presetRotationsFor(ay, String(ay), mapping, activeResidents(), store.data.services, store.data.staff)
         .concat(plan.rotations);
     const { prevRotations } = applyRotationPlanForAY(ay, plan.rotations, "generate");
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
@@ -11120,7 +11289,7 @@ function init() {
   };
   $("#btnAddSwap").addEventListener("click", openSwapPicker);
   $("#btnAddVisit").addEventListener("click", () => {
-    const rid = myResidentId() || (canManage() ? (selectedResident || store.data.residents[0]?.id) : "");
+    const rid = myResidentId() || (canManage() ? (selectedResident || activeResidents()[0]?.id) : "");
     if (!rid) { toast("บัญชีนี้ไม่ได้ผูกกับแพทย์ประจำบ้านคนใด"); return; }
     openVisit(rid, todayISO());
   });
