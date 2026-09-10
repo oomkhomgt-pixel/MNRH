@@ -4029,7 +4029,9 @@ function suggestAttendees(rec) {
   }).filter(Boolean);
 }
 
-function importCaseList(list, sourceLabel) {
+/* fromFile = ผู้ใช้เลือกไฟล์นำเข้าเอง (CSV/JSON) ถือเป็นคำสั่งของคน จึงเขียนทับรหัสที่เคยแก้มือได้
+   ส่วนการดึงจากระบบคิวเป็นงานอัตโนมัติ ไม่ควรย้อนรหัสที่คนปรับให้ตรงรายการของราชวิทยาลัยแล้ว */
+function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
   const byRef = new Map((store.data.cases || []).map(c => [c.source + "|" + c.sourceRef, c]));
   let added = 0, updated = 0, skipped = 0;
   (list || []).forEach(raw => {
@@ -4043,8 +4045,9 @@ function importCaseList(list, sourceLabel) {
          การกดดึงข้อมูลรอบถัดไปจะล้างรหัสที่นั่งกรอกไว้ทั้งหมดโดยไม่มีอะไรเตือน (เหมือนที่ note ไม่ถูกทับ)
          แต่ถ้าต้นทางมีช่องนี้แล้วเว้นว่าง (เช่นแก้ CSV แล้วนำเข้ากลับ) ถือว่าตั้งใจล้าง จึงทับตามปกติ */
       const keep = old.participants;
-      if (rec.icd9 === undefined) delete rec.icd9;
-      if (rec.icd10 === undefined) delete rec.icd10;
+      const keepEdited = old.icdEdited && !fromFile;
+      if (rec.icd9 === undefined || keepEdited) delete rec.icd9;
+      if (rec.icd10 === undefined || keepEdited) delete rec.icd10;
       Object.assign(old, rec, { id: old.id, participants: keep });
       updated++;
     } else {
@@ -4150,7 +4153,7 @@ function importCasesFromFile(file) {
       const txt = String(fr.result);
       const list = /^\s*[[{]/.test(txt) ? collectCasesDeep(JSON.parse(txt)) : casesFromCsv(txt);
       if (!list.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
-      const r = importCaseList(list, "ไฟล์ " + file.name);
+      const r = importCaseList(list, "ไฟล์ " + file.name, { fromFile: true });
       toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส");
     } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
   };
@@ -8337,8 +8340,11 @@ function editCaseParticipants(id) {
         });
         c.participants = list;
         if (codeEditable) {
-          c.icd9 = ($('#dlgBody [name="icd9"]')?.value || "").trim();
-          c.icd10 = ($('#dlgBody [name="icd10"]')?.value || "").trim();
+          const newIcd9 = ($('#dlgBody [name="icd9"]')?.value || "").trim();
+          const newIcd10 = ($('#dlgBody [name="icd10"]')?.value || "").trim();
+          /* คนแก้รหัสเอง (ปรับให้ตรงรายการของราชวิทยาลัย) → ปักธงไว้ ไม่ให้การดึงข้อมูลรอบหน้าทับกลับเป็นรหัสของระบบคิว */
+          if (newIcd9 !== (c.icd9 || "") || newIcd10 !== (c.icd10 || "")) c.icdEdited = true;
+          c.icd9 = newIcd9; c.icd10 = newIcd10;
         }
         c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
         audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน");
