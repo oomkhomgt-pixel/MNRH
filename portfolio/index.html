@@ -3930,6 +3930,13 @@ function guessSubFromText(text) {
   return best && best.score > 0 ? best.id : "general";
 }
 
+/* อ่านรหัส ICD จากชื่อช่องที่ระบบต้นทางอาจใช้ — คืน undefined เมื่อไม่มีช่องไหนเลย
+   เพื่อแยก "ต้นทางไม่ส่งมา" (คงของเดิมไว้) ออกจาก "ส่งมาแต่ว่าง" (ตั้งใจล้าง) */
+const pickCode = (c, keys) => {
+  const k = keys.find(x => c[x] !== undefined && c[x] !== null);
+  return k === undefined ? undefined : String(c[k]).trim();
+};
+
 /* แปลงเคสจากระบบคิวให้เป็นรูปแบบของ logbook — เก็บเฉพาะสิ่งที่จำเป็นต่อการฝึกอบรม */
 function normaliseQueueCase(c) {
   const date = String(c.scheduledDate || c.operationDate || c.date || c.updatedAt || c.createdAt || "").slice(0, 10);
@@ -3948,9 +3955,11 @@ function normaliseQueueCase(c) {
     status: c.status || "",
     subspecialty: QUEUE_SUB_MAP[rawSub] || guessSubFromText(operation + " " + diagnosis),
     diagnosis, operation,
-    /* รหัสหัตถการ/วินิจฉัยจากระบบคิว (ถ้ามี) — ใช้ลอกลง RCOSTLog · รหัสที่ระบบคิวให้มาอาจต้องปรับให้ตรงรายการของราชวิทยาลัยอีกชั้น */
-    icd9: String(c.icd9 || c.icd9cm || c.procedureCode || c.icd9Code || "").trim(),
-    icd10: String(c.icd10 || c.icd10tm || c.diagnosisCode || c.icd10Code || "").trim(),
+    /* รหัสหัตถการ/วินิจฉัยจากระบบคิว (ถ้ามี) — ใช้ลอกลง RCOSTLog · รหัสที่ระบบคิวให้มาอาจต้องปรับให้ตรงรายการของราชวิทยาลัยอีกชั้น
+       ต้นทางไม่มีช่องนี้เลย → undefined (ตอนนำเข้าซ้ำจะไม่ไปทับรหัสที่กรอกมือ)
+       ต้นทางมีช่องแต่เว้นว่าง → "" ซึ่งแปลว่าตั้งใจล้าง (เช่นแก้ CSV แล้วนำเข้ากลับ) */
+    icd9: pickCode(c, ["icd9", "icd9cm", "procedureCode", "icd9Code"]),
+    icd10: pickCode(c, ["icd10", "icd10tm", "diagnosisCode", "icd10Code"]),
     side: c.operativeSide || c.side || "",
     anaesthesia: c.anesthesiaType || c.anaesthesia || "",
     asa: c.asaClass ?? c.asa ?? "",
@@ -4021,11 +4030,12 @@ function importCaseList(list, sourceLabel) {
     const old = rec.sourceRef ? byRef.get(key) : null;
     if (old) {
       /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว
-         และคงรหัส ICD ที่กรอกมือไว้ด้วย — ระบบคิวส่วนใหญ่ไม่ส่งรหัสมา ถ้าปล่อยให้ทับ
-         การกดดึงข้อมูลรอบถัดไปจะล้างรหัสที่นั่งกรอกไว้ทั้งหมดโดยไม่มีอะไรเตือน (เหมือนที่ note ไม่ถูกทับ) */
+         และคงรหัส ICD ที่กรอกมือไว้เมื่อต้นทางไม่มีช่องนี้เลย — ระบบคิวส่วนใหญ่ไม่ส่งรหัสมา ถ้าปล่อยให้ทับ
+         การกดดึงข้อมูลรอบถัดไปจะล้างรหัสที่นั่งกรอกไว้ทั้งหมดโดยไม่มีอะไรเตือน (เหมือนที่ note ไม่ถูกทับ)
+         แต่ถ้าต้นทางมีช่องนี้แล้วเว้นว่าง (เช่นแก้ CSV แล้วนำเข้ากลับ) ถือว่าตั้งใจล้าง จึงทับตามปกติ */
       const keep = old.participants;
-      if (!rec.icd9) delete rec.icd9;
-      if (!rec.icd10) delete rec.icd10;
+      if (rec.icd9 === undefined) delete rec.icd9;
+      if (rec.icd10 === undefined) delete rec.icd10;
       Object.assign(old, rec, { id: old.id, participants: keep });
       updated++;
     } else {
@@ -8459,9 +8469,10 @@ function rcostCopyDialog(caseId, residentId) {
       </tbody></table></div>
     <p class="small muted" style="margin-top:.5rem">Satisfaction และรูปประกอบ ทำในแอป RCOSTLog เอง · เรียงช่องตามหน้าจอของแอปนั้น เปิดสองจอแล้วลอกทีละช่องได้เลย</p>`;
   const buttons = [
-    { label:"คัดลอกทั้งหมด", onClick: async () => {
+    { label:"คัดลอกทั้งหมด (ไม่รวม Note)", onClick: async () => {
         const ok = await copyText(allText);
-        toast(ok ? "คัดลอกทุกช่องแล้ว — วางใน RCOSTLog ได้เลย" : "คัดลอกไม่ได้ในเบราว์เซอร์นี้ — กดคัดลอกทีละช่องแทน");
+        toast(ok ? "คัดลอกแล้ว — ไม่รวม Note ถ้าต้องใช้ ให้กดคัดลอกที่แถว Note เองหลังอ่านซ้ำ"
+                 : "คัดลอกไม่ได้ในเบราว์เซอร์นี้ — กดคัดลอกทีละช่องแทน");
         return false;
       }},
     ...(canMark && st !== "validated" ? [st === "yes"

@@ -100,12 +100,18 @@ export default async function run() {
       importCaseList([{ ...raw, operation:"ORIF distal radius, left" }], "ทดสอบ");
       const after = store.data.cases.find(x => x.sourceRef === "q_keep");
       const out = { icd9: after.icd9, icd10: after.icd10, note: after.note, op: after.operation };
+      /* CSV ที่มีคอลัมน์ ICD แต่เว้นว่าง = ตั้งใจล้าง (เช่น export ออกไปแก้แล้วนำเข้ากลับ) */
+      importCaseList(casesFromCsv("id,date,operation,diagnosis,icd9,icd10\nq_keep,2026-08-23,ORIF distal radius,Distal radius fx,,"), "ทดสอบ CSV");
+      const cleared = store.data.cases.find(x => x.sourceRef === "q_keep");
+      out.clearedIcd9 = cleared.icd9; out.clearedIcd10 = cleared.icd10;
       store.data.cases = store.data.cases.filter(x => x.sourceRef !== "q_keep"); store.save();
       return out;
     });
     t.eq("ดึงข้อมูลซ้ำจากระบบคิวที่ไม่มีรหัส ICD: รหัสที่กรอกมือและบันทึกยังอยู่ ส่วนข้อมูลที่ต้นทางแก้อัปเดตตาม",
          [reimport.icd9, reimport.icd10, reimport.note, reimport.op],
          ["79.32", "S52.50", "กรอกมือ", "ORIF distal radius, left"]);
+    t.eq("แต่ถ้าไฟล์นำเข้ามีคอลัมน์ ICD แล้วเว้นว่าง = ตั้งใจล้าง ระบบล้างให้จริง",
+         [reimport.clearedIcd9, reimport.clearedIcd10], ["", ""]);
 
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);
