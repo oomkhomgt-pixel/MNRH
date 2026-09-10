@@ -143,7 +143,29 @@ export default async function run() {
       const q5 = store.data.cases.find(x => x.sourceRef === "q_edit");
       out.roundTrip = { grew: store.data.cases.length - before, icd9: q5.icd9, icd10: q5.icd10 };
 
-      store.data.cases = store.data.cases.filter(x => !["q_keep", "q_edit"].includes(x.sourceRef));
+      /* เคสที่มีผู้ร่วมผ่าตัดหลายคน export ออกมาหลายแถว — แก้ไม่ครบทุกแถวต้องเตือน ไม่ใช่ปล่อยให้แถวท้ายชนะ
+         และ round-trip ต้องไม่ลบชื่อศัลยแพทย์หลัก/ห้อง ที่ไฟล์ไม่มีคอลัมน์ให้ */
+      const res2 = store.data.residents.slice(0, 2);
+      store.data.cases.push({ id:"case_multi", source:"or-queue", sourceRef:"q_multi", date: todayISO(), subspecialty:"trauma",
+        operation:"Bipolar hemiarthroplasty", diagnosis:"Femoral neck fx", hn:"7", age: 70, sex:"female",
+        room:"OR3", primarySurgeon:"อ. สมชาย", durationMin: 90, icd9:"81.52", icd10:"S72.09", complications:[], note:"",
+        participants: res2.map((r, i) => ({ residentId: r.id, role: i ? "assist1" : "surgeon", verified:true })) });
+      store.save();
+      const multiCsv = toCsv(caseCsvRows([store.data.cases.find(x => x.id === "case_multi")]));
+      out.rowsExported = multiCsv.trim().split("\n").length - 1;
+      /* แก้แค่แถวแรก → ต้องโยน error ไม่ใช่เงียบ */
+      const lines = multiCsv.split("\n");
+      lines[1] = lines[1].replace("81.52", "81.599");
+      try { casesFromCsv(lines.join("\n")); out.mixedRows = "ไม่เตือน"; }
+      catch (e) { out.mixedRows = /ไม่ตรงกัน/.test(e.message) ? "เตือน" : e.message; }
+      /* แก้ทุกแถวให้ตรงกัน → นำเข้าได้ ไม่สร้างซ้ำ และช่องที่ไฟล์ไม่มีคอลัมน์ยังอยู่ */
+      const allRows = multiCsv.replace(/81\.52/g, "81.599");
+      const n0 = store.data.cases.length;
+      importCaseList(casesFromCsv(allRows), "ทดสอบหลายแถว", { fromFile: true });
+      const m = store.data.cases.find(x => x.sourceRef === "q_multi");
+      out.multi = { grew: store.data.cases.length - n0, icd9: m.icd9, surgeon: m.primarySurgeon, room: m.room, people: m.participants.length };
+
+      store.data.cases = store.data.cases.filter(x => !["q_keep", "q_edit", "q_multi"].includes(x.sourceRef));
       store.save();
       return out;
     });
@@ -159,6 +181,11 @@ export default async function run() {
          reimport.fileThenQueue, ["81.531", "S72.081"]);
     t.eq("ไฟล์ CSV ที่แอปนี้ export เอง นำเข้ากลับได้: จับคู่เคสเดิม ไม่สร้างเคสซ้ำ และรับรหัสที่แก้มา",
          [reimport.roundTrip.grew, reimport.roundTrip.icd9, reimport.roundTrip.icd10], [0, "81.599", "S72.081"]);
+    t.eq("เคสที่มีผู้ร่วมผ่าตัด 2 คน export เป็น 2 แถว · แก้ไม่ครบทุกแถวแล้วนำเข้า ระบบเตือนแทนที่จะเลือกแถวใดแถวหนึ่งเงียบ ๆ",
+         [reimport.rowsExported, reimport.mixedRows], [2, "เตือน"]);
+    t.eq("แก้ครบทุกแถวแล้วนำเข้า: อัปเดตเคสเดิม ไม่สร้างซ้ำ ผู้ร่วมผ่าตัดคงเดิม และช่องที่ไฟล์ไม่มีคอลัมน์ (ห้อง/ศัลยแพทย์หลัก) ไม่ถูกล้าง",
+         [reimport.multi.grew, reimport.multi.icd9, reimport.multi.surgeon, reimport.multi.room, reimport.multi.people],
+         [0, "81.599", "อ. สมชาย", "OR3", 2]);
 
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);
