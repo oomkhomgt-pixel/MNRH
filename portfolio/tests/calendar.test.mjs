@@ -16,6 +16,21 @@ const REC_OF = `(b) => {
   return rec ? { kind, ...rec } : null;
 }`;
 
+/* พฤหัสฯ "ปกติ" ถัดไปนับจากวันที่ให้มา — ตารางจริงของกลุ่มงานมีพฤหัสฯ ที่ไม่มีคาบประจำอยู่หลายแบบ
+   (วันหยุด · งานเต็มวัน workshop/ประชุมร่วม · ประชุมนอกที่กินทั้งวัน · สัปดาห์ที่คาบแรกเป็น topic หรือไม่มีหัวข้อเลย)
+   ถ้าเลือกพฤหัสฯ ถัดไปดื้อ ๆ ข้อสอบจะผ่านหรือไม่ผ่านตามวันที่ที่บังเอิญรัน จึงต้องข้ามวันพิเศษเหล่านี้ */
+const PLAIN_THU = `(from) => {
+  let d = addDaysISO(from, 1);
+  for (let i = 0; i < 400; i++, d = addDaysISO(d, 1)) {
+    if (new Date(d + "T00:00:00").getDay() !== 4) continue;
+    const pre = THURSDAY_PRESETS[d] || {};
+    if (pre.event || pre.holiday || pre.opening?.kind === "topic" || (pre.topics && !pre.topics.length)) continue;
+    /* Inter-hospital บ่ายพฤหัสฯ ถูกตัดทิ้งในวันหยุด/งานเต็มวัน จึงใช้เป็นเครื่องยืนยันว่าวันนี้เป็นพฤหัสฯ ปกติ */
+    if (presentationsForDate(d).some(p => p.type === "interhospital")) return d;
+  }
+  return d;
+}`;
+
 export default async function run() {
   const t = suite("ปฏิทินรวมการนำเสนอ");
   const srv = await serve();
@@ -24,8 +39,9 @@ export default async function run() {
     /* ---------- ช่องประจำ F/P · วันหยุด · ชื่อโผล่จากสไลด์ · chip สองบรรทัด (admin) ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
-      const r = await page.evaluate(async (recOfSrc) => {
+      const r = await page.evaluate(async ({ recOfSrc, plainThuSrc }) => {
         const recOf = new Function("return " + recOfSrc)();
+        const plainThursday = new Function("return " + plainThuSrc)();
         showView("calendar");
         const mc = store.data.programme.morningConference;
         /* วันข้างหน้าที่อยู่ในรูปแบบ (ไม่ใช่พฤหัสฯ) และไม่มีแถว/กิจกรรมใด ๆ */
@@ -43,9 +59,8 @@ export default async function run() {
         const withFilm = filmAct ? presentationsForDate(filmAct.date) : [];
         const noDupFilm = !!filmAct && withFilm.some(p => p.kind === "activity" && p.type === "traumafilm") &&
           !withFilm.some(p => p.kind === "slot" && p.type === "traumafilm");
-        /* พฤหัสฯ ไม่มีช่อง F/P (มีแต่โครง 4 ช่วงของเช้าพฤหัสฯ) */
-        let thu = addDaysISO(todayISO(), 1);
-        while (new Date(thu + "T00:00:00").getDay() !== 4) thu = addDaysISO(thu, 1);
+        /* พฤหัสฯ ไม่มีช่อง F/P (มีแต่โครง 4 ช่วงของเช้าพฤหัสฯ) — ใช้พฤหัสฯ ปกติ ไม่ใช่วันหยุด/งานเต็มวัน */
+        const thu = plainThursday(todayISO());
         const thuSlots = presentationsForDate(thu).filter(p => p.kind === "slot" && (p.type === "traumafilm" || p.type === "preop")).length;
         /* บ่ายพฤหัสฯ มี Inter-hospital conference แสดงเฉย ๆ (kind "info") ไม่มีผู้นำเสนอ */
         const thuInfo = presentationsForDate(thu).filter(p => p.kind === "info" && p.type === "interhospital");
@@ -104,7 +119,7 @@ export default async function run() {
         }
         return { slotTypes, orderOk, onHoliday, hasFilmAct: !!filmAct, noDupFilm, thuSlots, infoOk, infoOnlyThu, info, chips: chips.length, noToggle,
                  abbrOk, compact, fullName, titled, slotLabelOk, residentCount: residentIds.size, slot, topic };
-      }, REC_OF);
+      }, { recOfSrc: REC_OF, plainThuSrc: PLAIN_THU });
       t.eq("วันราชการข้างหน้าที่ยังไม่มีอะไรลง มีช่องประจำ F แล้ว P เรียงตามเวลา", r.slotTypes, ["traumafilm", "preop"]);
       t.check("รายการในวันเรียงตามเวลาเริ่ม", r.orderOk);
       t.eq("วันหยุดราชการไม่มีช่องประจำ", r.onHoliday, 0);
@@ -213,7 +228,8 @@ export default async function run() {
     /* ---------- เช้าวันพฤหัสฯ 4 ช่วง · ธีมรายสัปดาห์ · chief กำกับ · Kahoot quiz · Staff lecture · การประชุมภายนอก (ส.ค. 2569 ตามตารางจริง) ---------- */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
-      const r = await page.evaluate(async () => {
+      const r = await page.evaluate(async (plainThuSrc) => {
+        const plainThursday = new Function("return " + plainThuSrc)();
         const wait = (ms) => new Promise(res => setTimeout(res, ms));
         showView("calendar"); calMonth = "2026-08"; renderCalendar();
         const badges = [...document.querySelectorAll("#calGrid .gcal-week-sub:not(.holiday)")].slice(0, 4).map(b => b.textContent);
@@ -232,9 +248,8 @@ export default async function run() {
         const ext = ["2026-08-20", "2026-08-21", "2026-08-26", "2026-08-28"].map(d => presentationsForDate(d).filter(p => p.type === "external").map(p => p.title).join("|"));
         const noExt19 = presentationsForDate("2026-08-19").every(p => p.type !== "external");
         const note = document.querySelector(".gcal-month-note")?.textContent || "";
-        /* ช่องเปล่าของพฤหัสฯ ข้างหน้า: T ×2 + J */
-        let thu = addDaysISO(todayISO(), 1);
-        while (new Date(thu + "T00:00:00").getDay() !== 4) thu = addDaysISO(thu, 1);
+        /* ช่องเปล่าของพฤหัสฯ ปกติวันถัดไป (ข้ามวันหยุด/งานเต็มวัน/สัปดาห์ที่ไม่มีหัวข้อ): T ×2 + J */
+        const thu = plainThursday(todayISO());
         store.data.schedule = store.data.schedule.filter(x => x.date !== thu);
         const emptyThu = presentationsForDate(thu).filter(p => p.kind === "slot").map(p => p.type + ":" + p.start);
         store.load();
@@ -284,7 +299,7 @@ export default async function run() {
         return { badges, badgeIsButton, aug6, aug13, chiefNames, chip6, quizChip, lectureChip, ext, noExt19, note, emptyThu, sup, quizActs,
                  holidayBadge, dlgTitle, lectureFieldsShown, after6: after6 && { type: after6.type, title: after6.title }, themeOverride, themeAuto, extRows, addedShown,
                  covHasQuiz: covText.includes("Kahoot quiz"), covHasSup: covText.includes("กำกับผู้นำเสนอหัวข้อ") };
-      });
+      }, PLAIN_THU);
       t.eq("ป้ายธีม 4 สัปดาห์ของ ส.ค. 2569 ตรงตารางจริง (Trauma → Spine → Metabolic bone → Shoulder & Sports)", r.badges, ["Trauma", "Spine", "Metabolic bone", "Shoulder & Sports"]);
       t.check("admin: ป้ายธีมกดได้ (เปิดกล่องจัดการวันพฤหัสฯ)", r.badgeIsButton);
       t.eq("6 ส.ค.: Interesting case → Topic ×2 → Journal → Inter-hospital เรียงตามเวลา", r.aug6, ["info:caseconf", "schedule:topic", "schedule:topic", "schedule:journal", "info:interhospital"]);

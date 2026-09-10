@@ -3322,20 +3322,20 @@ function seedData() {
 
   /* --- เคสผ่าตัดตัวอย่างสำหรับ logbook (ปกติจะนำเข้าจากระบบคิว) --- */
   const OPS = {
-    trauma:[["Closed intertrochanteric fracture, right","Proximal femoral nail, right"],
-            ["Closed femoral neck fracture, left","Bipolar hemiarthroplasty, left hip"],
+    trauma:[["Closed intertrochanteric fracture, right","Proximal femoral nail, right","S72.10","79.35"],
+            ["Closed femoral neck fracture, left","Bipolar hemiarthroplasty, left hip","S72.00","81.52"],
             ["Open tibial shaft fracture Gustilo IIIA, right","Debridement and interlocking nail, right tibia"],
             ["Distal radius fracture, left","ORIF with volar locking plate, left distal radius"]],
     spine:[["Lumbar spinal stenosis L4-5","Decompressive laminectomy L4-5"],
            ["Thoracolumbar burst fracture T12","Percutaneous pedicle screw fixation T11-L1"]],
-    arthroplasty:[["Primary osteoarthritis, right knee","Total knee arthroplasty, right"],
+    arthroplasty:[["Primary osteoarthritis, right knee","Total knee arthroplasty, right","M17.1","81.54"],
                   ["Avascular necrosis, left hip","Total hip arthroplasty, left"],
                   ["Aseptic loosening of TKA, right","Revision total knee arthroplasty, right"]],
     sports:[["Anterior cruciate ligament tear, left knee","Arthroscopic ACL reconstruction, left"],
             ["Full-thickness rotator cuff tear, right","Arthroscopic rotator cuff repair, right"],
             ["Recurrent shoulder dislocation, right","Arthroscopic Bankart repair, right"]],
-    hand:[["Flexor tendon injury zone II, right index","Primary flexor tendon repair, right index"],
-          ["Carpal tunnel syndrome, right","Open carpal tunnel release, right"]],
+    hand:[["Flexor tendon injury zone II, right index","Primary flexor tendon repair, right index","S66.1","82.45"],
+          ["Carpal tunnel syndrome, right","Open carpal tunnel release, right","G56.0","04.43"]],
     foot:[["Bimalleolar ankle fracture, left","ORIF lateral and medial malleolus, left"],
           ["Hallux valgus, right","Scarf osteotomy, right first ray"]],
     pediatric:[["Supracondylar humerus fracture Gartland III, left","Closed reduction and percutaneous K-wire fixation, left"],
@@ -3358,14 +3358,14 @@ function seedData() {
       const sub = covered.length ? covered[(k + idx) % covered.length]
                                  : ["trauma","trauma","arthroplasty","spine"][(k + idx) % 4];
       const pool = OPS[sub] || OPS.trauma;
-      const [dx, op] = pool[(k + idx) % pool.length];
+      const [dx, op, icd10 = "", icd9 = ""] = pool[(k + idx) % pool.length];
       const senior = res.year >= 3;
       const role = (k + idx) % 3 === 0 ? (senior ? "assist1" : "surgeon") : (senior ? "surgeon" : "assist1");
       const surgeon = staffRoster.find(x => x.id === rot.supervisorId)?.name || staffRoster[0].name;
       cases.push({
         id: uid("case"), source:"or-queue", sourceRef:"demo-" + res.id + "-" + k, date: d,
         room:"OR " + (1 + (k % 5)), caseClass: k % 8 === 0 ? "emergency" : "elective", status:"done",
-        subspecialty: sub, diagnosis: dx, operation: op, side: k % 2 ? "right" : "left",
+        subspecialty: sub, diagnosis: dx, operation: op, icd9, icd10, side: k % 2 ? "right" : "left",
         anaesthesia: k % 3 === 0 ? "spinal" : "ga", asa: 1 + (k % 3), durationMin: 60 + (k % 5) * 20,
         hn: "DEMO-" + String(1000 + idx * 40 + k), age: 20 + ((k * 7 + idx * 3) % 60), sex: k % 2 ? "female" : "male",
         primarySurgeon: surgeon, assistants: [], createdByName: res.name, complications: [],
@@ -3930,6 +3930,22 @@ function guessSubFromText(text) {
   return best && best.score > 0 ? best.id : "general";
 }
 
+/* อ่านรหัส ICD จากชื่อช่องที่ระบบต้นทางอาจใช้ — คืน undefined เมื่อไม่มีช่องไหนเลย
+   เพื่อแยก "ต้นทางไม่ส่งมา" (คงของเดิมไว้) ออกจาก "ส่งมาแต่ว่าง" (ตั้งใจล้าง) */
+const pickCode = (c, keys) => {
+  const k = keys.find(x => c[x] !== undefined && c[x] !== null);
+  return k === undefined ? undefined : String(c[k]).trim();
+};
+/* ระบบคิวห้องผ่าตัดของกลุ่มงานไม่ได้ส่งรหัสมาเป็นช่องเดี่ยว แต่เป็นรายการ procedures[] / diagnoses[]
+   ที่แต่ละแถวมี code และ system ("ICD-9-CM" / "ICD-10-TM") — เอาแถวที่ทำเครื่องหมาย isPrimary ก่อน ไม่มีก็เอาแถวแรก */
+const codeFromList = (list, system) => {
+  if (!Array.isArray(list) || !list.length) return undefined;
+  const same = list.filter(x => String(x?.system || "").toUpperCase().includes(system));
+  const pool = same.length ? same : list;
+  const row = pool.find(x => x?.isPrimary) || pool[0];
+  return row?.code === undefined || row?.code === null ? undefined : String(row.code).trim();
+};
+
 /* แปลงเคสจากระบบคิวให้เป็นรูปแบบของ logbook — เก็บเฉพาะสิ่งที่จำเป็นต่อการฝึกอบรม */
 function normaliseQueueCase(c) {
   const date = String(c.scheduledDate || c.operationDate || c.date || c.updatedAt || c.createdAt || "").slice(0, 10);
@@ -3948,6 +3964,11 @@ function normaliseQueueCase(c) {
     status: c.status || "",
     subspecialty: QUEUE_SUB_MAP[rawSub] || guessSubFromText(operation + " " + diagnosis),
     diagnosis, operation,
+    /* รหัสหัตถการ/วินิจฉัยจากระบบคิว (ถ้ามี) — ใช้ลอกลง RCOSTLog · รหัสที่ระบบคิวให้มาอาจต้องปรับให้ตรงรายการของราชวิทยาลัยอีกชั้น
+       ต้นทางไม่มีช่องนี้เลย → undefined (ตอนนำเข้าซ้ำจะไม่ไปทับรหัสที่กรอกมือ)
+       ต้นทางมีช่องแต่เว้นว่าง → "" ซึ่งแปลว่าตั้งใจล้าง (เช่นแก้ CSV แล้วนำเข้ากลับ) */
+    icd9: pickCode(c, ["icd9", "icd9cm", "procedureCode", "icd9Code"]) ?? codeFromList(c.procedures, "ICD-9"),
+    icd10: pickCode(c, ["icd10", "icd10tm", "diagnosisCode", "icd10Code"]) ?? codeFromList(c.diagnoses, "ICD-10"),
     side: c.operativeSide || c.side || "",
     anaesthesia: c.anesthesiaType || c.anaesthesia || "",
     asa: c.asaClass ?? c.asa ?? "",
@@ -4008,7 +4029,15 @@ function suggestAttendees(rec) {
   }).filter(Boolean);
 }
 
-function importCaseList(list, sourceLabel) {
+/* fromFile = ผู้ใช้เลือกไฟล์นำเข้าเอง (CSV/JSON) ถือเป็นคำสั่งของคน จึงเขียนทับรหัสที่เคยแก้มือได้
+   ส่วนการดึงจากระบบคิวเป็นงานอัตโนมัติ ไม่ควรย้อนรหัสที่คนปรับให้ตรงรายการของราชวิทยาลัยแล้ว */
+/* คอลัมน์ในไฟล์ → ช่องของเคสที่คอลัมน์นั้นเขียนถึง (ใช้กับไฟล์ที่รู้ว่ามีคอลัมน์อะไรบ้าง) */
+const CSV_FIELD_TO_CASE = { date:"date", hn:"hn", age:"age", sex:"sex", operationText:"operation", diagnosisText:"diagnosis",
+  subspecialty:"subspecialty", primarySurgeonName:"primarySurgeon", orRoomName:"room", anesthesiaType:"anaesthesia",
+  asaClass:"asa", caseClass:"caseClass", operativeSide:"side", estimatedDurationMin:"durationMin",
+  assistantSurgeonNames:"assistants", icd9:"icd9", icd10:"icd10" };
+
+function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
   const byRef = new Map((store.data.cases || []).map(c => [c.source + "|" + c.sourceRef, c]));
   let added = 0, updated = 0, skipped = 0;
   (list || []).forEach(raw => {
@@ -4017,9 +4046,32 @@ function importCaseList(list, sourceLabel) {
     const key = rec.source + "|" + rec.sourceRef;
     const old = rec.sourceRef ? byRef.get(key) : null;
     if (old) {
-      /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว */
+      /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว
+         และคงรหัส ICD ที่กรอกมือไว้เมื่อต้นทางไม่มีช่องนี้เลย — ระบบคิวส่วนใหญ่ไม่ส่งรหัสมา ถ้าปล่อยให้ทับ
+         การกดดึงข้อมูลรอบถัดไปจะล้างรหัสที่นั่งกรอกไว้ทั้งหมดโดยไม่มีอะไรเตือน (เหมือนที่ note ไม่ถูกทับ)
+         แต่ถ้าต้นทางมีช่องนี้แล้วเว้นว่าง (เช่นแก้ CSV แล้วนำเข้ากลับ) ถือว่าตั้งใจล้าง จึงทับตามปกติ */
       const keep = old.participants;
+      const keepEdited = old.icdEdited && !fromFile;
+      if (rec.icd9 === undefined || keepEdited) delete rec.icd9;
+      if (rec.icd10 === undefined || keepEdited) delete rec.icd10;
+      /* hn/age/sex ต้องยอมให้ทับด้วยค่าว่างเสมอเมื่อเครื่องนี้ตั้งไว้ว่าไม่เก็บ เพราะค่าว่างนั้นมาจากระดับข้อมูลผู้ป่วย
+         ไม่ใช่ "ต้นทางไม่ได้ส่งมา" — ถ้าคงไว้ เครื่องที่ตั้งว่าไม่เก็บ HN จะยังมี HN ค้างแล้วหลุดออกทาง CSV/ใบพิมพ์ */
+      const forced = patientLevel() === "full" ? [] : patientLevel() === "minimal" ? ["hn", "age", "sex"] : ["hn"];
+      if (raw.__fields) {
+        /* ไฟล์ที่รู้คอลัมน์: เขียนเฉพาะช่องที่ไฟล์มีคอลัมน์ให้ (คอลัมน์ที่เว้นว่าง = ตั้งใจล้าง จึงล้างได้จริง) */
+        const allow = new Set([...raw.__fields.map(f => CSV_FIELD_TO_CASE[f]).filter(Boolean), "importedAt", ...forced]);
+        Object.keys(rec).forEach(k => { if (!allow.has(k)) delete rec[k]; });
+      } else {
+        /* ต้นทางที่ไม่รู้ว่ามีช่องอะไรบ้าง (ระบบคิว/JSON): ค่าว่างไม่ล้างค่าที่มีอยู่แล้ว */
+        const blank = (v) => v === "" || v === null || v === undefined || (Array.isArray(v) && !v.length);
+        Object.keys(rec).forEach(k => {
+          if (k === "icd9" || k === "icd10" || forced.includes(k)) return;
+          if (blank(rec[k]) && !blank(old[k])) delete rec[k];
+        });
+      }
       Object.assign(old, rec, { id: old.id, participants: keep });
+      /* ไฟล์ที่คนแก้เองแล้วนำเข้ามา ถือเป็นรหัสที่คนยืนยัน เท่ากับแก้ในกล่องเคส — ปักธงกันการดึงคิวรอบหน้าทับกลับ */
+      if (fromFile && (rec.icd9 !== undefined || rec.icd10 !== undefined)) old.icdEdited = true;
       updated++;
     } else {
       rec.participants = autoParticipants(rec);
@@ -4093,27 +4145,47 @@ const CSV_ALIASES = {
   date:["date","scheduleddate","วันที่","วันผ่าตัด"], hn:["hn","เลขที่ผู้ป่วย"],
   operationText:["operation","operationtext","การผ่าตัด","procedure"],
   diagnosisText:["diagnosis","diagnosistext","การวินิจฉัย"],
-  subspecialty:["subspecialty","อนุสาขา"], primarySurgeonName:["surgeon","primarysurgeon","ศัลยแพทย์","อาจารย์ผู้ผ่าตัด"],
-  orRoomName:["room","or","ห้องผ่าตัด"], anesthesiaType:["anesthesia","anaesthesia","ระงับความรู้สึก"],
-  asaClass:["asa"], caseClass:["caseclass","ประเภทเคส"], id:["id","caseid","เลขที่เคส"],
+  subspecialty:["subspecialty","อนุสาขา"], primarySurgeonName:["surgeon","primarysurgeon","ศัลยแพทย์","ศัลยแพทย์หลัก","อาจารย์ผู้ผ่าตัด"],
+  orRoomName:["room","or","ห้องผ่าตัด","ห้อง"], anesthesiaType:["anesthesia","anaesthesia","ระงับความรู้สึก"],
+  asaClass:["asa"], caseClass:["caseclass","ประเภทเคส"], id:["id","caseid","เลขที่เคส","เลขที่เคสในระบบคิว"],
   operativeSide:["side","ข้าง"], estimatedDurationMin:["duration","durationmin","นาที"],
-  assistantSurgeonNames:["assistant","assistants","ผู้ช่วย"], age:["age","อายุ"], sex:["sex","เพศ"]
+  assistantSurgeonNames:["assistant","assistants","ผู้ช่วย"], age:["age","อายุ"], sex:["sex","เพศ"],
+  icd9:["icd9","icd9cm","procedurecode","รหัสหัตถการ"], icd10:["icd10","icd10tm","diagnosiscode","รหัสวินิจฉัย"]
 };
 function casesFromCsv(text) {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
-  const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/\s|_/g, ""));
+  /* ตัดขีดกลางออกด้วย ไม่งั้นหัวคอลัมน์ของไฟล์ที่แอปนี้ export เอง ("ICD-9" / "ICD-10") จะจับคู่ไม่ติด */
+  const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/[\s_-]/g, ""));
   const col = {};
   Object.entries(CSV_ALIASES).forEach(([field, names]) => {
     const i = head.findIndex(h => names.includes(h));
     if (i >= 0) col[field] = i;
   });
-  return rows.slice(1).map(r => {
-    const o = {};
+  const list = rows.slice(1).map(r => {
+    /* __fields = คอลัมน์ที่ไฟล์นี้มีจริง — ตอนนำเข้าใช้แยก "ไม่มีคอลัมน์" (ไม่แตะของเดิม) ออกจาก "มีคอลัมน์แต่เว้นว่าง" (ตั้งใจล้าง) */
+    const o = { __fields: Object.keys(col) };
     Object.entries(col).forEach(([field, i]) => { o[field] = r[i]; });
     if (o.assistantSurgeonNames) o.assistantSurgeonNames = String(o.assistantSurgeonNames).split(/[;/]/).map(x => x.trim()).filter(Boolean);
     return o;
   });
+  /* ไฟล์ที่แอปนี้ออกให้เป็น "แถวละผู้ร่วมผ่าตัดหนึ่งคน" เคสเดียวจึงมีได้หลายแถว — ยุบเหลือแถวเดียวต่อเคส
+     ถ้าสองแถวของเคสเดียวกันมีค่าไม่ตรงกัน (เช่นแก้รหัส ICD ไว้แถวเดียว) ต้องหยุดแล้วบอกผู้ใช้
+     ดีกว่าปล่อยให้แถวท้ายชนะเงียบ ๆ แล้วค่าที่ตั้งใจแก้หายไป */
+  if (col.id === undefined) return list;      /* ไม่มีคอลัมน์เลขที่เคส (0 เป็นดัชนีที่ใช้ได้ ห้ามเช็คด้วย falsy) */
+  const seen = new Map(), bad = new Map();
+  list.forEach(o => {
+    const key = String(o.id || "").trim();
+    if (!key) return;
+    const first = seen.get(key);
+    if (!first) { seen.set(key, o); return; }
+    const differs = Object.keys(col).find(f => f !== "id" && JSON.stringify(first[f] ?? "") !== JSON.stringify(o[f] ?? ""));   /* __fields เหมือนกันทุกแถวอยู่แล้ว */
+    if (differs) bad.set(key, rows[0][col[differs]] || differs);   /* บอกชื่อคอลัมน์ตามที่เห็นในไฟล์ ไม่ใช่ชื่อฟิลด์ในโค้ด */
+  });
+  /* เคสที่แถวไม่ตรงกันถูกข้าม ไม่ใช่ล้มทั้งไฟล์ — ผู้ใช้จะได้นำเข้าเคสที่เหลือได้ แล้วตามแก้เฉพาะที่ขัดกัน */
+  const out = list.filter(o => { const key = String(o.id || "").trim(); return (!key || seen.get(key) === o) && !bad.has(key); });
+  out.conflicts = [...bad].map(([id, colName]) => id + " (ช่อง " + colName + ")");
+  return out;
 }
 
 function importCasesFromFile(file) {
@@ -4122,9 +4194,11 @@ function importCasesFromFile(file) {
     try {
       const txt = String(fr.result);
       const list = /^\s*[[{]/.test(txt) ? collectCasesDeep(JSON.parse(txt)) : casesFromCsv(txt);
-      if (!list.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
-      const r = importCaseList(list, "ไฟล์ " + file.name);
-      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส");
+      const conflicts = list.conflicts || [];
+      if (!list.length && !conflicts.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
+      const r = importCaseList(list, "ไฟล์ " + file.name, { fromFile: true });
+      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส"
+        + (conflicts.length ? " · ข้าม " + conflicts.length + " เคสที่แถวในไฟล์ไม่ตรงกัน: " + conflicts.join(", ") : ""));
     } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
   };
   fr.readAsText(file);
@@ -4498,6 +4572,11 @@ function renderToday() {
   $$("#todayBody [data-tcase]").forEach(b => b.addEventListener("click", () => editCaseParticipants(b.dataset.tcase)));
   $$("#todayBody [data-tact]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.tact)));
   $$("#todayBody [data-tgo]").forEach(b => b.addEventListener("click", () => showView(b.dataset.tgo)));
+  /* ไปหน้า logbook พร้อมตัวกรอง "รับรองแล้ว รอลง RCOSTLog" — ต้อง renderLogbook() ก่อน เพราะ showView ไม่วาดใหม่ */
+  $$("#todayBody [data-tgo-rcost]").forEach(b => b.addEventListener("click", () => {
+    caseFilter.rcost = b.dataset.tgoRcost; caseFilter.residentId = "";
+    renderLogbook(); showView("logbook");
+  }));
   /* ไปหน้าประเมินลงกองของเดือนที่ระบุ — ต้อง renderAssess() ก่อน เพราะ showView ไม่วาดใหม่ */
   $$("#todayBody [data-tgo-rot]").forEach(b => b.addEventListener("click", () => {
     assessView.page = "month"; assessView.month = b.dataset.tgoRot; assessView.mineOnly = true;
@@ -4561,6 +4640,7 @@ function todayForResident(iso, all) {
   const waiting = acts.filter(a => !a.verified);
   const unverifiedCases = (store.data.cases || []).filter(c =>
     (c.participants || []).some(p => p.residentId === me && !p.verified));
+  const rcostTodoCases = me ? rcostTodo(me) : [];
   out.push(`<div class="card">
     <h2>ค้างอยู่</h2>
     <div class="grid g2">
@@ -4573,6 +4653,12 @@ function todayForResident(iso, all) {
         <span class="tag ${unverifiedCases.length ? "warn" : "ok"}">${unverifiedCases.length}</span></div>
         <p class="small muted" style="margin:.3rem 0 0">การรับรองเป็นของอาจารย์ ไม่ใช่สิ่งที่คุณกดเองได้</p>
         ${unverifiedCases.length ? `<button class="btn-sm no-print" style="margin-top:.4rem" data-tgo="logbook">ดูใน logbook</button>` : ""}</div>
+      <div class="nowcard"><div class="between"><b>รับรองแล้ว รอลง RCOSTLog</b>
+        <span class="tag ${rcostTodoCases.length ? "warn" : "ok"}">${rcostTodoCases.length}</span></div>
+        <p class="small muted" style="margin:.3rem 0 0">${rcostTodoCases.length
+          ? "อาจารย์รับรองในแฟ้มแล้ว ข้อมูลพร้อมลอกลงแอปราชวิทยาลัย — กดปุ่มด้านล่างแล้วกด “ลงใน RCOSTLog” ที่แต่ละเคส"
+          : "ทุกเคสที่รับรองแล้วลง RCOSTLog ครบ"}</p>
+        ${rcostTodoCases.length ? `<button class="btn-sm btn-primary no-print" style="margin-top:.4rem" data-tgo-rcost="todo">ดูเคสที่รอลง (${rcostTodoCases.length})</button>` : ""}</div>
     </div>
     <div class="row no-print" style="margin-top:.8rem">
       <button class="btn-sm btn-primary" data-tgo="ingest">+ บันทึกกิจกรรม</button>
@@ -7697,6 +7783,8 @@ function applyMerged(data) {
   SYNCED_KEYS.forEach(k => { if (data[k] !== undefined) store.data[k] = data[k]; });
   (store.data.users || []).forEach(u => { if (!u.pin && localPins.get(u.username)) u.pin = localPins.get(u.username); });
   store.migrate();
+  /* ข้อมูลที่ดึงมาอาจมาจากเครื่องที่ตั้งเก็บ HN เต็ม — เครื่องนี้ต้องบังคับระดับของตัวเองทันที ไม่ให้ค้างไว้ */
+  applyPatientLevel();
   /* ทะเบียนบัญชีอาจถูกแทนที่ด้วยของเครื่องอื่น — ผูกเซสชันเดิมกลับด้วยชื่อผู้ใช้ */
   if (session && !(store.data.users || []).some(u => u.id === session.userId)) {
     const again = (store.data.users || []).find(u => u.username === myUsername);
@@ -7982,6 +8070,44 @@ function renderBackupPanel() {
 const caseFilter = { residentId:"", subspecialty:"", role:"", q:"", ay:"", rcost:"" };
 const rcostDone = (c, residentId) => !!c.participants?.find(p => p.residentId === residentId)?.rcost?.done;
 const rcostPending = (residentId) => casesOf(residentId).filter(c => !rcostDone(c, residentId));
+/* สถานะของเคสหนึ่งสำหรับคนหนึ่งเทียบกับ RCOSTLog (แอป logbook ของราชวิทยาลัย):
+   todo = อาจารย์รับรองแล้วแต่ยังไม่ได้ลง · no = ยังไม่ได้ลง (รับรองหรือไม่ก็ตาม) · yes = ลงแล้ว · validated = อาจารย์ validate ในแอปนั้นแล้ว */
+const rcostState = (p) => !p ? "" : p.rcost?.validated ? "validated" : p.rcost?.done ? "yes" : p.verified ? "todo" : "no";
+const rcostMatch = (p, want) => !want ? true
+  : want === "todo" ? !!p && !!p.verified && !p.rcost?.done
+  : want === "no" ? !!p && !p.rcost?.done
+  : want === "yes" ? !!p?.rcost?.done
+  : want === "validated" ? !!p?.rcost?.validated : true;
+const rcostTodo = (residentId) => casesOf(residentId).filter(c => rcostMatch(c.participants.find(p => p.residentId === residentId), "todo"));
+/* ตัวกรอง RCOSTLog ยึด "คนเดียว" เสมอ — แพทย์ประจำบ้านคือตัวเอง (ตัวกรองเลือกคนของเขาว่างตลอด)
+   อาจารย์/ผู้จัดหลักสูตรตามคนที่เลือกไว้ ถ้าไม่ได้เลือกจึงเป็นการดูทั้งกลุ่ม */
+const rcostTarget = () => caseFilter.residentId || (isResident() ? myResidentId() : "");
+/* ดูทั้งกลุ่ม: "ลงแล้ว/Validated" = มีคนลงแล้ว · "ยังไม่ได้ลง/รอลง" = ยังไม่มีใครลงเลย
+   สองฝั่งต้องไม่ทับกัน ไม่งั้นเคสเดียวโผล่ทั้งสองตัวกรองและนับซ้ำกับตัวเลขบนหน้า "วันนี้" */
+const rcostMatchCase = (c, want) => {
+  if (!want) return true;
+  const rid = rcostTarget(), ps = c.participants || [];
+  if (rid) return rcostMatch(ps.find(p => p.residentId === rid), want);
+  if (want === "yes" || want === "validated") return ps.some(p => rcostMatch(p, want));
+  const noneDone = ps.length > 0 && !ps.some(p => p.rcost?.done);
+  return want === "todo" ? noneDone && ps.some(p => p.verified) : noneDone;
+};
+/* ค่าที่ RCOSTLog ใช้ — บทบาทของเราสามระดับ → Performing Level ของเขา · เพศเป็นภาษาอังกฤษ · วันที่แบบ "25 February 2026" */
+const RCOST_LEVEL = { surgeon:"Performer", assist1:"Assistant", assist2:"Assistant", observer:"Observer" };
+const rcostSex = (s) => /^(m|male|ชาย)$/i.test(String(s || "").trim()) ? "Male" : /^(f|female|หญิง)$/i.test(String(s || "").trim()) ? "Female" : String(s || "");
+const EN_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const rcostDate = (iso) => { if (!iso) return ""; const d = new Date(iso + "T00:00:00"); return d.getDate() + " " + EN_MONTHS[d.getMonth()] + " " + d.getFullYear(); };
+/* คัดลอกข้อความ — clipboard API ต้องเป็น secure context (https/localhost) ถ้าใช้ไม่ได้ตกไปใช้ execCommand */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+    ta.remove(); return ok;
+  }
+}
 let showHn = false;
 
 const casesOf = (residentId, role) => (store.data.cases || []).filter(c =>
@@ -8017,7 +8143,8 @@ function renderLogbook() {
       <div class="stat"><b>${mine.length}</b><span>เคสของฉัน</span></div>
       <div class="stat"><b>${mine.filter(c => meIn(c)?.role === "surgeon").length}</b><span>เป็นผู้ผ่าตัดหลัก</span></div>
       <div class="stat"><b>${mine.filter(c => meIn(c)?.verified).length}</b><span>อาจารย์รับรองแล้ว</span></div>
-      <div class="stat"><b>${mine.filter(c => !meIn(c)?.rcost?.done).length}</b><span>ยังไม่ได้ลงระบบราชวิทยาลัย</span></div>`;
+      <div class="stat"><b>${mine.filter(c => rcostMatch(meIn(c), "todo")).length}</b><span>รับรองแล้ว รอลง RCOSTLog</span></div>
+      <div class="stat"><b>${mine.filter(c => !meIn(c)?.rcost?.done).length}</b><span>ยังไม่ได้ลง RCOSTLog ทั้งหมด</span></div>`;
   }
 
   /* --- เคสที่ยังไม่ได้ระบุผู้ร่วมผ่าตัด --- */
@@ -8078,9 +8205,11 @@ function renderLogbook() {
   $("#caseFilters").innerHTML = `
     <select data-cf="residentId"><option value="">ทุกคน</option>${visibleResidents().map(r =>
       `<option value="${r.id}" ${caseFilter.residentId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
-    <select data-cf="rcost"><option value="">ทั้งที่ลงและยังไม่ลงราชวิทยาลัย</option>
-      <option value="no" ${caseFilter.rcost === "no" ? "selected" : ""}>ยังไม่ได้ลงราชวิทยาลัย</option>
-      <option value="yes" ${caseFilter.rcost === "yes" ? "selected" : ""}>ลงราชวิทยาลัยแล้ว</option></select>
+    <select data-cf="rcost"><option value="">ทั้งที่ลงและยังไม่ลง RCOSTLog</option>
+      <option value="todo" ${caseFilter.rcost === "todo" ? "selected" : ""}>อาจารย์รับรองแล้ว รอลง RCOSTLog</option>
+      <option value="no" ${caseFilter.rcost === "no" ? "selected" : ""}>ยังไม่ได้ลง RCOSTLog (ทั้งหมด)</option>
+      <option value="yes" ${caseFilter.rcost === "yes" ? "selected" : ""}>ลง RCOSTLog แล้ว</option>
+      <option value="validated" ${caseFilter.rcost === "validated" ? "selected" : ""}>อาจารย์ validate ใน RCOSTLog แล้ว</option></select>
     <select data-cf="role"><option value="">ทุกบทบาท</option>${CASE_ROLES.map(r =>
       `<option value="${r.id}" ${caseFilter.role === r.id ? "selected" : ""}>${esc(r.th)}</option>`).join("")}</select>
     <select data-cf="subspecialty"><option value="">ทุกอนุสาขา</option>${subs.map(x =>
@@ -8090,7 +8219,7 @@ function renderLogbook() {
     <input data-cf="q" placeholder="ค้นหา operation / diagnosis…" value="${esc(caseFilter.q)}" />
     <label class="tag" style="cursor:pointer"><input type="checkbox" id="hnToggle" ${showHn ? "checked" : ""} /> แสดง HN เต็ม</label>
     <button class="btn-sm" id="btnCaseCsv">CSV</button>
-    ${caseFilter.residentId ? `<button class="btn-sm" id="btnRcostMark">ทำเครื่องหมายว่าลงราชวิทยาลัยแล้ว (ตามที่กรอง)</button>` : ""}`;
+    ${caseFilter.residentId ? `<button class="btn-sm" id="btnRcostMark">ทำเครื่องหมายว่าลง RCOSTLog แล้ว (ตามที่กรอง)</button>` : ""}`;
   $$("#caseFilters [data-cf]").forEach(el => {
     const ev = el.tagName === "INPUT" ? "input" : "change";
     el.addEventListener(ev, () => { caseFilter[el.dataset.cf] = el.value; renderLogbook(); });
@@ -8099,10 +8228,10 @@ function renderLogbook() {
   $("#btnCaseCsv").addEventListener("click", () => download("logbook-cases.csv", toCsv(caseCsvRows(filterCases())), "text/csv;charset=utf-8"));
   $("#btnRcostMark")?.addEventListener("click", async () => {
     const list = filterCases(), rid = caseFilter.residentId;
-    if (!(await confirmDialog("ทำเครื่องหมายว่าได้ลงระบบราชวิทยาลัยแล้ว " + list.length + " เคส?", { okLabel: "ทำเครื่องหมาย" }))) return;
+    if (!(await confirmDialog("ทำเครื่องหมายว่าได้ลง RCOSTLog แล้ว " + list.length + " เคส?", { okLabel: "ทำเครื่องหมาย" }))) return;
     list.forEach(c => {
       const p = c.participants?.find(x => x.residentId === rid);
-      if (p) p.rcost = { done: true, at: todayISO() };
+      if (p) p.rcost = { ...(p.rcost || {}), done: true, at: p.rcost?.at || todayISO() };
     });
     store.save(); renderAll(); toast("ทำเครื่องหมายแล้ว " + list.length + " เคส");
   });
@@ -8144,6 +8273,15 @@ function renderLogbook() {
 function renderCaseTable(cases = store.data.cases || []) {
   const rows = filterCases();
   const shown = rows.slice(0, moreLimit("cases", 30));
+  /* ปุ่ม "ลงใน RCOSTLog" มีความหมายต่อคนคนเดียว — แพทย์ประจำบ้านคือตัวเอง · อาจารย์ต้องกรองเลือกคนก่อน */
+  const target = rcostTarget();
+  const rcostBtn = (c) => {
+    const p = target ? (c.participants || []).find(x => x.residentId === target) : null;
+    if (!p) return "";
+    const st = rcostState(p);
+    const label = st === "validated" ? "Validated แล้ว" : st === "yes" ? "ลงแล้ว · ดูช่อง" : "ลงใน RCOSTLog";
+    return `<button class="btn-sm ${st === "todo" ? "btn-primary" : "btn-ghost"}" data-rcostcopy="${c.id}|${target}">${label}</button>`;
+  };
   $("#caseTable").innerHTML = rows.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th>วันที่</th><th>HN</th><th>Diagnosis / Operation</th><th>Subspecialty</th><th>ศัลยแพทย์</th>
       <th>แพทย์ประจำบ้าน &amp; บทบาท</th><th></th></tr></thead>
@@ -8151,19 +8289,22 @@ function renderCaseTable(cases = store.data.cases || []) {
       <td class="small">${fmtDate(c.date)}<br /><span class="muted">${esc(c.room || "")}${c.caseClass === "emergency" ? " · ฉุกเฉิน" : ""}</span></td>
       <td class="small mono">${esc(maskHn(c.hn))}</td>
       <td class="small"><b>${esc(c.operation || "—")}</b><br /><span class="muted">${esc(c.diagnosis || "")}
-        ${c.side ? " · " + esc(c.side) : ""}${c.anaesthesia ? " · " + esc(c.anaesthesia) : ""}${c.asa ? " · ASA " + esc(String(c.asa)) : ""}</span></td>
+        ${c.side ? " · " + esc(c.side) : ""}${c.anaesthesia ? " · " + esc(c.anaesthesia) : ""}${c.asa ? " · ASA " + esc(String(c.asa)) : ""}</span>
+        ${c.icd9 || c.icd10 ? `<br /><span class="muted mono">${c.icd10 ? "ICD-10 " + esc(c.icd10) : ""}${c.icd9 && c.icd10 ? " · " : ""}${c.icd9 ? "ICD-9 " + esc(c.icd9) : ""}</span>` : ""}</td>
       <td class="small">${esc(SUB_BY_ID[c.subspecialty]?.en || "")}</td>
       <td class="small">${esc(c.primarySurgeon || "—")}</td>
       <td class="small">${(c.participants || []).map(pp => {
         const r = store.resident(pp.residentId);
         return `<span class="tag ${pp.verified ? "ok" : ""}">${esc(r?.name || "?")} · ${esc(ROLE_BY_ID[pp.role]?.th || pp.role)}</span>`;
       }).join(" ") || `<span class="tag warn">ยังไม่ระบุ</span>`}</td>
-      <td class="no-print"><button class="btn-sm" data-editcase="${c.id}">แก้ไข</button></td>
+      <td class="no-print" style="white-space:nowrap">${rcostBtn(c)} <button class="btn-sm" data-editcase="${c.id}">แก้ไข</button></td>
     </tr>`).join("")}</tbody></table></div>
     ${moreHtml("cases", shown.length, rows.length, 30, "เคส (ทั้งหมด " + cases.length + " เคส)", () => renderCaseTable(cases))}`
     : `<p class="empty">ยังไม่มีเคสตามเงื่อนไขที่เลือก</p>`;
   $$("#caseTable [data-editcase]").forEach(b =>
     b.addEventListener("click", () => editCaseParticipants(b.dataset.editcase)));
+  $$("#caseTable [data-rcostcopy]").forEach(b =>
+    b.addEventListener("click", () => { const [cid, rid] = b.dataset.rcostcopy.split("|"); rcostCopyDialog(cid, rid); }));
 }
 
 function filterCases() {
@@ -8175,9 +8316,7 @@ function filterCases() {
     (caseFilter.residentId || !caseFilter.role || c.participants?.some(p => p.role === caseFilter.role)) &&
     (!caseFilter.subspecialty || c.subspecialty === caseFilter.subspecialty) &&
     (!caseFilter.ay || (c.date && academicYear(c.date) === caseFilter.ay)) &&
-    (!caseFilter.rcost || (caseFilter.residentId
-      ? (caseFilter.rcost === "yes") === rcostDone(c, caseFilter.residentId)
-      : (caseFilter.rcost === "yes") === !!c.participants?.some(p => p.rcost?.done))) &&
+    rcostMatchCase(c, caseFilter.rcost) &&
     (!q || (c.operation + " " + c.diagnosis).toLowerCase().includes(q))
   ).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }
@@ -8190,6 +8329,8 @@ function editCaseParticipants(id) {
   const rowEditable = (rid) => isStaff() || rid === myResidentId();
   /* แถวคน: คนที่ยังฝึกอบรมอยู่ + คนที่อยู่ในเคสนี้แล้ว (จบไปแล้วก็ยังต้องเห็น ไม่งั้นตอนบันทึกจะหลุดจากเคส) */
   const caseResidents = residentsPlus(activeResidents(), ...(c.participants || []).map(p => p.residentId));
+  /* รหัส ICD เป็นของเคส (ไม่ใช่ของคน) — อาจารย์หรือคนที่ร่วมเคสนี้เติมได้ เพราะเป็นคนที่ต้องลอกลง RCOSTLog */
+  const codeEditable = isStaff() || (c.participants || []).some(p => p.residentId === myResidentId());
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
       <dt>วันที่</dt><dd>${fmtDate(c.date)} · ${esc(c.room || "—")} ${c.caseClass === "emergency" ? '<span class="tag bad">ฉุกเฉิน</span>' : ""}</dd>
@@ -8200,9 +8341,15 @@ function editCaseParticipants(id) {
       <dt>ศัลยแพทย์หลัก</dt><dd>${esc(c.primarySurgeon || "—")}</dd>
       <dt>ที่มา</dt><dd class="small">${esc(c.source)} · เลขที่เคส ${esc(c.sourceRef || "—")}</dd>
     </div>
+    <div class="grid g2" style="margin-bottom:.8rem">
+      <label class="f"><span>รหัสหัตถการ ICD-9-CM <span class="muted">(ช่อง ICD9 ใน RCOSTLog)</span></span>
+        <input name="icd9" value="${esc(c.icd9 || "")}" placeholder="เช่น 79.35" ${codeEditable ? "" : "disabled"} /></label>
+      <label class="f"><span>รหัสวินิจฉัย ICD-10 <span class="muted">(ช่อง ICD10 ใน RCOSTLog)</span></span>
+        <input name="icd10" value="${esc(c.icd10 || "")}" placeholder="เช่น S72.10" ${codeEditable ? "" : "disabled"} /></label>
+    </div>
     <h4>ใครร่วมผ่าตัดเคสนี้</h4>
     ${sug.length ? `<p class="small muted">ข้อเสนอจากตารางหมุนเวียน: ${sug.map(x => esc(store.resident(x.residentId)?.name || "")).join(", ")}</p>` : ""}
-    <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th><th>ลงระบบราชวิทยาลัยแล้ว</th></tr></thead>
+    <div class="tbl-wrap"><table><thead><tr><th>แพทย์ประจำบ้าน</th><th>บทบาท</th><th>อาจารย์รับรอง</th><th>ลง RCOSTLog แล้ว</th><th>Validated ใน RCOSTLog</th></tr></thead>
       <tbody>${caseResidents.map(r => {
         const p = (c.participants || []).find(x => x.residentId === r.id);
         const isSug = sug.some(x => x.residentId === r.id);
@@ -8212,6 +8359,7 @@ function editCaseParticipants(id) {
             ${CASE_ROLES.map(x => `<option value="${x.id}" ${p?.role === x.id ? "selected" : ""}>${esc(x.th)}</option>`).join("")}</select></td>
           <td style="text-align:center"><input type="checkbox" data-ver="${r.id}" ${p?.verified ? "checked" : ""} ${canAssess() ? "" : "disabled"} /></td>
           <td style="text-align:center"><input type="checkbox" data-rcost="${r.id}" ${p?.rcost?.done ? "checked" : ""} ${rowEditable(r.id) ? "" : "disabled"} /></td>
+          <td style="text-align:center"><input type="checkbox" data-rcostval="${r.id}" ${p?.rcost?.validated ? "checked" : ""} ${canAssess() ? "" : "disabled"} /></td>
         </tr>`;
       }).join("")}</tbody></table></div>
     <label class="f" style="margin-top:.6rem"><span>บันทึกเพิ่มเติม (เช่น ขั้นตอนที่ทำเอง)</span>
@@ -8226,13 +8374,24 @@ function editCaseParticipants(id) {
           const role = $('#dlgBody [data-role="' + r.id + '"]')?.value;
           if (!role) return;
           const rcostDone = !!$('#dlgBody [data-rcost="' + r.id + '"]')?.checked;
+          /* validated ต้องลงก่อนถึงจะเป็นไปได้ — ติ๊ก validated โดยยังไม่ลง ถือว่าลงแล้วด้วย */
+          const validated = canAssess() ? !!$('#dlgBody [data-rcostval="' + r.id + '"]')?.checked : !!old?.rcost?.validated;
+          const done = rcostDone || validated;
           const verified = canAssess() ? !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked : !!old?.verified;
           list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
                       verified,
                       verifiedBy: verified ? (old?.verifiedBy || currentUser()?.displayName || c.primarySurgeon || "") : "",
-                      rcost: { done: rcostDone, at: rcostDone ? (old?.rcost?.at || todayISO()) : "" } });
+                      rcost: { done, at: done ? (old?.rcost?.at || todayISO()) : "",
+                               validated, validatedAt: validated ? (old?.rcost?.validatedAt || todayISO()) : "" } });
         });
         c.participants = list;
+        if (codeEditable) {
+          const newIcd9 = ($('#dlgBody [name="icd9"]')?.value || "").trim();
+          const newIcd10 = ($('#dlgBody [name="icd10"]')?.value || "").trim();
+          /* คนแก้รหัสเอง (ปรับให้ตรงรายการของราชวิทยาลัย) → ปักธงไว้ ไม่ให้การดึงข้อมูลรอบหน้าทับกลับเป็นรหัสของระบบคิว */
+          if (newIcd9 !== (c.icd9 || "") || newIcd10 !== (c.icd10 || "")) c.icdEdited = true;
+          c.icd9 = newIcd9; c.icd10 = newIcd10;
+        }
         c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
         audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน");
         store.save(); renderAll(); toast("บันทึกผู้ร่วมผ่าตัดแล้ว");
@@ -8266,7 +8425,7 @@ function caseSettingsDialog() {
     <p class="small muted">ชื่อผู้ป่วยไม่ถูกนำเข้าในทุกระดับ · การเปลี่ยนระดับจะลบข้อมูลส่วนนั้นออกจากเคสที่เก็บไว้แล้วด้วย
       · ระดับ “ไม่เก็บข้อมูลผู้ป่วยเลย” เหมาะกับกรณีที่ตัวแอปอยู่นอก intranet</p>
     <p class="small muted">3) ถ้าเชื่อมตรงไม่ได้ ให้ export เป็นไฟล์ JSON หรือ CSV แล้วใช้ปุ่ม “นำเข้าไฟล์”
-      หัวคอลัมน์ CSV ที่รองรับ: date, hn, diagnosis, operation, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration</p>`;
+      หัวคอลัมน์ CSV ที่รองรับ: date, hn, diagnosis, icd10, operation, icd9, subspecialty, surgeon, assistant, room, anesthesia, asa, side, duration</p>`;
   showDialog("ตั้งค่าการเชื่อมต่อระบบคิวห้องผ่าตัด", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         q.snapshotUrl = dlgVal("snapshotUrl") || OR_QUEUE_DEFAULT.snapshotUrl;
@@ -8281,17 +8440,17 @@ function caseSettingsDialog() {
 }
 
 function caseCsvRows(list) {
-  const head = ["วันที่","ปีการศึกษา","HN","อายุ","เพศ","Diagnosis","Operation","ข้าง","Subspecialty","ประเภทเคส","ห้อง",
-                "ระงับความรู้สึก","ASA","ศัลยแพทย์หลัก","แพทย์ประจำบ้าน","บทบาท","อาจารย์รับรอง","เลขที่เคสในระบบคิว"];
+  const head = ["วันที่","ปีการศึกษา","HN","อายุ","เพศ","Diagnosis","ICD-10","Operation","ICD-9","ข้าง","Subspecialty","ประเภทเคส","ห้อง",
+                "ระงับความรู้สึก","ASA","ศัลยแพทย์หลัก","แพทย์ประจำบ้าน","บทบาท","Performing Level","อาจารย์รับรอง","ลง RCOSTLog","Validated","เลขที่เคสในระบบคิว"];
   const rows = [head];
   (list || []).forEach(c => {
     const people = c.participants?.length ? c.participants : [null];
     people.forEach(pp => {
       const r = pp ? store.resident(pp.residentId) : null;
-      rows.push([c.date, c.date ? academicYear(c.date) : "", c.hn || "", c.age ?? "", c.sex || "", c.diagnosis || "",
-        c.operation || "", c.side || "", SUB_BY_ID[c.subspecialty]?.en || "", c.caseClass || "", c.room || "",
-        c.anaesthesia || "", c.asa ?? "", c.primarySurgeon || "", r?.name || "", ROLE_BY_ID[pp?.role]?.en || "",
-        pp?.verified ? "yes" : "", c.sourceRef || ""]);
+      rows.push([c.date, c.date ? academicYear(c.date) : "", c.hn || "", c.age ?? "", c.sex || "", c.diagnosis || "", c.icd10 || "",
+        c.operation || "", c.icd9 || "", c.side || "", SUB_BY_ID[c.subspecialty]?.en || "", c.caseClass || "", c.room || "",
+        c.anaesthesia || "", c.asa ?? "", c.primarySurgeon || "", r?.name || "", ROLE_BY_ID[pp?.role]?.en || "", RCOST_LEVEL[pp?.role] || "",
+        pp?.verified ? "yes" : "", pp?.rcost?.done ? (pp.rcost.at || "yes") : "", pp?.rcost?.validated ? "yes" : "", c.sourceRef || ""]);
     });
   });
   return rows;
@@ -8309,17 +8468,92 @@ function printRcostWorksheet(residentId) {
   <div class="card">
     <p class="small muted">หน้านี้เป็นเพียงใบช่วยกรอก — ระบบ logbook ของราชวิทยาลัยยังเป็นที่บันทึกอย่างเป็นทางการ
       และต้องแนบฟิล์มกับ operative note ในระบบนั้นด้วยตนเอง เมื่อกรอกครบแล้วให้กลับมาทำเครื่องหมายในหน้า Logbook</p>
-    <table><thead><tr><th>✓</th><th>วันที่</th><th>HN</th><th>Diagnosis</th><th>Operation</th><th>บทบาท</th><th>ศัลยแพทย์</th></tr></thead>
+    <table><thead><tr><th>✓</th><th>Date</th><th>HN</th><th>Diagnosis · ICD10</th><th>Procedure · ICD9</th><th>Performing Level</th><th>ศัลยแพทย์</th></tr></thead>
       <tbody>${pending.map(c => {
         const p = c.participants.find(x => x.residentId === r.id);
-        return `<tr><td style="width:2rem">☐</td><td>${fmtDate(c.date)}</td><td class="mono">${esc(c.hn || "—")}</td>
-          <td class="small">${esc(c.diagnosis || "—")}</td>
-          <td class="small">${esc(c.operation || "—")}${c.side ? " (" + esc(c.side) + ")" : ""}</td>
-          <td class="small">${esc(ROLE_BY_ID[p?.role]?.th || "")}</td>
+        return `<tr><td style="width:2rem">☐</td><td>${esc(rcostDate(c.date))}</td><td class="mono">${esc(c.hn || "—")}</td>
+          <td class="small">${esc(c.diagnosis || "—")}${c.icd10 ? ` <span class="mono">· ${esc(c.icd10)}</span>` : ""}</td>
+          <td class="small">${esc(c.operation || "—")}${c.side ? " (" + esc(c.side) + ")" : ""}${c.icd9 ? ` <span class="mono">· ${esc(c.icd9)}</span>` : ""}</td>
+          <td class="small">${esc(RCOST_LEVEL[p?.role] || "")}<br /><span class="muted">${esc(ROLE_BY_ID[p?.role]?.th || "")}</span></td>
           <td class="small">${esc(c.primarySurgeon || "—")}</td></tr>`;
       }).join("") || "<tr><td colspan='7'>ลงครบแล้วทุกเคส</td></tr>"}</tbody></table>
   </div>`;
   printReport(html);
+}
+
+/* กล่อง "ลงใน RCOSTLog" ของเคสหนึ่งสำหรับคนหนึ่ง — เรียงช่องตามลำดับหน้าจอของแอป RCOSTLog (Patient Detail → Procedure →
+   Date of Procedure → Diagnosis ICD10) แต่ละช่องมีปุ่มคัดลอก เปิด RCOSTLog อีกจอแล้วลอกทีละช่องได้โดยไม่ต้องนึกเอง
+   ช่อง Satisfaction กับรูป ทำในแอปนั้นเอง · กด "ลงแล้ว" เพื่อเปลี่ยนสถานะของเคสนี้ให้คนนี้ (validated ยังเป็นของอาจารย์) */
+function rcostCopyDialog(caseId, residentId) {
+  const c = (store.data.cases || []).find(x => x.id === caseId); if (!c) return;
+  const r = store.resident(residentId); if (!r) return;
+  if (!canSeeResident(r.id)) { toast("ไม่มีสิทธิ์เข้าถึงข้อมูลของแพทย์ประจำบ้านคนนี้"); return; }
+  const p = (c.participants || []).find(x => x.residentId === r.id);
+  if (!p) { toast(r.name + " ไม่ได้อยู่ในเคสนี้"); return; }
+  const st = rcostState(p);
+  const canMark = isStaff() || r.id === myResidentId();
+  const hnHidden = patientLevel() !== "full";
+  const row = (label, value, hint, alwaysHint) => `<tr>
+      <td class="small" style="white-space:nowrap"><b>${esc(label)}</b></td>
+      <td class="${/HN|ICD/.test(label) ? "mono" : ""}">${value ? esc(value) : `<span class="muted">—</span>`}${hint && (alwaysHint || !value) ? `<br /><span class="small muted">${hint}</span>` : ""}</td>
+      <td class="no-print" style="text-align:right">${value ? `<button class="btn-sm" data-copy="${esc(value)}" data-copylabel="${esc(label)}">คัดลอก</button>` : ""}</td>
+    </tr>`;
+  const section = (t) => `<tr><td colspan="3" style="background:var(--bg-2,#f4f6f8)"><b>${esc(t)}</b></td></tr>`;
+  const fields = [
+    ["Patient's HN", c.hn || "", hnHidden ? "เครื่องนี้ตั้งค่าไม่เก็บ HN — ดูจากระบบคิวห้องผ่าตัด" : ""],
+    ["Diagnosis", c.diagnosis || ""],
+    ["Gender", rcostSex(c.sex)],
+    ["Age", c.age === "" || c.age == null ? "" : String(c.age)],
+    ["Procedure", (c.operation || "") + (c.side ? " (" + c.side + ")" : "")],
+    ["ICD9", c.icd9 || "", "ยังไม่มีรหัส — เติมได้ที่ปุ่ม “แก้ไข” ของเคส"],
+    ["Note", c.note || "", "อ่านซ้ำก่อนคัดลอก — ข้อความนี้ออกไปอยู่นอกระบบ ห้ามมีชื่อหรือตัวระบุตัวตนผู้ป่วย", true],
+    ["Performing Level", RCOST_LEVEL[p.role] || ""],
+    ["Date of Procedure", rcostDate(c.date)],
+    ["ICD10", c.icd10 || "", "ยังไม่มีรหัส — เติมได้ที่ปุ่ม “แก้ไข” ของเคส"]
+  ];
+  /* "คัดลอกทั้งหมด" ไม่รวม Note — เป็นข้อความอิสระที่ผู้ใช้พิมพ์เอง อาจมีตัวระบุตัวตนผู้ป่วยติดมา
+     และไม่อยู่ใต้การตั้งค่า "ระดับข้อมูลผู้ป่วย" เหมือน HN · ให้กดคัดลอกทีละช่องหลังอ่านซ้ำแทน */
+  const allText = fields.filter(f => f[1] && f[0] !== "Note").map(f => f[0] + ": " + f[1]).join("\n");
+  const stTag = st === "validated" ? `<span class="tag ok">อาจารย์ validate ใน RCOSTLog แล้ว${p.rcost?.validatedAt ? " · " + fmtDate(p.rcost.validatedAt) : ""}</span>`
+    : st === "yes" ? `<span class="tag ok">ลง RCOSTLog แล้ว${p.rcost?.at ? " · " + fmtDate(p.rcost.at) : ""} · รออาจารย์ validate</span>`
+    : st === "todo" ? `<span class="tag warn">อาจารย์รับรองแล้ว — รอลง RCOSTLog</span>`
+    : `<span class="tag">ยังไม่ได้ลง · อาจารย์ยังไม่รับรองในแฟ้มนี้</span>`;
+  const body = `
+    <p class="small muted" style="margin:0 0 .5rem">${esc(r.name)} · ${esc(ROLE_BY_ID[p.role]?.th || p.role)} · ${fmtDate(c.date)} ${stTag}</p>
+    ${st === "no" ? `<p class="notice warn small">แนะนำให้อาจารย์รับรองในแฟ้มนี้ก่อน แล้วค่อยลอกลง RCOSTLog — จะได้ไม่ต้องแก้ปลายทางถ้าบทบาทเปลี่ยน</p>` : ""}
+    <div class="tbl-wrap"><table>
+      <tbody>
+        ${section("Patient Detail")}${fields.slice(0, 4).map(f => row(...f)).join("")}
+        ${section("Procedure")}${fields.slice(4, 8).map(f => row(...f)).join("")}
+        ${section("Date of Procedure")}${row(...fields[8])}
+        ${section("Diagnosis (ICD10)")}${row(...fields[9])}
+      </tbody></table></div>
+    <p class="small muted" style="margin-top:.5rem">Satisfaction และรูปประกอบ ทำในแอป RCOSTLog เอง · เรียงช่องตามหน้าจอของแอปนั้น เปิดสองจอแล้วลอกทีละช่องได้เลย</p>`;
+  const buttons = [
+    { label:"คัดลอกทั้งหมด (ไม่รวม Note)", onClick: async () => {
+        const ok = await copyText(allText);
+        toast(ok ? "คัดลอกแล้ว — ไม่รวม Note ถ้าต้องใช้ ให้กดคัดลอกที่แถว Note เองหลังอ่านซ้ำ"
+                 : "คัดลอกไม่ได้ในเบราว์เซอร์นี้ — กดคัดลอกทีละช่องแทน");
+        return false;
+      }},
+    ...(canMark && st !== "validated" ? [st === "yes"
+      ? { label:"ยกเลิกเครื่องหมาย “ลงแล้ว”", onClick: () => {
+            p.rcost = { ...(p.rcost || {}), done: false, at: "" };
+            audit("ยกเลิกเครื่องหมายลง RCOSTLog", (c.operation || c.id) + " · " + r.name);
+            store.save(); renderAll(); toast("ยกเลิกเครื่องหมายแล้ว");
+          }}
+      : { label:"ลง RCOSTLog แล้ว", cls:"btn-primary", onClick: () => {
+            p.rcost = { ...(p.rcost || {}), done: true, at: todayISO() };
+            audit("ทำเครื่องหมายลง RCOSTLog", (c.operation || c.id) + " · " + r.name);
+            store.save(); renderAll(); toast("บันทึกแล้ว — เคสนี้ลง RCOSTLog แล้ว รออาจารย์ validate ในแอปนั้น");
+          }}] : [])
+  ];
+  showDialog("ลงใน RCOSTLog — " + (c.operation || "เคสผ่าตัด"), body, buttons);
+  $$("#dlgBody [data-copy]").forEach(b => b.addEventListener("click", async () => {
+    const ok = await copyText(b.dataset.copy);
+    if (ok) { const old = b.textContent; b.textContent = "คัดลอกแล้ว"; setTimeout(() => { b.textContent = old; }, 1200); }
+    else toast("คัดลอกไม่ได้ในเบราว์เซอร์นี้ — เลือกข้อความแล้วคัดลอกเอง");
+  }));
 }
 
 function printLogbook(residentId) {
@@ -9518,7 +9752,13 @@ function applyActivityEdits(a) {
 }
 
 function manualAdd() {
-  if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน จึงจะบันทึกกิจกรรมได้"); showView("residents"); return; }
+  /* ตัวเลือกผู้นำเสนอมีเฉพาะคนที่ยังฝึกอบรมอยู่และบัญชีนี้เห็นได้ ถ้าว่างต้องไม่เปิดกล่องให้บันทึกลอย ๆ
+     (คนที่จบไปแล้วยังล็อกอินได้ ถ้าต้องบันทึกย้อนหลังให้เขา ผู้จัดหลักสูตรกด "กลับมาฝึกอบรม" ในหน้ารายชื่อก่อน) */
+  if (!visibleActiveResidents().length) {
+    toast(store.data.residents.length ? "ไม่มีแพทย์ประจำบ้านที่ยังฝึกอบรมอยู่ให้บันทึกกิจกรรมให้ — ถ้าต้องบันทึกย้อนหลังให้คนที่จบแล้ว ให้ผู้จัดหลักสูตรกด “กลับมาฝึกอบรม” ก่อน"
+                                     : "เพิ่มรายชื่อแพทย์ประจำบ้านก่อน จึงจะบันทึกกิจกรรมได้");
+    showView("residents"); return;
+  }
   const body = `
     <p class="small muted">ใช้เมื่อไม่มีไฟล์สไลด์ เช่น การอ่านฟิล์มหน้าจอ หรือกิจกรรมที่นำเสนอด้วยปากเปล่า</p>
     <div class="grid g2">
@@ -9530,10 +9770,12 @@ function manualAdd() {
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" placeholder="เช่น Pre-op conference: distal radius fracture" /></label>
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note"></textarea></label>`;
   showDialog("บันทึกกิจกรรมด้วยมือ", body, [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
+    const residentId = dlgVal("residentId");
+    if (!residentId) return fieldError("residentId", "เลือกผู้นำเสนอก่อน — กิจกรรมที่ไม่มีเจ้าของจะไม่เข้าแฟ้มใครเลย");
     const title = dlgVal("title"); if (!title) return fieldError("title", "กรุณาใส่ชื่อเรื่อง");
     const date = dlgVal("date") || todayISO(), type = dlgVal("type");
     store.data.activities.push({
-      id: uid("act"), residentId: dlgVal("residentId"), type, subspecialty: dlgVal("subspecialty"),
+      id: uid("act"), residentId, type, subspecialty: dlgVal("subspecialty"),
       title, date, academicYear: academicYear(date), source: "manual", evidence: null,
       wfme: (TYPE_BY_ID[type]?.wfme || []).slice(), assessment: null, verified: false, verifiedBy: "",
       note: ($('#dlgBody [name="note"]')?.value || "").trim(), createdAt: new Date().toISOString()
