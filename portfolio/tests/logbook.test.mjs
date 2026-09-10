@@ -90,6 +90,23 @@ export default async function run() {
     t.eq("ชื่อคีย์อื่นของระบบคิว (procedureCode/diagnosisCode) ก็รับได้", [imp.a9, imp.a10], ["79.35", "S72.10"]);
     t.eq("CSV มีคอลัมน์ icd9/icd10 → อ่านได้", [imp.c9, imp.c10, imp.cOp], ["81.51", "M16.1", "THA left"]);
 
+    /* ดึงข้อมูลรอบใหม่จากระบบคิวที่ไม่ส่งรหัส ICD มา ต้องไม่ล้างรหัสที่กรอกมือไว้ */
+    const reimport = await page.evaluate(() => {
+      const raw = { id:"q_keep", date:"2026-08-23", operation:"ORIF distal radius", diagnosis:"Distal radius fx", hn:"55", age: 45, sex:"male" };
+      importCaseList([raw], "ทดสอบ");
+      const c = store.data.cases.find(x => x.sourceRef === "q_keep");
+      c.icd9 = "79.32"; c.icd10 = "S52.50"; c.note = "กรอกมือ"; store.save();
+      /* ดึงรอบสอง: ข้อมูลชุดเดิม (ไม่มี ICD) + ชื่อหัตถการที่แก้ที่ต้นทาง */
+      importCaseList([{ ...raw, operation:"ORIF distal radius, left" }], "ทดสอบ");
+      const after = store.data.cases.find(x => x.sourceRef === "q_keep");
+      const out = { icd9: after.icd9, icd10: after.icd10, note: after.note, op: after.operation };
+      store.data.cases = store.data.cases.filter(x => x.sourceRef !== "q_keep"); store.save();
+      return out;
+    });
+    t.eq("ดึงข้อมูลซ้ำจากระบบคิวที่ไม่มีรหัส ICD: รหัสที่กรอกมือและบันทึกยังอยู่ ส่วนข้อมูลที่ต้นทางแก้อัปเดตตาม",
+         [reimport.icd9, reimport.icd10, reimport.note, reimport.op],
+         ["79.32", "S52.50", "กรอกมือ", "ORIF distal radius, left"]);
+
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);
       const mk = (id, verified, rcost) => ({ id, date: todayISO(), subspecialty:"trauma", operation:"OP " + id, diagnosis:"DX", complications:[], note:"",
@@ -184,6 +201,16 @@ export default async function run() {
         const labels = dataRows.map(tr => tr.children[0].textContent.trim());
         const cell = (label) => dataRows.find(tr => tr.children[0].textContent.trim() === label)?.children[1]?.textContent.trim();
         const copies = document.querySelectorAll("#dlgBody [data-copy]").length;
+        /* Note มีปุ่มคัดลอกของตัวเอง แต่ต้องไม่ติดไปกับ "คัดลอกทั้งหมด" และต้องมีคำเตือนกำกับ */
+        const noteRow = dataRows.find(tr => tr.children[0].textContent.trim() === "Note");
+        const noteHasCopy = !!noteRow?.querySelector("[data-copy]");
+        const noteWarned = /ห้ามมีชื่อหรือตัวระบุตัวตนผู้ป่วย/.test(noteRow?.textContent || "");
+        const allBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent.includes("คัดลอกทั้งหมด"));
+        let copied = "";
+        try { Object.defineProperty(navigator, "clipboard", { configurable: true,
+          value: { writeText: (txt) => { copied = txt; return Promise.resolve(); } } }); } catch (e) { copied = "(stub ไม่ได้)"; }
+        allBtn?.click();
+        await new Promise(r => setTimeout(r, 60));
         const values = { level: cell("Performing Level"), date: cell("Date of Procedure"), gender: cell("Gender"), hn: cell("Patient's HN"), icd10: cell("ICD10") };
         const auditBefore = store.data.audit.length;
         const markBtn = [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent.includes("ลง RCOSTLog แล้ว"));
@@ -195,7 +222,8 @@ export default async function run() {
         rcostCopyDialog("case_rc_theirs", other);
         const openOther = !!document.querySelector("#dlg")?.open;
         store.data.cases = store.data.cases.filter(c => !c.id.startsWith("case_rc_")); store.save();
-        return { tileCount, expectTodo, hasGo: !!goBtn, landed, open1, labels, copies, values, after, openOther, today: todayISO() };
+        return { tileCount, expectTodo, hasGo: !!goBtn, landed, open1, labels, copies, values, after, openOther, today: todayISO(),
+                 noteHasCopy, noteWarned, copied, note: store.data.cases.find(c => c.id === "case_rc_mine")?.note || "Prone position" };
       });
       t.check("หน้าวันนี้: ช่อง 'รับรองแล้ว รอลง RCOSTLog' นับเคสของฉันที่รับรองแล้วแต่ยังไม่ลง (รวมเคสสาธิต)",
               r.tileCount === r.expectTodo && +r.tileCount >= 1, r.tileCount + " vs " + r.expectTodo);
@@ -207,6 +235,10 @@ export default async function run() {
       t.eq("ค่าถูกแปลงเป็นแบบที่ RCOSTLog ใช้: ผู้ผ่าตัดหลัก→Performer · เพศอังกฤษ · วันที่แบบ 25 February 2026",
            [r.values.level, r.values.gender, r.values.date, r.values.hn, r.values.icd10], ["Performer", "Male", "25 February 2026", "1743650", "S91.0"]);
       t.check("ทุกช่องที่มีค่ามีปุ่มคัดลอก", r.copies === 10, String(r.copies));
+      t.check("ช่อง Note มีปุ่มคัดลอกของตัวเองและมีคำเตือนกำกับ", r.noteHasCopy && r.noteWarned);
+      t.check("'คัดลอกทั้งหมด' ไม่รวม Note (ข้อความอิสระที่อาจมีตัวระบุตัวตนผู้ป่วย) แต่รวมช่องอื่นครบ",
+              !/Note:/.test(r.copied) && !r.copied.includes("Prone position") && /Patient's HN:/.test(r.copied) && /ICD10:/.test(r.copied),
+              JSON.stringify(r.copied));
       t.check("กด 'ลง RCOSTLog แล้ว' → เปลี่ยนสถานะ บันทึกวันที่ ลง audit และปิดกล่อง",
               r.after.done && r.after.at === r.today && r.after.auditGrew && r.after.closed, JSON.stringify(r.after));
       t.check("เคสของคนอื่นเปิดกล่องไม่ได้ (สิทธิ์เห็นเฉพาะของตัวเอง)", !r.openOther);

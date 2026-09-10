@@ -4020,8 +4020,12 @@ function importCaseList(list, sourceLabel) {
     const key = rec.source + "|" + rec.sourceRef;
     const old = rec.sourceRef ? byRef.get(key) : null;
     if (old) {
-      /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว */
+      /* อัปเดตข้อมูลเคส แต่คงผู้ร่วมผ่าตัดที่ยืนยันไว้แล้ว
+         และคงรหัส ICD ที่กรอกมือไว้ด้วย — ระบบคิวส่วนใหญ่ไม่ส่งรหัสมา ถ้าปล่อยให้ทับ
+         การกดดึงข้อมูลรอบถัดไปจะล้างรหัสที่นั่งกรอกไว้ทั้งหมดโดยไม่มีอะไรเตือน (เหมือนที่ note ไม่ถูกทับ) */
       const keep = old.participants;
+      if (!rec.icd9) delete rec.icd9;
+      if (!rec.icd10) delete rec.icd10;
       Object.assign(old, rec, { id: old.id, participants: keep });
       updated++;
     } else {
@@ -8418,9 +8422,9 @@ function rcostCopyDialog(caseId, residentId) {
   const st = rcostState(p);
   const canMark = isStaff() || r.id === myResidentId();
   const hnHidden = patientLevel() !== "full";
-  const row = (label, value, hint) => `<tr>
+  const row = (label, value, hint, alwaysHint) => `<tr>
       <td class="small" style="white-space:nowrap"><b>${esc(label)}</b></td>
-      <td class="${/HN|ICD/.test(label) ? "mono" : ""}">${value ? esc(value) : `<span class="muted">—</span>`}${hint && !value ? `<br /><span class="small muted">${hint}</span>` : ""}</td>
+      <td class="${/HN|ICD/.test(label) ? "mono" : ""}">${value ? esc(value) : `<span class="muted">—</span>`}${hint && (alwaysHint || !value) ? `<br /><span class="small muted">${hint}</span>` : ""}</td>
       <td class="no-print" style="text-align:right">${value ? `<button class="btn-sm" data-copy="${esc(value)}" data-copylabel="${esc(label)}">คัดลอก</button>` : ""}</td>
     </tr>`;
   const section = (t) => `<tr><td colspan="3" style="background:var(--bg-2,#f4f6f8)"><b>${esc(t)}</b></td></tr>`;
@@ -8431,12 +8435,14 @@ function rcostCopyDialog(caseId, residentId) {
     ["Age", c.age === "" || c.age == null ? "" : String(c.age)],
     ["Procedure", (c.operation || "") + (c.side ? " (" + c.side + ")" : "")],
     ["ICD9", c.icd9 || "", "ยังไม่มีรหัส — เติมได้ที่ปุ่ม “แก้ไข” ของเคส"],
-    ["Note", c.note || ""],
+    ["Note", c.note || "", "อ่านซ้ำก่อนคัดลอก — ข้อความนี้ออกไปอยู่นอกระบบ ห้ามมีชื่อหรือตัวระบุตัวตนผู้ป่วย", true],
     ["Performing Level", RCOST_LEVEL[p.role] || ""],
     ["Date of Procedure", rcostDate(c.date)],
     ["ICD10", c.icd10 || "", "ยังไม่มีรหัส — เติมได้ที่ปุ่ม “แก้ไข” ของเคส"]
   ];
-  const allText = fields.filter(f => f[1]).map(f => f[0] + ": " + f[1]).join("\n");
+  /* "คัดลอกทั้งหมด" ไม่รวม Note — เป็นข้อความอิสระที่ผู้ใช้พิมพ์เอง อาจมีตัวระบุตัวตนผู้ป่วยติดมา
+     และไม่อยู่ใต้การตั้งค่า "ระดับข้อมูลผู้ป่วย" เหมือน HN · ให้กดคัดลอกทีละช่องหลังอ่านซ้ำแทน */
+  const allText = fields.filter(f => f[1] && f[0] !== "Note").map(f => f[0] + ": " + f[1]).join("\n");
   const stTag = st === "validated" ? `<span class="tag ok">อาจารย์ validate ใน RCOSTLog แล้ว${p.rcost?.validatedAt ? " · " + fmtDate(p.rcost.validatedAt) : ""}</span>`
     : st === "yes" ? `<span class="tag ok">ลง RCOSTLog แล้ว${p.rcost?.at ? " · " + fmtDate(p.rcost.at) : ""} · รออาจารย์ validate</span>`
     : st === "todo" ? `<span class="tag warn">อาจารย์รับรองแล้ว — รอลง RCOSTLog</span>`
