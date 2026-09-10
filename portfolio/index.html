@@ -9663,7 +9663,13 @@ function applyActivityEdits(a) {
 }
 
 function manualAdd() {
-  if (!store.data.residents.length) { toast("เพิ่มรายชื่อแพทย์ประจำบ้านก่อน จึงจะบันทึกกิจกรรมได้"); showView("residents"); return; }
+  /* ตัวเลือกผู้นำเสนอมีเฉพาะคนที่ยังฝึกอบรมอยู่และบัญชีนี้เห็นได้ ถ้าว่างต้องไม่เปิดกล่องให้บันทึกลอย ๆ
+     (คนที่จบไปแล้วยังล็อกอินได้ ถ้าต้องบันทึกย้อนหลังให้เขา ผู้จัดหลักสูตรกด "กลับมาฝึกอบรม" ในหน้ารายชื่อก่อน) */
+  if (!visibleActiveResidents().length) {
+    toast(store.data.residents.length ? "ไม่มีแพทย์ประจำบ้านที่ยังฝึกอบรมอยู่ให้บันทึกกิจกรรมให้ — ถ้าต้องบันทึกย้อนหลังให้คนที่จบแล้ว ให้ผู้จัดหลักสูตรกด “กลับมาฝึกอบรม” ก่อน"
+                                     : "เพิ่มรายชื่อแพทย์ประจำบ้านก่อน จึงจะบันทึกกิจกรรมได้");
+    showView("residents"); return;
+  }
   const body = `
     <p class="small muted">ใช้เมื่อไม่มีไฟล์สไลด์ เช่น การอ่านฟิล์มหน้าจอ หรือกิจกรรมที่นำเสนอด้วยปากเปล่า</p>
     <div class="grid g2">
@@ -9675,10 +9681,12 @@ function manualAdd() {
     <label class="f"><span>ชื่อเรื่อง</span><input name="title" placeholder="เช่น Pre-op conference: distal radius fracture" /></label>
     <label class="f"><span>บันทึกเพิ่มเติม</span><textarea name="note"></textarea></label>`;
   showDialog("บันทึกกิจกรรมด้วยมือ", body, [{ label:"บันทึก", cls:"btn-primary", onClick: () => {
+    const residentId = dlgVal("residentId");
+    if (!residentId) return fieldError("residentId", "เลือกผู้นำเสนอก่อน — กิจกรรมที่ไม่มีเจ้าของจะไม่เข้าแฟ้มใครเลย");
     const title = dlgVal("title"); if (!title) return fieldError("title", "กรุณาใส่ชื่อเรื่อง");
     const date = dlgVal("date") || todayISO(), type = dlgVal("type");
     store.data.activities.push({
-      id: uid("act"), residentId: dlgVal("residentId"), type, subspecialty: dlgVal("subspecialty"),
+      id: uid("act"), residentId, type, subspecialty: dlgVal("subspecialty"),
       title, date, academicYear: academicYear(date), source: "manual", evidence: null,
       wfme: (TYPE_BY_ID[type]?.wfme || []).slice(), assessment: null, verified: false, verifiedBy: "",
       note: ($('#dlgBody [name="note"]')?.value || "").trim(), createdAt: new Date().toISOString()

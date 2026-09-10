@@ -115,6 +115,35 @@ export default async function run() {
     });
     t.check("ข้อมูลเก่าที่ยังไม่มีธง: ตั้งธงเป็นปีปัจจุบันโดยไม่เลื่อนชั้นปี", legacy.same && legacy.flag === legacy.ay, JSON.stringify(legacy));
 
+    /* ---------- บันทึกด้วยมือต้องมีเจ้าของเสมอ — กิจกรรมที่ residentId ว่างจะไม่เข้าแฟ้มใครเลย ---------- */
+    const manualGuard = await page.evaluate(async () => {
+      const before = store.data.activities.length;
+      /* (1) เลือกคนแล้วลบค่าในช่อง (เช่นถูกแก้ผ่านเครื่องมือ) → ต้องไม่บันทึก และขึ้นข้อความที่ช่องนั้น */
+      manualAdd();
+      const sel = document.querySelector('#dlgBody [name="residentId"]');
+      const hadOptions = (sel?.options.length || 0) > 0;
+      sel.value = "";
+      document.querySelector('#dlgBody [name="title"]').value = "ทดสอบไม่มีเจ้าของ";
+      document.querySelector("#dlgFoot .btn-primary").click();
+      await new Promise(r => setTimeout(r, 50));
+      const blocked = { added: store.data.activities.length - before, stillOpen: !!document.querySelector("#dlg")?.open,
+                        err: document.querySelector("#dlgBody .err, #dlgBody .field-err")?.textContent || "" };
+      document.querySelector("#dlg").close();
+      /* (2) ไม่มีคนที่ยังฝึกอบรมอยู่เลย → ไม่เปิดกล่องให้บันทึกลอย ๆ */
+      const snapshot = store.data.residents.map(r => r.active);
+      store.data.residents.forEach(r => { r.active = false; });
+      manualAdd();
+      const noDialog = !document.querySelector("#dlg")?.open;
+      store.data.residents.forEach((r, i) => { r.active = snapshot[i]; });
+      store.save();
+      return { hadOptions, ...blocked, noDialog, after: store.data.activities.length - before };
+    });
+    t.check("กล่องบันทึกด้วยมือมีตัวเลือกคนจริง", manualGuard.hadOptions);
+    t.check("ไม่ได้เลือกผู้นำเสนอ → ไม่บันทึก กล่องยังเปิด และขึ้นข้อความบอกที่ช่องนั้น",
+            manualGuard.added === 0 && manualGuard.stillOpen && /เลือกผู้นำเสนอ/.test(manualGuard.err), JSON.stringify(manualGuard));
+    t.check("ไม่มีคนที่ยังฝึกอบรมอยู่ → ไม่เปิดกล่องบันทึกด้วยมือ และไม่มีกิจกรรมงอกขึ้นมา",
+            manualGuard.noDialog && manualGuard.after === 0, JSON.stringify(manualGuard));
+
     t.check("วงจรชั้นปี: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
     await page.close();
   } finally {
