@@ -216,6 +216,17 @@ export default async function run() {
       importCaseList([raw], "ทดสอบ");
       const after = store.data.cases.find(x => x.sourceRef === "q_priv");
       const cleared = [after.hn, String(after.age), after.sex];
+      /* ระดับ "ไม่เก็บ HN" (nohn) เก็บอายุ/เพศไว้ — นำเข้าซ้ำจากต้นทางที่ไม่ส่งสองช่องนี้ต้องไม่ล้างทิ้ง */
+      store.data.orQueue.patientData = "full";
+      importCaseList([raw], "ทดสอบ");
+      store.data.orQueue.patientData = "nohn";
+      importCaseList([{ id:"q_priv", date: todayISO(), operation:"ORIF", diagnosis:"Fx" }], "ทดสอบ");
+      const nohn = store.data.cases.find(x => x.sourceRef === "q_priv");
+      const nohnKeep = [nohn.hn, String(nohn.age), nohn.sex];
+      importCaseList(casesFromCsv("id,operation,icd9\nq_priv,ORIF,79.32"), "ทดสอบไฟล์ไม่มีคอลัมน์อายุ", { fromFile: true });
+      const nohn2 = store.data.cases.find(x => x.sourceRef === "q_priv");
+      const nohnAfterFile = [nohn2.hn, String(nohn2.age), nohn2.sex];
+      store.data.orQueue.patientData = "minimal";
       /* ดึงข้อมูลทั้งชุดจากเครื่องที่เก็บ HN เต็ม → เครื่องนี้ต้องบังคับระดับของตัวเองทันที */
       const cloud = JSON.parse(JSON.stringify(store.data));
       cloud.cases = cloud.cases.map(c => c.sourceRef === "q_priv" ? { ...c, hn:"HN-9988", age: 57, sex:"male" } : c);
@@ -224,11 +235,13 @@ export default async function run() {
       const afterPull = [pulled.hn, String(pulled.age), pulled.sex];
       store.data.cases = store.data.cases.filter(x => x.sourceRef !== "q_priv");
       store.data.orQueue.patientData = lvBefore; store.save();
-      return { kept, cleared, afterPull };
+      return { kept, cleared, afterPull, nohnKeep, nohnAfterFile };
     });
     t.eq("เครื่องที่ตั้งเก็บข้อมูลผู้ป่วยเต็ม: นำเข้าแล้วได้ HN/อายุ/เพศ", priv.kept, ["HN-9988", "57", "male"]);
     t.eq("เปลี่ยนเป็นไม่เก็บข้อมูลผู้ป่วยแล้วนำเข้าซ้ำ → ล้าง HN/อายุ/เพศ ไม่คงค่าเดิม", priv.cleared, ["", "", ""]);
     t.eq("ดึงข้อมูลทั้งชุดจากคลาวด์ที่มี HN มาด้วย → เครื่องนี้บังคับระดับของตัวเองทันที", priv.afterPull, ["", "", ""]);
+    t.eq("ระดับ 'ไม่เก็บ HN' เก็บอายุ/เพศไว้ — นำเข้าซ้ำจากต้นทางที่ไม่ส่งสองช่องนี้ ไม่ล้างทิ้ง", priv.nohnKeep, ["", "57", "male"]);
+    t.eq("ระดับ 'ไม่เก็บ HN' + ไฟล์ที่ไม่มีคอลัมน์อายุ/เพศ ก็ยังไม่ล้าง", priv.nohnAfterFile, ["", "57", "male"]);
 
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);

@@ -4056,7 +4056,7 @@ function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
       if (rec.icd10 === undefined || keepEdited) delete rec.icd10;
       /* hn/age/sex ต้องยอมให้ทับด้วยค่าว่างเสมอเมื่อเครื่องนี้ตั้งไว้ว่าไม่เก็บ เพราะค่าว่างนั้นมาจากระดับข้อมูลผู้ป่วย
          ไม่ใช่ "ต้นทางไม่ได้ส่งมา" — ถ้าคงไว้ เครื่องที่ตั้งว่าไม่เก็บ HN จะยังมี HN ค้างแล้วหลุดออกทาง CSV/ใบพิมพ์ */
-      const forced = patientLevel() === "full" ? [] : ["hn", "age", "sex"];
+      const forced = patientLevel() === "full" ? [] : patientLevel() === "minimal" ? ["hn", "age", "sex"] : ["hn"];
       if (raw.__fields) {
         /* ไฟล์ที่รู้คอลัมน์: เขียนเฉพาะช่องที่ไฟล์มีคอลัมน์ให้ (คอลัมน์ที่เว้นว่าง = ตั้งใจล้าง จึงล้างได้จริง) */
         const allow = new Set([...raw.__fields.map(f => CSV_FIELD_TO_CASE[f]).filter(Boolean), "importedAt", ...forced]);
