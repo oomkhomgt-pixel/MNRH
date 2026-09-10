@@ -3936,6 +3936,15 @@ const pickCode = (c, keys) => {
   const k = keys.find(x => c[x] !== undefined && c[x] !== null);
   return k === undefined ? undefined : String(c[k]).trim();
 };
+/* ระบบคิวห้องผ่าตัดของกลุ่มงานไม่ได้ส่งรหัสมาเป็นช่องเดี่ยว แต่เป็นรายการ procedures[] / diagnoses[]
+   ที่แต่ละแถวมี code และ system ("ICD-9-CM" / "ICD-10-TM") — เอาแถวที่ทำเครื่องหมาย isPrimary ก่อน ไม่มีก็เอาแถวแรก */
+const codeFromList = (list, system) => {
+  if (!Array.isArray(list) || !list.length) return undefined;
+  const same = list.filter(x => String(x?.system || "").toUpperCase().includes(system));
+  const pool = same.length ? same : list;
+  const row = pool.find(x => x?.isPrimary) || pool[0];
+  return row?.code === undefined || row?.code === null ? undefined : String(row.code).trim();
+};
 
 /* แปลงเคสจากระบบคิวให้เป็นรูปแบบของ logbook — เก็บเฉพาะสิ่งที่จำเป็นต่อการฝึกอบรม */
 function normaliseQueueCase(c) {
@@ -3958,8 +3967,8 @@ function normaliseQueueCase(c) {
     /* รหัสหัตถการ/วินิจฉัยจากระบบคิว (ถ้ามี) — ใช้ลอกลง RCOSTLog · รหัสที่ระบบคิวให้มาอาจต้องปรับให้ตรงรายการของราชวิทยาลัยอีกชั้น
        ต้นทางไม่มีช่องนี้เลย → undefined (ตอนนำเข้าซ้ำจะไม่ไปทับรหัสที่กรอกมือ)
        ต้นทางมีช่องแต่เว้นว่าง → "" ซึ่งแปลว่าตั้งใจล้าง (เช่นแก้ CSV แล้วนำเข้ากลับ) */
-    icd9: pickCode(c, ["icd9", "icd9cm", "procedureCode", "icd9Code"]),
-    icd10: pickCode(c, ["icd10", "icd10tm", "diagnosisCode", "icd10Code"]),
+    icd9: pickCode(c, ["icd9", "icd9cm", "procedureCode", "icd9Code"]) ?? codeFromList(c.procedures, "ICD-9"),
+    icd10: pickCode(c, ["icd10", "icd10tm", "diagnosisCode", "icd10Code"]) ?? codeFromList(c.diagnoses, "ICD-10"),
     side: c.operativeSide || c.side || "",
     anaesthesia: c.anesthesiaType || c.anaesthesia || "",
     asa: c.asaClass ?? c.asa ?? "",

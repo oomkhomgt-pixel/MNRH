@@ -83,12 +83,20 @@ export default async function run() {
         icd9:"81.54", icd10:"M17.1", hn:"1", age: 60, sex:"female" });
       const fromAlias = normaliseQueueCase({ id:"q2", date:"2026-08-21", operation:"PFN", diagnosis:"IT fx", procedureCode:"79.35", diagnosisCode:"S72.10" });
       const csv = casesFromCsv("date,hn,diagnosis,icd10,operation,icd9\n2026-08-22,77,OA hip,M16.1,THA left,81.51");
+      /* รูปแบบจริงของระบบคิวห้องผ่าตัด: รหัสอยู่ในรายการ procedures[]/diagnoses[] พร้อมช่อง system */
+      const fromList = normaliseQueueCase({ id:"q3", date:"2026-08-24", operationText:"Bipolar hemiarthroplasty, right hip",
+        diagnoses:[{ code:"M16.1", system:"ICD-10-TM" }, { code:"S72.09", system:"ICD-10-TM", isPrimary:true }],
+        procedures:[{ code:"81.52", system:"ICD-9-CM", isPrimary:true }] });
+      const emptyList = normaliseQueueCase({ id:"q4", date:"2026-08-25", operation:"PFN", diagnosis:"IT fx", procedures:[], diagnoses:[] });
       return { j9: fromJson.icd9, j10: fromJson.icd10, a9: fromAlias.icd9, a10: fromAlias.icd10,
-               c9: csv[0]?.icd9, c10: csv[0]?.icd10, cOp: csv[0]?.operationText };
+               c9: csv[0]?.icd9, c10: csv[0]?.icd10, cOp: csv[0]?.operationText,
+               l9: fromList.icd9, l10: fromList.icd10, e9: emptyList.icd9 === undefined, e10: emptyList.icd10 === undefined };
     });
     t.eq("ระบบคิวส่ง icd9/icd10 มา → เก็บลงเคส", [imp.j9, imp.j10], ["81.54", "M17.1"]);
     t.eq("ชื่อคีย์อื่นของระบบคิว (procedureCode/diagnosisCode) ก็รับได้", [imp.a9, imp.a10], ["79.35", "S72.10"]);
     t.eq("CSV มีคอลัมน์ icd9/icd10 → อ่านได้", [imp.c9, imp.c10, imp.cOp], ["81.51", "M16.1", "THA left"]);
+    t.eq("รูปแบบจริงของระบบคิว (procedures[]/diagnoses[]) → อ่านรหัสหลักของแต่ละชุดได้", [imp.l9, imp.l10], ["81.52", "S72.09"]);
+    t.check("รายการรหัสว่าง = ไม่มีรหัสส่งมา (ไม่ใช่ตั้งใจล้าง) จึงไม่ทับของเดิมตอนนำเข้าซ้ำ", imp.e9 && imp.e10);
 
     /* ดึงข้อมูลรอบใหม่จากระบบคิวที่ไม่ส่งรหัส ICD มา ต้องไม่ล้างรหัสที่กรอกมือไว้ */
     const reimport = await page.evaluate(() => {
