@@ -4031,6 +4031,12 @@ function suggestAttendees(rec) {
 
 /* fromFile = ผู้ใช้เลือกไฟล์นำเข้าเอง (CSV/JSON) ถือเป็นคำสั่งของคน จึงเขียนทับรหัสที่เคยแก้มือได้
    ส่วนการดึงจากระบบคิวเป็นงานอัตโนมัติ ไม่ควรย้อนรหัสที่คนปรับให้ตรงรายการของราชวิทยาลัยแล้ว */
+/* คอลัมน์ในไฟล์ → ช่องของเคสที่คอลัมน์นั้นเขียนถึง (ใช้กับไฟล์ที่รู้ว่ามีคอลัมน์อะไรบ้าง) */
+const CSV_FIELD_TO_CASE = { date:"date", hn:"hn", age:"age", sex:"sex", operationText:"operation", diagnosisText:"diagnosis",
+  subspecialty:"subspecialty", primarySurgeonName:"primarySurgeon", orRoomName:"room", anesthesiaType:"anaesthesia",
+  asaClass:"asa", caseClass:"caseClass", operativeSide:"side", estimatedDurationMin:"durationMin",
+  assistantSurgeonNames:"assistants", icd9:"icd9", icd10:"icd10" };
+
 function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
   const byRef = new Map((store.data.cases || []).map(c => [c.source + "|" + c.sourceRef, c]));
   let added = 0, updated = 0, skipped = 0;
@@ -4048,10 +4054,21 @@ function importCaseList(list, sourceLabel, { fromFile = false } = {}) {
       const keepEdited = old.icdEdited && !fromFile;
       if (rec.icd9 === undefined || keepEdited) delete rec.icd9;
       if (rec.icd10 === undefined || keepEdited) delete rec.icd10;
-      /* ค่าว่างจากต้นทางต้องไม่ล้างค่าที่มีอยู่แล้ว — ไฟล์นำเข้าอาจไม่มีคอลัมน์นั้น (เช่น ห้องผ่าตัด ศัลยแพทย์หลัก
-         ผู้ช่วย ระยะเวลา) และระบบคิวเองก็อาจหยุดส่งบางช่อง · รหัส ICD มีกติกาของตัวเองข้างบนแล้ว จึงข้ามตรงนี้ */
-      const blank = (v) => v === "" || v === null || v === undefined || (Array.isArray(v) && !v.length);
-      Object.keys(rec).forEach(k => { if (k !== "icd9" && k !== "icd10" && blank(rec[k]) && !blank(old[k])) delete rec[k]; });
+      /* hn/age/sex ต้องยอมให้ทับด้วยค่าว่างเสมอเมื่อเครื่องนี้ตั้งไว้ว่าไม่เก็บ เพราะค่าว่างนั้นมาจากระดับข้อมูลผู้ป่วย
+         ไม่ใช่ "ต้นทางไม่ได้ส่งมา" — ถ้าคงไว้ เครื่องที่ตั้งว่าไม่เก็บ HN จะยังมี HN ค้างแล้วหลุดออกทาง CSV/ใบพิมพ์ */
+      const forced = patientLevel() === "full" ? [] : ["hn", "age", "sex"];
+      if (raw.__fields) {
+        /* ไฟล์ที่รู้คอลัมน์: เขียนเฉพาะช่องที่ไฟล์มีคอลัมน์ให้ (คอลัมน์ที่เว้นว่าง = ตั้งใจล้าง จึงล้างได้จริง) */
+        const allow = new Set([...raw.__fields.map(f => CSV_FIELD_TO_CASE[f]).filter(Boolean), "importedAt", ...forced]);
+        Object.keys(rec).forEach(k => { if (!allow.has(k)) delete rec[k]; });
+      } else {
+        /* ต้นทางที่ไม่รู้ว่ามีช่องอะไรบ้าง (ระบบคิว/JSON): ค่าว่างไม่ล้างค่าที่มีอยู่แล้ว */
+        const blank = (v) => v === "" || v === null || v === undefined || (Array.isArray(v) && !v.length);
+        Object.keys(rec).forEach(k => {
+          if (k === "icd9" || k === "icd10" || forced.includes(k)) return;
+          if (blank(rec[k]) && !blank(old[k])) delete rec[k];
+        });
+      }
       Object.assign(old, rec, { id: old.id, participants: keep });
       /* ไฟล์ที่คนแก้เองแล้วนำเข้ามา ถือเป็นรหัสที่คนยืนยัน เท่ากับแก้ในกล่องเคส — ปักธงกันการดึงคิวรอบหน้าทับกลับ */
       if (fromFile && (rec.icd9 !== undefined || rec.icd10 !== undefined)) old.icdEdited = true;
@@ -4146,7 +4163,8 @@ function casesFromCsv(text) {
     if (i >= 0) col[field] = i;
   });
   const list = rows.slice(1).map(r => {
-    const o = {};
+    /* __fields = คอลัมน์ที่ไฟล์นี้มีจริง — ตอนนำเข้าใช้แยก "ไม่มีคอลัมน์" (ไม่แตะของเดิม) ออกจาก "มีคอลัมน์แต่เว้นว่าง" (ตั้งใจล้าง) */
+    const o = { __fields: Object.keys(col) };
     Object.entries(col).forEach(([field, i]) => { o[field] = r[i]; });
     if (o.assistantSurgeonNames) o.assistantSurgeonNames = String(o.assistantSurgeonNames).split(/[;/]/).map(x => x.trim()).filter(Boolean);
     return o;
@@ -4154,17 +4172,20 @@ function casesFromCsv(text) {
   /* ไฟล์ที่แอปนี้ออกให้เป็น "แถวละผู้ร่วมผ่าตัดหนึ่งคน" เคสเดียวจึงมีได้หลายแถว — ยุบเหลือแถวเดียวต่อเคส
      ถ้าสองแถวของเคสเดียวกันมีค่าไม่ตรงกัน (เช่นแก้รหัส ICD ไว้แถวเดียว) ต้องหยุดแล้วบอกผู้ใช้
      ดีกว่าปล่อยให้แถวท้ายชนะเงียบ ๆ แล้วค่าที่ตั้งใจแก้หายไป */
-  if (!col.id) return list;
-  const seen = new Map();
+  if (col.id === undefined) return list;      /* ไม่มีคอลัมน์เลขที่เคส (0 เป็นดัชนีที่ใช้ได้ ห้ามเช็คด้วย falsy) */
+  const seen = new Map(), bad = new Map();
   list.forEach(o => {
     const key = String(o.id || "").trim();
     if (!key) return;
     const first = seen.get(key);
     if (!first) { seen.set(key, o); return; }
-    const differs = Object.keys(col).find(f => f !== "id" && JSON.stringify(first[f] ?? "") !== JSON.stringify(o[f] ?? ""));
-    if (differs) throw new Error("ไฟล์มีหลายแถวของเคสเดียวกัน (เลขที่เคส " + key + ") แต่ค่าในช่อง \"" + differs + "\" ไม่ตรงกัน — แก้ให้ตรงกันทุกแถวก่อนนำเข้า");
+    const differs = Object.keys(col).find(f => f !== "id" && JSON.stringify(first[f] ?? "") !== JSON.stringify(o[f] ?? ""));   /* __fields เหมือนกันทุกแถวอยู่แล้ว */
+    if (differs) bad.set(key, rows[0][col[differs]] || differs);   /* บอกชื่อคอลัมน์ตามที่เห็นในไฟล์ ไม่ใช่ชื่อฟิลด์ในโค้ด */
   });
-  return list.filter(o => { const key = String(o.id || "").trim(); return !key || seen.get(key) === o; });
+  /* เคสที่แถวไม่ตรงกันถูกข้าม ไม่ใช่ล้มทั้งไฟล์ — ผู้ใช้จะได้นำเข้าเคสที่เหลือได้ แล้วตามแก้เฉพาะที่ขัดกัน */
+  const out = list.filter(o => { const key = String(o.id || "").trim(); return (!key || seen.get(key) === o) && !bad.has(key); });
+  out.conflicts = [...bad].map(([id, colName]) => id + " (ช่อง " + colName + ")");
+  return out;
 }
 
 function importCasesFromFile(file) {
@@ -4173,9 +4194,11 @@ function importCasesFromFile(file) {
     try {
       const txt = String(fr.result);
       const list = /^\s*[[{]/.test(txt) ? collectCasesDeep(JSON.parse(txt)) : casesFromCsv(txt);
-      if (!list.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
+      const conflicts = list.conflicts || [];
+      if (!list.length && !conflicts.length) throw new Error("ไม่พบรายการเคสในไฟล์นี้");
       const r = importCaseList(list, "ไฟล์ " + file.name, { fromFile: true });
-      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส");
+      toast("นำเข้าแล้ว: เพิ่มใหม่ " + r.added + " เคส · อัปเดต " + r.updated + " เคส"
+        + (conflicts.length ? " · ข้าม " + conflicts.length + " เคสที่แถวในไฟล์ไม่ตรงกัน: " + conflicts.join(", ") : ""));
     } catch (e) { toast("นำเข้าไม่สำเร็จ: " + e.message); }
   };
   fr.readAsText(file);
@@ -7760,6 +7783,8 @@ function applyMerged(data) {
   SYNCED_KEYS.forEach(k => { if (data[k] !== undefined) store.data[k] = data[k]; });
   (store.data.users || []).forEach(u => { if (!u.pin && localPins.get(u.username)) u.pin = localPins.get(u.username); });
   store.migrate();
+  /* ข้อมูลที่ดึงมาอาจมาจากเครื่องที่ตั้งเก็บ HN เต็ม — เครื่องนี้ต้องบังคับระดับของตัวเองทันที ไม่ให้ค้างไว้ */
+  applyPatientLevel();
   /* ทะเบียนบัญชีอาจถูกแทนที่ด้วยของเครื่องอื่น — ผูกเซสชันเดิมกลับด้วยชื่อผู้ใช้ */
   if (session && !(store.data.users || []).some(u => u.id === session.userId)) {
     const again = (store.data.users || []).find(u => u.username === myUsername);

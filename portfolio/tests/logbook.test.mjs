@@ -143,6 +143,13 @@ export default async function run() {
       const q5 = store.data.cases.find(x => x.sourceRef === "q_edit");
       out.roundTrip = { grew: store.data.cases.length - before, icd9: q5.icd9, icd10: q5.icd10 };
 
+      /* คอลัมน์ที่ไฟล์มีแต่เว้นว่าง = ตั้งใจล้าง · คอลัมน์ที่ไฟล์ไม่มี = ไม่แตะของเดิม */
+      const c2 = store.data.cases.find(x => x.sourceRef === "q_edit");
+      c2.room = "OR1"; c2.primarySurgeon = "อ. ก"; store.save();
+      importCaseList(casesFromCsv("id,operation,room\nq_edit,Bipolar hemiarthroplasty,"), "ทดสอบล้างช่อง", { fromFile: true });
+      const c3 = store.data.cases.find(x => x.sourceRef === "q_edit");
+      out.clearOne = { room: c3.room, surgeon: c3.primarySurgeon };
+
       /* เคสที่มีผู้ร่วมผ่าตัดหลายคน export ออกมาหลายแถว — แก้ไม่ครบทุกแถวต้องเตือน ไม่ใช่ปล่อยให้แถวท้ายชนะ
          และ round-trip ต้องไม่ลบชื่อศัลยแพทย์หลัก/ห้อง ที่ไฟล์ไม่มีคอลัมน์ให้ */
       const res2 = store.data.residents.slice(0, 2);
@@ -153,11 +160,15 @@ export default async function run() {
       store.save();
       const multiCsv = toCsv(caseCsvRows([store.data.cases.find(x => x.id === "case_multi")]));
       out.rowsExported = multiCsv.trim().split("\n").length - 1;
-      /* แก้แค่แถวแรก → ต้องโยน error ไม่ใช่เงียบ */
+      /* แก้แค่แถวแรก → ต้องข้ามเคสนั้นพร้อมบอกชื่อคอลัมน์ตามที่เห็นในไฟล์ ไม่ใช่เลือกแถวใดแถวหนึ่งเงียบ ๆ */
       const lines = multiCsv.split("\n");
       lines[1] = lines[1].replace("81.52", "81.599");
-      try { casesFromCsv(lines.join("\n")); out.mixedRows = "ไม่เตือน"; }
-      catch (e) { out.mixedRows = /ไม่ตรงกัน/.test(e.message) ? "เตือน" : e.message; }
+      const mixed = casesFromCsv(lines.join("\n"));
+      out.mixedRows = { kept: mixed.length, conflicts: mixed.conflicts || [] };
+      /* คอลัมน์เลขที่เคสอยู่ตำแหน่งไหนก็ต้องทำงานเหมือนกัน (ดัชนี 0 ต้องไม่ถูกมองว่า "ไม่มีคอลัมน์") */
+      const idFirst = "id,operation,icd9\nq_multi,Bipolar hemiarthroplasty,81.599\nq_multi,Bipolar hemiarthroplasty,81.52";
+      const mixed2 = casesFromCsv(idFirst);
+      out.idFirst = { kept: mixed2.length, warned: (mixed2.conflicts || []).length };
       /* แก้ทุกแถวให้ตรงกัน → นำเข้าได้ ไม่สร้างซ้ำ และช่องที่ไฟล์ไม่มีคอลัมน์ยังอยู่ */
       const allRows = multiCsv.replace(/81\.52/g, "81.599");
       const n0 = store.data.cases.length;
@@ -181,11 +192,43 @@ export default async function run() {
          reimport.fileThenQueue, ["81.531", "S72.081"]);
     t.eq("ไฟล์ CSV ที่แอปนี้ export เอง นำเข้ากลับได้: จับคู่เคสเดิม ไม่สร้างเคสซ้ำ และรับรหัสที่แก้มา",
          [reimport.roundTrip.grew, reimport.roundTrip.icd9, reimport.roundTrip.icd10], [0, "81.599", "S72.081"]);
-    t.eq("เคสที่มีผู้ร่วมผ่าตัด 2 คน export เป็น 2 แถว · แก้ไม่ครบทุกแถวแล้วนำเข้า ระบบเตือนแทนที่จะเลือกแถวใดแถวหนึ่งเงียบ ๆ",
-         [reimport.rowsExported, reimport.mixedRows], [2, "เตือน"]);
+    t.eq("ไฟล์มีคอลัมน์ห้องแต่เว้นว่าง = ตั้งใจล้าง (ล้างจริง) · ไม่มีคอลัมน์ศัลยแพทย์ = ไม่แตะของเดิม",
+         [reimport.clearOne.room, reimport.clearOne.surgeon], ["", "อ. ก"]);
+    t.check("เคสที่มีผู้ร่วมผ่าตัด 2 คน export เป็น 2 แถว · แก้ไม่ครบทุกแถว → ข้ามเคสนั้นพร้อมบอกชื่อคอลัมน์ในไฟล์ ไม่เลือกแถวเงียบ ๆ",
+            reimport.rowsExported === 2 && reimport.mixedRows.kept === 0 && /ICD-9/.test(reimport.mixedRows.conflicts.join(" ")),
+            JSON.stringify(reimport.mixedRows));
+    t.eq("คอลัมน์เลขที่เคสอยู่ตำแหน่งแรกก็ยังตรวจแถวที่ไม่ตรงกันได้ (ดัชนี 0 ไม่ใช่ 'ไม่มีคอลัมน์')",
+         [reimport.idFirst.kept, reimport.idFirst.warned], [0, 1]);
     t.eq("แก้ครบทุกแถวแล้วนำเข้า: อัปเดตเคสเดิม ไม่สร้างซ้ำ ผู้ร่วมผ่าตัดคงเดิม และช่องที่ไฟล์ไม่มีคอลัมน์ (ห้อง/ศัลยแพทย์หลัก) ไม่ถูกล้าง",
          [reimport.multi.grew, reimport.multi.icd9, reimport.multi.surgeon, reimport.multi.room, reimport.multi.people],
          [0, "81.599", "อ. สมชาย", "OR3", 2]);
+
+    /* ระดับข้อมูลผู้ป่วยของเครื่องนี้ต้องชนะเสมอ — ทั้งตอนนำเข้าซ้ำและตอนดึงข้อมูลทั้งชุดจากคลาวด์ */
+    const priv = await page.evaluate(() => {
+      const lvBefore = store.data.orQueue.patientData;
+      const raw = { id:"q_priv", date: todayISO(), operation:"ORIF", diagnosis:"Fx", hn:"HN-9988", age: 57, sex:"male" };
+      store.data.orQueue.patientData = "full";
+      importCaseList([raw], "ทดสอบ");
+      const full = store.data.cases.find(x => x.sourceRef === "q_priv");
+      const kept = [full.hn, String(full.age), full.sex];
+      /* เปลี่ยนเครื่องนี้เป็น "ไม่เก็บข้อมูลผู้ป่วย" แล้วนำเข้าซ้ำ → ต้องล้าง ไม่ใช่คงค่าเดิมไว้ */
+      store.data.orQueue.patientData = "minimal";
+      importCaseList([raw], "ทดสอบ");
+      const after = store.data.cases.find(x => x.sourceRef === "q_priv");
+      const cleared = [after.hn, String(after.age), after.sex];
+      /* ดึงข้อมูลทั้งชุดจากเครื่องที่เก็บ HN เต็ม → เครื่องนี้ต้องบังคับระดับของตัวเองทันที */
+      const cloud = JSON.parse(JSON.stringify(store.data));
+      cloud.cases = cloud.cases.map(c => c.sourceRef === "q_priv" ? { ...c, hn:"HN-9988", age: 57, sex:"male" } : c);
+      applyMerged(cloud);
+      const pulled = store.data.cases.find(x => x.sourceRef === "q_priv");
+      const afterPull = [pulled.hn, String(pulled.age), pulled.sex];
+      store.data.cases = store.data.cases.filter(x => x.sourceRef !== "q_priv");
+      store.data.orQueue.patientData = lvBefore; store.save();
+      return { kept, cleared, afterPull };
+    });
+    t.eq("เครื่องที่ตั้งเก็บข้อมูลผู้ป่วยเต็ม: นำเข้าแล้วได้ HN/อายุ/เพศ", priv.kept, ["HN-9988", "57", "male"]);
+    t.eq("เปลี่ยนเป็นไม่เก็บข้อมูลผู้ป่วยแล้วนำเข้าซ้ำ → ล้าง HN/อายุ/เพศ ไม่คงค่าเดิม", priv.cleared, ["", "", ""]);
+    t.eq("ดึงข้อมูลทั้งชุดจากคลาวด์ที่มี HN มาด้วย → เครื่องนี้บังคับระดับของตัวเองทันที", priv.afterPull, ["", "", ""]);
 
     const flt = await page.evaluate(() => {
       const res = store.data.residents.find(x => x.year === 2);
