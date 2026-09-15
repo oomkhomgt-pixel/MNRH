@@ -1,0 +1,5 @@
+numpy>=1.26,<2.3
+scipy>=1.11,<1.15
+scikit-image>=0.22,<0.25
+pytest>=7.4,<9
+jsonschema>=4.20,<5

@@ -23,6 +23,7 @@
 | [`/`](https://oomkhomgt-pixel.github.io/MNRH/) | ระบบคิวห้องผ่าตัด (หน้านี้) |
 | [`/portfolio/`](https://oomkhomgt-pixel.github.io/MNRH/portfolio/) | แฟ้มสะสมงานแพทย์ประจำบ้าน — บันทึกกิจกรรมจากไฟล์สไลด์ที่นำเสนอโดยอัตโนมัติ ตารางหมุนเวียนรายเดือน (สาย/อนุสาขา/elective) ตารางเวรรายสัปดาห์ และตารางนำเสนอ พร้อมการประเมินท้ายเซสชันโดยอาจารย์ผู้รับผิดชอบ มีระบบล็อกอินและสิทธิ์ตามบทบาท ประเมิน EPA ติดตั้งเป็นแอปบนมือถือได้ (PWA) ดึงเคสจากระบบคิวห้องผ่าตัดมาลง logbook ติดตามความครอบคลุมอนุสาขา งานวิจัย และหลักฐานตามมาตรฐาน WFME ([รายละเอียด](portfolio/README.md)) |
 | [`sync-server/`](sync-server/) | เซิร์ฟเวอร์อ้างอิงสำหรับซิงก์ logbook ขึ้นระบบกลาง (ตัวอย่างสัญญาข้อมูล ไม่ใช่ของพร้อมใช้จริง) |
+| [`corridor-finder/`](corridor-finder/) | Percutaneous screw corridor planning for the pelvis/acetabulum — a 3D Slicer extension that segments a pelvis CT, auto-suggests safe screw corridors, and exports a shareable interactive HTML viewer for teaching ([details](corridor-finder/README.md), English) |
 
 ---
 

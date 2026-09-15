@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "corridor-engine"
+version = "0.1.0"
+description = "Pure-Python percutaneous screw corridor search engine for the Corridor Finder Slicer extension"
+requires-python = ">=3.9"
+readme = "README.md"
+
+[tool.setuptools]
+packages = ["corridor_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

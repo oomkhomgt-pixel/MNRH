@@ -1,0 +1,72 @@
+# Corridor Finder checks — engine unit tests (pytest) and viewer export tests (Playwright).
+#
+# workflow_dispatch only for now, matching portfolio.yml, while the project is still under
+# active development. Enable push/pull_request triggers once the engine has stabilized.
+name: ตรวจ Corridor Finder
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: corridor-finder-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: ชุดทดสอบ corridor_engine (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: corridor-finder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: corridor-finder/requirements-dev.txt
+
+      - name: ติดตั้ง dependencies
+        run: pip install -r requirements-dev.txt -e .
+        timeout-minutes: 5
+
+      - name: รัน pytest
+        run: pytest -q
+
+  node:
+    name: ชุดทดสอบ viewer export (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: corridor-finder/tests/node
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: corridor-finder/tests/node/package-lock.json
+
+      - name: ติดตั้ง playwright
+        run: npm ci
+        timeout-minutes: 5
+
+      - name: แคชเบราว์เซอร์ของ playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('corridor-finder/tests/node/package-lock.json') }}
+
+      - name: ติดตั้ง Chromium
+        run: npx playwright install chromium
+        timeout-minutes: 5
+
+      - name: รันชุดทดสอบ
+        run: node run.mjs
+        timeout-minutes: 8
