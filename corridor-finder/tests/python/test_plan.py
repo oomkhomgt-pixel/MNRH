@@ -82,6 +82,38 @@ def test_valid_plan_passes_schema_and_bad_plan_fails():
         validate_plan(unknown_top_level)
 
 
+def test_negative_margin_fails_validation_and_save(tmp_path):
+    plan = _build_plan()
+    plan.screws[0] = dataclasses.replace(plan.screws[0], margin_mm=-1.0)
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_plan(plan)
+
+    with pytest.raises(jsonschema.ValidationError):
+        save_plan(plan, tmp_path / "bad_margin.json")
+    assert not (tmp_path / "bad_margin.json").exists()
+
+
+def test_zero_diameter_fails_validation_and_save(tmp_path):
+    plan = _build_plan()
+    plan.screws[0] = dataclasses.replace(plan.screws[0], diameter_mm=0.0)
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_plan(plan)
+
+    with pytest.raises(jsonschema.ValidationError):
+        save_plan(plan, tmp_path / "bad_diameter.json")
+    assert not (tmp_path / "bad_diameter.json").exists()
+
+
+def test_well_formed_plan_still_saves_after_schema_tightening(tmp_path):
+    plan = _build_plan()
+    path = tmp_path / "plan.json"
+    save_plan(plan, path)
+    loaded = load_plan(path)
+    assert loaded.to_dict() == plan.to_dict()
+
+
 def _rod_setup(radius_mm: float):
     mask = solid_rod(shape=SHAPE, radius_mm=radius_mm)
     edt = bone_edt_mm(mask, SPACING)

@@ -11,6 +11,7 @@ import struct
 from pathlib import Path
 from typing import Dict, Optional
 
+from . import phi
 from .mesh import Mesh, mesh_to_arrays
 
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
@@ -125,7 +126,11 @@ def export_viewer(
     edt_origin=None,
     template_dir: Optional[Path] = None,
     title: str = "Corridor Finder plan",
+    check_phi: bool = True,
 ) -> Path:
+    if check_phi:
+        phi.assert_no_phi(_plan_to_dict(plan))
+
     viewer_dir = Path(template_dir) if template_dir is not None else _DEFAULT_VIEWER_DIR
 
     template_html = (viewer_dir / "template.html").read_text(encoding="utf-8")

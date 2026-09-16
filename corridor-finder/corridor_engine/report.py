@@ -9,6 +9,8 @@ import base64
 import html
 from typing import Dict, Optional
 
+from . import phi
+
 _STYLE = """
 @page { size: A4; margin: 16mm; }
 :root { color-scheme: light; }
@@ -51,19 +53,35 @@ def _esc(value) -> str:
     return html.escape(str(value))
 
 
-def _clearance_class(validation: dict) -> str:
-    if validation.get("breach"):
-        return "clearance-breach"
-    value = validation.get("min_clearance_mm", 0)
+def _clearance_class(validation: dict, margin_mm) -> str:
+    """Classify clearance using the screw's OWN margin_mm, matching
+    validate.py's rule exactly: breach if min_clearance_mm < margin_mm.
+
+    We recompute this from min_clearance_mm/margin_mm directly rather than
+    trusting a possibly-stale validation["breach"] flag, so the report
+    can't drift from validate.py's definition of "safe".
+
+    Escalation used here (a reporting-only refinement on top of
+    validate.py's binary breach/no-breach):
+      - breach: min_clearance_mm < margin_mm            (matches validate.py)
+      - warn:   margin_mm <= min_clearance_mm < 2*margin_mm
+      - ok:     min_clearance_mm >= 2*margin_mm
+    """
+    value = validation.get("min_clearance_mm")
     try:
         value = float(value)
     except (TypeError, ValueError):
         return "clearance-warn"
-    if value < 0:
+    try:
+        margin_mm = float(margin_mm)
+    except (TypeError, ValueError):
+        margin_mm = 0.0
+
+    if value < margin_mm:
         return "clearance-breach"
-    if value >= 2:
-        return "clearance-ok"
-    return "clearance-warn"
+    if value < margin_mm * 2:
+        return "clearance-warn"
+    return "clearance-ok"
 
 
 def _render_drr_images(screw_id: str, drr_images: Optional[Dict[str, Dict[str, bytes]]]) -> str:
@@ -126,9 +144,10 @@ def _render_screw_section(screw, drr_images=None) -> str:
     if not isinstance(screw, dict):
         screw = screw.__dict__
     validation = screw.get("validation") or {}
-    clearance_class = _clearance_class(validation)
+    margin_mm = screw.get("margin_mm", 0)
+    clearance_class = _clearance_class(validation, margin_mm)
     clearance_val = validation.get("min_clearance_mm", "n/a")
-    breach = validation.get("breach", False)
+    breach = clearance_class == "clearance-breach"
 
     return f"""
 <section class="screw-section">
@@ -208,7 +227,10 @@ def render_report_html(plan, *, drr_images: dict = None, title: str = "Corridor 
 """
 
 
-def write_report(plan, path, **kwargs) -> None:
+def write_report(plan, path, *, check_phi: bool = True, **kwargs) -> None:
+    if check_phi:
+        data = plan.to_dict() if hasattr(plan, "to_dict") else plan
+        phi.assert_no_phi(data)
     html_str = render_report_html(plan, **kwargs)
     with open(path, "w") as f:
         f.write(html_str)

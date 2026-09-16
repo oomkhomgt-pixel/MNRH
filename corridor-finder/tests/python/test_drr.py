@@ -59,6 +59,77 @@ def test_projection_scales_with_rotation():
     assert abs(dist_px - expected_px) < 2.0
 
 
+def test_rotate_x_direction_matches_independent_rotation_matrix():
+    """Non-tautological check of view_rotation's axis convention.
+
+    Bug: an earlier version assigned u_hat/v_hat/ray_hat to the COLUMNS of
+    R instead of its ROWS, which is R's transpose and silently negates
+    every named view's effective angle. A test that derives its expected
+    pixel positions from view.v_hat itself can't catch that (it would
+    "pass" against either convention). Instead we place a bright voxel at
+    a world offset that is NOT derived from the view object, hand-roll our
+    own rotation matrix in the test, and check the projection against it
+    directly -- plus check that +45 and -45 degree tilts move the point in
+    opposite directions relative to the untilted (AP) projection.
+    """
+    shape = (60, 60, 60)
+    hu = np.full(shape, -1000.0, dtype=np.float32)
+    nz, ny, nx = shape
+    # Single bright voxel offset +15mm along world z from the volume center
+    # (spacing is 1mm/voxel), i.e. NOT anything derived from a DrrView.
+    cz, cy, cx = (nz - 1) / 2.0, (ny - 1) / 2.0, (nx - 1) / 2.0
+    offset_vox = 15
+    hu[int(round(cz)) + offset_vox, int(round(cy)), int(round(cx))] = 1000.0
+    vol = Volume(array=hu, spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0))
+
+    center_world = vol.ijk_to_world((cx, cy, cz))
+    bright_world = vol.ijk_to_world((cx, cy, cz + offset_vox))
+    world_offset = bright_world - center_world  # ~ (0, 0, 15) in world mm
+
+    def independent_rotation_x(deg):
+        # Hand-rolled, built independently of drr._rotation_x / view_rotation.
+        t = np.radians(deg)
+        c, s = np.cos(t), np.sin(t)
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+    view_ap = render_view(vol, rotate_x_deg=0.0, rotate_z_deg=0.0, name="ap", pixel_mm=1.0)
+    view_pos45 = render_view(vol, rotate_x_deg=45.0, rotate_z_deg=0.0, name="pos45", pixel_mm=1.0)
+    view_neg45 = render_view(vol, rotate_x_deg=-45.0, rotate_z_deg=0.0, name="neg45", pixel_mm=1.0)
+
+    col_ap, row_ap = project_point(view_ap, bright_world)
+    col_pos, row_pos = project_point(view_pos45, bright_world)
+    col_neg, row_neg = project_point(view_neg45, bright_world)
+
+    # The point sits purely along world z relative to center, with no x/y
+    # component, so u_hat (world x-ish) projections barely move; the
+    # discriminating axis is row (v_hat). +45 and -45 must move the row in
+    # opposite directions relative to the AP (untilted) row.
+    d_pos = row_pos - row_ap
+    d_neg = row_neg - row_ap
+    assert d_pos * d_neg < 0, (
+        f"expected +45/-45 deg tilts to move the point in opposite row "
+        f"directions relative to AP, got d_pos={d_pos}, d_neg={d_neg}"
+    )
+
+    # Hand-computed expected pixel position for the +45 deg view, built
+    # entirely independently of drr.view_rotation: u_hat/v_hat/ray_hat are
+    # the world vectors w such that R @ w = e_i, i.e. the ROWS of R (since R
+    # is orthogonal, R^-1 = R^T).
+    R = independent_rotation_x(45.0)
+    u_hat_expected = R[0, :]
+    v_hat_expected = R[1, :]
+
+    rel = world_offset
+    expected_col_delta = np.dot(rel, u_hat_expected) / view_pos45.pixel_mm
+    expected_row_delta = np.dot(rel, v_hat_expected) / view_pos45.pixel_mm
+
+    actual_col_delta = col_pos - col_ap
+    actual_row_delta = row_pos - row_ap
+
+    assert abs(actual_col_delta - expected_col_delta) < 1.0
+    assert abs(actual_row_delta - expected_row_delta) < 1.0
+
+
 def test_write_png_roundtrip(tmp_path):
     vol = _rod_volume(shape=(30, 30, 40))
     view = render_view(vol, rotate_x_deg=0.0, rotate_z_deg=0.0, name="ap", pixel_mm=1.0)

@@ -13,7 +13,9 @@ window.CF = {
     entry_xyz: s.entry_xyz.slice(),
     target_xyz: s.target_xyz.slice(),
     diameter_mm: s.diameter_mm,
+    margin_mm: s.margin_mm,
     clearance_mm: null,
+    breach: null,
   })),
   _edt: null, // {shape:[nz,ny,nx], spacing:[sx,sy,sz], origin:[ox,oy,oz], data:Uint8Array}
   clearanceFor,
@@ -31,16 +33,25 @@ function sampleTrilinear(ijk) {
   const edt = window.CF._edt;
   const [nz, ny, nx] = edt.shape;
   const [i, j, k] = ijk; // i=x, j=y, k=z index space
-  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-  const x0 = clamp(Math.floor(i), 0, nx - 1);
-  const y0 = clamp(Math.floor(j), 0, ny - 1);
-  const z0 = clamp(Math.floor(k), 0, nz - 1);
-  const x1 = clamp(x0 + 1, 0, nx - 1);
-  const y1 = clamp(y0 + 1, 0, ny - 1);
-  const z1 = clamp(z0 + 1, 0, nz - 1);
-  const tx = clamp(i - x0, 0, 1);
-  const ty = clamp(j - y0, 0, 1);
-  const tz = clamp(k - z0, 0, 1);
+
+  // Match scipy's map_coordinates(mode="constant", cval=0.0) used by
+  // validate.py's Volume.sample_trilinear: any point outside the grid
+  // bounds [0, dim-1] on any axis returns 0.0 rather than the nearest
+  // edge voxel value. Clamping here would falsely report "safe" for a
+  // point that has actually left the sampled volume.
+  if (i < 0 || i > nx - 1 || j < 0 || j > ny - 1 || k < 0 || k > nz - 1) {
+    return 0.0;
+  }
+
+  const x0 = Math.floor(i);
+  const y0 = Math.floor(j);
+  const z0 = Math.floor(k);
+  const x1 = Math.min(x0 + 1, nx - 1);
+  const y1 = Math.min(y0 + 1, ny - 1);
+  const z1 = Math.min(z0 + 1, nz - 1);
+  const tx = i - x0;
+  const ty = j - y0;
+  const tz = k - z0;
 
   const at = (x, y, z) => edt.data[z * ny * nx + y * nx + x];
 
@@ -55,7 +66,8 @@ function sampleTrilinear(ijk) {
 
 // Mirrors the min-clearance logic in corridor_engine/validate.py:
 // clearance = edt(mm) - radius, min over samples along the axis.
-function clearanceFor(screwId, entryXyz, targetXyz, diameterMm) {
+// breach = min_clearance < margin_mm (NOT < 0) -- same rule as validate.py.
+function clearanceFor(screwId, entryXyz, targetXyz, diameterMm, marginMm) {
   if (!window.CF._edt) return null;
   const entry = new THREE.Vector3(...entryXyz);
   const target = new THREE.Vector3(...targetXyz);
@@ -77,8 +89,13 @@ function clearanceFor(screwId, entryXyz, targetXyz, diameterMm) {
     if (clearance < minClearance) minClearance = clearance;
   }
   const screw = window.CF.screws.find((sc) => sc.screw_id === screwId);
-  if (screw) screw.clearance_mm = minClearance;
-  return minClearance;
+  const effectiveMargin = marginMm != null ? marginMm : screw ? screw.margin_mm : 0;
+  const breach = minClearance < effectiveMargin;
+  if (screw) {
+    screw.clearance_mm = minClearance;
+    screw.breach = breach;
+  }
+  return { clearance_mm: minClearance, breach };
 }
 
 // TODO(round-4): pointer drag on the camera-facing plane to move handles
@@ -88,7 +105,7 @@ function moveHandle(screwId, which, xyz) {
   if (!screw) return null;
   if (which === "entry") screw.entry_xyz = xyz.slice();
   else if (which === "target") screw.target_xyz = xyz.slice();
-  return clearanceFor(screwId, screw.entry_xyz, screw.target_xyz, screw.diameter_mm);
+  return clearanceFor(screwId, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
 }
 
 async function decodePayload() {
@@ -219,11 +236,16 @@ async function main() {
   const { scene } = buildScene(meshes);
 
   for (const screw of window.CF.screws) {
-    clearanceFor(screw.screw_id, screw.entry_xyz, screw.target_xyz, screw.diameter_mm);
+    clearanceFor(screw.screw_id, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
   }
 
   window.CF.ready = true;
+  const breachCount = window.CF.screws.filter((s) => s.breach).length;
   statusEl.textContent = `${meshes.length} mesh(es) loaded`;
+  statusEl.classList.toggle("breach", breachCount > 0);
+  if (breachCount > 0) {
+    statusEl.textContent += ` — ${breachCount} screw(s) BREACH`;
+  }
 
   function animate() {
     requestAnimationFrame(animate);

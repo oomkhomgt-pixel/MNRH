@@ -4,7 +4,7 @@
   "title": "MNRH Corridor Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
+  "required": ["schema", "case_alias", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
   "properties": {
     "schema": { "type": "string" },
     "case_alias": { "type": "string" },
@@ -53,12 +53,12 @@
       "properties": {
         "screw_id": { "type": "string" },
         "corridor_id": { "type": "string" },
-        "side": { "type": "string" },
+        "side": { "type": "string", "enum": ["left", "right", "midline"] },
         "entry_xyz": { "$ref": "#/$defs/vec3" },
         "target_xyz": { "$ref": "#/$defs/vec3" },
-        "diameter_mm": { "type": "number" },
-        "length_mm": { "type": "number" },
-        "margin_mm": { "type": "number" },
+        "diameter_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "length_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "margin_mm": { "type": "number", "minimum": 0 },
         "skin_entry_xyz": {
           "anyOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }]
         },

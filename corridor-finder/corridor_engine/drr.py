@@ -106,13 +106,15 @@ def render_view(
     percentiles: Tuple[float, float] = (1.0, 99.5),
 ) -> DrrView:
     """Render a parallel-projection DRR of ``hu_vol`` for the given view angles."""
-    R = view_rotation(rotate_x_deg, rotate_z_deg)  # world -> view
-    u_hat = R[0, :]  # view local x expressed... actually need world vectors
-    # R maps world -> view; the view-frame basis vectors expressed in WORLD
-    # coordinates are the ROWS of R^T, i.e. the COLUMNS of R.
-    u_hat = R[:, 0].copy()  # world vector that maps to view +x (column dir)
-    v_hat = R[:, 1].copy()  # world vector that maps to view +y (row dir)
-    ray_hat = R[:, 2].copy()  # world vector that maps to view +z (ray/beam dir)
+    R = view_rotation(rotate_x_deg, rotate_z_deg)  # world -> view: v_view = R @ v_world
+    # We need the view-frame basis vectors expressed in WORLD coordinates,
+    # i.e. the world vector w such that R @ w = e_k (the k-th view axis).
+    # Since R is a rotation matrix (orthogonal), R^{-1} = R^T, so
+    # w = R^T @ e_k = the k-th ROW of R (as a column vector). Concretely:
+    # the world vector that maps to view +x is ROW 0 of R, not column 0.
+    u_hat = R[0, :].copy()  # world vector that maps to view +x (column dir)
+    v_hat = R[1, :].copy()  # world vector that maps to view +y (row dir)
+    ray_hat = R[2, :].copy()  # world vector that maps to view +z (ray/beam dir)
 
     sx, sy, sz = hu_vol.spacing
     nz, ny, nx = hu_vol.array.shape
@@ -183,12 +185,9 @@ def render_view(
     if hi <= lo:
         hi = lo + 1e-6
     normed = np.clip((attenuated - lo) / (hi - lo), 0.0, 1.0)
-    inverted = 1.0 - normed  # start: bone regions have higher attenuated value
 
-    # We want bone BRIGHT. Bone has higher HU -> higher `proj` -> higher
-    # `attenuated` -> higher `normed`. So bone should map to bright (1.0),
-    # i.e. we should NOT invert; `normed` already has bone bright. Keep as
-    # `normed`, and only flip if needed below (kept for clarity).
+    # Bone has higher HU -> higher `proj` -> higher `attenuated` -> higher
+    # `normed`. We want bone BRIGHT, so `normed` is used as-is.
     image = normed
 
     # image array is indexed [u_idx, v_idx]; convention: image[row, col] so

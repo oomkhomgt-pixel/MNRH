@@ -183,6 +183,7 @@ def validate_plan(plan_or_dict) -> None:
 
 def save_plan(plan: Plan, path, *, check_phi: bool = True) -> None:
     data = plan.to_dict()
+    validate_plan(data)
     if check_phi:
         phi.assert_no_phi(data)
     with open(path, "w") as f:

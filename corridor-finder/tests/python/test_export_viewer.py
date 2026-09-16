@@ -3,6 +3,7 @@ import json
 import struct
 
 import numpy as np
+import pytest
 
 from corridor_engine.export_viewer import (
     assert_self_contained,
@@ -100,6 +101,32 @@ def test_payload_roundtrip_in_python():
 
     assert header["edt"] is not None
     assert header["edt"]["shape"] == list(edt_uint8.shape)
+
+
+def test_export_viewer_rejects_phi(tmp_path):
+    plan = _small_plan()
+    plan["case"] = {"PatientName": "Jane Doe"}
+    meshes = _small_meshes()
+
+    out_path = tmp_path / "viewer.html"
+
+    with pytest.raises(ValueError):
+        export_viewer(plan, meshes, out_path)
+
+    assert not out_path.exists()
+
+
+def test_export_viewer_allows_check_phi_disabled(tmp_path):
+    plan = _small_plan()
+    plan["case"] = {"PatientName": "Jane Doe"}
+    meshes = _small_meshes()
+
+    out_path = tmp_path / "viewer.html"
+
+    result = export_viewer(plan, meshes, out_path, check_phi=False)
+
+    assert result == out_path
+    assert out_path.exists()
 
 
 def test_assert_self_contained_rejects_external_asset():
