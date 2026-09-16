@@ -57,12 +57,16 @@ This is under active development. What's implemented and unit tested today:
       ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
 - [x] Skin entry point + landmark-relative incision offsets
+- [x] DRR (simulated fluoroscopy) rendering, per the view angles in
+      `corridors.json`
+- [x] Plan JSON schema, PHI stripping, printable HTML report
+- [x] Mesh export (marching cubes, binary STL) and the self-contained
+      Three.js viewer export, with a live in-browser clearance check that
+      mirrors `validate.py`'s safety rule exactly (breach if clearance is
+      below the screw's own margin, not merely below zero)
 
 Not yet implemented (tracked in the project plan):
 
-- [ ] DRR (simulated fluoroscopy) rendering
-- [ ] Plan JSON schema, PHI stripping, printable report
-- [ ] Mesh export (marching cubes) and the Three.js viewer
 - [ ] The Slicer scripted module itself (`CorridorFinder/CorridorFinder.py`)
       — this needs to be built and tested inside 3D Slicer, which this
       development environment cannot run
@@ -70,6 +74,13 @@ Not yet implemented (tracked in the project plan):
 - [ ] TotalSegmentator integration (the fallback segmenter above is a
       coarse stand-in and does not reliably separate bones at a joint —
       it must not be relied on for real planning without manual review)
+- [ ] A browser (Playwright) test harness for `viewer/app.js` — the
+      viewer's clearance logic is currently verified only by careful
+      review against `validate.py`, not by an automated test; a golden
+      test comparing the two on identical inputs is the next priority
+      before the viewer is trusted unsupervised
+- [ ] Pointer-dragging of screw handles in the viewer (handles currently
+      move only via the `window.CF.moveHandle` test hook, not the mouse)
 
 ## Development
 
@@ -87,5 +98,9 @@ pytest -q
   before trusting a suggested corridor.
 - Corridor anchor points in `corridors.json` are initial estimates and
   should be reviewed against real anatomy before clinical use.
-- Simulated fluoroscopy (when implemented) is a parallel projection, not a
-  true cone-beam C-arm image; angles will not exactly match the OR.
+- Simulated fluoroscopy is a parallel projection, not a true cone-beam
+  C-arm image; angles will not exactly match the OR.
+- The exported HTML viewer's safety check is a coarse (3 mm) re-sampling
+  of the same distance field Slicer computes at full resolution. Treat a
+  "safe" reading in the viewer as informative, not as a substitute for the
+  Slicer-side validation it was exported from.
