@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mnrh-corridor-plan/1",
+  "title": "MNRH Corridor Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
+  "properties": {
+    "schema": { "type": "string" },
+    "case_alias": { "type": "string" },
+    "software": { "type": "object" },
+    "disclaimer": { "type": "string" },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "alias": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "$ref": "#/$defs/vec3" },
+        "x_hat": { "$ref": "#/$defs/vec3" },
+        "y_hat": { "$ref": "#/$defs/vec3" },
+        "z_hat": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "landmarks": { "type": "object" },
+    "screw_library": { "type": "object" },
+    "screws": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/screwPlan" }
+    },
+    "audit": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/auditEntry" }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "screwPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["screw_id", "corridor_id", "side", "entry_xyz", "target_xyz", "diameter_mm", "length_mm", "margin_mm"],
+      "properties": {
+        "screw_id": { "type": "string" },
+        "corridor_id": { "type": "string" },
+        "side": { "type": "string" },
+        "entry_xyz": { "$ref": "#/$defs/vec3" },
+        "target_xyz": { "$ref": "#/$defs/vec3" },
+        "diameter_mm": { "type": "number" },
+        "length_mm": { "type": "number" },
+        "margin_mm": { "type": "number" },
+        "skin_entry_xyz": {
+          "anyOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }]
+        },
+        "skin_offsets": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "angles_app": { "type": "object" },
+        "angles_scanner": { "type": "object" },
+        "validation": { "type": "object" },
+        "drr_views": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source": { "type": "string", "enum": ["auto", "adjusted"] }
+      }
+    },
+    "auditEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "action"],
+      "properties": {
+        "t": { "type": "string" },
+        "action": { "type": "string" },
+        "screw_id": { "type": "string" },
+        "before": { "type": ["object", "null"] },
+        "after": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

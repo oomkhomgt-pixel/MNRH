@@ -1,0 +1,214 @@
+"""Self-contained printable HTML report for a corridor Plan.
+
+No network calls, no external assets -- everything (CSS, DRR images) is
+inlined, so the file can be opened offline or handed to a printer.
+"""
+from __future__ import annotations
+
+import base64
+import html
+from typing import Dict, Optional
+
+_STYLE = """
+@page { size: A4; margin: 16mm; }
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #1a1a1a;
+  background: #ffffff;
+  margin: 0;
+  padding: 16px;
+}
+h1 { font-size: 20px; margin-bottom: 4px; }
+h2 { font-size: 16px; margin-top: 28px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+.disclaimer {
+  background: #fff3cd;
+  border: 1px solid #d6a828;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 13px; }
+th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+th { background: #f2f2f2; }
+.drr-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.drr-row figure { margin: 0; }
+.drr-row img { max-width: 220px; border: 1px solid #ccc; }
+.drr-row figcaption { font-size: 11px; text-align: center; color: #555; }
+.clearance-ok { color: #1a7d34; font-weight: bold; }
+.clearance-warn { color: #a06a00; font-weight: bold; }
+.clearance-breach { color: #b3261e; font-weight: bold; }
+.audit-appendix { margin-top: 32px; }
+@media print {
+  .screw-section { page-break-inside: avoid; }
+}
+"""
+
+
+def _esc(value) -> str:
+    return html.escape(str(value))
+
+
+def _clearance_class(validation: dict) -> str:
+    if validation.get("breach"):
+        return "clearance-breach"
+    value = validation.get("min_clearance_mm", 0)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "clearance-warn"
+    if value < 0:
+        return "clearance-breach"
+    if value >= 2:
+        return "clearance-ok"
+    return "clearance-warn"
+
+
+def _render_drr_images(screw_id: str, drr_images: Optional[Dict[str, Dict[str, bytes]]]) -> str:
+    if not drr_images or screw_id not in drr_images:
+        return ""
+    views = drr_images[screw_id]
+    figures = []
+    for view_name, png_bytes in views.items():
+        b64 = base64.b64encode(png_bytes).decode("ascii")
+        figures.append(
+            f'<figure><img src="data:image/png;base64,{b64}" alt="{_esc(view_name)}">'
+            f'<figcaption>{_esc(view_name)}</figcaption></figure>'
+        )
+    return f'<div class="drr-row">{"".join(figures)}</div>'
+
+
+def _render_offsets_table(skin_offsets) -> str:
+    if not skin_offsets:
+        return "<p><em>No skin offsets recorded.</em></p>"
+    rows = []
+    for off in skin_offsets:
+        if not isinstance(off, dict):
+            off = off.__dict__
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(off.get('landmark', ''))}</td>"
+            f"<td>{_esc(off.get('dx_cm', ''))}</td>"
+            f"<td>{_esc(off.get('dy_cm', ''))}</td>"
+            f"<td>{_esc(off.get('dz_cm', ''))}</td>"
+            f"<td>{_esc(off.get('distance_cm', ''))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Landmark</th><th>dx (cm)</th><th>dy (cm)</th>"
+        "<th>dz (cm)</th><th>distance (cm)</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _render_angles_table(angles_app: dict, angles_scanner: dict) -> str:
+    keys = sorted(set(angles_app or {}) | set(angles_scanner or {}))
+    if not keys:
+        return "<p><em>No angle data recorded.</em></p>"
+    rows = []
+    for k in keys:
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(k)}</td>"
+            f"<td>{_esc((angles_app or {}).get(k, ''))}</td>"
+            f"<td>{_esc((angles_scanner or {}).get(k, ''))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Angle</th><th>APP frame</th><th>Scanner frame</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _render_screw_section(screw, drr_images=None) -> str:
+    if not isinstance(screw, dict):
+        screw = screw.__dict__
+    validation = screw.get("validation") or {}
+    clearance_class = _clearance_class(validation)
+    clearance_val = validation.get("min_clearance_mm", "n/a")
+    breach = validation.get("breach", False)
+
+    return f"""
+<section class="screw-section">
+  <h2>Screw {_esc(screw.get('screw_id', ''))} &mdash; {_esc(screw.get('side', ''))} ({_esc(screw.get('corridor_id', ''))})</h2>
+  <p>Diameter: {_esc(screw.get('diameter_mm', ''))} mm &nbsp;|&nbsp;
+     Length: {_esc(screw.get('length_mm', ''))} mm &nbsp;|&nbsp;
+     Margin: {_esc(screw.get('margin_mm', ''))} mm &nbsp;|&nbsp;
+     Source: {_esc(screw.get('source', ''))}</p>
+  <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
+  {_render_drr_images(screw.get('screw_id', ''), drr_images)}
+  <h3>Skin landmark offsets</h3>
+  {_render_offsets_table(screw.get('skin_offsets'))}
+  <h3>Trajectory angles</h3>
+  {_render_angles_table(screw.get('angles_app'), screw.get('angles_scanner'))}
+</section>
+"""
+
+
+def _render_audit_appendix(audit) -> str:
+    if not audit:
+        return "<p><em>No audit entries.</em></p>"
+    rows = []
+    for entry in audit:
+        if not isinstance(entry, dict):
+            entry = entry.__dict__
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(entry.get('t', ''))}</td>"
+            f"<td>{_esc(entry.get('action', ''))}</td>"
+            f"<td>{_esc(entry.get('screw_id', ''))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr><th>Timestamp</th><th>Action</th><th>Screw</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def render_report_html(plan, *, drr_images: dict = None, title: str = "Corridor plan") -> str:
+    if hasattr(plan, "to_dict"):
+        data = plan.to_dict()
+    else:
+        data = plan
+
+    disclaimer = data.get("disclaimer", "")
+    case_alias = data.get("case_alias", "")
+    screws = data.get("screws", [])
+    audit = data.get("audit", [])
+
+    sections = []
+    for screw in screws:
+        if not isinstance(screw, dict):
+            screw = screw.__dict__
+        sections.append(_render_screw_section(screw, drr_images))
+
+    body_sections = "\n".join(sections) if sections else "<p><em>No screws in this plan.</em></p>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title>{_esc(title)}</title>
+<style>{_STYLE}</style>
+</head>
+<body>
+<h1>{_esc(title)}</h1>
+<p>Case: {_esc(case_alias)}</p>
+<div class="disclaimer">{_esc(disclaimer)}</div>
+{body_sections}
+<div class="audit-appendix">
+  <h2>Audit log</h2>
+  {_render_audit_appendix(audit)}
+</div>
+</body>
+</html>
+"""
+
+
+def write_report(plan, path, **kwargs) -> None:
+    html_str = render_report_html(plan, **kwargs)
+    with open(path, "w") as f:
+        f.write(html_str)
