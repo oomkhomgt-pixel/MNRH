@@ -151,11 +151,12 @@ def screw_from_corridor_result(result, corridor_id, side, screw_id, margin_mm, *
     """Adapter from corridor.CorridorResult -> ScrewPlan.
 
     Raises ValueError if the corridor result carries no screw that actually
-    fits (``result.screw.diameter_mm`` is None), since a plan entry needs a
-    concrete diameter/length to be actionable.
+    fits (both a diameter and a catalog length), since a plan entry needs a
+    concrete diameter/length to be actionable. The raw corridor length is
+    never substituted for a missing catalog length.
     """
     screw = result.screw
-    if screw is None or screw.diameter_mm is None:
+    if screw is None or not screw.fits or screw.diameter_mm is None or screw.length_mm is None:
         raise ValueError(f"corridor result for {corridor_id!r} has no fitting screw")
 
     return ScrewPlan(
@@ -165,7 +166,7 @@ def screw_from_corridor_result(result, corridor_id, side, screw_id, margin_mm, *
         entry_xyz=tuple(_to_jsonable(np.asarray(result.entry_xyz))),
         target_xyz=tuple(_to_jsonable(np.asarray(result.target_xyz))),
         diameter_mm=float(screw.diameter_mm),
-        length_mm=float(screw.length_mm if screw.length_mm is not None else result.length_mm),
+        length_mm=float(screw.length_mm),
         margin_mm=float(margin_mm),
         **extras,
     )

@@ -103,8 +103,53 @@ through the GUI:
       matrix). Oblique, sagittal/coronal and transformed volumes are
       rejected with an explanation. Before this, every realistic CT was
       rejected and the one layout accepted was mirrored left-right.
-- [ ] Segment -> detect landmarks -> suggest corridor -> add to plan ->
-      drag a screw handle -> export plan JSON / report / STL / viewer.
+- [x] Workflow mechanics, driven through the panel's own widgets by
+      `tests/slicer/workflow_check.py`, with no error dialogs or exceptions:
+      - on a synthetic pelvis CT stored in the standard DICOM layout:
+        segment (HU fallback; the patient's right hip is labelled right),
+        detect landmarks (APP axes anatomical; dragging a landmark rebuilds
+        the frame), suggest for every corridor and side, add to the plan
+        (markups line at the planned entry/target), drag the target handle
+        (plan, audit trail and clearance label update; the label turns red
+        exactly on breach), export plan JSON (reloads and validates),
+        report (shows BREACH exactly when breached), STL and viewer;
+      - on a real CT (Sample Data "CTAAbdomenPanoramix", lower chest to
+        upper pelvis): segment, detect landmarks, suggest for every
+        corridor and side.
+- [ ] **At the default 2 mm margin no suggestion fits, on either CT.**
+      Add/drag/export above were exercised with the margin set to 0 mm and,
+      in the test only, no minimum corridor length. See "Open design
+      question" below: this needs a clinical decision, not a code tweak.
+
+### Open design question: the entry (and exit) cortex
+
+The corridor search picks entry and target points on the bone *surface*,
+and both the search and `validate.py` take the minimum clearance over the
+whole entry-to-target segment. At the surface the distance to the nearest
+non-bone voxel is about zero, so by the current rule any screw that starts
+at the cortex is a breach. Suggestions end at clearance of about -2.0 or
+-0.5 mm and never fit. The iliosacral corridors return no candidates at
+all: their target region is "sacrum *surface* within 12 mm of the S1 body
+centre", and on real anatomy the cortex is further than that from the
+centre.
+
+What the breach rule should exempt at the planned entry (and at the far
+cortex for transiliac-transsacral screws) is a clinical decision. The
+rule stays unchanged until that decision is made.
+
+### Known issues found in Slicer, not yet fixed
+
+- **Simulated fluoroscopy views are wrong.** Every view with `rotate_x = 0`
+  (AP, lateral, iliac and obturator obliques) projects along the body's
+  long axis, giving an axial silhouette. Inlet/outlet are tilted 45 degrees
+  from that. Soft tissue also washes out the bone. Do not rely on the
+  report's DRR images yet.
+- The viewer does not draw the screws, and its camera orbits the world
+  origin rather than the model. It embeds the full-resolution distance
+  field, so a larger CT may exceed its 8 MB size limit.
+- TotalSegmentator is not installed on the test workstation, so
+  `_run_total_segmentator()` has not been exercised. The fallback runs
+  instead and is flagged UNVERIFIED in the panel.
 
 Not yet implemented (tracked in the project plan):
 
@@ -179,7 +224,8 @@ In rough order of likely first failure:
   should be reviewed against real anatomy before clinical use.
 - Simulated fluoroscopy is a parallel projection, not a true cone-beam
   C-arm image; angles will not exactly match the OR.
-- The exported HTML viewer's safety check is a coarse (3 mm) re-sampling
-  of the same distance field Slicer computes at full resolution. Treat a
-  "safe" reading in the viewer as informative, not as a substitute for the
-  Slicer-side validation it was exported from.
+- The exported HTML viewer's safety check samples the distance field
+  Slicer computed, rounded to whole millimetres (so up to 0.5 mm off
+  either way), along the axis every 1 mm. Treat a "safe" reading in the
+  viewer as informative, not as a substitute for the Slicer-side
+  validation it was exported from.

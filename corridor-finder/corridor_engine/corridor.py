@@ -239,7 +239,10 @@ def search_corridor(
                 length_mm=length,
                 r_safe_mm=float(r_safe),
                 min_edt_mm=float(score),
-                screw=ScrewChoice(diameter_mm=chosen_d, length_mm=chosen_len, fits=chosen_d is not None),
+                # A screw fits only if both a diameter and a catalog length do;
+                # diameter_mm is kept when only the length fails so the UI can
+                # say "too short" rather than "too narrow".
+                screw=ScrewChoice(diameter_mm=chosen_d, length_mm=chosen_len, fits=chosen_d is not None and chosen_len is not None),
                 traversed_labels=traversed,
                 alignment_score=alignment,
             )

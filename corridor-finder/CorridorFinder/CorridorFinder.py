@@ -9,12 +9,11 @@ headlessly outside Slicer. This file's job is narrow: convert Slicer's
 MRML scene (volumes, segmentations, markups) to and from plain numpy
 arrays/``corridor_engine.volume.Volume`` objects, and drive the UI.
 
-NOTE ON TESTING: this file has been written against the documented Slicer
-scripted-module API but has not been run inside Slicer (this development
-environment does not have Slicer installed). Expect to debug real
-integration issues here — that is expected and is exactly what this
-module needs a human at a Slicer workstation for. Known likely rough
-edges are called out in comments below (search "KNOWN LIMITATION").
+NOTE ON TESTING: this module runs in 3D Slicer 5.12.4. The self-test
+(CorridorFinderTest) checks the volume conversion against Slicer's own
+geometry, and ``tests/slicer/workflow_check.py`` drives this panel end to
+end inside Slicer (see the README's "Verified inside real 3D Slicer").
+Known rough edges are marked "KNOWN LIMITATION" below.
 
 Coordinate conventions
 -----------------------
@@ -808,7 +807,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onSegment(self):
         volume_node = self.volumeSelector.currentNode()
         if volume_node is None:
-            qt.QMessageBox.warning(self.parent, _("Corridor Finder"), _("Select a volume first."))
+            slicer.util.warningDisplay(_("Select a volume first."), windowTitle=_("Corridor Finder"))
             return
         self.logic._current_volume_node = volume_node
         try:
@@ -816,7 +815,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             source = self.logic.segment(prefer_total_segmentator=self.segmentTsCheckbox.checked)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
 
         if source == "fallback":
@@ -832,7 +831,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.detect_landmarks()
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
 
         self._placeLandmarkFiducials()
@@ -840,11 +839,11 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.landmarkWarningsLabel.setText("\n".join(warnings) if warnings else _("none"))
         self.suggestButton.enabled = self.logic.frame is not None
         if self.logic.frame is None:
-            qt.QMessageBox.warning(
-                self.parent, _("Corridor Finder"),
+            slicer.util.warningDisplay(
                 _("Could not build the anterior pelvic plane frame — ASIS/pubic "
                   "tubercle landmarks were not all detected. Check the "
                   "segmentation and add missing landmarks manually."),
+                windowTitle=_("Corridor Finder"),
             )
 
     def _placeLandmarkFiducials(self):
@@ -881,15 +880,18 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._current_results = self.logic.suggest_corridor(cid, side, margin_mm=margin)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
 
         self.resultsList.clear()
+        min_length = self.logic.corridor_defs[cid]["length_range_mm"][0]
         for i, r in enumerate(self._current_results):
             if r.screw.fits:
-                text = f"#{i+1}: {r.screw.diameter_mm} mm x {r.screw.length_mm} mm, clearance {r.r_safe_mm:.1f} mm"
+                text = f"#{i+1}: {r.screw.diameter_mm} mm x {r.screw.length_mm:.0f} mm, clearance {r.r_safe_mm:.1f} mm"
+            elif r.screw.diameter_mm is not None:
+                text = f"#{i+1}: NO SCREW FITS: corridor {r.length_mm:.0f} mm is shorter than the {min_length:.0f} mm minimum"
             else:
-                text = f"#{i+1}: NO SCREW FITS (best clearance {r.r_safe_mm:.1f} mm)"
+                text = f"#{i+1}: NO SCREW FITS: too narrow (best clearance {r.r_safe_mm:.1f} mm)"
             self.resultsList.addItem(text)
         self.addScrewButton.enabled = len(self._current_results) > 0
 
@@ -899,7 +901,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             row = 0
         result = self._current_results[row]
         if not result.screw.fits:
-            qt.QMessageBox.warning(self.parent, _("Corridor Finder"), _("No screw fits this corridor at the current margin; not adding."))
+            slicer.util.warningDisplay(
+                _("No screw fits this suggestion (too narrow at the current margin, or too short for the corridor's length range); not adding."),
+                windowTitle=_("Corridor Finder"),
+            )
             return
         if self.logic.plan is None:
             self.onNewPlan()
@@ -912,7 +917,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             screw = self.logic.add_screw_to_plan(result, cid, side, screw_id, margin)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
 
         self._createScrewLineNode(screw)
@@ -977,7 +982,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.export_plan_json(path)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
 
     def onExportReport(self):
         if self.logic.plan is None:
@@ -990,7 +995,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.export_report(path, drr_images=drr_images)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
 
     def _renderDrrImagesForPlan(self) -> dict:
         all_views = sorted({v for s in self.logic.plan.screws for v in s.drr_views})
@@ -1025,7 +1030,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.export_stl(path)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
 
     def onExportViewer(self):
         if self.logic.plan is None:
@@ -1037,7 +1042,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.export_viewer_html(path)
         except Exception as exc:
             logging.error(traceback.format_exc())
-            qt.QMessageBox.critical(self.parent, _("Corridor Finder"), str(exc))
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
 
     def cleanup(self):
         self.removeObservers()

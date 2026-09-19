@@ -70,3 +70,28 @@ def test_narrow_rod_yields_no_screw_fit():
     assert results
     assert results[0].screw.fits is False
     assert results[0].r_safe_mm < 1.75
+
+
+def test_corridor_shorter_than_length_range_does_not_fit():
+    # The rod is wide enough for the largest screw but only ~110 mm long, so
+    # no screw from a 150-220 mm range fits. A diameter alone is not a fit:
+    # the plan must never fall back to the raw, non-catalog axis length.
+    mask, edt_vol, entry_mask, exit_mask, entry_c, exit_c = _rod_setup(radius_mm=8.0)
+    results = search_corridor(
+        entry_mask=entry_mask,
+        exit_mask=exit_mask,
+        entry_center_xyz=entry_c,
+        entry_radius_mm=15.0,
+        exit_center_xyz=exit_c,
+        exit_radius_mm=15.0,
+        edt_vol=edt_vol,
+        margin_mm=2.0,
+        screw_diameters_mm=[3.5, 4.5, 6.5, 7.0, 7.3],
+        length_range_mm=(150.0, 220.0),
+        top_k=1,
+    )
+    assert results
+    best = results[0]
+    assert best.length_mm < 150.0
+    assert best.screw.length_mm is None
+    assert best.screw.fits is False
