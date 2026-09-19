@@ -2,9 +2,13 @@
 
 Run this in Slicer's Python Interactor (Window > Python Interactor):
 
-    exec(open(r"<path-to>/corridor-finder/CorridorFinder/diagnose.py").read())
+    exec(open(r"<path-to>/corridor-finder/tools/diagnose.py", encoding="utf-8").read())
 
 or just copy the whole file's contents into the interactor and press Enter.
+
+It must NOT live in CorridorFinder/: Slicer loads every .py file in a module
+directory as a scripted module, so there it ran at every startup and was
+reported as a module that "failed to be instantiated".
 
 It prints, in one go, everything needed to diagnose a module that will not
 load: the configured module paths, whether Slicer can see the file, the

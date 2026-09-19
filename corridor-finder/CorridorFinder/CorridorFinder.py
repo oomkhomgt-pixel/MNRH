@@ -32,9 +32,18 @@ the case rather than silently producing wrong geometry; supporting
 oblique volumes is future work.
 """
 
+# Keep annotations lazy. The engine import below is guarded so that a
+# missing dependency is reported in the module panel, but an eagerly
+# evaluated annotation such as ``-> EngineVolume`` runs at class-definition
+# time and raises NameError when that import failed, which aborts loading
+# the whole file: Slicer then drops the module from its list entirely
+# (observed in Slicer 5.12.4 before jsonschema was pip-installed).
+from __future__ import annotations
+
 import json
 import logging
 import os
+import subprocess
 import sys
 import traceback
 from typing import Dict, List, Optional, Tuple
@@ -92,6 +101,26 @@ try:
     from corridor_engine.volume import Volume as EngineVolume
 except Exception:  # pragma: no cover
     _ENGINE_IMPORT_ERROR = traceback.format_exc()
+
+# Third-party packages corridor_engine needs that Slicer does not bundle
+# (numpy, scipy and Pillow ship with Slicer), keyed by import name, valued by
+# pip requirement. jsonschema is imported eagerly by corridor_engine.plan, so
+# without it the engine import above fails; scikit-image is imported lazily
+# by corridor_engine.mesh, so without it everything appears to work until
+# STL/viewer export. Checking both up front turns either case into a single
+# "install these packages" prompt in the module panel.
+_REQUIRED_PACKAGES = {
+    "jsonschema": "jsonschema>=4.20,<5",
+    "skimage": "scikit-image>=0.22",
+}
+
+
+def _missing_requirements() -> List[str]:
+    """pip requirements for required packages that are not installed in
+    Slicer's Python (checked without importing them)."""
+    import importlib.util
+
+    return [req for name, req in _REQUIRED_PACKAGES.items() if importlib.util.find_spec(name) is None]
 
 
 # ==========================================================================
@@ -568,11 +597,11 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
-        try:
-            self.logic = CorridorFinderLogic()
-        except ImportError as exc:
-            self._showEngineImportError(str(exc))
+        missing = _missing_requirements()
+        if missing or _ENGINE_IMPORT_ERROR is not None:
+            self._showDependencyProblem(missing)
             return
+        self.logic = CorridorFinderLogic()
 
         # ScriptedLoadableModuleWidget.setup() has already installed a layout
         # on self.parent and exposed it as self.layout. Creating another
@@ -692,15 +721,53 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self._onCorridorChanged()
 
-    def _showEngineImportError(self, message: str) -> None:
-        label = qt.QLabel(
-            _("Corridor Finder's engine package (corridor_engine) could not be "
-              "imported. Check that numpy/scipy/scikit-image/jsonschema are "
-              "installed for Slicer's Python (Edit > Application Settings > "
-              "Python, or use slicer.util.pip_install). Details:\n\n") + message
-        )
+    def _showDependencyProblem(self, missing: List[str]) -> None:
+        """Show why the engine is unusable instead of the normal UI: either
+        the packages to install (with a button that installs them) or, for
+        any other engine import failure, the full traceback."""
+        if missing:
+            text = _(
+                "Corridor Finder needs Python packages that are not installed "
+                "in Slicer's Python:\n\n{packages}\n\n"
+                "Install them with the button below, then restart Slicer."
+            ).format(packages="\n".join(missing))
+        else:
+            text = _(
+                "Corridor Finder's engine package (corridor_engine) could not "
+                "be imported. Details:\n\n"
+            ) + _ENGINE_IMPORT_ERROR
+        label = qt.QLabel(text)
         label.setWordWrap(True)
+        label.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
         self.layout.addWidget(label)
+        if missing:
+            self.installDependenciesButton = qt.QPushButton(_("Install required Python packages"))
+            self.installDependenciesButton.clicked.connect(lambda: self.onInstallDependencies(missing))
+            self.layout.addWidget(self.installDependenciesButton)
+        self.layout.addStretch(1)
+
+    def onInstallDependencies(self, requirements: List[str]) -> None:
+        if not slicer.util.confirmOkCancelDisplay(
+            _("Install these packages into Slicer's Python environment?\n\n{packages}").format(
+                packages="\n".join(requirements)),
+            _("Corridor Finder"),
+        ):
+            return
+        try:
+            slicer.util.pip_install(requirements)
+        except subprocess.CalledProcessError:
+            # pip_install has already shown pip's log in an error dialog.
+            logging.error(traceback.format_exc())
+            return
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(_("Installing the packages failed:\n\n{error}").format(error=exc))
+            return
+        if slicer.util.confirmYesNoDisplay(
+            _("Packages installed. Slicer must restart to finish loading Corridor Finder. Restart now?"),
+            _("Corridor Finder"),
+        ):
+            slicer.util.restart()
 
     # ---- UI callbacks ---------------------------------------------------
 

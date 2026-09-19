@@ -71,9 +71,26 @@ This is under active development. What's implemented and unit tested today:
       handle-drag update -> plan JSON / report / STL / viewer export, all
       producing schema-valid output with no exceptions) against a
       synthetic phantom, using a lightweight stand-in for the `slicer`/
-      `vtk` modules this environment doesn't have. **It has not been run
-      inside real 3D Slicer** and needs that before it can be trusted —
-      see Status below for what specifically to check first.
+      `vtk` modules. It now loads in real 3D Slicer; the workflow is being
+      verified there step by step (next section).
+
+### Verified inside real 3D Slicer
+
+On 3D Slicer 5.12.4, Windows 11 (Python 3.12.10, numpy 2.4.6, scipy
+1.17.1, scikit-image 0.26.0 — newer than the versions pinned for CI).
+Slicer was driven headlessly (`--no-main-window --python-script`), so
+these checks exercise the module's code paths, not a person clicking
+through the GUI:
+
+- [x] The module loads, is listed under Orthopedics, its panel builds, and
+      its self-test passes.
+- [x] With a required package missing (jsonschema or scikit-image), the
+      module still loads and its panel lists what is missing with an
+      install button. Before, it silently vanished from the module list.
+- [x] All `corridor_engine` pytest tests pass on Slicer's own Python and
+      library versions, as well as on the pinned CI versions.
+- [ ] Segment -> detect landmarks -> suggest corridor -> add to plan ->
+      drag a screw handle -> export plan JSON / report / STL / viewer.
 
 Not yet implemented (tracked in the project plan):
 
@@ -99,19 +116,21 @@ pytest -q
 
 ## Getting the Slicer module running
 
-`CorridorFinder/CorridorFinder.py` was written and reasoned through
-carefully, but this development environment has no 3D Slicer, so it has
-never actually been loaded into one. Expect to debug it. In rough order
-of likely first failure:
+`CorridorFinder/CorridorFinder.py` loads in 3D Slicer 5.12.4 (see
+"Verified inside real 3D Slicer" above for what else has been checked).
+In rough order of likely first failure:
 
 1. **Extension loading.** In Slicer: Edit > Application Settings >
    Modules > Additional module paths, add this repo's `corridor-finder/
-   CorridorFinder/` directory, restart. If it doesn't appear under
-   Orthopedics, check the Python console for an import traceback first —
-   most likely `corridor_engine`'s dependencies (numpy/scipy/scikit-image/
-   jsonschema) aren't installed for Slicer's bundled Python. Install them
-   with `slicer.util.pip_install("numpy scipy scikit-image jsonschema")`
-   in the Python console, or point Slicer at this project's `.venv`.
+   CorridorFinder/` directory, restart. It appears under Orthopedics. On
+   a fresh Slicer the panel will say that scikit-image and jsonschema are
+   missing (Slicer bundles numpy, scipy and Pillow) and offer a button
+   that installs them; restart Slicer afterwards. If the module does not
+   appear at all, run `tools/diagnose.py` in the Python console (usage at
+   the top of that file). It prints the configured paths, the dependency
+   status and the full import traceback that Slicer's UI hides. Keep
+   helper scripts out of `CorridorFinder/`: Slicer tries to load every
+   `.py` file in a module directory as a module of its own.
 2. **Volume orientation.** `volume_node_to_engine_volume()` in
    `CorridorFinder.py` deliberately raises rather than guessing if the
    loaded CT isn't axis-aligned RAS (no gantry tilt). If a real DICOM
