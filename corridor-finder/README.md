@@ -165,10 +165,11 @@ through the GUI:
   as bone (`segmentation.sacroiliac_gap_fill`), which raised the best
   clearances (e.g. S1 right from -0.3 to 0.6 mm) but not enough. In these
   labels the gap from the hip's joint surface to the sacrum has a median
-  of about 4 mm, and only 11-15% of it is within 2 mm. **Decision
-  needed:** whether to raise the allowance (clinical data in
-  corridors.json), knowing that it defines how wide a gap is treated as
-  bone.
+  of about 4 mm, and only 11-15% of it is within 2 mm. **Decided**
+  (DECISIONS.md section 2): the bridged width becomes patient-specific,
+  taken from the intact joint (editable, capped at 4 mm; 4 mm when both
+  joints are disrupted), once the surgeon has confirmed which side is
+  disrupted. Not implemented yet (step 2).
 - **Entry and exit cortex (open design question).** The search picks
   entry and target points on the bone surface, and both the search and
   `validate.py` take the minimum clearance over the whole entry-to-target
@@ -178,14 +179,21 @@ through the GUI:
   endpoints included, has at least 6.9 mm of bone around the axis. So the
   planned "entry" is not the cortical entry point, and the stretch
   between the cortex and it is neither validated nor counted in the
-  suggested length. What the breach rule should exempt at the true entry
-  (and at the far cortex for transiliac-transsacral screws) is a clinical
-  decision; the rule is unchanged until it is made.
+  suggested length. **Decided** (DECISIONS.md section 1): entry on the
+  outer cortex, length cortex to tip, only the entry cortex itself
+  exempted (capped, with a warning past 60 degrees), and far-cortex
+  crossings for transiliac and LC-2 only. Not implemented yet (step 1);
+  until then the rule is unchanged.
 - The corridor anchors, textbook directions and DRR view angles in
   corridors.json have not been reviewed against real anatomy. The Sample
   Data CT stops above the acetabulum, so the anterior column, posterior
   column and supra-acetabular results on it are not anatomically
-  meaningful: they only prove the mechanics.
+  meaningful: they only prove the mechanics. Planned (DECISIONS.md
+  sections 4-5): review on public full-pelvis CTs, then a 5-case pilot
+  and a 20-case blinded validation on hospital cases.
+- **Post-reduction corridors** (planning on virtually reduced anatomy,
+  the corridor actually drilled after intra-operative reduction) are
+  designed in DECISIONS.md section 3; not implemented yet (step 5).
 
 Not yet implemented (tracked in the project plan):
 
