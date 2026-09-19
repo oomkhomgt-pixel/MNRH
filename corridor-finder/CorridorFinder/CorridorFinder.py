@@ -457,15 +457,37 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return (seg_mod.SACRUM,)
         return seg_mod.labels_for_side(group, side)
 
-    def _edt_for_bones(self, label_ids: tuple) -> EngineVolume:
-        key = tuple(sorted(label_ids))
+    def _edt_for_bones(self, label_ids: tuple, si_gap_mm: float = 0.0) -> EngineVolume:
+        """Distance field (mm) inside the union of ``label_ids``. With
+        ``si_gap_mm``, the sacroiliac joint space between a hip in the union
+        and the sacrum counts as bone (see seg_mod.sacroiliac_gap_fill)."""
+        ids = tuple(sorted(label_ids))
+        key = (ids, float(si_gap_mm))
         if key in self._edt_cache:
             return self._edt_cache[key]
-        mask = np.isin(self.labels_volume.array, key)
+        mask = np.isin(self.labels_volume.array, ids)
+        hips = tuple(h for h in (seg_mod.HIP_R, seg_mod.HIP_L) if h in ids)
+        if si_gap_mm > 0 and seg_mod.SACRUM in ids and hips:
+            mask |= seg_mod.sacroiliac_gap_fill(self.labels_volume.array, self.labels_volume.spacing, si_gap_mm, hips=hips)
         edt = edt_mod.bone_edt_mm(mask, self.labels_volume.spacing)
         vol = EngineVolume(array=edt, spacing=self.labels_volume.spacing, origin=self.labels_volume.origin)
         self._edt_cache[key] = vol
         return vol
+
+    def _traverse_labels(self, corridor_id: str, side: str) -> tuple:
+        if side == "midline":
+            return (seg_mod.HIP_R, seg_mod.SACRUM, seg_mod.HIP_L)
+        ids = set()
+        for group in self.corridor_defs[corridor_id]["must_traverse"]:
+            ids.update(self._bone_labels_for(group, side))
+        return tuple(sorted(ids))
+
+    def clearance_field(self, corridor_id: str, side: str) -> EngineVolume:
+        """THE distance field a screw of this corridor and side is checked
+        against: by the corridor search, by validate_screw and in the
+        exported viewer, so the three can never disagree about the bone."""
+        gap = self.corridor_defs[corridor_id].get("sacral_gap_allowance_mm") or 0.0
+        return self._edt_for_bones(self._traverse_labels(corridor_id, side), gap)
 
     def suggest_corridor(self, corridor_id: str, side: str, margin_mm: Optional[float] = None) -> List["corridor_search.CorridorResult"]:
         """side is 'left' or 'right' for per_side corridors, ignored (pass
@@ -494,15 +516,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         entry_mask = np.isin(self.labels_volume.array, entry_labels)
         exit_mask = np.isin(self.labels_volume.array, exit_labels)
 
-        must_traverse_groups = spec["must_traverse"]
-        if side == "midline":
-            traverse_labels = (seg_mod.HIP_R, seg_mod.SACRUM, seg_mod.HIP_L)
-        else:
-            traverse_ids = set()
-            for group in must_traverse_groups:
-                traverse_ids.update(self._bone_labels_for(group, side))
-            traverse_labels = tuple(sorted(traverse_ids))
-        edt_vol = self._edt_for_bones(traverse_labels)
+        traverse_labels = self._traverse_labels(corridor_id, side)
+        edt_vol = self.clearance_field(corridor_id, side)
 
         valid_vol = None
         gap_mm = spec.get("sacral_gap_allowance_mm")
@@ -538,17 +553,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     # ---- Validation --------------------------------------------------
 
     def validate_screw(self, corridor_id: str, side: str, entry_xyz, target_xyz, diameter_mm: float, margin_mm: float) -> "validate_mod.Validation":
-        spec = self.corridor_defs[corridor_id]
-        if side == "midline":
-            traverse_labels = (seg_mod.HIP_R, seg_mod.SACRUM, seg_mod.HIP_L)
-        else:
-            traverse_ids = set()
-            for group in spec["must_traverse"]:
-                traverse_ids.update(self._bone_labels_for(group, side))
-            traverse_labels = tuple(sorted(traverse_ids))
-        edt_vol = self._edt_for_bones(traverse_labels)
         return validate_mod.validate_screw(
-            entry_xyz, target_xyz, diameter_mm, margin_mm, edt_volume=edt_vol, labels_volume=self.labels_volume
+            entry_xyz, target_xyz, diameter_mm, margin_mm,
+            edt_volume=self.clearance_field(corridor_id, side), labels_volume=self.labels_volume,
         )
 
     # ---- Skin entry -----------------------------------------------------
@@ -652,17 +659,19 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         meshes = mesh_mod.extract_label_meshes(self.labels_volume)
         mesh_mod.write_stl_binary_multi(list(meshes.values()), path)
 
+    # Faces per bone mesh in the viewer (display only; the STL keeps full
+    # resolution and the viewer's safety check uses the distance fields).
+    VIEWER_FACES_PER_MESH = 60000
+
     def export_viewer_html(self, path: str) -> None:
-        meshes = mesh_mod.extract_label_meshes(self.labels_volume)
-        coarse = edt_mod.coarse_edt_uint8(self._edt_for_bones(tuple(seg_mod.LABEL_NAMES.keys())).array)
-        export_viewer_mod.export_viewer(
-            self.plan,
-            meshes,
-            path,
-            edt_uint8=coarse,
-            edt_spacing=self.labels_volume.spacing,
-            edt_origin=self.labels_volume.origin,
-        )
+        meshes = {
+            label: mesh_mod.decimate_mesh(m, self.VIEWER_FACES_PER_MESH)
+            for label, m in mesh_mod.extract_label_meshes(self.labels_volume).items()
+        }
+        # Each screw is checked in the viewer against exactly the field
+        # validate_screw used for it.
+        screw_edts = {s.screw_id: self.clearance_field(s.corridor_id, s.side) for s in self.plan.screws}
+        export_viewer_mod.export_viewer(self.plan, meshes, path, screw_edts=screw_edts)
 
 
 # ==========================================================================

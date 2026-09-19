@@ -11,6 +11,7 @@ from corridor_engine.export_viewer import (
     export_viewer,
 )
 from corridor_engine.mesh import extract_mesh
+from corridor_engine.volume import Volume
 
 
 def _sphere_mask(n=24, radius=8.0):
@@ -73,34 +74,51 @@ def test_exported_html_is_self_contained_and_small(tmp_path):
     assert 'id="payload"' in html
 
 
-def test_payload_roundtrip_in_python():
-    meshes = _small_meshes()
-    plan = _small_plan()
-
-    edt_uint8 = np.zeros((5, 6, 7), dtype=np.uint8)
-    edt_uint8[:] = 3
-
-    payload = build_payload(
-        plan,
-        meshes,
-        edt_uint8=edt_uint8,
-        edt_spacing=(1.0, 1.0, 1.0),
-        edt_origin=(0.0, 0.0, 0.0),
-    )
-
+def _decode(payload):
     raw = gzip.decompress(payload)
     header_len = struct.unpack("<I", raw[0:4])[0]
     header = json.loads(raw[4 : 4 + header_len].decode("utf-8"))
+    return header, raw[4 + header_len :]
 
-    assert header["version"] == 1
+
+def test_payload_roundtrip_in_python():
+    meshes = _small_meshes()
+    plan = _small_plan()
+    edt = Volume(np.full((5, 6, 7), 3.0), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
+
+    header, _body = _decode(build_payload(plan, meshes, screw_edts={"s1": edt}))
+
+    assert header["version"] == 2
     assert len(header["meshes"]) == len(meshes)
     for entry in header["meshes"]:
         mesh = meshes[entry["label"]]
         assert entry["n_vertices"] == len(mesh.vertices)
         assert entry["n_faces"] == len(mesh.faces)
+    assert [e["screw_id"] for e in header["edts"]] == ["s1"]
 
-    assert header["edt"] is not None
-    assert header["edt"]["shape"] == list(edt_uint8.shape)
+
+def test_each_screw_gets_its_own_field_cropped_on_grid_and_rounded_down():
+    # The viewer must check each screw against the same field validate.py
+    # used for it: the crop keeps the source grid (origin moves by whole
+    # voxels) and values are only ever rounded down.
+    spacing, origin = (0.8, 0.9, 1.25), (-40.0, 12.5, 101.0)
+    rng = np.random.default_rng(3)
+    field = rng.uniform(0.0, 30.0, size=(60, 80, 100))
+    edt = Volume(field, spacing, origin)
+    plan = _small_plan()
+    plan["screws"][0]["entry_xyz"] = [-10.0, 40.0, 130.0]
+    plan["screws"][0]["target_xyz"] = [5.0, 45.0, 140.0]
+
+    header, body = _decode(build_payload(plan, {}, screw_edts={"s1": edt}))
+    e = header["edts"][0]
+    ijk0 = (np.array(e["origin"]) - np.array(origin)) / np.array(spacing)
+    assert np.allclose(ijk0, np.round(ijk0))  # grid-aligned crop
+    i0, j0, k0 = np.round(ijk0).astype(int)
+    nz, ny, nx = e["shape"]
+    embedded = np.frombuffer(body[e["offset"] : e["offset"] + e["n_bytes"]], dtype=np.uint8).reshape(nz, ny, nx) * e["scale_mm"]
+    source = np.minimum(field[k0 : k0 + nz, j0 : j0 + ny, i0 : i0 + nx], 25.5)
+    assert np.all(embedded <= source + 1e-9)
+    assert np.all(embedded >= source - e["scale_mm"] - 1e-9)
 
 
 def test_export_viewer_rejects_phi(tmp_path):

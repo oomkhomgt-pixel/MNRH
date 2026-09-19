@@ -1,6 +1,6 @@
 import numpy as np
 
-from corridor_engine.segmentation import FEMUR_R, HIP_L, HIP_R, check_hip_sides, largest_components, split_pelvis_labels, threshold_bone
+from corridor_engine.segmentation import FEMUR_R, HIP_L, HIP_R, SACRUM, check_hip_sides, largest_components, sacroiliac_gap_fill, split_pelvis_labels, threshold_bone
 
 
 def test_threshold_bone_isolates_dense_region():
@@ -66,3 +66,43 @@ def test_hip_side_check_rejects_both_hips_on_one_side():
     verdict, _ = check_hip_sides(labels, hu, spacing, origin)
     assert verdict == "implausible"
 
+
+def _hip_sacrum_blocks(gap_vox, canal=False):
+    """Right hip block and sacrum block side by side along x, separated by a
+    gap of gap_vox 1 mm voxels (an SI joint); optionally a 6 mm canal hole
+    through the sacrum."""
+    labels = np.zeros((40, 40, 80), dtype=np.uint8)
+    labels[5:35, 5:35, 40 + gap_vox:75] = HIP_R  # higher x = patient right
+    labels[5:35, 5:35, 5:40] = SACRUM
+    if canal:
+        labels[:, 17:23, 17:23] = 0
+    return labels
+
+
+def test_si_gap_fill_bridges_only_a_joint_within_the_allowance():
+    spacing = (1.0, 1.0, 1.0)
+    narrow = _hip_sacrum_blocks(gap_vox=2)
+    fill = sacroiliac_gap_fill(narrow, spacing, gap_mm=2.0)
+    assert fill[20, 20, 40:42].all()  # the 2 mm joint is bridged
+    assert not fill[narrow > 0].any()  # never relabels bone
+    assert not fill[0, 20, 41] and not fill[20, 0, 41]  # outside the bones' cross-section
+    wide = _hip_sacrum_blocks(gap_vox=6)
+    assert not sacroiliac_gap_fill(wide, spacing, gap_mm=2.0)[20, 20, 40:46].any()
+
+
+def test_si_gap_fill_leaves_holes_inside_the_sacrum_alone():
+    labels = _hip_sacrum_blocks(gap_vox=2, canal=True)
+    fill = sacroiliac_gap_fill(labels, (1.0, 1.0, 1.0), gap_mm=2.0)
+    assert not fill[:, 17:23, 17:23].any()  # the "spinal canal" is not bone
+
+
+def test_si_gap_fill_does_not_bulge_past_the_joint_line():
+    # Finer voxels than the allowance: a voxel just in front of the joint
+    # line (outside both bones' cross-section) is within the allowance of
+    # both bones but not between them, and must stay unfilled.
+    labels = np.zeros((40, 40, 160), dtype=np.uint8)
+    labels[10:70, 10:30, 83:150] = HIP_R  # 0.5 mm voxels; 3-voxel (1.5 mm) joint
+    labels[10:70, 10:30, 10:80] = SACRUM
+    fill = sacroiliac_gap_fill(labels, (0.5, 0.5, 0.5), gap_mm=2.0)
+    assert fill[20, 20, 80:83].all()  # inside the joint
+    assert not fill[20, 8, 80:83].any()  # 1 mm in front of the joint line

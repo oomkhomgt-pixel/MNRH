@@ -37,10 +37,12 @@ fluoroscopy/navigation.
   converts volumes/segmentations to plain arrays, calls into
   `corridor_engine`, and drives the UI, PDF/STL export, and DICOM import.
 - **`viewer/`** — a self-contained Three.js HTML viewer that the Slicer
-  module exports per plan: a translucent 3D bone model with draggable
-  screw handles and a coarse embedded distance field, so anyone can open
-  the exported file (no install) to review or teach from a plan, and even
-  drag a screw and see the clearance re-check live in the browser.
+  module exports per plan: a translucent 3D bone model with the planned
+  screws (green, or red on breach) and, per screw, the distance field
+  Slicer validated it against, so anyone can open the exported file (no
+  install) to review or teach from a plan. `viewer/clearance.js` holds
+  its breach check, which mirrors `validate.py` and is golden-tested
+  against it.
 - **`corridors.json`** / **`screws.json`** — editable data: anatomical
   entry/exit region definitions per corridor, and the screw diameter/length
   library. Tuning corridor anchors for a specific population or catalog is
@@ -141,12 +143,18 @@ through the GUI:
   "bone" is a shell with near-zero clearance inside and no screw fits at
   the default margin. Treat TotalSegmentator (or a corrected
   segmentation) as required, not optional.
-- **Iliosacral and transiliac-transsacral screws never fit**, even with
-  TotalSegmentator (best clearance -0.3 to -1.1 mm). Suspected cause: the
-  SI joint is a gap between the hip and sacrum labels, so clearance drops
-  to zero where the screw crosses it. `sacral_gap_allowance_mm` in
-  corridors.json was meant for this but is applied only to the
-  containment test, not to clearance. Under investigation.
+- **Iliosacral and transiliac-transsacral screws do not fit yet** on the
+  real CT. Confirmed cause: the SI joint. For every best candidate the
+  minimum clearance lay within 0-1.5 mm of both the hip and the sacrum.
+  `sacral_gap_allowance_mm` (2 mm) was applied only to the containment
+  test; the clearance now also counts the joint space up to that width
+  as bone (`segmentation.sacroiliac_gap_fill`), which raised the best
+  clearances (e.g. S1 right from -0.3 to 0.6 mm) but not enough. In these
+  labels the gap from the hip's joint surface to the sacrum has a median
+  of about 4 mm, and only 11-15% of it is within 2 mm. **Decision
+  needed:** whether to raise the allowance (clinical data in
+  corridors.json), knowing that it defines how wide a gap is treated as
+  bone.
 - **Entry and exit cortex (open design question).** The search picks
   entry and target points on the bone surface, and both the search and
   `validate.py` take the minimum clearance over the whole entry-to-target
@@ -164,18 +172,13 @@ through the GUI:
   Data CT stops above the acetabulum, so the anterior column, posterior
   column and supra-acetabular results on it are not anatomically
   meaningful: they only prove the mechanics.
-- The viewer does not draw the screws, and its camera orbits the world
-  origin rather than the model. It embeds the full-resolution distance
-  field, so a larger CT may exceed its 8 MB size limit.
 
 Not yet implemented (tracked in the project plan):
 
 - [ ] Demo CT download script and a real-anatomy sample plan
-- [ ] A browser (Playwright) test harness for `viewer/app.js` — the
-      viewer's clearance logic is currently verified only by careful
-      review against `validate.py`, not by an automated test; a golden
-      test comparing the two on identical inputs is the next priority
-      before the viewer is trusted unsupervised
+- [ ] An automated browser test of the viewer's rendering. Its clearance
+      logic (`viewer/clearance.js`) is golden-tested against `validate.py`
+      under Node; the rendering has only been checked by eye.
 - [ ] Pointer-dragging of screw handles in the viewer (handles currently
       move only via the `window.CF.moveHandle` test hook, not the mouse)
 
@@ -185,6 +188,14 @@ Not yet implemented (tracked in the project plan):
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt -e .
 pytest -q
+```
+
+`tests/python/test_viewer_clearance_golden.py` runs the viewer's
+clearance check under Node (`node` on the PATH) and is skipped without it.
+The Slicer-side checks run inside Slicer:
+
+```
+Slicer --no-splash --no-main-window --python-script tests/slicer/workflow_check.py
 ```
 
 ## Getting the Slicer module running
@@ -241,8 +252,10 @@ In rough order of likely first failure:
   should be reviewed against real anatomy before clinical use.
 - Simulated fluoroscopy is a parallel projection, not a true cone-beam
   C-arm image; angles will not exactly match the OR.
-- The exported HTML viewer's safety check samples the distance field
-  Slicer computed, rounded to whole millimetres (so up to 0.5 mm off
-  either way), along the axis every 1 mm. Treat a "safe" reading in the
-  viewer as informative, not as a substitute for the Slicer-side
+- The exported HTML viewer checks each screw against the same distance
+  field Slicer validated it with, cropped to 30 mm around the screw and
+  rounded down to 0.1 mm, with the same breach rule. So it can be up to
+  0.1 mm stricter than Slicer but never more lenient (golden-tested). A
+  handle moved outside the embedded region reads as a breach. Still treat
+  the viewer as a review aid, not as a substitute for the Slicer-side
   validation it was exported from.

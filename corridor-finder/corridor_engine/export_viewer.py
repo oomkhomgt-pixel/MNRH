@@ -11,8 +11,12 @@ import struct
 from pathlib import Path
 from typing import Dict, Optional
 
+import numpy as np
+
 from . import phi
+from .edt import VIEWER_EDT_SCALE_MM, quantize_edt_floor
 from .mesh import Mesh, mesh_to_arrays
+from .volume import Volume
 
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 
@@ -26,72 +30,80 @@ def _plan_to_dict(plan) -> dict:
     return dict(plan)
 
 
-def build_payload(
-    plan,
-    meshes: Dict[int, Mesh],
-    *,
-    edt_uint8=None,
-    edt_spacing=None,
-    edt_origin=None,
-) -> bytes:
-    """Pack meshes (and optionally a quantized EDT volume) into a gzip blob.
+# How far around a screw's axis (mm) its distance field is embedded, which
+# bounds how far a handle can be dragged in the viewer and still be checked.
+VIEWER_EDT_MARGIN_MM = 30.0
+
+
+def crop_edt_for_screw(edt_vol: Volume, entry_xyz, target_xyz, margin_mm: float = VIEWER_EDT_MARGIN_MM) -> Volume:
+    """The part of a screw's distance field within ``margin_mm`` of the box
+    spanned by its entry and target. The crop is aligned to the source grid,
+    so every embedded value is exactly the one validate.py samples."""
+    pts = np.array([entry_xyz, target_xyz], dtype=float)
+    lo = np.floor(edt_vol.world_to_ijk(pts.min(axis=0) - margin_mm)).astype(int)
+    hi = np.ceil(edt_vol.world_to_ijk(pts.max(axis=0) + margin_mm)).astype(int)
+    nz, ny, nx = edt_vol.array.shape
+    lo = np.maximum(lo, 0)
+    hi = np.minimum(hi, np.array([nx, ny, nz]) - 1)
+    if np.any(hi < lo):  # the screw lies entirely outside the CT
+        return Volume(np.zeros((1, 1, 1)), edt_vol.spacing, tuple(edt_vol.ijk_to_world((0, 0, 0))))
+    sub = edt_vol.array[lo[2]:hi[2] + 1, lo[1]:hi[1] + 1, lo[0]:hi[0] + 1]
+    return Volume(sub, edt_vol.spacing, tuple(float(v) for v in edt_vol.ijk_to_world(lo)))
+
+
+def build_payload(plan, meshes: Dict[int, Mesh], *, screw_edts: Optional[Dict[str, Volume]] = None) -> bytes:
+    """Pack meshes and, per screw, the distance field validate.py uses for
+    that screw into a gzip blob.
 
     Layout (before gzip):
       [4 bytes little-endian uint32 header_length]
       [header_length bytes of UTF-8 JSON header]
       [raw payload bytes: for each mesh in order, float32 vertices then
-       uint32 faces; then, if edt_uint8 is given, its raw bytes (C order)]
+       uint32 faces; then each screw's distance field as uint8 steps of
+       scale_mm (C order), cropped around the screw and rounded down]
     """
-    mesh_items = list(meshes.items())
-
     header_meshes = []
     raw_chunks = []
     offset = 0
-    for label_id, mesh in mesh_items:
+    for label_id, mesh in meshes.items():
         verts, faces = mesh_to_arrays(mesh)
-        n_vertices = len(mesh.vertices)
-        n_faces = len(mesh.faces)
         header_meshes.append(
             {
                 "label": int(label_id),
                 "name": mesh.name,
-                "n_vertices": int(n_vertices),
-                "n_faces": int(n_faces),
+                "n_vertices": int(len(mesh.vertices)),
+                "n_faces": int(len(mesh.faces)),
                 "offset": offset,
             }
         )
-        vert_bytes = verts.tobytes()
-        face_bytes = faces.tobytes()
-        raw_chunks.append(vert_bytes)
-        raw_chunks.append(face_bytes)
-        offset += len(vert_bytes) + len(face_bytes)
+        raw_chunks += [verts.tobytes(), faces.tobytes()]
+        offset += len(raw_chunks[-2]) + len(raw_chunks[-1])
 
-    edt_header = None
-    if edt_uint8 is not None:
-        edt_bytes = edt_uint8.tobytes(order="C")
-        edt_header = {
-            "shape": list(edt_uint8.shape),
-            "spacing": list(edt_spacing) if edt_spacing is not None else None,
-            "origin": list(edt_origin) if edt_origin is not None else None,
-            "offset": offset,
-            "n_bytes": len(edt_bytes),
-        }
-        raw_chunks.append(edt_bytes)
-        offset += len(edt_bytes)
+    header_edts = []
+    screws = {s["screw_id"]: s for s in _plan_to_dict(plan).get("screws", [])}
+    for screw_id, edt_vol in (screw_edts or {}).items():
+        screw = screws[screw_id]
+        crop = crop_edt_for_screw(edt_vol, screw["entry_xyz"], screw["target_xyz"])
+        data = quantize_edt_floor(crop.array, VIEWER_EDT_SCALE_MM).tobytes(order="C")
+        header_edts.append(
+            {
+                "screw_id": screw_id,
+                "shape": list(crop.array.shape),
+                "spacing": [float(v) for v in crop.spacing],
+                "origin": [float(v) for v in crop.origin],
+                "scale_mm": VIEWER_EDT_SCALE_MM,
+                "offset": offset,
+                "n_bytes": len(data),
+            }
+        )
+        raw_chunks.append(data)
+        offset += len(data)
 
-    header = {
-        "version": 1,
-        "meshes": header_meshes,
-        "edt": edt_header,
-    }
-    header_bytes = json.dumps(header).encode("utf-8")
-
-    body = bytearray()
-    body += struct.pack("<I", len(header_bytes))
+    header_bytes = json.dumps({"version": 2, "meshes": header_meshes, "edts": header_edts}).encode("utf-8")
+    body = bytearray(struct.pack("<I", len(header_bytes)))
     body += header_bytes
     for chunk in raw_chunks:
         body += chunk
-
     return gzip.compress(bytes(body))
 
 
@@ -121,13 +133,14 @@ def export_viewer(
     meshes: Dict[int, Mesh],
     path,
     *,
-    edt_uint8=None,
-    edt_spacing=None,
-    edt_origin=None,
+    screw_edts: Optional[Dict[str, Volume]] = None,
     template_dir: Optional[Path] = None,
     title: str = "Corridor Finder plan",
     check_phi: bool = True,
 ) -> Path:
+    """Write the self-contained viewer. ``screw_edts`` maps each screw id to
+    the distance field (mm) that validate.py checks that screw against; a
+    screw without one is shown as not checked, never as safe."""
     if check_phi:
         phi.assert_no_phi(_plan_to_dict(plan))
 
@@ -136,20 +149,19 @@ def export_viewer(
     template_html = (viewer_dir / "template.html").read_text(encoding="utf-8")
     style_css = (viewer_dir / "style.css").read_text(encoding="utf-8")
     app_js = (viewer_dir / "app.js").read_text(encoding="utf-8")
-    three_js_bytes = (viewer_dir / "vendor" / "three.module.min.js").read_bytes()
-
-    three_b64 = base64.b64encode(three_js_bytes).decode("ascii")
+    modules = {
+        "three": (viewer_dir / "vendor" / "three.module.min.js").read_bytes(),
+        "clearance": (viewer_dir / "clearance.js").read_bytes(),
+    }
     importmap = (
         '<script type="importmap">'
         + json.dumps(
-            {"imports": {"three": f"data:text/javascript;base64,{three_b64}"}}
+            {"imports": {name: "data:text/javascript;base64," + base64.b64encode(src).decode("ascii") for name, src in modules.items()}}
         )
         + "</script>"
     )
 
-    payload_bytes = build_payload(
-        plan, meshes, edt_uint8=edt_uint8, edt_spacing=edt_spacing, edt_origin=edt_origin
-    )
+    payload_bytes = build_payload(plan, meshes, screw_edts=screw_edts)
     payload_b64 = base64.b64encode(payload_bytes).decode("ascii")
 
     plan_dict = _plan_to_dict(plan)

@@ -28,7 +28,9 @@ Environment: CF_OUT_DIR (exports and the report; default a new temp dir),
 CF_SAMPLE (Sample Data name; empty to skip). Exit code 0 only if every
 check passed.
 """
+import base64
 import copy
+import gzip
 import importlib.util
 import json
 import os
@@ -334,6 +336,11 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         if os.path.exists(paths["HTML viewer"]):
             html = open(paths["HTML viewer"], encoding="utf-8").read()
             check(screw.screw_id in html, "viewer embeds the plan")
+            b64 = html.split('id="payload">', 1)[1].split("</script>", 1)[0]
+            raw = gzip.decompress(base64.b64decode(b64))
+            header = json.loads(raw[4:4 + struct.unpack("<I", raw[:4])[0]])
+            check([e["screw_id"] for e in header.get("edts", [])] == [s.screw_id for s in logic.plan.screws],
+                  "viewer carries each screw's own distance field")
 
     @step("Correct the segmentation: erase bone around the screw, then restore it")
     def edit_segmentation():

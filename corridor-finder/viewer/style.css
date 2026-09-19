@@ -46,3 +46,27 @@ html, body {
 #hud-status {
   color: #9aa4ad;
 }
+
+#hud-status.breach,
+#hud-screws .breach {
+  color: #f87171;
+  font-weight: 600;
+}
+
+#hud-screws .ok {
+  color: #4ade80;
+}
+
+#hud-screws .unchecked {
+  color: #fbbf24;
+}
+
+#hud-screws {
+  margin-top: 6px;
+}
+
+#hud-help {
+  margin-top: 6px;
+  color: #6b7680;
+  font-size: 12px;
+}

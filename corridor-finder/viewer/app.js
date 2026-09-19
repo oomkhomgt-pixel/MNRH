@@ -1,8 +1,13 @@
 import * as THREE from "three";
+import { clearanceAlongAxis } from "clearance";
+
+// World coordinates are RAS in mm (x = patient right, y = anterior,
+// z = superior), as everywhere in Corridor Finder.
 
 const planEl = document.getElementById("plan");
 const payloadEl = document.getElementById("payload");
 const statusEl = document.getElementById("hud-status");
+const screwsEl = document.getElementById("hud-screws");
 
 const plan = JSON.parse(planEl.textContent);
 
@@ -17,95 +22,46 @@ window.CF = {
     clearance_mm: null,
     breach: null,
   })),
-  _edt: null, // {shape:[nz,ny,nx], spacing:[sx,sy,sz], origin:[ox,oy,oz], data:Uint8Array}
+  // screw_id -> that screw's own distance field, exactly the one Slicer
+  // validated it against (cropped around the screw, rounded down):
+  // {shape:[nz,ny,nx], spacing:[sx,sy,sz], origin:[ox,oy,oz], scale_mm, data}
+  _edts: {},
   clearanceFor,
   moveHandle,
 };
 
-function worldToIjk(xyz) {
-  const edt = window.CF._edt;
-  const [ox, oy, oz] = edt.origin;
-  const [sx, sy, sz] = edt.spacing;
-  return [(xyz[0] - ox) / sx, (xyz[1] - oy) / sy, (xyz[2] - oz) / sz];
-}
-
-function sampleTrilinear(ijk) {
-  const edt = window.CF._edt;
-  const [nz, ny, nx] = edt.shape;
-  const [i, j, k] = ijk; // i=x, j=y, k=z index space
-
-  // Match scipy's map_coordinates(mode="constant", cval=0.0) used by
-  // validate.py's Volume.sample_trilinear: any point outside the grid
-  // bounds [0, dim-1] on any axis returns 0.0 rather than the nearest
-  // edge voxel value. Clamping here would falsely report "safe" for a
-  // point that has actually left the sampled volume.
-  if (i < 0 || i > nx - 1 || j < 0 || j > ny - 1 || k < 0 || k > nz - 1) {
-    return 0.0;
-  }
-
-  const x0 = Math.floor(i);
-  const y0 = Math.floor(j);
-  const z0 = Math.floor(k);
-  const x1 = Math.min(x0 + 1, nx - 1);
-  const y1 = Math.min(y0 + 1, ny - 1);
-  const z1 = Math.min(z0 + 1, nz - 1);
-  const tx = i - x0;
-  const ty = j - y0;
-  const tz = k - z0;
-
-  const at = (x, y, z) => edt.data[z * ny * nx + y * nx + x];
-
-  const c00 = at(x0, y0, z0) * (1 - tx) + at(x1, y0, z0) * tx;
-  const c10 = at(x0, y1, z0) * (1 - tx) + at(x1, y1, z0) * tx;
-  const c01 = at(x0, y0, z1) * (1 - tx) + at(x1, y0, z1) * tx;
-  const c11 = at(x0, y1, z1) * (1 - tx) + at(x1, y1, z1) * tx;
-  const c0 = c00 * (1 - ty) + c10 * ty;
-  const c1 = c01 * (1 - ty) + c11 * ty;
-  return c0 * (1 - tz) + c1 * tz;
-}
-
-// Mirrors the min-clearance logic in corridor_engine/validate.py:
-// clearance = edt(mm) - radius, min over samples along the axis.
-// breach = min_clearance < margin_mm (NOT < 0) -- same rule as validate.py.
+// The breach decision itself lives in clearance.js (mirrors validate.py).
+// A screw without an exported distance field is "not checked" (breach
+// null), never "safe".
 function clearanceFor(screwId, entryXyz, targetXyz, diameterMm, marginMm) {
-  if (!window.CF._edt) return null;
-  const entry = new THREE.Vector3(...entryXyz);
-  const target = new THREE.Vector3(...targetXyz);
-  const length = entry.distanceTo(target);
-  const stepMm = 1.0;
-  const n = Math.max(2, Math.round(length / stepMm) + 1);
-  const radius = diameterMm / 2.0;
-  let minClearance = Infinity;
-  for (let s = 0; s < n; s++) {
-    const t = s / (n - 1);
-    const p = [
-      entry.x + t * (target.x - entry.x),
-      entry.y + t * (target.y - entry.y),
-      entry.z + t * (target.z - entry.z),
-    ];
-    const ijk = worldToIjk(p);
-    const edtVal = sampleTrilinear(ijk);
-    const clearance = edtVal - radius;
-    if (clearance < minClearance) minClearance = clearance;
-  }
   const screw = window.CF.screws.find((sc) => sc.screw_id === screwId);
-  const effectiveMargin = marginMm != null ? marginMm : screw ? screw.margin_mm : 0;
-  const breach = minClearance < effectiveMargin;
-  if (screw) {
-    screw.clearance_mm = minClearance;
-    screw.breach = breach;
+  const edt = window.CF._edts[screwId];
+  if (!edt) {
+    if (screw) {
+      screw.clearance_mm = null;
+      screw.breach = null;
+    }
+    return null;
   }
-  return { clearance_mm: minClearance, breach };
+  const margin = marginMm != null ? marginMm : screw ? screw.margin_mm : 0;
+  const result = clearanceAlongAxis(edt, entryXyz, targetXyz, diameterMm, margin);
+  if (screw) {
+    screw.clearance_mm = result.clearance_mm;
+    screw.breach = result.breach;
+  }
+  return result;
 }
 
-// TODO(round-4): pointer drag on the camera-facing plane to move handles
-// interactively; for now this just recomputes clearance for a given target.
+// TODO: pointer dragging of the handles; for now handles move only through
+// this hook, which re-checks the clearance and redraws.
 function moveHandle(screwId, which, xyz) {
   const screw = window.CF.screws.find((sc) => sc.screw_id === screwId);
   if (!screw) return null;
   if (which === "entry") screw.entry_xyz = xyz.slice();
   else if (which === "target") screw.target_xyz = xyz.slice();
-  return clearanceFor(screwId, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
+  const result = clearanceFor(screwId, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
+  if (window.CF._redraw) window.CF._redraw();
+  return result;
 }
 
 async function decodePayload() {
@@ -120,8 +76,7 @@ async function decodePayload() {
   const view = new DataView(buf);
 
   const headerLen = view.getUint32(0, true);
-  const headerJson = new TextDecoder().decode(new Uint8Array(buf, 4, headerLen));
-  const header = JSON.parse(headerJson);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, headerLen)));
   const bodyStart = 4 + headerLen;
 
   const meshes = [];
@@ -134,29 +89,27 @@ async function decodePayload() {
     meshes.push({ label: m.label, name: m.name, vertices, faces });
   }
 
-  if (header.edt) {
-    const edtOffset = bodyStart + header.edt.offset;
-    const data = new Uint8Array(buf.slice(edtOffset, edtOffset + header.edt.n_bytes));
-    window.CF._edt = {
-      shape: header.edt.shape,
-      spacing: header.edt.spacing,
-      origin: header.edt.origin,
-      data,
+  for (const e of header.edts || []) {
+    const start = bodyStart + e.offset;
+    window.CF._edts[e.screw_id] = {
+      shape: e.shape,
+      spacing: e.spacing,
+      origin: e.origin,
+      scale_mm: e.scale_mm,
+      data: new Uint8Array(buf.slice(start, start + e.n_bytes)),
     };
   }
-
   return meshes;
 }
 
-function buildScene(meshes) {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x101418);
+const COLOR = { safe: 0x22c55e, breach: 0xef4444, unchecked: 0xf59e0b };
 
-  const light1 = new THREE.DirectionalLight(0xffffff, 1.2);
-  light1.position.set(1, 1, 1);
-  scene.add(light1);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+function screwColor(screw) {
+  if (screw.breach === null) return COLOR.unchecked;
+  return screw.breach ? COLOR.breach : COLOR.safe;
+}
 
+function buildBones(meshes) {
   const group = new THREE.Group();
   for (const m of meshes) {
     const geometry = new THREE.BufferGeometry();
@@ -166,30 +119,75 @@ function buildScene(meshes) {
     const material = new THREE.MeshPhongMaterial({
       color: 0xd8c9a8,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.35,
       side: THREE.DoubleSide,
+      depthWrite: false,
     });
-    const mesh = new THREE.Mesh(geometry, material);
-    group.add(mesh);
+    group.add(new THREE.Mesh(geometry, material));
   }
-  scene.add(group);
-  return { scene, group };
+  return group;
 }
 
-function setupCamera(canvas) {
-  const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
-  camera.position.set(150, 150, 300);
+// One cylinder of the screw's diameter from entry to target, plus a small
+// sphere on each handle, coloured by the current clearance verdict.
+function buildScrews() {
+  const group = new THREE.Group();
+  for (const s of window.CF.screws) {
+    const a = new THREE.Vector3(...s.entry_xyz);
+    const b = new THREE.Vector3(...s.target_xyz);
+    const axis = new THREE.Vector3().subVectors(b, a);
+    const material = new THREE.MeshPhongMaterial({ color: screwColor(s) });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(s.diameter_mm / 2, s.diameter_mm / 2, axis.length(), 24), material);
+    shaft.position.copy(a).addScaledVector(axis, 0.5);
+    shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize());
+    group.add(shaft);
+    for (const p of [a, b]) {
+      const handle = new THREE.Mesh(new THREE.SphereGeometry(Math.max(2.0, s.diameter_mm * 0.5), 16, 12), material);
+      handle.position.copy(p);
+      group.add(handle);
+    }
+  }
+  return group;
+}
 
-  // Minimal hand-rolled orbit: drag rotates around origin, wheel zooms.
-  const state = { dragging: false, lastX: 0, lastY: 0, radius: camera.position.length(), theta: Math.PI / 4, phi: Math.PI / 3 };
+function updateHud(meshCount) {
+  const breaches = window.CF.screws.filter((s) => s.breach === true).length;
+  const unchecked = window.CF.screws.filter((s) => s.breach === null).length;
+  let text = `${meshCount} bone mesh(es), ${window.CF.screws.length} screw(s)`;
+  if (breaches > 0) text += ` — ${breaches} BREACH`;
+  if (unchecked > 0) text += ` — ${unchecked} not checked`;
+  statusEl.textContent = text;
+  statusEl.classList.toggle("breach", breaches > 0);
+  screwsEl.replaceChildren(
+    ...window.CF.screws.map((s) => {
+      const row = document.createElement("div");
+      if (s.breach === null) {
+        row.className = "unchecked";
+        row.textContent = `${s.screw_id}: not checked (no distance field)`;
+      } else {
+        row.className = s.breach ? "breach" : "ok";
+        row.textContent = `${s.screw_id}: clearance ${s.clearance_mm.toFixed(1)} mm, margin ${s.margin_mm.toFixed(1)} mm${s.breach ? " — BREACH" : ""}`;
+      }
+      return row;
+    })
+  );
+}
 
-  function updateCameraPosition() {
+// Orbit around the model with superior (+z) up, starting from the front
+// (anterior) so the patient's right is on the screen's left, as in an AP
+// radiograph. Drag rotates, the wheel zooms.
+function setupCamera(canvas, center, size) {
+  const camera = new THREE.PerspectiveCamera(40, canvas.clientWidth / canvas.clientHeight, 1, 20 * size);
+  camera.up.set(0, 0, 1);
+  const state = { dragging: false, lastX: 0, lastY: 0, radius: 1.8 * size, theta: Math.PI / 2, phi: Math.PI / 2 };
+
+  function update() {
     camera.position.set(
-      state.radius * Math.sin(state.phi) * Math.cos(state.theta),
-      state.radius * Math.cos(state.phi),
-      state.radius * Math.sin(state.phi) * Math.sin(state.theta)
+      center.x + state.radius * Math.sin(state.phi) * Math.cos(state.theta),
+      center.y + state.radius * Math.sin(state.phi) * Math.sin(state.theta),
+      center.z + state.radius * Math.cos(state.phi)
     );
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(center);
   }
 
   canvas.addEventListener("mousedown", (e) => {
@@ -200,20 +198,17 @@ function setupCamera(canvas) {
   window.addEventListener("mouseup", () => (state.dragging = false));
   window.addEventListener("mousemove", (e) => {
     if (!state.dragging) return;
-    const dx = e.clientX - state.lastX;
-    const dy = e.clientY - state.lastY;
+    state.theta -= (e.clientX - state.lastX) * 0.005;
+    state.phi = Math.min(Math.max(state.phi - (e.clientY - state.lastY) * 0.005, 0.05), Math.PI - 0.05);
     state.lastX = e.clientX;
     state.lastY = e.clientY;
-    state.theta -= dx * 0.005;
-    state.phi = Math.min(Math.max(state.phi - dy * 0.005, 0.05), Math.PI - 0.05);
-    updateCameraPosition();
+    update();
   });
   canvas.addEventListener("wheel", (e) => {
-    state.radius = Math.max(10, state.radius + e.deltaY * 0.2);
-    updateCameraPosition();
+    state.radius = Math.max(0.2 * size, state.radius * (1 + e.deltaY * 0.001));
+    update();
   });
-
-  updateCameraPosition();
+  update();
   return camera;
 }
 
@@ -222,30 +217,42 @@ async function main() {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
 
-  const camera = setupCamera(canvas);
+  const meshes = await decodePayload();
+  for (const s of window.CF.screws) {
+    clearanceFor(s.screw_id, s.entry_xyz, s.target_xyz, s.diameter_mm, s.margin_mm);
+  }
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x101418);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const bones = buildBones(meshes);
+  scene.add(bones);
+  let screws = buildScrews();
+  scene.add(screws);
+
+  const box = new THREE.Box3().setFromObject(bones).union(new THREE.Box3().setFromObject(screws));
+  const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
+  const size = box.isEmpty() ? 200 : Math.max(...box.getSize(new THREE.Vector3()).toArray(), 50);
+  const camera = setupCamera(canvas, center, size);
+  const headlight = new THREE.DirectionalLight(0xffffff, 1.0);
+  camera.add(headlight);
+  scene.add(camera);
+
+  window.CF._redraw = () => {
+    scene.remove(screws);
+    screws = buildScrews();
+    scene.add(screws);
+    updateHud(meshes.length);
+  };
 
   window.addEventListener("resize", () => {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    renderer.setSize(w, h);
-    camera.aspect = w / h;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
   });
 
-  const meshes = await decodePayload();
-  const { scene } = buildScene(meshes);
-
-  for (const screw of window.CF.screws) {
-    clearanceFor(screw.screw_id, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
-  }
-
+  updateHud(meshes.length);
   window.CF.ready = true;
-  const breachCount = window.CF.screws.filter((s) => s.breach).length;
-  statusEl.textContent = `${meshes.length} mesh(es) loaded`;
-  statusEl.classList.toggle("breach", breachCount > 0);
-  if (breachCount > 0) {
-    statusEl.textContent += ` — ${breachCount} screw(s) BREACH`;
-  }
 
   function animate() {
     requestAnimationFrame(animate);

@@ -44,7 +44,19 @@ def clear_cache() -> None:
     _edt_cache.clear()
 
 
-def coarse_edt_uint8(edt_mm: np.ndarray, clamp_mm: float = 255.0) -> np.ndarray:
-    """Quantize an EDT volume to uint8 mm for compact export to the viewer."""
-    clamped = np.clip(edt_mm, 0.0, clamp_mm)
-    return np.round(clamped).astype(np.uint8)
+# Resolution of the distance field embedded in the exported viewer.
+VIEWER_EDT_SCALE_MM = 0.1
+
+
+def quantize_edt_floor(edt_mm: np.ndarray, scale_mm: float = VIEWER_EDT_SCALE_MM) -> np.ndarray:
+    """Quantize an EDT (mm) to uint8 steps of ``scale_mm`` for the viewer,
+    rounding DOWN and clamping at 255 steps (25.5 mm at 0.1 mm).
+
+    Both only ever lower a value, and trilinear interpolation of lower node
+    values is lower everywhere, so the viewer's clearance at any point is at
+    most the Slicer-side clearance and at least it minus ``scale_mm``: the
+    viewer can be slightly stricter than validate.py but never more lenient.
+    (Clamping only affects points more than 25.5 mm from any cortex.)
+    """
+    steps = np.floor(np.clip(edt_mm, 0.0, 255.0 * scale_mm) / scale_mm)
+    return np.clip(steps, 0, 255).astype(np.uint8)
