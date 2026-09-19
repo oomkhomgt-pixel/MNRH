@@ -223,11 +223,17 @@ def _face_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return (n / lengths).astype(np.float32)
 
 
-def write_stl_binary(mesh: Mesh, path, *, header: str = "MNRH Corridor Finder") -> None:
+# Vertices are RAS (see volume.py). Slicer reads the coordinate system from
+# this header ("SPACE=RAS" / "SPACE=LPS", as Slicer itself writes) and
+# otherwise assumes LPS, which puts the model 180 degrees round the long axis.
+STL_HEADER = "MNRH Corridor Finder SPACE=RAS"
+
+
+def write_stl_binary(mesh: Mesh, path, *, header: str = STL_HEADER) -> None:
     write_stl_binary_multi([mesh], path, header=header)
 
 
-def write_stl_binary_multi(meshes: Iterable[Mesh], path, *, header: str = "MNRH Corridor Finder") -> None:
+def write_stl_binary_multi(meshes: Iterable[Mesh], path, *, header: str = STL_HEADER) -> None:
     meshes = list(meshes)
     total_faces = sum(len(m.faces) for m in meshes)
 

@@ -86,3 +86,14 @@ def test_decimate_reduces_faces_and_keeps_bounds():
     dec_max = decimated.vertices.max(axis=0)
     assert np.all(np.abs(orig_min - dec_min) < 5.0)
     assert np.all(np.abs(orig_max - dec_max) < 5.0)
+
+
+def test_stl_header_declares_ras_space(tmp_path):
+    # Vertices are RAS. Slicer reads a binary STL without "SPACE=RAS" in its
+    # header as LPS, which put an exported pelvis 180 degrees round the long
+    # axis (y +28..+165 mm came back as -165..-28) when loaded back.
+    path = tmp_path / "bones.stl"
+    block = np.zeros((6, 6, 6), dtype=bool)
+    block[1:5, 1:5, 1:5] = True
+    write_stl_binary(extract_mesh(block, spacing=(1.0, 1.0, 1.0)), path)
+    assert b"SPACE=RAS" in path.read_bytes()[:80]

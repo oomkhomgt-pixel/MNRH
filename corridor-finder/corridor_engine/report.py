@@ -115,8 +115,10 @@ def _render_offsets_table(skin_offsets) -> str:
             "</tr>"
         )
     return (
-        "<table><thead><tr><th>Landmark</th><th>dx (cm)</th><th>dy (cm)</th>"
-        "<th>dz (cm)</th><th>distance (cm)</th></tr></thead>"
+        "<p>Skin entry point relative to each landmark, in cm.</p>"
+        "<table><thead><tr><th>Landmark</th><th>right (+) / left (-)</th>"
+        "<th>anterior (+) / posterior (-)</th><th>superior (+) / inferior (-)</th>"
+        "<th>distance</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
 

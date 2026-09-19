@@ -324,15 +324,30 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             loaded = plan_mod.load_plan(paths["JSON"])
             plan_mod.validate_plan(loaded)
             check(len(loaded.screws) == 1 and np.allclose(loaded.screws[0].target_xyz, screw.target_xyz), "plan JSON reloads, validates and matches the plan")
+            check(json.load(open(paths["JSON"], encoding="utf-8"))["coordinate_system"] == "RAS", "plan JSON states its coordinate system")
         if os.path.exists(paths["HTML report"]):
             html = open(paths["HTML report"], encoding="utf-8").read()
             check(screw.screw_id in html, "report names the screw")
             check(("BREACH" in html) == screw.validation["breach"], "report shows BREACH exactly when breached")
+            check("right (+) / left (-)" in html, "report names the directions of the skin offsets")
         if os.path.exists(paths["STL"]):
             with open(paths["STL"], "rb") as f:
                 f.seek(80)
                 n_tri = struct.unpack("<I", f.read(4))[0]
             check(os.path.getsize(paths["STL"]) == 84 + 50 * n_tri and n_tri > 0, f"STL is a well-formed binary STL ({n_tri} triangles)")
+            # Loaded back with Slicer's defaults it must sit where the bones are
+            # (a header-less RAS STL is read as LPS: 180 degrees round the long axis).
+            model = slicer.util.loadNodeFromFile(paths["STL"], "ModelFile")
+            b = [0.0] * 6
+            model.GetRASBounds(b)
+            slicer.mrmlScene.RemoveNode(model)
+            lv = logic.labels_volume
+            idx = np.argwhere(lv.array > 0)[:, ::-1]  # (i, j, k)
+            lo = np.array(lv.origin) + idx.min(axis=0) * np.array(lv.spacing)
+            hi = np.array(lv.origin) + idx.max(axis=0) * np.array(lv.spacing)
+            tol = 2.0 * max(lv.spacing)
+            check(np.allclose(b[0::2], lo, atol=tol) and np.allclose(b[1::2], hi, atol=tol),
+                  f"STL loads back into Slicer where the bones are ({np.round(b, 0).tolist()} vs {np.round(lo, 0).tolist()}..{np.round(hi, 0).tolist()})")
         if os.path.exists(paths["HTML viewer"]):
             html = open(paths["HTML viewer"], encoding="utf-8").read()
             check(screw.screw_id in html, "viewer embeds the plan")

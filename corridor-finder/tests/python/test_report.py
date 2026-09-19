@@ -133,3 +133,13 @@ def test_write_report_allows_check_phi_disabled(tmp_path):
     write_report(plan, out_path, check_phi=False)
 
     assert out_path.exists()
+
+
+def test_skin_offsets_name_their_anatomical_directions():
+    plan = _plan_with_screws([3.0])
+    plan.screws[0].skin_offsets = [{"landmark": "asis_right", "dx_cm": 1.0, "dy_cm": -2.0, "dz_cm": 3.0, "distance_cm": 3.7}]
+    html_str = render_report_html(plan)
+    # dx/dy/dz alone do not say which way is positive; RAS: +x is the
+    # patient's right, +y anterior, +z superior.
+    for header in ("right (+) / left (-)", "anterior (+) / posterior (-)", "superior (+) / inferior (-)"):
+        assert header in html_str

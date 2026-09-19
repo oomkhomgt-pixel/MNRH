@@ -16,6 +16,9 @@ import numpy as np
 from . import phi
 
 SCHEMA_ID = "mnrh-corridor-plan/1"
+# Every coordinate in a plan (entry/target, skin entry, landmarks, APP frame)
+# is in 3D Slicer's RAS world coordinates, mm; recorded in each plan file.
+COORDINATE_SYSTEM = "RAS"
 DISCLAIMER = "Intended for preoperative planning; verify against intraoperative imaging."
 
 _SCHEMA_PATH = Path(__file__).with_name("plan.schema.json")
@@ -100,6 +103,7 @@ class Plan:
         ]
         return {
             "schema": self.schema,
+            "coordinate_system": COORDINATE_SYSTEM,
             "case_alias": self.case_alias,
             "case": _to_jsonable(self.case),
             "frame": _to_jsonable(self.frame),

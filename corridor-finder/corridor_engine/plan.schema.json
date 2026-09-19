@@ -4,9 +4,10 @@
   "title": "MNRH Corridor Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "case_alias", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
+  "required": ["schema", "coordinate_system", "case_alias", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
   "properties": {
     "schema": { "type": "string" },
+    "coordinate_system": { "enum": ["RAS"], "description": "All positions in the plan are 3D Slicer RAS world coordinates in mm: x = patient right, y = anterior, z = superior." },
     "case_alias": { "type": "string" },
     "software": { "type": "object" },
     "disclaimer": { "type": "string" },

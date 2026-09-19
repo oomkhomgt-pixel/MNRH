@@ -50,7 +50,10 @@ fluoroscopy/navigation.
 
 **Coordinates.** Everything, from engine and plan JSON to STL and viewer,
 uses 3D Slicer's RAS world coordinates: x = patient right+, y = anterior+,
-z = superior+ (in mm). After segmentation, a side ("left"/"right") comes
+z = superior+ (in mm). Plan files say so (`"coordinate_system": "RAS"`),
+and the STL header says `SPACE=RAS`, which Slicer reads. Software that
+ignores that header may assume LPS and show the model turned 180 degrees
+about the long axis; for 3D printing this makes no difference. After segmentation, a side ("left"/"right") comes
 from the label a structure belongs to. TotalSegmentator labels sides by
 anatomy; the HU-threshold fallback labels them by position (patient right
 = +x). The APP frame used for reported angles is anatomical: x = patient
@@ -135,6 +138,17 @@ through the GUI:
       beam for a supine patient (AP, lateral, inlet/outlet, Judet
       obliques) and shows bone rather than soft tissue. Checked by eye on
       the real CT. The view angles in corridors.json are unchanged.
+- [x] Exports: the STL loads back into Slicer exactly where the bones
+      are (before, a header-less RAS file was read as LPS and landed
+      turned 180 degrees about the long axis). The plan JSON records its
+      coordinate system, and the report names the direction of each
+      skin-offset column (right/left, anterior/posterior,
+      superior/inferior).
+- [x] In Slicer's GUI (main window, screenshots): the panel lays out
+      fully. After TotalSegmentator, the "CF bones" segmentation shows
+      the right hip (orange) under Slicer's own "R" orientation marker and
+      the left (blue) under "L". One cosmetic issue: landmark labels
+      overlap in small views.
 
 ### What still blocks real planning
 

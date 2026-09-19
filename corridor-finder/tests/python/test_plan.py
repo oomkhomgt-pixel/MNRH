@@ -153,3 +153,12 @@ def test_screw_from_corridor_result_is_json_clean():
     # No numpy TypeError from json.dumps
     dumped = json.dumps(dataclasses.asdict(screw))
     assert dumped
+
+
+def test_plan_declares_its_coordinate_system():
+    data = _build_plan().to_dict()
+    assert data["coordinate_system"] == "RAS"
+    validate_plan(data)
+    data["coordinate_system"] = "LPS"
+    with pytest.raises(jsonschema.ValidationError):
+        validate_plan(data)
