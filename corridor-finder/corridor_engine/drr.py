@@ -80,7 +80,7 @@ def load_views(corridors_json_path: Optional[str] = None) -> Dict[str, Tuple[flo
     """Return {name: (rotate_x_deg, rotate_z_deg)} from corridors.json's views_deg."""
     if corridors_json_path is None:
         corridors_json_path = os.path.join(os.path.dirname(__file__), "..", "corridors.json")
-    with open(corridors_json_path, "r") as f:
+    with open(corridors_json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     views = {}
     for name, spec in data["views_deg"].items():

@@ -172,7 +172,7 @@ def screw_from_corridor_result(result, corridor_id, side, screw_id, margin_mm, *
 
 
 def load_schema() -> dict:
-    with open(_SCHEMA_PATH, "r") as f:
+    with open(_SCHEMA_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -186,11 +186,11 @@ def save_plan(plan: Plan, path, *, check_phi: bool = True) -> None:
     validate_plan(data)
     if check_phi:
         phi.assert_no_phi(data)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
 def load_plan(path) -> Plan:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return Plan.from_dict(data)

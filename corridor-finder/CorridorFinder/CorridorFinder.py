@@ -248,9 +248,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                 "corridor_engine could not be imported (see traceback below); "
                 "Corridor Finder cannot function without it.\n" + _ENGINE_IMPORT_ERROR
             )
-        with open(os.path.join(_PROJECT_ROOT, "corridors.json"), "r") as f:
+        with open(os.path.join(_PROJECT_ROOT, "corridors.json"), "r", encoding="utf-8") as f:
             self.corridor_defs = {c["id"]: c for c in json.load(f)["corridors"]}
-        with open(os.path.join(_PROJECT_ROOT, "screws.json"), "r") as f:
+        with open(os.path.join(_PROJECT_ROOT, "screws.json"), "r", encoding="utf-8") as f:
             self.screw_library = json.load(f)
 
         self.hu_volume: Optional[EngineVolume] = None

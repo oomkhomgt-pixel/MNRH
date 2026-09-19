@@ -232,5 +232,5 @@ def write_report(plan, path, *, check_phi: bool = True, **kwargs) -> None:
         data = plan.to_dict() if hasattr(plan, "to_dict") else plan
         phi.assert_no_phi(data)
     html_str = render_report_html(plan, **kwargs)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(html_str)
