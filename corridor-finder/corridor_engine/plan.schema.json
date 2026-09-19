@@ -74,7 +74,8 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "source": { "type": "string", "enum": ["auto", "adjusted"] }
+        "source": { "type": "string", "enum": ["auto", "adjusted"] },
+        "tip_rule": { "enum": ["inside", "through"], "description": "inside: the tip stays in bone with the full margin; through: it passes the far cortex by up to one catalogue step (DECISIONS.md 1.5-1.6)." }
       }
     },
     "auditEntry": {

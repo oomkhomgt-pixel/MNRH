@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { clearanceAlongAxis } from "clearance";
+import { validateScrew } from "clearance";
 
 // World coordinates are RAS in mm (x = patient right, y = anterior,
 // z = superior), as everywhere in Corridor Finder.
@@ -10,6 +10,14 @@ const statusEl = document.getElementById("hud-status");
 const screwsEl = document.getElementById("hud-screws");
 
 const plan = JSON.parse(planEl.textContent);
+const library = (plan.screw_library && plan.screw_library.screws) || [];
+
+// The lengths the plan's screw library has for a diameter (as Slicer's
+// validate_screw uses them); null when the diameter is not in it.
+function catalogFor(diameterMm) {
+  const entry = library.find((s) => Math.abs(s.diameter_mm - diameterMm) < 1e-9);
+  return entry ? entry.lengths_mm : null;
+}
 
 window.CF = {
   ready: false,
@@ -19,47 +27,52 @@ window.CF = {
     target_xyz: s.target_xyz.slice(),
     diameter_mm: s.diameter_mm,
     margin_mm: s.margin_mm,
+    tip_rule: s.tip_rule || "inside",
+    result: null, // the latest clearance.js result; null = not checked
     clearance_mm: null,
     breach: null,
   })),
   // screw_id -> that screw's own distance field, exactly the one Slicer
-  // validated it against (cropped around the screw, rounded down):
-  // {shape:[nz,ny,nx], spacing:[sx,sy,sz], origin:[ox,oy,oz], scale_mm, data}
+  // validated it against (cropped around the screw, rounded down; see
+  // clearance.js for the fields).
   _edts: {},
-  clearanceFor,
+  check,
   moveHandle,
 };
 
 // The breach decision itself lives in clearance.js (mirrors validate.py).
-// A screw without an exported distance field is "not checked" (breach
-// null), never "safe".
-function clearanceFor(screwId, entryXyz, targetXyz, diameterMm, marginMm) {
+// A screw without an exported distance field, or moved beyond it, is "not
+// checked" (breach null), never "safe".
+function check(screwId) {
   const screw = window.CF.screws.find((sc) => sc.screw_id === screwId);
-  const edt = window.CF._edts[screwId];
-  if (!edt) {
-    if (screw) {
-      screw.clearance_mm = null;
-      screw.breach = null;
+  if (!screw) return null;
+  const field = window.CF._edts[screwId];
+  let result = null;
+  if (field) {
+    try {
+      result = validateScrew(field, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm, {
+        tipRule: screw.tip_rule,
+        catalogLengthsMm: catalogFor(screw.diameter_mm),
+      });
+    } catch (err) {
+      // e.g. both handles on one point: never keep an earlier "safe".
+      result = { out_of_region: true, breach: null, min_clearance_mm: null, warnings: [err.message], warning_codes: ["invalid"] };
     }
-    return null;
   }
-  const margin = marginMm != null ? marginMm : screw ? screw.margin_mm : 0;
-  const result = clearanceAlongAxis(edt, entryXyz, targetXyz, diameterMm, margin);
-  if (screw) {
-    screw.clearance_mm = result.clearance_mm;
-    screw.breach = result.breach;
-  }
+  screw.result = result;
+  screw.clearance_mm = result ? result.min_clearance_mm : null;
+  screw.breach = result ? result.breach : null;
   return result;
 }
 
 // TODO: pointer dragging of the handles; for now handles move only through
-// this hook, which re-checks the clearance and redraws.
+// this hook, which re-checks the screw and redraws.
 function moveHandle(screwId, which, xyz) {
   const screw = window.CF.screws.find((sc) => sc.screw_id === screwId);
   if (!screw) return null;
   if (which === "entry") screw.entry_xyz = xyz.slice();
   else if (which === "target") screw.target_xyz = xyz.slice();
-  const result = clearanceFor(screwId, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm);
+  const result = check(screwId);
   if (window.CF._redraw) window.CF._redraw();
   return result;
 }
@@ -93,8 +106,10 @@ async function decodePayload() {
     const start = bodyStart + e.offset;
     window.CF._edts[e.screw_id] = {
       shape: e.shape,
+      index_offset: e.index_offset,
+      full_shape: e.full_shape,
+      full_origin: e.full_origin,
       spacing: e.spacing,
-      origin: e.origin,
       scale_mm: e.scale_mm,
       data: new Uint8Array(buf.slice(start, start + e.n_bytes)),
     };
@@ -102,7 +117,7 @@ async function decodePayload() {
   return meshes;
 }
 
-const COLOR = { safe: 0x22c55e, breach: 0xef4444, unchecked: 0xf59e0b };
+const COLOR = { safe: 0x22c55e, breach: 0xef4444, unchecked: 0xf59e0b, handle: 0x94a3b8 };
 
 function screwColor(screw) {
   if (screw.breach === null) return COLOR.unchecked;
@@ -128,21 +143,32 @@ function buildBones(meshes) {
   return group;
 }
 
-// One cylinder of the screw's diameter from entry to target, plus a small
-// sphere on each handle, coloured by the current clearance verdict.
+function cylinder(a, b, radius, material) {
+  const axis = new THREE.Vector3().subVectors(b, a);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, Math.max(axis.length(), 1e-3), 24), material);
+  mesh.position.copy(a).addScaledVector(axis, 0.5);
+  if (axis.length() > 0) mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize());
+  return mesh;
+}
+
+// Each screw as checked: a cylinder of its diameter from its entry-cortex
+// crossing to its tip, coloured by the verdict; a thin line and a small
+// sphere on each handle, which only steer it. Unchecked screws are drawn
+// between their handles.
 function buildScrews() {
   const group = new THREE.Group();
   for (const s of window.CF.screws) {
-    const a = new THREE.Vector3(...s.entry_xyz);
-    const b = new THREE.Vector3(...s.target_xyz);
-    const axis = new THREE.Vector3().subVectors(b, a);
+    const entry = new THREE.Vector3(...s.entry_xyz);
+    const target = new THREE.Vector3(...s.target_xyz);
     const material = new THREE.MeshPhongMaterial({ color: screwColor(s) });
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(s.diameter_mm / 2, s.diameter_mm / 2, axis.length(), 24), material);
-    shaft.position.copy(a).addScaledVector(axis, 0.5);
-    shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize());
-    group.add(shaft);
-    for (const p of [a, b]) {
-      const handle = new THREE.Mesh(new THREE.SphereGeometry(Math.max(2.0, s.diameter_mm * 0.5), 16, 12), material);
+    const checked = s.result && !s.result.out_of_region;
+    const a = checked ? new THREE.Vector3(...s.result.start_xyz) : entry;
+    const b = checked ? new THREE.Vector3(...s.result.tip_xyz) : target;
+    group.add(cylinder(a, b, s.diameter_mm / 2, material));
+    const handleMaterial = new THREE.MeshPhongMaterial({ color: COLOR.handle });
+    group.add(cylinder(entry, target, 0.3, handleMaterial));
+    for (const p of [entry, target]) {
+      const handle = new THREE.Mesh(new THREE.SphereGeometry(Math.max(1.5, s.diameter_mm * 0.35), 16, 12), handleMaterial);
       handle.position.copy(p);
       group.add(handle);
     }
@@ -161,12 +187,20 @@ function updateHud(meshCount) {
   screwsEl.replaceChildren(
     ...window.CF.screws.map((s) => {
       const row = document.createElement("div");
-      if (s.breach === null) {
+      const r = s.result;
+      if (!r) {
         row.className = "unchecked";
         row.textContent = `${s.screw_id}: not checked (no distance field)`;
+      } else if (r.out_of_region) {
+        row.className = "unchecked";
+        row.textContent = `${s.screw_id}: not checked (${r.warnings.join("; ")})`;
       } else {
-        row.className = s.breach ? "breach" : "ok";
-        row.textContent = `${s.screw_id}: clearance ${s.clearance_mm.toFixed(1)} mm, margin ${s.margin_mm.toFixed(1)} mm${s.breach ? " — BREACH" : ""}`;
+        row.className = s.breach ? "breach" : r.warnings.length ? "unchecked" : "ok";
+        let text = `${s.screw_id}: clearance ${r.min_clearance_mm.toFixed(1)} mm, margin ${s.margin_mm.toFixed(1)} mm${s.breach ? " — BREACH" : ""}`;
+        text += `; ${s.diameter_mm} x ${r.length_mm.toFixed(0)} mm from the entry cortex`;
+        if (r.protrusion_mm !== null) text += `, tip ${r.protrusion_mm.toFixed(1)} mm past the far cortex`;
+        for (const w of r.warnings) text += ` — ${w}`;
+        row.textContent = text;
       }
       return row;
     })
@@ -218,9 +252,7 @@ async function main() {
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
 
   const meshes = await decodePayload();
-  for (const s of window.CF.screws) {
-    clearanceFor(s.screw_id, s.entry_xyz, s.target_xyz, s.diameter_mm, s.margin_mm);
-  }
+  for (const s of window.CF.screws) check(s.screw_id);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x101418);

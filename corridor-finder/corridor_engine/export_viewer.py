@@ -13,7 +13,7 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from . import phi
+from . import cortex, phi
 from .edt import VIEWER_EDT_SCALE_MM, quantize_edt_floor
 from .mesh import Mesh, mesh_to_arrays
 from .volume import Volume
@@ -30,25 +30,68 @@ def _plan_to_dict(plan) -> dict:
     return dict(plan)
 
 
-# How far around a screw's axis (mm) its distance field is embedded, which
-# bounds how far a handle can be dragged in the viewer and still be checked.
-VIEWER_EDT_MARGIN_MM = 30.0
+# How far (mm) the viewer can follow a dragged handle and still check the
+# screw exactly: each crop covers everything validate.py can look at for the
+# screw as exported, plus this much in every direction. Beyond it the viewer
+# says "not checked".
+VIEWER_DRAG_MM = 15.0
 
 
-def crop_edt_for_screw(edt_vol: Volume, entry_xyz, target_xyz, margin_mm: float = VIEWER_EDT_MARGIN_MM) -> Volume:
-    """The part of a screw's distance field within ``margin_mm`` of the box
-    spanned by its entry and target. The crop is aligned to the source grid,
-    so every embedded value is exactly the one validate.py samples."""
-    pts = np.array([entry_xyz, target_xyz], dtype=float)
-    lo = np.floor(edt_vol.world_to_ijk(pts.min(axis=0) - margin_mm)).astype(int)
-    hi = np.ceil(edt_vol.world_to_ijk(pts.max(axis=0) + margin_mm)).astype(int)
+def crop_box_for_screw(edt_vol: Volume, entry_xyz, target_xyz, diameter_mm: float, margin_mm: float):
+    """(lo, hi) voxel indices (x, y, z; inclusive, clipped to the CT) of the
+    part of a screw's distance field validate.py can look at: its axis
+    extended by twice cortex.MAX_SEARCH_MM beyond both handles (a crossing
+    is searched for up to that far from a handle, and checked for bone that
+    far beyond it; a far-cortex tip lies within), widened by the exemption
+    box (cortex.box_half_mm, which also covers the cortex normal) plus
+    VIEWER_DRAG_MM."""
+    entry = np.asarray(entry_xyz, dtype=float)
+    target = np.asarray(target_xyz, dtype=float)
+    u = cortex.unit3(target - entry)
+    reach_axis = 2.0 * cortex.MAX_SEARCH_MM
+    ends = np.array([entry - reach_axis * u, target + reach_axis * u])
+    reach = cortex.box_half_mm(diameter_mm / 2.0, margin_mm, edt_vol.spacing) + VIEWER_DRAG_MM
+    lo = np.floor(edt_vol.world_to_ijk(ends.min(axis=0) - reach)).astype(int)
+    hi = np.ceil(edt_vol.world_to_ijk(ends.max(axis=0) + reach)).astype(int)
     nz, ny, nx = edt_vol.array.shape
-    lo = np.maximum(lo, 0)
-    hi = np.minimum(hi, np.array([nx, ny, nz]) - 1)
-    if np.any(hi < lo):  # the screw lies entirely outside the CT
-        return Volume(np.zeros((1, 1, 1)), edt_vol.spacing, tuple(edt_vol.ijk_to_world((0, 0, 0))))
-    sub = edt_vol.array[lo[2]:hi[2] + 1, lo[1]:hi[1] + 1, lo[0]:hi[0] + 1]
-    return Volume(sub, edt_vol.spacing, tuple(float(v) for v in edt_vol.ijk_to_world(lo)))
+    return np.maximum(lo, 0), np.minimum(hi, np.array([nx, ny, nz]) - 1)
+
+
+def crop_edt_for_screw(edt_vol: Volume, entry_xyz, target_xyz, diameter_mm: float, margin_mm: float):
+    """The part of a screw's distance field the viewer needs (see
+    crop_box_for_screw), aligned to the source grid so every embedded value
+    is exactly one validate.py samples. Returns (crop, index offset (i, j, k)
+    of the crop's first voxel in the full grid); the crop is empty when the
+    screw is nowhere near the CT."""
+    lo, hi = crop_box_for_screw(edt_vol, entry_xyz, target_xyz, diameter_mm, margin_mm)
+    size = np.maximum(hi - lo + 1, 0)
+    sub = edt_vol.array[lo[2]:lo[2] + size[2], lo[1]:lo[1] + size[1], lo[0]:lo[0] + size[0]]
+    return Volume(sub, edt_vol.spacing, tuple(float(v) for v in edt_vol.ijk_to_world(lo))), tuple(int(v) for v in lo)
+
+
+def screw_field_header(screw_id: str, edt_vol: Volume, crop: Volume, index_offset) -> dict:
+    """What viewer/clearance.js needs to know about a screw's field besides
+    its bytes: the crop and where it sits in the CT-sized grid."""
+    return {
+        "screw_id": screw_id,
+        "shape": list(crop.array.shape),
+        "spacing": [float(v) for v in crop.spacing],
+        "origin": [float(v) for v in crop.origin],
+        "full_origin": [float(v) for v in edt_vol.origin],
+        "full_shape": list(edt_vol.array.shape),
+        "index_offset": [int(v) for v in index_offset],
+        "scale_mm": VIEWER_EDT_SCALE_MM,
+    }
+
+
+def quantized_screw_field(screw_id: str, crop: Volume) -> np.ndarray:
+    """The crop in the viewer's uint8 steps. The viewer reads bone as
+    "steps > 0", so a bone value below one step would change its bone mask
+    (a real distance field is 0 or at least one voxel spacing): refuse."""
+    q = quantize_edt_floor(crop.array, VIEWER_EDT_SCALE_MM)
+    if not np.array_equal(q > 0, crop.array > 0):
+        raise ValueError(f"screw {screw_id}: distance field has bone values below {VIEWER_EDT_SCALE_MM} mm")
+    return q
 
 
 def build_payload(plan, meshes: Dict[int, Mesh], *, screw_edts: Optional[Dict[str, Volume]] = None) -> bytes:
@@ -60,7 +103,8 @@ def build_payload(plan, meshes: Dict[int, Mesh], *, screw_edts: Optional[Dict[st
       [header_length bytes of UTF-8 JSON header]
       [raw payload bytes: for each mesh in order, float32 vertices then
        uint32 faces; then each screw's distance field as uint8 steps of
-       scale_mm (C order), cropped around the screw and rounded down]
+       scale_mm (C order), cropped around the screw and rounded down; its
+       header entry says where the crop sits in the CT-sized grid]
     """
     header_meshes = []
     raw_chunks = []
@@ -83,19 +127,9 @@ def build_payload(plan, meshes: Dict[int, Mesh], *, screw_edts: Optional[Dict[st
     screws = {s["screw_id"]: s for s in _plan_to_dict(plan).get("screws", [])}
     for screw_id, edt_vol in (screw_edts or {}).items():
         screw = screws[screw_id]
-        crop = crop_edt_for_screw(edt_vol, screw["entry_xyz"], screw["target_xyz"])
-        data = quantize_edt_floor(crop.array, VIEWER_EDT_SCALE_MM).tobytes(order="C")
-        header_edts.append(
-            {
-                "screw_id": screw_id,
-                "shape": list(crop.array.shape),
-                "spacing": [float(v) for v in crop.spacing],
-                "origin": [float(v) for v in crop.origin],
-                "scale_mm": VIEWER_EDT_SCALE_MM,
-                "offset": offset,
-                "n_bytes": len(data),
-            }
-        )
+        crop, index_offset = crop_edt_for_screw(edt_vol, screw["entry_xyz"], screw["target_xyz"], screw["diameter_mm"], screw["margin_mm"])
+        data = quantized_screw_field(screw_id, crop).tobytes(order="C")
+        header_edts.append({**screw_field_header(screw_id, edt_vol, crop, index_offset), "offset": offset, "n_bytes": len(data)})
         raw_chunks.append(data)
         offset += len(data)
 

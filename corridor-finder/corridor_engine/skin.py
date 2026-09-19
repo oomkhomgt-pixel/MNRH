@@ -9,7 +9,7 @@ without relying on navigation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -28,12 +28,17 @@ def body_mask(volume_hu: np.ndarray, threshold: float = BODY_HU_THRESHOLD) -> np
     return mask
 
 
-def skin_entry_auto(hu_vol: Volume, bone_entry_xyz, direction_out, max_search_mm: float = 150.0, step_mm: float = 1.0) -> Tuple[np.ndarray, bool]:
+def body_mask_volume(hu_vol: Volume) -> Volume:
+    return Volume(body_mask(hu_vol.array).astype(np.uint8), hu_vol.spacing, hu_vol.origin)
+
+
+def skin_entry_auto(hu_vol: Volume, bone_entry_xyz, direction_out, max_search_mm: float = 150.0, step_mm: float = 1.0, mask_vol: Optional[Volume] = None) -> Tuple[np.ndarray, bool]:
     """Walk from the bony entry point outward along ``direction_out`` (unit
     vector, pointing away from the target, i.e. toward the skin) until the
-    sample falls outside the body mask. Returns (point, found)."""
-    mask = body_mask(hu_vol.array)
-    mask_vol = Volume(mask.astype(np.uint8), hu_vol.spacing, hu_vol.origin)
+    sample falls outside the body mask. Returns (point, found). Pass
+    ``mask_vol`` (body_mask_volume) to reuse the body mask across calls."""
+    if mask_vol is None:
+        mask_vol = body_mask_volume(hu_vol)
 
     direction_out = np.asarray(direction_out, dtype=float)
     direction_out = direction_out / np.linalg.norm(direction_out)

@@ -48,7 +48,7 @@ class ScrewPlan:
     entry_xyz: tuple
     target_xyz: tuple
     diameter_mm: float
-    length_mm: float
+    length_mm: float  # implant length, entry cortex to tip (validation.length_mm)
     margin_mm: float
     skin_entry_xyz: Optional[tuple] = None
     skin_offsets: list = field(default_factory=list)
@@ -57,6 +57,9 @@ class ScrewPlan:
     validation: dict = field(default_factory=dict)
     drr_views: list = field(default_factory=list)
     source: str = "auto"  # "auto" or "adjusted"
+    # "inside" or "through" (corridors.json "tip", DECISIONS.md 1.5); the
+    # exported viewer validates the screw with it.
+    tip_rule: str = "inside"
 
 
 @dataclass
@@ -172,6 +175,7 @@ def screw_from_corridor_result(result, corridor_id, side, screw_id, margin_mm, *
         diameter_mm=float(screw.diameter_mm),
         length_mm=float(screw.length_mm),
         margin_mm=float(margin_mm),
+        tip_rule=getattr(result, "tip_rule", "inside"),
         **extras,
     )
 

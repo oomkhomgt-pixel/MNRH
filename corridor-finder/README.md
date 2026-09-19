@@ -64,8 +64,16 @@ left, y = anterior, z = cephalad.
 This is under active development. What's implemented and unit tested today:
 
 - [x] Volume/resampling, HU-threshold fallback segmentation
-- [x] Distance-transform corridor search + auto-suggestion + ranking
-- [x] Live per-screw clearance validation
+- [x] Distance-transform corridor search + auto-suggestion + ranking; a
+      suggestion "fits" only if it validates exactly as the plan will
+      validate it
+- [x] Live per-screw validation with the surgeon's screw rules
+      (DECISIONS.md section 1):
+      - the screw starts where its axis crosses the outer cortex and has a
+        catalogue length;
+      - its tip stays inside bone, or passes the far cortex for transiliac
+        and LC-2 screws;
+      - only the cortex being crossed is exempted, not gaps inside the bone.
 - [x] Bony landmark detection (ASIS, PSIS, iliac crest, pubic tubercle,
       ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
@@ -74,9 +82,11 @@ This is under active development. What's implemented and unit tested today:
       `corridors.json`
 - [x] Plan JSON schema, PHI stripping, printable HTML report
 - [x] Mesh export (marching cubes, binary STL) and the self-contained
-      Three.js viewer export, with a live in-browser clearance check that
-      mirrors `validate.py`'s safety rule exactly (breach if clearance is
-      below the screw's own margin, not merely below zero)
+      Three.js viewer export. Its in-browser check (`viewer/clearance.js`)
+      repeats `validate.py` step for step, including the breach rule
+      (clearance below the screw's own margin, not merely below zero). It is
+      golden-tested against `validate.py` under Node and can only be
+      stricter: at most 0.1 mm, from the field's rounding.
 
 - [x] `CorridorFinder/CorridorFinder.py`, the 3D Slicer scripted module,
       is written and was smoke-tested end-to-end (segmentation ->
@@ -111,19 +121,20 @@ through the GUI:
 - [x] The whole workflow, driven through the panel's own widgets by
       `tests/slicer/workflow_check.py` (no error dialogs or exceptions):
       - **Real CT, TotalSegmentator, default 2 mm margin, nothing relaxed**
-        (Sample Data "CTAAbdomenPanoramix", lower chest to upper pelvis):
-        segment (hips and sacrum, shown as the "CF bones" segmentation),
-        detect landmarks, suggest for every corridor and side, add a
-        fitting screw (posterior column left, 7.3 x 90 mm), drag the target
-        handle (plan, audit trail and clearance label update; the label
-        turns red exactly on breach), erase bone around the screw in the
-        segmentation (the screw is re-validated as a breach; restoring the
-        bone restores it), export plan JSON (reloads and validates), report
-        (DRR images; BREACH shown exactly when breached), STL and viewer.
+        (Sample Data "CTAAbdomenPanoramix", lower chest to upper pelvis).
+        The steps:
+        - segment: hips and sacrum, shown as the "CF bones" segmentation;
+        - detect landmarks and suggest for every corridor and side;
+        - add a fitting screw (posterior column right, 7.3 x 85 mm);
+        - drag the target handle: the plan, audit trail, screw length and
+          clearance label update, and the label turns red exactly on breach;
+        - erase bone around the screw in the segmentation: the screw is
+          re-validated as a breach, and restoring the bone restores it;
+        - export plan JSON (reloads and validates), report (DRR images;
+          BREACH shown exactly when breached), STL and viewer.
       - Synthetic pelvis CT in the standard DICOM layout: the same steps
-        with the HU fallback. Nothing fits there at the default margin (see
-        below), so add/drag/export were exercised with the margin at 0 mm
-        and, in the test only, no minimum corridor length.
+        with the HU fallback, adding an anterior column screw (7.3 x 75 mm)
+        at the default margin.
 - [x] TotalSegmentator (extension revision 270cac2 with TotalSegmentator
       2.14.0; PyTorch 2.14 with CUDA on an RTX 4060) segments the real CT in
       about 50 s. It labels sides by anatomy, and its right hip comes out at
@@ -149,6 +160,32 @@ through the GUI:
       the right hip (orange) under Slicer's own "R" orientation marker and
       the left (blue) under "L". One cosmetic issue: landmark labels
       overlap in small views.
+- [x] Screw rules (DECISIONS.md section 1), in the same headless runs:
+      - **Suggestions.** Every fitting suggestion, for every corridor and
+        side, starts on the cortex (entry handle within 0.1 mm of the
+        crossing). It has a catalogue length within the corridor's range
+        and no breach. Adding it to the plan re-validates it to exactly the
+        same length and clearance.
+      - **Results on the real CT** (mechanics only: this CT stops above the
+        acetabulum, so the anchors are not anatomical):
+        - posterior column: 7.3 x 85 mm on both sides;
+        - LC-2 left: 4.5 x 110 mm, tip 0.1 mm past the far cortex;
+        - iliosacral S1 left 4.5 x 80 mm and S2 left 3.5 x 80 mm;
+        - LC-2 right and iliosacral S1/S2 right: too narrow;
+        - transiliac: its far cortex is 144 mm from the entry cortex,
+          below the corridor's 150 mm minimum;
+        - anterior column: no axis of the corridor's length exists.
+      - **Slicer display.** The screw is shown as a model from its cortex
+        crossing to its tip. Dragging a handle recomputes its length. The
+        report states where the screw starts, its entry angle, tip rule,
+        protrusion and warnings, and its DRRs draw that same screw.
+      - **Viewer, run under Node on the exported file.** Its JavaScript
+        places every exported screw exactly where Slicer does (start, tip,
+        length, warnings). It agrees on the verdict, with clearance at most
+        0.1 mm lower.
+      - **Viewer, in a browser.** It draws the checked screw. A handle
+        dragged far away, or both handles on one point, reads "not
+        checked", never "safe".
 
 ### What still blocks real planning
 
@@ -157,9 +194,20 @@ through the GUI:
   "bone" is a shell with near-zero clearance inside and no screw fits at
   the default margin. Treat TotalSegmentator (or a corrected
   segmentation) as required, not optional.
-- **Iliosacral and transiliac-transsacral screws do not fit yet** on the
-  real CT. Confirmed cause: the SI joint. For every best candidate the
-  minimum clearance lay within 0-1.5 mm of both the hip and the sacrum.
+- **The entry rule has one provisional value awaiting the surgeon's
+  decision** (DECISIONS.md 1.2a). The agreed rule exempts only the part of
+  the screw's envelope beyond the entry cortex's tangent plane. On the
+  real CT that flagged 91-100% of good entries as breaches, because a
+  segmented cortex is rough and curved. The implementation therefore also
+  ignores non-bone less than 1.5 mm inside that plane. DECISIONS.md 1.2a
+  gives the share of entries still flagged for 0-2.5 mm. Until the
+  surgeon confirms a value, treat 1.5 mm as provisional.
+- **Iliosacral and transiliac-transsacral screws are still limited by the
+  SI joint** on the real CT. Only the left S1 and S2 corridors take a
+  screw (4.5 and 3.5 mm), and the right side is too narrow. Confirmed
+  cause: the SI joint. Before the screw rules (step 1), for every best
+  candidate the minimum clearance lay within 0-1.5 mm of both the hip and
+  the sacrum.
   `sacral_gap_allowance_mm` (2 mm) was applied only to the containment
   test; the clearance now also counts the joint space up to that width
   as bone (`segmentation.sacroiliac_gap_fill`), which raised the best
@@ -170,20 +218,6 @@ through the GUI:
   taken from the intact joint (editable, capped at 4 mm; 4 mm when both
   joints are disrupted), once the surgeon has confirmed which side is
   disrupted. Not implemented yet (step 2).
-- **Entry and exit cortex (open design question).** The search picks
-  entry and target points on the bone surface, and both the search and
-  `validate.py` take the minimum clearance over the whole entry-to-target
-  segment, where the surface itself has clearance of about zero. Screws
-  still fit because the search's refinement moves the endpoints into the
-  bone. For the fitting screw above, every point of the planned segment,
-  endpoints included, has at least 6.9 mm of bone around the axis. So the
-  planned "entry" is not the cortical entry point, and the stretch
-  between the cortex and it is neither validated nor counted in the
-  suggested length. **Decided** (DECISIONS.md section 1): entry on the
-  outer cortex, length cortex to tip, only the entry cortex itself
-  exempted (capped, with a warning past 60 degrees), and far-cortex
-  crossings for transiliac and LC-2 only. Not implemented yet (step 1);
-  until then the rule is unchanged.
 - The corridor anchors, textbook directions and DRR view angles in
   corridors.json have not been reviewed against real anatomy. The Sample
   Data CT stops above the acetabulum, so the anterior column, posterior
@@ -198,9 +232,10 @@ through the GUI:
 Not yet implemented (tracked in the project plan):
 
 - [ ] Demo CT download script and a real-anatomy sample plan
-- [ ] An automated browser test of the viewer's rendering. Its clearance
-      logic (`viewer/clearance.js`) is golden-tested against `validate.py`
-      under Node; the rendering has only been checked by eye.
+- [ ] An automated browser test of the viewer's rendering. Its screw
+      check (`viewer/clearance.js`) is golden-tested against `validate.py`
+      under Node, and the Slicer harness runs it on each exported viewer;
+      the rendering has only been checked by eye.
 - [ ] Pointer-dragging of screw handles in the viewer (handles currently
       move only via the `window.CF.moveHandle` test hook, not the mouse)
 
@@ -212,13 +247,18 @@ pip install -r requirements-dev.txt -e .
 pytest -q
 ```
 
-`tests/python/test_viewer_clearance_golden.py` runs the viewer's
-clearance check under Node (`node` on the PATH) and is skipped without it.
+`tests/python/test_viewer_clearance_golden.py` runs the viewer's screw
+check under Node (`node` on the PATH) against `validate.py` and is skipped
+without it.
 The Slicer-side checks run inside Slicer:
 
 ```
 Slicer --no-splash --no-main-window --python-script tests/slicer/workflow_check.py
 ```
+
+It writes its exports and `workflow_check_report.txt` to `CF_OUT_DIR`.
+It also runs each exported viewer's own check under Node, found from
+`CF_NODE` or the PATH.
 
 ## Getting the Slicer module running
 

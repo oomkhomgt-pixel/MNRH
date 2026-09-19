@@ -25,8 +25,9 @@ fail the step; confirmation prompts are recorded and declined.
 
 Not named test_*.py so pytest never collects it (it needs Slicer).
 Environment: CF_OUT_DIR (exports and the report; default a new temp dir),
-CF_SAMPLE (Sample Data name; empty to skip). Exit code 0 only if every
-check passed.
+CF_SAMPLE (Sample Data name; empty to skip), CF_NODE (Node.js executable,
+to run the exported viewer's own check; default: node on PATH). Exit code 0
+only if every check passed.
 """
 import base64
 import copy
@@ -34,7 +35,9 @@ import gzip
 import importlib.util
 import json
 import os
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -55,6 +58,8 @@ from corridor_engine.phantoms import pelvis_like  # noqa: E402
 OUT_DIR = os.environ.get("CF_OUT_DIR") or tempfile.mkdtemp(prefix="cf_workflow_")
 os.makedirs(OUT_DIR, exist_ok=True)
 SAMPLE = os.environ.get("CF_SAMPLE", "CTAAbdomenPanoramix")
+NODE = os.environ.get("CF_NODE") or shutil.which("node")
+NODE_RUNNER = os.path.join(REPO_ROOT, "tests", "node", "clearance_golden.mjs")
 
 _report = open(os.path.join(OUT_DIR, "workflow_check_report.txt"), "w", encoding="utf-8")
 _failures = []
@@ -143,6 +148,45 @@ def segment_centroid_ras(seg_node, segment_id, ct):
     return np.array(m.MultiplyPoint([i, j, k, 1.0])[:3])
 
 
+def viewer_agrees_with_slicer(html, plan_screws):
+    """Run the exported viewer's own check (viewer/clearance.js, under Node)
+    on the fields and plan embedded in the viewer file, and compare it with
+    Slicer's validation of every screw."""
+    if not NODE:
+        log("    (viewer's own check not run: Node not found; set CF_NODE)")
+        return
+    plan = json.loads(html.split('id="plan">', 1)[1].split("</script>", 1)[0])
+    raw = gzip.decompress(base64.b64decode(html.split('id="payload">', 1)[1].split("</script>", 1)[0]))
+    header_len = struct.unpack("<I", raw[:4])[0]
+    header = json.loads(raw[4:4 + header_len])
+    body = raw[4 + header_len:]
+    library = {s["diameter_mm"]: s["lengths_mm"] for s in plan["screw_library"]["screws"]}
+    cases = []
+    for e in header["edts"]:
+        s = next(x for x in plan["screws"] if x["screw_id"] == e["screw_id"])
+        field = {k: e[k] for k in ("shape", "index_offset", "full_shape", "full_origin", "spacing", "scale_mm")}
+        field["data_b64"] = base64.b64encode(body[e["offset"]:e["offset"] + e["n_bytes"]]).decode("ascii")
+        cases.append({"entry": s["entry_xyz"], "target": s["target_xyz"], "diameter_mm": s["diameter_mm"],
+                      "margin_mm": s["margin_mm"], "tip_rule": s.get("tip_rule", "inside"),
+                      "catalog_lengths_mm": library.get(s["diameter_mm"]), "field": field})
+    cases_path = os.path.join(OUT_DIR, "viewer_cases.json")
+    with open(cases_path, "w", encoding="utf-8") as f:
+        json.dump({"screws": cases}, f)
+    run = subprocess.run([NODE, NODE_RUNNER, cases_path], capture_output=True, text=True)
+    if not check(run.returncode == 0, "the viewer's check runs under Node"):
+        log(run.stderr[-2000:])
+        return
+    for js, screw in zip(json.loads(run.stdout)["screws"], plan_screws):
+        v = screw.validation
+        log(f"    viewer on {screw.screw_id}: clearance {js['min_clearance_mm']}, breach {js['breach']}, length {js.get('length_mm')}, warnings {js['warning_codes']}")
+        same = (not js["out_of_region"] and js["warning_codes"] == v["warning_codes"] and abs(js["length_mm"] - v["length_mm"]) < 1e-9
+                and np.allclose(js["start_xyz"], v["start_xyz"], atol=1e-9) and np.allclose(js["tip_xyz"], v["tip_xyz"], atol=1e-9))
+        check(same, f"viewer places {screw.screw_id} exactly where Slicer does (start, tip, length, warnings)")
+        check(v["min_clearance_mm"] - 0.1 - 1e-6 <= js["min_clearance_mm"] <= v["min_clearance_mm"] + 1e-6,
+              f"viewer clearance {js['min_clearance_mm']:.3f} within 0.1 mm below Slicer's {v['min_clearance_mm']:.3f}")
+        check(js["breach"] is True if v["breach"] else js["breach"] in (True, False), "viewer calls a breach whenever Slicer does")
+
+
 def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     log(f"\n=== {name}: {ct.GetName()} ===")
     logic = w.logic
@@ -215,6 +259,15 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
                 desc = w.resultsList.item(0).text() if w.resultsList.count else "no candidates"
                 log(f"    {cid:28s} {side:8s} {desc}  [{w.resultsList.count} listed, {time.time() - t0:.1f} s]")
                 check(w.resultsList.count == len(res), f"{cid}/{side}: panel lists every suggestion")
+                lo, hi = logic.corridor_defs[cid]["length_range_mm"]
+                for r in res:
+                    if not r.screw.fits:
+                        continue
+                    v = r.validation
+                    ok = (not v.breach and abs(v.entry_handle_offset_mm) <= 0.1 + 1e-9 and lo <= v.length_mm <= hi
+                          and v.length_mm in logic.catalog_lengths(r.screw.diameter_mm) and v.tip_rule == logic.tip_rule(cid)
+                          and (v.tip_rule == "through" or np.allclose(v.tip_xyz, r.target_xyz, atol=1e-6)))
+                    check(ok, f"{cid}/{side}: a fitting suggestion starts on the cortex, has a catalogue length in range and no breach")
                 found[(cid, side)] = res
         # Suggestions belong to the corridor they were computed for: changing
         # the selection must drop them, so Add cannot file them elsewhere.
@@ -272,8 +325,19 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         node.GetNthControlPointPosition(1, t)
         check(np.allclose(e, screw.entry_xyz) and np.allclose(t, screw.target_xyz), "line endpoints are the planned entry/target (RAS)")
         v = screw.validation
-        log(f"    {screw.screw_id}: {screw.diameter_mm} x {screw.length_mm} mm, clearance {v['min_clearance_mm']:.2f} mm, margin {screw.margin_mm} mm, breach {v['breach']}")
+        log(f"    {screw.screw_id}: {screw.diameter_mm} x {screw.length_mm} mm ({screw.tip_rule}), clearance {v['min_clearance_mm']:.2f} mm, "
+            f"margin {screw.margin_mm} mm, breach {v['breach']}, entry angle {v['entry_angle_deg']:.0f} deg, warnings {v['warnings']}")
         check(v["breach"] is False, "suggested screw validates without breach")
+        suggestion = w._current_results[0]
+        check(v["length_mm"] == suggestion.screw.length_mm and abs(v["min_clearance_mm"] - suggestion.validation.min_clearance_mm) < 1e-9,
+              "the plan validates the screw exactly as it was suggested")
+        check(abs(v["entry_handle_offset_mm"]) <= 0.1 + 1e-9, "the screw starts at its entry handle, on the cortex")
+        check(screw.length_mm == v["length_mm"] and screw.length_mm in logic.catalog_lengths(screw.diameter_mm),
+              "plan length is validate.py's catalogue length")
+        check(screw.tip_rule == logic.tip_rule(cid), f"plan records the corridor's tip rule ({screw.tip_rule})")
+        model = w._screw_model_nodes.get(screw.screw_id)
+        check(model is not None and model.GetPolyData() is not None and model.GetPolyData().GetNumberOfPoints() > 0,
+              "the screw as validated is shown as a model")
         log(f"    skin entry found: {screw.skin_entry_xyz is not None}; APP angles {screw.angles_app}")
         return screw, node
 
@@ -294,7 +358,8 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(len(logic.plan.audit) > n_audit and logic.plan.audit[-1].action == "move_handle", "move logged in the audit trail")
         v = screw.validation
         breach = v["breach"]
-        log(f"    clearance now {v['min_clearance_mm']:.2f} mm, breach {breach}; label {w.clearanceLabel.text!r}")
+        log(f"    clearance now {v['min_clearance_mm']:.2f} mm, length {screw.length_mm} mm, breach {breach}; label {w.clearanceLabel.text!r}")
+        check(screw.length_mm == v["length_mm"], "plan length follows the validation")
         check(breach == expect_breach, f"breach is {expect_breach} after moving the target by {delta_mm} mm")
         check(("b91c1c" in w.clearanceLabel.styleSheet) == breach, "clearance label is red exactly when breached")
 
@@ -325,11 +390,14 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             plan_mod.validate_plan(loaded)
             check(len(loaded.screws) == 1 and np.allclose(loaded.screws[0].target_xyz, screw.target_xyz), "plan JSON reloads, validates and matches the plan")
             check(json.load(open(paths["JSON"], encoding="utf-8"))["coordinate_system"] == "RAS", "plan JSON states its coordinate system")
+            check(loaded.screws[0].tip_rule == screw.tip_rule and loaded.screws[0].validation.get("start_xyz") is not None,
+                  "plan JSON carries the tip rule and where the screw starts")
         if os.path.exists(paths["HTML report"]):
             html = open(paths["HTML report"], encoding="utf-8").read()
             check(screw.screw_id in html, "report names the screw")
             check(("BREACH" in html) == screw.validation["breach"], "report shows BREACH exactly when breached")
             check("right (+) / left (-)" in html, "report names the directions of the skin offsets")
+            check("Length (cortex to tip)" in html and "Entry on the cortex at" in html, "report says where the screw starts and how long it is")
         if os.path.exists(paths["STL"]):
             with open(paths["STL"], "rb") as f:
                 f.seek(80)
@@ -356,6 +424,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             header = json.loads(raw[4:4 + struct.unpack("<I", raw[:4])[0]])
             check([e["screw_id"] for e in header.get("edts", [])] == [s.screw_id for s in logic.plan.screws],
                   "viewer carries each screw's own distance field")
+            viewer_agrees_with_slicer(html, logic.plan.screws)
 
     @step("Correct the segmentation: erase bone around the screw, then restore it")
     def edit_segmentation():

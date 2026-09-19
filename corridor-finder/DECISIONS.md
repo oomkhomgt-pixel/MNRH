@@ -23,6 +23,88 @@ clearance < m** (unchanged, and still identical in `validate.py`,
 | 1.6 | Lengths come from the 5 mm catalogue. **Far-cortex corridors round up**, and the plan and report state the protrusion past the far cortex (0-5 mm); the far crossing is exempted only up to that protrusion. **Inside corridors round down.** | Rounding far-cortex screws down, or up only when protrusion <= 2 mm. |
 | 1.7 | Default margin **2 mm for every corridor** (about the cortex plus TotalSegmentator's ~1 mm boundary error), adjustable per screw. | 3 mm for sacral corridors; 3 mm for all. |
 
+### 1.2a Tolerance for the crossed cortex's shape (PROVISIONAL, awaiting the surgeon's decision)
+
+Implementing 1.2 on real segmentations showed that the tangent plane alone
+cannot work. A segmented cortex is neither flat nor smooth: TotalSegmentator
+works at 1.5 mm and the pelvis curves. Within the screw's envelope, the
+cortex being crossed dips below its own tangent plane at almost every entry.
+On the sample CT, the plane alone flagged 91-100% of entries as a breach at
+the entry itself, counting only entries into bone that is clear for 15 mm
+beyond the entry zone.
+
+Implemented provisionally (`cortex.CORTEX_DEPTH_TOLERANCE_MM`, mirrored in
+`viewer/clearance.js`):
+
+- Non-bone less than **1.5 mm** inside the tangent plane counts as part of
+  the crossed cortex.
+- Deeper non-bone within the envelope still counts, so a side wall next to
+  the entry is still caught. For example, a 2 mm slot 3.5 mm from a 4.5 mm
+  screw's axis is a breach in the tests.
+- The exempt stretch grows to match: (r + m + 1.5 mm) / cos θ, capped at the
+  60 degree value.
+- The far cortex of "through" corridors uses the same rule.
+
+Share of those entries still flagged at the entry, by tolerance (sample CT,
+TotalSegmentator bones, 2 mm margin, axes 0, 30 and 50 degrees off the
+surface normal; range over the three angles):
+
+| Bone, screw | 0 mm | 0.9 mm | 1.5 mm | 2.0 mm | 2.5 mm |
+| --- | --- | --- | --- | --- | --- |
+| Hip bone, 7.3 mm | 96-98% | 38-51% | 15-22% | 6-9% | 4-6% |
+| Hip bone, 6.5 mm | 91-99% | 37-62% | 18-25% | 6-19% | 4-7% |
+| Sacrum, 7.3 mm | 96-100% | 54-73% | 27-35% | 18-23% | 12-18% |
+
+The remaining flags at 1.5 mm have not been reviewed one by one. Some will
+be real (an entry next to an edge or notch), some the segmentation's
+roughness. A smaller tolerance flags more entries; a larger one ignores
+deeper non-bone next to the entry.
+
+### How step 1 is implemented
+
+- **Entry.** The axis from the entry handle toward the target handle is
+  followed in 0.1 mm steps (nearest voxel), and the screw starts at the
+  first bone voxel. If the entry handle is inside bone, the cortex is looked
+  for up to 20 mm behind it. If none is found there, the screw's start is
+  unchecked, so it is reported as a breach whatever its clearance, with a
+  warning to move the handle. The cortex normal points toward the centroid
+  of the bone within 4 mm of the crossing.
+- **Gaps inside the bone are not a cortex.** A crossing counts as the
+  outer (or far) cortex only if the axis meets no more of the corridor's
+  bone within 20 mm beyond it. Otherwise it is a gap inside the bone: a
+  joint wider than it is bridged, the sacral canal, a foramen. Such a gap
+  is never exempted:
+  - an entry there is reported as a breach whatever the clearance, since
+    the screw's real path from the outer cortex is unchecked;
+  - a far crossing there keeps the tip inside bone.
+- **Length** comes from `screws.json` for the screw's diameter:
+  - "inside" corridors: the longest length ending before the target handle.
+    A suggested screw's target handle sits at its tip.
+  - "through" corridors: the shortest length reaching past the far cortex.
+    The far cortex is looked for near the target handle: up to 20 mm beyond
+    it, or back from it. The tip is exempted at most 5 mm past the far
+    cortex; anything beyond that is a breach.
+- **Tip rule per corridor** (corridors.json `tip`): "through" for
+  transiliac_transsacral_s1 and supra_acetabular (LC-2); "inside" for all
+  others.
+- **Warnings** show in amber:
+  - entry handle more than 2 mm off the cortex;
+  - entry or far-cortex crossing steeper than 60 degrees;
+  - no catalogue length fits (the exact length is then used);
+  - far cortex not found, or a gap (the tip is kept inside);
+  - the axis does not enter bone;
+  - entry cortex not found, or a gap. These two also make the screw a
+    breach.
+
+  Any of these except the first two keeps a screw from being suggested.
+- **Suggestions.** The search offers only screws that validate exactly as
+  the plan will validate them. Their lengths must also lie in the
+  corridor's `length_range_mm`.
+- **Viewer.** It repeats all of this in `viewer/clearance.js`, golden-tested
+  against `validate.py` under Node, including the exemption's distance
+  transform. A screw dragged beyond the region exported with it (at least
+  about 15 mm) is shown as not checked, never as safe.
+
 ## 2. The sacroiliac joint
 
 | # | Decision |

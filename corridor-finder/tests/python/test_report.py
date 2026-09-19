@@ -143,3 +143,37 @@ def test_skin_offsets_name_their_anatomical_directions():
     # patient's right, +y anterior, +z superior.
     for header in ("right (+) / left (-)", "anterior (+) / posterior (-)", "superior (+) / inferior (-)"):
         assert header in html_str
+
+
+def test_report_says_where_the_screw_is_and_warns():
+    plan = _plan_with_screws([3.0])
+    screw = plan.screws[0]
+    screw.tip_rule = "through"
+    screw.validation.update(
+        {
+            "start_xyz": [10.0, -20.25, 30.0],
+            "entry_handle_offset_mm": -3.0,
+            "entry_angle_deg": 64.4,
+            "protrusion_mm": 2.37,
+            "warnings": ["entry too oblique: 64 degrees to the cortex normal"],
+        }
+    )
+    html_str = render_report_html(plan)
+    assert "Length (cortex to tip)" in html_str
+    assert "Entry on the cortex at (10.0, -20.2, 30.0) mm; the entry handle was 3.0 mm inside it" in html_str
+    assert "Entry angle: 64 degrees" in html_str
+    assert "protruding 2.4 mm" in html_str
+    assert "entry too oblique" in html_str
+
+
+def test_report_inside_tip():
+    plan = _plan_with_screws([3.0])
+    assert "Tip: inside bone, with the full margin" in render_report_html(plan)
+
+
+def test_report_calls_an_unplaceable_entry_a_breach_whatever_the_clearance():
+    # validate.py never reports safe a screw whose start on the outer cortex
+    # could not be found; the report must not either.
+    plan = _plan_with_screws([5.0])
+    plan.screws[0].validation["warning_codes"] = ["entry_not_outer"]
+    assert "BREACH" in render_report_html(plan)

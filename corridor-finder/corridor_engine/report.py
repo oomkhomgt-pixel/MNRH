@@ -10,6 +10,7 @@ import html
 from typing import Dict, Optional
 
 from . import phi
+from .validate import UNCHECKED_ENTRY_CODES
 
 _STYLE = """
 @page { size: A4; margin: 16mm; }
@@ -64,9 +65,14 @@ def _clearance_class(validation: dict, margin_mm) -> str:
     Escalation used here (a reporting-only refinement on top of
     validate.py's binary breach/no-breach):
       - breach: min_clearance_mm < margin_mm            (matches validate.py)
+                or the screw's start on the outer cortex could not be found
+                (validate.UNCHECKED_ENTRY_CODES; validate.py calls those a
+                breach too, whatever the clearance)
       - warn:   margin_mm <= min_clearance_mm < 2*margin_mm
       - ok:     min_clearance_mm >= 2*margin_mm
     """
+    if any(code in UNCHECKED_ENTRY_CODES for code in validation.get("warning_codes") or []):
+        return "clearance-breach"
     value = validation.get("min_clearance_mm")
     try:
         value = float(value)
@@ -142,6 +148,43 @@ def _render_angles_table(angles_app: dict, angles_scanner: dict) -> str:
     )
 
 
+def _fmt_mm(value, digits=1) -> str:
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _render_geometry(screw: dict, validation: dict) -> str:
+    """Where validate.py placed the screw: entry on the cortex, length from
+    there, the tip rule and protrusion, the entry angle, and its warnings."""
+    lines = []
+    start = validation.get("start_xyz")
+    if start is not None:
+        text = "Entry on the cortex at (" + ", ".join(_fmt_mm(v) for v in start) + ") mm"
+        offset = validation.get("entry_handle_offset_mm") or 0.0
+        if abs(float(offset)) >= 0.05:
+            text += f"; the entry handle was {_fmt_mm(abs(float(offset)))} mm {'outside' if float(offset) > 0 else 'inside'} it"
+        lines.append(text)
+    angle = validation.get("entry_angle_deg")
+    if angle is not None:
+        lines.append(f"Entry angle: {_fmt_mm(angle, 0)} degrees to the cortex normal")
+    if screw.get("tip_rule", validation.get("tip_rule")) == "through":
+        protrusion = validation.get("protrusion_mm")
+        if protrusion is None:
+            lines.append("Tip: meant to pass the far cortex, but the far cortex was not found; kept inside bone")
+        else:
+            lines.append(f"Tip: through the far cortex, protruding {_fmt_mm(protrusion)} mm")
+    else:
+        lines.append("Tip: inside bone, with the full margin")
+    items = "".join(f"<li>{_esc(line)}</li>" for line in lines)
+    warnings = validation.get("warnings") or []
+    warn_html = ""
+    if warnings:
+        warn_html = '<p class="clearance-warn">Warnings:</p><ul>' + "".join(f"<li>{_esc(w)}</li>" for w in warnings) + "</ul>"
+    return f"<ul>{items}</ul>{warn_html}"
+
+
 def _render_screw_section(screw, drr_images=None) -> str:
     if not isinstance(screw, dict):
         screw = screw.__dict__
@@ -155,10 +198,11 @@ def _render_screw_section(screw, drr_images=None) -> str:
 <section class="screw-section">
   <h2>Screw {_esc(screw.get('screw_id', ''))} &mdash; {_esc(screw.get('side', ''))} ({_esc(screw.get('corridor_id', ''))})</h2>
   <p>Diameter: {_esc(screw.get('diameter_mm', ''))} mm &nbsp;|&nbsp;
-     Length: {_esc(screw.get('length_mm', ''))} mm &nbsp;|&nbsp;
+     Length (cortex to tip): {_esc(screw.get('length_mm', ''))} mm &nbsp;|&nbsp;
      Margin: {_esc(screw.get('margin_mm', ''))} mm &nbsp;|&nbsp;
      Source: {_esc(screw.get('source', ''))}</p>
   <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
+  {_render_geometry(screw, validation)}
   {_render_drr_images(screw.get('screw_id', ''), drr_images)}
   <h3>Skin landmark offsets</h3>
   {_render_offsets_table(screw.get('skin_offsets'))}
