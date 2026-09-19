@@ -65,11 +65,18 @@ This is under active development. What's implemented and unit tested today:
       mirrors `validate.py`'s safety rule exactly (breach if clearance is
       below the screw's own margin, not merely below zero)
 
+- [x] `CorridorFinder/CorridorFinder.py`, the 3D Slicer scripted module,
+      is written and was smoke-tested end-to-end (segmentation ->
+      landmarks -> APP frame -> corridor search -> plan -> validation ->
+      handle-drag update -> plan JSON / report / STL / viewer export, all
+      producing schema-valid output with no exceptions) against a
+      synthetic phantom, using a lightweight stand-in for the `slicer`/
+      `vtk` modules this environment doesn't have. **It has not been run
+      inside real 3D Slicer** and needs that before it can be trusted —
+      see Status below for what specifically to check first.
+
 Not yet implemented (tracked in the project plan):
 
-- [ ] The Slicer scripted module itself (`CorridorFinder/CorridorFinder.py`)
-      — this needs to be built and tested inside 3D Slicer, which this
-      development environment cannot run
 - [ ] Demo CT download script and a real-anatomy sample plan
 - [ ] TotalSegmentator integration (the fallback segmenter above is a
       coarse stand-in and does not reliably separate bones at a joint —
@@ -89,6 +96,44 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt -e .
 pytest -q
 ```
+
+## Getting the Slicer module running
+
+`CorridorFinder/CorridorFinder.py` was written and reasoned through
+carefully, but this development environment has no 3D Slicer, so it has
+never actually been loaded into one. Expect to debug it. In rough order
+of likely first failure:
+
+1. **Extension loading.** In Slicer: Edit > Application Settings >
+   Modules > Additional module paths, add this repo's `corridor-finder/
+   CorridorFinder/` directory, restart. If it doesn't appear under
+   Orthopedics, check the Python console for an import traceback first —
+   most likely `corridor_engine`'s dependencies (numpy/scipy/scikit-image/
+   jsonschema) aren't installed for Slicer's bundled Python. Install them
+   with `slicer.util.pip_install("numpy scipy scikit-image jsonschema")`
+   in the Python console, or point Slicer at this project's `.venv`.
+2. **Volume orientation.** `volume_node_to_engine_volume()` in
+   `CorridorFinder.py` deliberately raises rather than guessing if the
+   loaded CT isn't axis-aligned RAS (no gantry tilt). If a real DICOM
+   import trips this, that's the first thing to fix — either resample the
+   volume in Slicer first, or extend the conversion to handle a general
+   direction matrix (the current code only handles the common case).
+3. **TotalSegmentator.** `_run_total_segmentator()` guesses at the
+   installed SlicerTotalSegmentator extension's Python API (module name,
+   logic class, `process()` signature, and the lowercase structure names
+   it expects like `"hip_left"`). This is the part most likely to need
+   adjusting to match whatever version you install — check
+   `slicer.modules.totalsegmentator.widgetRepresentation().self().logic`
+   in the Python console to see the real API if the call fails, and the
+   fallback segmenter will kick in automatically (flagged "unverified" in
+   the UI) in the meantime so you can keep testing everything else.
+4. **Everything past segmentation** (landmarks, corridor search, plan,
+   validation, exports) was smoke-tested outside Slicer against a
+   synthetic phantom with the `slicer`/`vtk` modules stubbed out, and ran
+   end to end with no exceptions — so a failure there is more likely a
+   real-anatomy edge case (e.g. a landmark heuristic failing on unusual
+   anatomy) than a wiring bug. Report back what you see and it can be
+   diagnosed from the traceback plus the CT that triggered it.
 
 ## Safety
 
