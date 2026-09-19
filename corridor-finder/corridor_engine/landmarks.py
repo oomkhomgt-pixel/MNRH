@@ -1,10 +1,10 @@
 """Bony landmark detection from segmentation labels.
 
 All detection is done by extreme-point heuristics on label masks in the
-scanner's native (LPS-like) axes: x = patient right(-)/left(+),
-y = posterior(-)/anterior(+), z = caudal(-)/cephalad(+) (see volume.py for
-the array/world convention — these are just how we choose to interpret the
-x/y/z world axes before an APP frame exists).
+engine's world axes, RAS: x = patient left(-)/right(+),
+y = posterior(-)/anterior(+), z = caudal(-)/cephalad(+) (see volume.py).
+Only the signs of y and z are used here; which side a landmark belongs to
+comes from the hip/femur label it was found on, never from its x sign.
 
 This is inherently approximate. Results carry source="auto" and a caller
 (the Slicer UI) lets the surgeon drag any landmark, recording source="manual"

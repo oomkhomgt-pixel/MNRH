@@ -1,9 +1,14 @@
 """Volume container and resampling.
 
+World coordinates throughout corridor_engine are RAS, the same as 3D
+Slicer's: x = patient Right+, y = Anterior+, z = Superior+ (a right-handed
+frame, so exported meshes are never mirror images).
+
 Arrays are stored ZYX (numpy convention). ``spacing`` and ``origin`` are
-(x, y, z) mm tuples, matching the convention of most medical imaging
-toolkits (VTK, ITK, Slicer) so conversions at the Slicer boundary are a
-straight pass-through rather than an axis-order translation.
+(x, y, z) mm tuples; spacing is always positive, so increasing array index
+moves toward patient right, anterior and superior. The Slicer module
+reorders each CT's voxels to guarantee this (a DICOM CT usually runs the
+other way along x and y).
 """
 from __future__ import annotations
 

@@ -18,18 +18,21 @@ edges are called out in comments below (search "KNOWN LIMITATION").
 
 Coordinate conventions
 -----------------------
-Slicer's MRML scene uses RAS (Right+, Anterior+, Superior+) world
-coordinates. ``corridor_engine`` uses a LAS-like convention documented in
-its modules: x = patient Left+, y = Anterior+, z = Superior/cephalad+.
-The two agree on y and z and are negated on x. All conversion between the
-two happens in this file via ``_ras_to_engine`` / ``_engine_to_ras``;
-nothing outside this file should ever see a raw RAS coordinate.
+``corridor_engine`` works in the same world coordinates as Slicer's MRML
+scene: RAS, x = patient Right+, y = Anterior+, z = Superior+. So points
+cross the boundary unchanged (``_ras_to_engine`` / ``_engine_to_ras`` are
+kept as the single named crossing point). Volumes are the part that needs
+care: an engine Volume maps array index to world as origin + index *
+spacing with positive spacing, while a Slicer volume's voxel axes can run
+either way along each RAS axis. A typical DICOM CT has i running toward the
+patient's left and j toward posterior. ``volume_node_to_engine_volume``
+reverses the array along every such axis. The module self-test checks all
+8 orientations against Slicer's own IJK-to-RAS mapping.
 
-KNOWN LIMITATION: volume-to-Volume conversion below assumes the volume's
-IJK-to-RAS direction matrix is diagonal (axis-aligned acquisition, i.e.
-no gantry tilt / oblique reformat). It raises a clear error if that's not
-the case rather than silently producing wrong geometry; supporting
-oblique volumes is future work.
+KNOWN LIMITATION: volumes whose voxel axes are not aligned with R, A and S
+(gantry tilt, oblique reformat, sagittal/coronal acquisitions) and volumes
+under a transform are rejected with a clear error rather than mis-mapped;
+supporting them is future work.
 """
 
 # Keep annotations lazy. The engine import below is guarded so that a
@@ -124,86 +127,99 @@ def _missing_requirements() -> List[str]:
 
 
 # ==========================================================================
-# Coordinate conversion helpers (the one place RAS<->engine-LAS happens)
+# Coordinate conversion (the one place Slicer geometry meets the engine)
 # ==========================================================================
 
 def _ras_to_engine(xyz_ras) -> np.ndarray:
-    """RAS (Right+, Anterior+, Superior+) -> engine LAS (Left+, Anterior+,
-    Superior+): negate x, keep y and z."""
-    x, y, z = xyz_ras
-    return np.array([-float(x), float(y), float(z)], dtype=float)
+    """Slicer RAS point -> engine world point: the same coordinates (the
+    engine works in RAS), as a float array."""
+    return np.array([float(v) for v in xyz_ras], dtype=float)
 
 
 def _engine_to_ras(xyz_engine) -> Tuple[float, float, float]:
+    """Engine world point -> Slicer RAS point: the same coordinates."""
     x, y, z = xyz_engine
-    return (-float(x), float(y), float(z))
+    return (float(x), float(y), float(z))
 
 
-def _check_axis_aligned(direction_matrix: vtk.vtkMatrix4x4) -> None:
-    """Raise a clear error if the volume's IJK->RAS direction is not a
-    diagonal +/-1 matrix (i.e. the volume is not axis-aligned)."""
+# Largest direction-cosine deviation accepted as "axis-aligned": over a
+# 500 mm field of view, 1e-4 displaces the far edge by at most 0.05 mm.
+_AXIS_ALIGNMENT_TOLERANCE = 1e-4
+
+
+def _check_axis_aligned(direction: vtk.vtkMatrix4x4) -> None:
+    """Raise unless voxel axes i, j, k run along R, A, S respectively (in
+    either direction), i.e. the IJK-to-RAS direction matrix is diagonal
+    +/-1. Must be given the direction matrix, not the full IJK-to-RAS
+    matrix, whose diagonal also carries the voxel spacing."""
     for r in range(3):
         for c in range(3):
-            v = direction_matrix.GetElement(r, c)
-            if r == c:
-                if abs(abs(v) - 1.0) > 1e-3:
-                    raise ValueError(
-                        "Corridor Finder requires an axis-aligned volume "
-                        "(no gantry tilt / oblique reformat). Resample the "
-                        "volume to axis-aligned RAS first."
-                    )
-            else:
-                if abs(v) > 1e-3:
-                    raise ValueError(
-                        "Corridor Finder requires an axis-aligned volume "
-                        "(no gantry tilt / oblique reformat). Resample the "
-                        "volume to axis-aligned RAS first."
-                    )
+            expected = 1.0 if r == c else 0.0
+            if abs(abs(direction.GetElement(r, c)) - expected) > _AXIS_ALIGNMENT_TOLERANCE:
+                rows = "; ".join(
+                    " ".join(f"{direction.GetElement(rr, cc):+.4f}" for cc in range(3)) for rr in range(3)
+                )
+                raise ValueError(
+                    "Corridor Finder needs an axial volume whose voxel axes run "
+                    "along the patient's left-right, anterior-posterior and "
+                    "superior-inferior axes (no gantry tilt, oblique, sagittal "
+                    "or coronal reformat). This volume's IJK-to-RAS direction "
+                    f"matrix is [{rows}]. Resample it onto an axis-aligned grid first."
+                )
 
 
-def volume_node_to_engine_volume(volume_node) -> "EngineVolume":
-    """Convert a vtkMRMLScalarVolumeNode (HU or label map) to an
-    ``corridor_engine.volume.Volume`` in engine (LAS) world coordinates.
+def _engine_grid(volume_node):
+    """How volume_node's voxel grid maps onto an engine Volume.
+
+    Returns (flip_axes, spacing, origin): the axes of the node's
+    (k, j, i)-ordered array that must be reversed so every array index
+    increases along +R, +A and +S, then the (x, y, z) spacing and the RAS
+    origin (first voxel) of the reversed array.
     """
-    ijk_to_ras = vtk.vtkMatrix4x4()
-    volume_node.GetIJKToRASMatrix(ijk_to_ras)
-    _check_axis_aligned(ijk_to_ras)
-
-    array_kji = slicer.util.arrayFromVolume(volume_node)  # shape (nk, nj, ni) = (z, y, x) in IJK order
-    spacing_ijk = volume_node.GetSpacing()  # (sp_i, sp_j, sp_k)
-    origin_ras = [ijk_to_ras.GetElement(r, 3) for r in range(3)]
-
-    # Diagonal signs tell us whether increasing I/J/K increases or decreases
-    # each RAS axis; combined with the known spacing this gives the engine
-    # (x=Left+, y=Anterior+, z=Superior+) spacing directly, since engine x
-    # is simply -RAS_x.
-    sign_i = 1.0 if ijk_to_ras.GetElement(0, 0) >= 0 else -1.0
-    sign_j = 1.0 if ijk_to_ras.GetElement(1, 1) >= 0 else -1.0
-    sign_k = 1.0 if ijk_to_ras.GetElement(2, 2) >= 0 else -1.0
-
-    # engine spacing must be positive; if increasing IJK decreases RAS along
-    # that axis we'd need to flip the array too. For v1 (axis-aligned,
-    # typically identity-sign volumes from a standard CT import) we assume
-    # sign_i/j/k are all +1 and raise otherwise rather than silently
-    # mis-orienting the volume.
-    if sign_i < 0 or sign_j < 0 or sign_k < 0:
+    if volume_node.GetParentTransformNode() is not None:
         raise ValueError(
-            "Volume has a flipped IJK->RAS direction (sign_i=%.0f sign_j=%.0f "
-            "sign_k=%.0f). Corridor Finder v1 only supports the standard "
-            "orientation; use Volumes > Convert to reorient the volume first."
-            % (sign_i, sign_j, sign_k)
+            f"Volume '{volume_node.GetName()}' is under a transform. Harden "
+            "the transform first (Data module: right-click the volume > Harden "
+            "transform), so screws are planned in the coordinates the CT is "
+            "displayed in."
         )
+    if volume_node.GetImageData() is None:
+        raise ValueError(f"Volume '{volume_node.GetName()}' has no image data.")
+    direction = vtk.vtkMatrix4x4()
+    volume_node.GetIJKToRASDirectionMatrix(direction)
+    _check_axis_aligned(direction)
 
-    engine_origin = _ras_to_engine(origin_ras)
-    # spacing along engine x is the same magnitude as RAS x spacing (only the
-    # sign of the axis, not its scale, differs between RAS and engine LAS).
-    engine_spacing = (float(spacing_ijk[0]), float(spacing_ijk[1]), float(spacing_ijk[2]))
+    spacing = volume_node.GetSpacing()  # (i, j, k), always positive
+    origin_ras = volume_node.GetOrigin()  # RAS of voxel (0, 0, 0)
+    dims = volume_node.GetImageData().GetDimensions()  # (n_i, n_j, n_k)
+    flip_axes = []
+    origin = []
+    for a in range(3):  # voxel axis a runs along RAS axis a
+        o = origin_ras[a]
+        if direction.GetElement(a, a) < 0:
+            flip_axes.append(2 - a)  # numpy axis holding voxel axis a
+            o -= (dims[a] - 1) * spacing[a]  # the last voxel becomes the first
+        origin.append(float(o))
+    return tuple(flip_axes), tuple(float(s) for s in spacing), tuple(origin)
 
-    return EngineVolume(array=np.asarray(array_kji), spacing=engine_spacing, origin=tuple(engine_origin))
+
+def node_array_to_engine_array(volume_node, array_kji: np.ndarray) -> np.ndarray:
+    """Reorder an array laid out on volume_node's voxel grid (as returned by
+    slicer.util.arrayFromVolume or arrayFromSegmentBinaryLabelmap) into the
+    engine Volume layout. Always a copy, never a view of VTK memory, so
+    later edits to the node cannot change the engine's data."""
+    flip_axes, _, _ = _engine_grid(volume_node)
+    if not flip_axes:
+        return np.array(array_kji, copy=True)
+    return np.ascontiguousarray(np.flip(array_kji, axis=flip_axes))
 
 
-def labelmap_node_to_engine_volume(labelmap_node) -> "EngineVolume":
-    return volume_node_to_engine_volume(labelmap_node)
+def volume_node_to_engine_volume(volume_node) -> EngineVolume:
+    """Convert a scalar volume node (HU or label map) to an engine Volume in
+    RAS world coordinates."""
+    _, spacing, origin = _engine_grid(volume_node)
+    array = node_array_to_engine_array(volume_node, slicer.util.arrayFromVolume(volume_node))
+    return EngineVolume(array=array, spacing=spacing, origin=origin)
 
 
 # ==========================================================================
@@ -339,7 +355,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             labels_array[seg_array > 0] = target_label
 
         slicer.mrmlScene.RemoveNode(temp_seg_node)
-        return labels_array
+        # labels_array is on the node's voxel grid; the HU volume was reordered.
+        return node_array_to_engine_array(self._current_volume_node, labels_array)
 
     # ---- Landmarks / frame ---------------------------------------------
 
@@ -1031,10 +1048,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 # ==========================================================================
 
 class CorridorFinderTest(ScriptedLoadableModuleTest):
-    """Minimal self-test. Full coverage of the geometry lives in
-    corridor-finder/tests/python (run outside Slicer with pytest); this
-    test only exercises the Slicer-specific conversion boundary, which
-    cannot be tested outside Slicer.
+    """Self-test of the Slicer-specific conversion boundary, which cannot be
+    tested outside Slicer. The geometry itself is covered by
+    corridor-finder/tests/python (run outside Slicer with pytest).
     """
 
     def setUp(self):
@@ -1042,13 +1058,80 @@ class CorridorFinderTest(ScriptedLoadableModuleTest):
 
     def runTest(self):
         self.setUp()
-        self.test_ras_engine_roundtrip()
+        self.test_volume_conversion_matches_slicer_geometry()
+        self.test_unsupported_volume_geometry_is_rejected()
 
-    def test_ras_engine_roundtrip(self):
-        ras = (10.0, -20.0, 30.0)
-        engine = _ras_to_engine(ras)
-        back = _engine_to_ras(engine)
-        for a, b in zip(ras, back):
-            if abs(a - b) > 1e-9:
-                raise AssertionError(f"RAS<->engine roundtrip failed: {ras} -> {engine} -> {back}")
-        self.delayDisplay("RAS<->engine coordinate roundtrip: PASS")
+    def test_volume_conversion_matches_slicer_geometry(self):
+        """For all 8 axis-aligned orientations, with anisotropic non-unit
+        spacing, a marked voxel must come out of the engine Volume at exactly
+        the RAS point where Slicer itself places it, with positive spacing.
+        The expected position comes from Slicer's IJK-to-RAS matrix, not
+        from the conversion code, so a mirrored or shifted conversion fails.
+        (Before this test existed, every realistic CT was rejected and the
+        one orientation accepted was mirrored left-right.)"""
+        import itertools
+
+        spacing = (0.7, 0.8, 1.25)
+        origin = (12.5, -30.0, 101.0)
+        marked_ijk = (5, 1, 3)
+        for signs in itertools.product((1.0, -1.0), repeat=3):
+            ijk_to_ras = np.eye(4)
+            for a in range(3):
+                ijk_to_ras[a, a] = signs[a] * spacing[a]
+                ijk_to_ras[a, 3] = origin[a]
+            array = np.zeros((5, 6, 7), dtype=np.int16)  # (k, j, i)
+            array[marked_ijk[2], marked_ijk[1], marked_ijk[0]] = 1000
+            node = slicer.util.addVolumeFromArray(array, ijkToRAS=ijk_to_ras)
+            expected_ras = (ijk_to_ras @ np.array([*marked_ijk, 1.0]))[:3]
+            try:
+                vol = volume_node_to_engine_volume(node)
+                points = vol.mask_voxel_centers_world(vol.array > 0)
+                if points.shape[0] != 1 or not np.allclose(_engine_to_ras(points[0]), expected_ras, atol=1e-6):
+                    raise AssertionError(
+                        f"direction signs {signs}: marked voxel at engine {points.tolist()}, "
+                        f"but Slicer places it at RAS {expected_ras.tolist()}"
+                    )
+                if not np.allclose(vol.spacing, spacing):
+                    raise AssertionError(f"direction signs {signs}: engine spacing {vol.spacing}, expected {spacing}")
+                # A second array on the node's voxel grid (as TotalSegmentator's
+                # labelmap arrives) must be reordered exactly like the volume.
+                labels = node_array_to_engine_array(node, (array > 0).astype(np.uint8))
+                if not np.array_equal(labels > 0, vol.array > 0):
+                    raise AssertionError(f"direction signs {signs}: label array reordered differently from the volume")
+            finally:
+                slicer.mrmlScene.RemoveNode(node)
+        self.delayDisplay("Volume conversion matches Slicer's geometry for all 8 orientations: PASS")
+
+    def test_unsupported_volume_geometry_is_rejected(self):
+        """Oblique (gantry tilt), axis-permuted (sagittal) and transformed
+        volumes must raise rather than be silently mis-mapped."""
+        array = np.zeros((5, 6, 7), dtype=np.int16)
+        c, s = np.cos(np.radians(5.0)), np.sin(np.radians(5.0))
+        cases = {
+            "oblique (5 degree tilt)": np.array([[1, 0, 0, 0], [0, c, -s, 0], [0, s, c, 0], [0, 0, 0, 1]], dtype=float),
+            "axis-permuted (sagittal)": np.array([[0, 0, 1, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=float),
+        }
+        for name, ijk_to_ras in cases.items():
+            node = slicer.util.addVolumeFromArray(array, ijkToRAS=ijk_to_ras)
+            try:
+                volume_node_to_engine_volume(node)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"{name} volume was accepted; it must be rejected")
+            finally:
+                slicer.mrmlScene.RemoveNode(node)
+
+        node = slicer.util.addVolumeFromArray(array)
+        transform = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+        node.SetAndObserveTransformNodeID(transform.GetID())
+        try:
+            volume_node_to_engine_volume(node)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("volume under a transform was accepted; it must be rejected")
+        finally:
+            slicer.mrmlScene.RemoveNode(node)
+            slicer.mrmlScene.RemoveNode(transform)
+        self.delayDisplay("Oblique, axis-permuted and transformed volumes are rejected: PASS")

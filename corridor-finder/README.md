@@ -46,6 +46,14 @@ fluoroscopy/navigation.
   library. Tuning corridor anchors for a specific population or catalog is
   a data change, not a code change.
 
+**Coordinates.** Everything, from engine and plan JSON to STL and viewer,
+uses 3D Slicer's RAS world coordinates: x = patient right+, y = anterior+,
+z = superior+ (in mm). After segmentation, a side ("left"/"right") comes
+from the label a structure belongs to. TotalSegmentator labels sides by
+anatomy; the HU-threshold fallback labels them by position (patient right
+= +x). The APP frame used for reported angles is anatomical: x = patient
+left, y = anterior, z = cephalad.
+
 ## Status
 
 This is under active development. What's implemented and unit tested today:
@@ -89,6 +97,12 @@ through the GUI:
       install button. Before, it silently vanished from the module list.
 - [x] All `corridor_engine` pytest tests pass on Slicer's own Python and
       library versions, as well as on the pinned CI versions.
+- [x] CT-to-engine volume conversion puts every voxel where Slicer itself
+      places it, for all 8 axis-aligned orientations with anisotropic
+      spacing (module self-test, checked against Slicer's IJK-to-RAS
+      matrix). Oblique, sagittal/coronal and transformed volumes are
+      rejected with an explanation. Before this, every realistic CT was
+      rejected and the one layout accepted was mirrored left-right.
 - [ ] Segment -> detect landmarks -> suggest corridor -> add to plan ->
       drag a screw handle -> export plan JSON / report / STL / viewer.
 
@@ -131,12 +145,13 @@ In rough order of likely first failure:
    status and the full import traceback that Slicer's UI hides. Keep
    helper scripts out of `CorridorFinder/`: Slicer tries to load every
    `.py` file in a module directory as a module of its own.
-2. **Volume orientation.** `volume_node_to_engine_volume()` in
-   `CorridorFinder.py` deliberately raises rather than guessing if the
-   loaded CT isn't axis-aligned RAS (no gantry tilt). If a real DICOM
-   import trips this, that's the first thing to fix — either resample the
-   volume in Slicer first, or extend the conversion to handle a general
-   direction matrix (the current code only handles the common case).
+2. **Volume orientation.** `volume_node_to_engine_volume()` accepts any
+   axial CT whose voxel axes run along left-right, anterior-posterior and
+   superior-inferior, in either direction. It refuses, with an
+   explanation, gantry-tilted or oblique volumes, sagittal/coronal
+   reformats, and volumes under a transform (harden the transform first).
+   Resample such a volume onto an axis-aligned grid in Slicer, or extend
+   the conversion to a general direction matrix.
 3. **TotalSegmentator.** `_run_total_segmentator()` guesses at the
    installed SlicerTotalSegmentator extension's Python API (module name,
    logic class, `process()` signature, and the lowercase structure names

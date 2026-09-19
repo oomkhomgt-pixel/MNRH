@@ -81,6 +81,8 @@ def split_pelvis_labels(volume_hu: np.ndarray, spacing) -> np.ndarray:
         return out
 
     nz, ny, nx = mask.shape
+    # Higher x index is the patient's RIGHT: world coordinates are RAS with
+    # positive spacing (see volume.py), so side assignment below relies on it.
     mid_x = nx / 2.0
 
     # Largest component is assumed to be the fused pelvic ring (both hips +

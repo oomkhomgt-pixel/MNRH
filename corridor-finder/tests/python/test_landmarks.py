@@ -9,7 +9,7 @@ def _labels_volume():
     labels, spacing = pelvis_like()
     nx = labels.shape[2]
     # Center the world x origin on the phantom's midline so "left"/"right"
-    # correspond to negative/positive world x, matching the APP convention.
+    # correspond to negative/positive world x, as in the engine's RAS convention.
     origin = (-(nx / 2.0) * spacing[0], 0.0, 0.0)
     return Volume(labels, spacing, origin)
 

@@ -33,11 +33,23 @@ class Frame:
         return np.stack([self.x_hat, self.y_hat, self.z_hat], axis=0)
 
 
-def build_app(asis_right, asis_left, pubic_tubercle_right, pubic_tubercle_left, scanner_z_hint=(0.0, 0.0, 1.0)) -> Frame:
-    """Build the APP frame from the four landmark points (world xyz).
+def build_app(
+    asis_right,
+    asis_left,
+    pubic_tubercle_right,
+    pubic_tubercle_left,
+    scanner_y_hint=(0.0, 1.0, 0.0),
+    scanner_z_hint=(0.0, 0.0, 1.0),
+) -> Frame:
+    """Build the APP frame from the four landmark points (world xyz, RAS).
 
-    scanner_z_hint disambiguates the sign of z_hat (cephalad) so that, for a
-    normally-oriented scan, z_hat points toward the head rather than the feet.
+    The frame is anatomical: x_hat points toward the patient's left ASIS,
+    y_hat is the APP normal pointing anterior, z_hat points cephalad. The
+    four points fix the plane but not which way its normal faces, so the
+    hints give the world's anterior (y) and cephalad (z) directions (+y and
+    +z in RAS) and only choose those signs. Since patient left is -x in RAS,
+    this triad is left-handed in world coordinates; nothing here relies on
+    handedness, only on dot products against the three axes.
     """
     asis_right = np.asarray(asis_right, dtype=float)
     asis_left = np.asarray(asis_left, dtype=float)
@@ -56,18 +68,14 @@ def build_app(asis_right, asis_left, pubic_tubercle_right, pubic_tubercle_left, 
     if norm_n < 1e-9:
         raise ValueError("ASIS and pubic tubercle points are degenerate (collinear)")
     y_hat = n / norm_n
-    # y_hat should point anterior, i.e. roughly toward pt_mid from origin along
-    # the coronal-plane component; ensure sign by checking it points toward v.
-    if np.dot(y_hat, v) < 0:
+    # n is perpendicular to v by construction, so v cannot orient it; the
+    # anterior hint does.
+    if np.dot(y_hat, scanner_y_hint) < 0:
         y_hat = -y_hat
 
-    z_hat = np.cross(x_hat, y_hat)
-    z_hat = z_hat / np.linalg.norm(z_hat)
+    z_hat = np.cross(x_hat, y_hat)  # already unit length and orthogonal to both
     if np.dot(z_hat, scanner_z_hint) < 0:
         z_hat = -z_hat
-        # re-orthogonalize y_hat to keep a right-handed frame with the flipped z
-        y_hat = np.cross(z_hat, x_hat)
-        y_hat = y_hat / np.linalg.norm(y_hat)
 
     return Frame(origin=origin, x_hat=x_hat, y_hat=y_hat, z_hat=z_hat)
 
@@ -102,11 +110,14 @@ def screw_angles(direction_world: np.ndarray, frame: Frame) -> Dict[str, float]:
 
 
 def scanner_frame() -> Frame:
-    """Identity frame representing the raw scanner axes, for reporting
-    angles "relative to scanner axes" alongside the APP-relative angles."""
+    """The image's unrotated axes, for reporting angles "relative to scanner
+    axes" alongside the APP-relative angles. Given the same anatomical
+    meaning as the APP frame (x_hat = patient left, which is -x in RAS;
+    y_hat = anterior; z_hat = cephalad) so the two sets of angles are
+    directly comparable and agree when the pelvis is not tilted."""
     return Frame(
         origin=np.zeros(3),
-        x_hat=np.array([1.0, 0.0, 0.0]),
+        x_hat=np.array([-1.0, 0.0, 0.0]),
         y_hat=np.array([0.0, 1.0, 0.0]),
         z_hat=np.array([0.0, 0.0, 1.0]),
     )

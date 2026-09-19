@@ -1,6 +1,6 @@
 {
   "schema": "mnrh-corridor-definitions/1",
-  "comment": "Coordinates are in the Anterior Pelvic Plane (APP) frame: x = patient left(+)/right(-), y = anterior(+)/posterior(-), z = cephalad(+)/caudal(-), origin at the ASIS midpoint. Entry/exit regions are a sphere (landmark + offset_mm, radius_mm) intersected with the surface of restrict_to_label. side: 'per_side' definitions are mirrored in x for the left/right instance (offsets given for the RIGHT side; LEFT mirrors x -> -x).",
+  "comment": "offset_mm and textbook_direction are in the image's RAS axes, not the APP frame: x = patient right(+)/left(-), y = anterior(+)/posterior(-), z = cephalad(+)/caudal(-). An offset is added to the named landmark's position; entry/exit regions are a sphere (landmark + offset_mm, radius_mm) intersected with the surface of restrict_to_label. side: 'per_side' values are given for the RIGHT side, where +x is lateral; the LEFT instance mirrors x -> -x. Anchors are initial estimates, not yet reviewed against real anatomy.",
   "views_deg": {
     "ap": { "rotate_x": 0, "rotate_z": 0 },
     "lateral": { "rotate_x": 0, "rotate_z": 90 },
