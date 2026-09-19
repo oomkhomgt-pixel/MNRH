@@ -125,6 +125,13 @@ def _missing_requirements() -> List[str]:
     return [req for name, req in _REQUIRED_PACKAGES.items() if importlib.util.find_spec(name) is None]
 
 
+class LeftRightMismatchError(RuntimeError):
+    """TotalSegmentator (which labels sides by anatomy) put the right hip on
+    the patient's left according to the image's orientation. Planning must
+    stop: falling back to the HU segmenter, which trusts that orientation,
+    would silently accept a scan whose left and right may be swapped."""
+
+
 # ==========================================================================
 # Coordinate conversion (the one place Slicer geometry meets the engine)
 # ==========================================================================
@@ -213,6 +220,12 @@ def node_array_to_engine_array(volume_node, array_kji: np.ndarray) -> np.ndarray
     return np.ascontiguousarray(np.flip(array_kji, axis=flip_axes))
 
 
+def engine_array_to_node_array(volume_node, array_zyx: np.ndarray) -> np.ndarray:
+    """Inverse of node_array_to_engine_array: lay an engine-layout array out
+    on volume_node's voxel grid (reversing an axis twice restores it)."""
+    return node_array_to_engine_array(volume_node, array_zyx)
+
+
 def volume_node_to_engine_volume(volume_node) -> EngineVolume:
     """Convert a scalar volume node (HU or label map) to an engine Volume in
     RAS world coordinates."""
@@ -267,10 +280,16 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             self.corridor_defs = {c["id"]: c for c in json.load(f)["corridors"]}
         with open(os.path.join(_PROJECT_ROOT, "screws.json"), "r", encoding="utf-8") as f:
             self.screw_library = json.load(f)
+        self.view_defs = drr_mod.load_views(os.path.join(_PROJECT_ROOT, "corridors.json"))
 
+        self.volume_node = None
         self.hu_volume: Optional[EngineVolume] = None
         self.labels_volume: Optional[EngineVolume] = None
         self.segmentation_source: str = ""  # "totalsegmentator" | "fallback" | ""
+        # Why the fallback was used when TotalSegmentator was preferred.
+        self.segmentation_note: str = ""
+        # Optional callable(str) for progress text during long steps.
+        self.progress_callback = None
         self.landmarks: Dict[str, "landmarks_mod.Landmark"] = {}
         self.frame = None
         self.plan: Optional["plan_mod.Plan"] = None
@@ -280,6 +299,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
 
     def load_volume(self, volume_node) -> None:
         self.hu_volume = volume_node_to_engine_volume(volume_node)
+        self.volume_node = volume_node
         self.labels_volume = None
         self.landmarks = {}
         self.frame = None
@@ -288,10 +308,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     def segment(self, prefer_total_segmentator: bool = True) -> str:
         """Populate self.labels_volume. Returns "totalsegmentator" or
         "fallback" to say which path was used, so the UI can warn the user
-        when the fallback (unverified) path was taken."""
+        when the fallback (unverified) path was taken; segmentation_note
+        then says why TotalSegmentator was not used."""
         if self.hu_volume is None:
             raise RuntimeError("load_volume() must be called first")
 
+        self.segmentation_note = ""
         if prefer_total_segmentator:
             try:
                 labels_array = self._run_total_segmentator()
@@ -300,62 +322,93 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                 )
                 self.segmentation_source = "totalsegmentator"
                 return self.segmentation_source
-            except Exception:
+            except LeftRightMismatchError:
+                raise
+            except Exception as exc:
                 logging.warning("TotalSegmentator unavailable or failed, falling back to HU threshold:\n%s", traceback.format_exc())
+                self.segmentation_note = f"TotalSegmentator was not used: {exc}"
 
         labels_array = seg_mod.split_pelvis_labels(self.hu_volume.array, self.hu_volume.spacing)
         self.labels_volume = EngineVolume(array=labels_array, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
         self.segmentation_source = "fallback"
         return self.segmentation_source
 
-    def _run_total_segmentator(self) -> np.ndarray:
-        """Run the SlicerTotalSegmentator extension (if installed) and remap
-        its label names to corridor_engine.segmentation's label ids.
+    def _progress(self, text: str) -> None:
+        logging.info(text)
+        if self.progress_callback is not None:
+            self.progress_callback(text)
 
-        KNOWN LIMITATION: this assumes the SlicerTotalSegmentator extension
-        is installed and its Python logic class is importable as below;
-        the exact class name/entry point should be double-checked against
-        the installed extension version and adjusted here if it differs.
+    def _run_total_segmentator(self) -> np.ndarray:
+        """Segment the pelvic bones with the SlicerTotalSegmentator extension
+        and return an engine-layout array of corridor_engine label ids.
+
+        Written against the extension as installed from the Slicer 5.12.4
+        extension index (revision 270cac2, TotalSegmentator v2.14.0):
+        TotalSegmentatorLogic.process(inputVolume, outputSegmentation,
+        quality, cpu, task, subset, interactive). Its output segment IDs
+        are TotalSegmentator class names, while segment *names* may be
+        replaced by standard terminology names, so segments are matched by
+        ID. quality="normal" is the 1.5 mm model; "fast" (3 mm) is too coarse
+        for screw corridors that are only about 10 mm wide.
         """
         try:
-            import TotalSegmentator  # noqa: F401  (provided by the extension, if installed)
+            import TotalSegmentator
         except ImportError as exc:
-            raise RuntimeError("SlicerTotalSegmentator extension is not installed") from exc
+            raise RuntimeError("the TotalSegmentator extension is not installed (Extensions Manager)") from exc
 
-        ts_logic = slicer.modules.totalsegmentator.widgetRepresentation().self().logic
-        # NOTE: the exact call signature of TotalSegmentator's logic varies by
-        # version; this targets the "total" task producing per-structure
-        # segments on the currently loaded volume. Adjust the call below to
-        # match the installed version if this raises.
-        temp_seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", "CorridorFinder_TS_temp")
-        ts_logic.process(
-            inputVolume=self._current_volume_node,
-            outputSegmentation=temp_seg_node,
-            fast=True,
-            task="total",
-        )
+        ts_logic = TotalSegmentator.TotalSegmentatorLogic()
+        ts_logic.logCallback = self._progress
+        # Installs PyTorch, nnU-Net and TotalSegmentator on first use, after
+        # asking the user (several GB; needs a network connection).
+        ts_logic.setupPythonRequirements()
 
-        name_map = {
+        # TotalSegmentator "total" task class names -> corridor_engine label ids.
+        classes = {
             "hip_left": seg_mod.HIP_L,
             "hip_right": seg_mod.HIP_R,
             "sacrum": seg_mod.SACRUM,
             "femur_left": seg_mod.FEMUR_L,
             "femur_right": seg_mod.FEMUR_R,
         }
-        labels_array = np.zeros(self.hu_volume.array.shape, dtype=np.uint8)
-        seg = temp_seg_node.GetSegmentation()
-        for seg_id_index in range(seg.GetNumberOfSegments()):
-            segment_id = seg.GetNthSegmentID(seg_id_index)
-            segment_name = seg.GetSegment(segment_id).GetName().lower()
-            target_label = name_map.get(segment_name)
-            if target_label is None:
-                continue
-            seg_array = slicer.util.arrayFromSegmentBinaryLabelmap(temp_seg_node, segment_id, self._current_volume_node)
-            labels_array[seg_array > 0] = target_label
-
-        slicer.mrmlScene.RemoveNode(temp_seg_node)
+        seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", "CorridorFinder_TS_temp")
+        try:
+            ts_logic.process(self.volume_node, seg_node, quality="normal", task="total", subset=list(classes), interactive=False)
+            segmentation = seg_node.GetSegmentation()
+            labels_array = np.zeros(slicer.util.arrayFromVolume(self.volume_node).shape, dtype=np.uint8)
+            found = []
+            for class_name, label in classes.items():
+                if segmentation.GetSegment(class_name) is None:
+                    continue
+                mask = slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, class_name, self.volume_node)
+                labels_array[mask > 0] = label
+                found.append(class_name)
+        finally:
+            slicer.mrmlScene.RemoveNode(seg_node)
+        self._progress(f"TotalSegmentator found: {', '.join(found) or 'nothing'}")
+        if not {"hip_left", "hip_right"} <= set(found):
+            raise RuntimeError(f"TotalSegmentator did not find both hip bones (found: {', '.join(found) or 'nothing'})")
         # labels_array is on the node's voxel grid; the HU volume was reordered.
-        return node_array_to_engine_array(self._current_volume_node, labels_array)
+        labels = node_array_to_engine_array(self.volume_node, labels_array)
+        verdict, reason = seg_mod.check_hip_sides(labels, self.hu_volume.array, self.hu_volume.spacing, self.hu_volume.origin)
+        if verdict == "mirrored":
+            raise LeftRightMismatchError(
+                f"TotalSegmentator found {reason}. The CT's left/right orientation may be wrong "
+                "(image header or patient position). Check it before planning; no segmentation was used."
+            )
+        if verdict != "ok":
+            raise RuntimeError(f"TotalSegmentator's result is implausible: {reason}")
+        return labels
+
+    def set_labels_from_node_array(self, labels_kji: np.ndarray) -> bool:
+        """Replace the labels with an array on the CT node's voxel grid (e.g.
+        read back from a segmentation the user corrected). Returns True if
+        anything changed; distance fields are then recomputed on next use."""
+        new = node_array_to_engine_array(self.volume_node, labels_kji).astype(np.uint8)
+        if self.labels_volume is not None and np.array_equal(new, self.labels_volume.array):
+            return False
+        self.labels_volume = EngineVolume(array=new, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
+        self._edt_cache = {}
+        return True
 
     # ---- Landmarks / frame ---------------------------------------------
 
@@ -545,11 +598,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             angles_app=angles_app,
             angles_scanner=angles_scanner,
             validation=validation.__dict__,
-            drr_views=drr_views or self.corridor_defs[corridor_id].get("drr_views", []),
+            drr_views=[self._resolve_view(v, side) for v in (drr_views or self.corridor_defs[corridor_id].get("drr_views", []))],
         )
         self.plan.screws.append(screw)
         self.plan.log("add_screw", screw_id=screw_id, after=screw.__dict__)
         return screw
+
+    def _resolve_view(self, view: str, side: str) -> str:
+        """corridors.json lists side-less view names (e.g. "iliac_oblique")
+        for per-side corridors, while the views themselves are defined per
+        side; the plan records the concrete one."""
+        if view in self.view_defs:
+            return view
+        if f"{view}_{side}" in self.view_defs:
+            return f"{view}_{side}"
+        raise KeyError(f"view {view!r} (side {side!r}) is not defined in corridors.json views_deg")
 
     def update_screw_in_plan(self, screw_id: str, entry_xyz=None, target_xyz=None) -> None:
         """Called when a surgeon drags a screw's markups line handle."""
@@ -568,6 +631,16 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             self.plan.log("move_handle", screw_id=screw_id, before=before, after=after)
             return
         raise KeyError(f"no screw with id {screw_id!r} in the current plan")
+
+    def revalidate_plan(self) -> None:
+        """Re-validate every screw against the current labels (after the
+        segmentation was corrected), so the plan never carries a clearance
+        computed on bones that no longer apply."""
+        for screw in self.plan.screws:
+            before = dict(validation=screw.validation)
+            validation = self.validate_screw(screw.corridor_id, screw.side, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm)
+            screw.validation = validation.__dict__
+            self.plan.log("revalidate", screw_id=screw.screw_id, before=before, after=dict(validation=screw.validation))
 
     def export_plan_json(self, path: str) -> None:
         plan_mod.save_plan(self.plan, path)
@@ -608,8 +681,12 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         VTKObservationMixin.__init__(self)
         self.logic: Optional[CorridorFinderLogic] = None
         self._current_results = []
+        self._results_for = None  # (corridor id, side, margin) the suggestions were computed for
         self._screw_line_nodes: Dict[str, "vtkMRMLMarkupsLineNode"] = {}
+        self._screw_line_handlers: Dict[str, object] = {}  # to detach observers
         self._landmark_fiducial_node = None
+        self._bonesSegmentationNode = None
+        self._shownScrewId = None  # screw whose clearance the label shows
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
@@ -730,6 +807,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addScrewButton.clicked.connect(self.onAddScrew)
         self.newPlanButton.clicked.connect(self.onNewPlan)
         self.screwsList.currentRowChanged.connect(self.onScrewSelected)
+        self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
+        self.marginSpin.valueChanged.connect(self._clearSuggestions)
         self.exportPlanButton.clicked.connect(self.onExportPlan)
         self.exportReportButton.clicked.connect(self.onExportReport)
         self.exportStlButton.clicked.connect(self.onExportStl)
@@ -797,7 +876,17 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         return self.corridorCombo.itemData(self.corridorCombo.currentIndex)
 
+    def _clearSuggestions(self, *args) -> None:
+        """Suggestions belong to the corridor, side and margin they were
+        computed for; once any of those changes (or Suggest fails) they are
+        dropped, so Add can never file one under a different corridor."""
+        self._current_results = []
+        self._results_for = None
+        self.resultsList.clear()
+        self.addScrewButton.enabled = False
+
     def _onCorridorChanged(self):
+        self._clearSuggestions()
         cid = self._currentCorridorId()
         spec = self.logic.corridor_defs[cid]
         self.sideCombo.clear()
@@ -809,25 +898,97 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if volume_node is None:
             slicer.util.warningDisplay(_("Select a volume first."), windowTitle=_("Corridor Finder"))
             return
-        self.logic._current_volume_node = volume_node
+        self.logic.progress_callback = self._showProgress
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
         try:
             self.logic.load_volume(volume_node)
             source = self.logic.segment(prefer_total_segmentator=self.segmentTsCheckbox.checked)
+            self._showBonesSegmentation()
         except Exception as exc:
             logging.error(traceback.format_exc())
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
+        finally:
+            qt.QApplication.restoreOverrideCursor()
+            self.logic.progress_callback = None
 
         if source == "fallback":
-            self.segmentStatusLabel.setText(_("HU-threshold fallback — UNVERIFIED, please review/correct in Segment Editor"))
+            text = _("HU-threshold fallback — UNVERIFIED. Review the 'CF bones' "
+                     "segmentation and correct it in Segment Editor before continuing.")
+            if self.logic.segmentation_note:
+                text += "\n" + self.logic.segmentation_note
+            self.segmentStatusLabel.setText(text)
             self.segmentStatusLabel.setStyleSheet("color: #b45309; font-weight: bold;")
         else:
-            self.segmentStatusLabel.setText(_("TotalSegmentator"))
+            self.segmentStatusLabel.setText(_("TotalSegmentator. Review the 'CF bones' segmentation before continuing."))
             self.segmentStatusLabel.setStyleSheet("color: #15803d;")
         self.detectLandmarksButton.enabled = True
 
+    def _showProgress(self, text: str) -> None:
+        self.segmentStatusLabel.setText(text[:200])
+        slicer.app.processEvents()
+
+    # Left and right in clearly different colours, so a side mix-up is
+    # visible at a glance when reviewing the segmentation.
+    _BONE_COLORS = {
+        "hip_left": (0.26, 0.52, 0.96),
+        "hip_right": (0.95, 0.55, 0.15),
+        "sacrum": (0.95, 0.85, 0.35),
+        "femur_left": (0.60, 0.78, 1.00),
+        "femur_right": (1.00, 0.78, 0.55),
+    }
+
+    def _showBonesSegmentation(self) -> None:
+        """Show the bone labels the engine plans on as the "CF bones"
+        segmentation, so the surgeon can check them and correct them in
+        Segment Editor. _syncLabelsFromSegmentation() reads edits back."""
+        node = self._bonesSegmentationNode
+        if node is None or node.GetScene() is None:
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", "CF bones")
+            node.CreateDefaultDisplayNodes()
+            self._bonesSegmentationNode = node
+        volume_node = self.logic.volume_node
+        node.SetReferenceImageGeometryParameterFromVolumeNode(volume_node)
+        segmentation = node.GetSegmentation()
+        segmentation.RemoveAllSegments()
+        labels = engine_array_to_node_array(volume_node, self.logic.labels_volume.array)
+        for label, name in seg_mod.LABEL_NAMES.items():
+            mask = labels == label
+            if not mask.any():
+                continue
+            segmentation.AddEmptySegment(name, name, self._BONE_COLORS.get(name, (0.8, 0.8, 0.8)))
+            slicer.util.updateSegmentBinaryLabelmapFromArray(mask.astype(np.uint8), node, name, volume_node)
+        node.CreateClosedSurfaceRepresentation()
+
+    def _syncLabelsFromSegmentation(self) -> bool:
+        """Read the "CF bones" segmentation (possibly corrected by the user)
+        back into the engine. Segments are matched by ID, so renaming one is
+        harmless; a deleted segment clears that bone. When anything changed,
+        every screw in the plan is re-validated against the new bones.
+        Returns True if the labels changed."""
+        node = self._bonesSegmentationNode
+        if node is None or node.GetScene() is None or self.logic.labels_volume is None:
+            return False
+        volume_node = self.logic.volume_node
+        labels = np.zeros(slicer.util.arrayFromVolume(volume_node).shape, dtype=np.uint8)
+        segmentation = node.GetSegmentation()
+        for label, name in seg_mod.LABEL_NAMES.items():
+            if segmentation.GetSegment(name) is None:
+                continue
+            mask = slicer.util.arrayFromSegmentBinaryLabelmap(node, name, volume_node)
+            labels[mask > 0] = label
+        if not self.logic.set_labels_from_node_array(labels):
+            return False
+        logging.info("Corridor Finder: bone segmentation was edited; using the edited labels")
+        if self.logic.plan is not None and self.logic.plan.screws:
+            self.logic.revalidate_plan()
+            if self._shownScrewId is not None:
+                self._refreshClearanceLabel(self._shownScrewId)
+        return True
+
     def onDetectLandmarks(self):
         try:
+            self._syncLabelsFromSegmentation()
             self.logic.detect_landmarks()
         except Exception as exc:
             logging.error(traceback.format_exc())
@@ -876,14 +1037,20 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         cid = self._currentCorridorId()
         side = self.sideCombo.currentText
         margin = self.marginSpin.value
+        self._clearSuggestions()
         try:
-            self._current_results = self.logic.suggest_corridor(cid, side, margin_mm=margin)
+            if self._syncLabelsFromSegmentation():
+                self.landmarkWarningsLabel.setText(
+                    _("The segmentation was edited after landmarks were detected; "
+                      "run Detect landmarks again if bones near a landmark changed."))
+            results = self.logic.suggest_corridor(cid, side, margin_mm=margin)
         except Exception as exc:
             logging.error(traceback.format_exc())
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
             return
 
-        self.resultsList.clear()
+        self._current_results = results
+        self._results_for = (cid, side, margin)
         min_length = self.logic.corridor_defs[cid]["length_range_mm"][0]
         for i, r in enumerate(self._current_results):
             if r.screw.fits:
@@ -896,6 +1063,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addScrewButton.enabled = len(self._current_results) > 0
 
     def onAddScrew(self):
+        if self._results_for is None or not self._current_results:
+            slicer.util.warningDisplay(_("Run Suggest corridor first."), windowTitle=_("Corridor Finder"))
+            return
         row = self.resultsList.currentRow
         if row < 0 or row >= len(self._current_results):
             row = 0
@@ -909,11 +1079,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.logic.plan is None:
             self.onNewPlan()
 
-        cid = self._currentCorridorId()
-        side = self.sideCombo.currentText
-        margin = self.marginSpin.value
+        cid, side, margin = self._results_for
         screw_id = f"{cid}_{side}_{len(self.logic.plan.screws) + 1}"
         try:
+            self._syncLabelsFromSegmentation()
             screw = self.logic.add_screw_to_plan(result, cid, side, screw_id, margin)
         except Exception as exc:
             logging.error(traceback.format_exc())
@@ -922,13 +1091,16 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self._createScrewLineNode(screw)
         self.screwsList.addItem(f"{screw.screw_id}: {screw.corridor_id} ({screw.side}) {screw.diameter_mm}x{screw.length_mm}mm")
+        self.screwsList.setCurrentRow(self.screwsList.count - 1)  # shows its clearance
 
     def _createScrewLineNode(self, screw) -> None:
         node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsLineNode", f"CF_{screw.screw_id}")
         node.AddControlPoint(vtk.vtkVector3d(*_engine_to_ras(screw.entry_xyz)), "entry")
         node.AddControlPoint(vtk.vtkVector3d(*_engine_to_ras(screw.target_xyz)), "target")
+        handler = lambda caller, event, sid=screw.screw_id: self.onScrewHandleMoved(sid)  # noqa: E731
         self._screw_line_nodes[screw.screw_id] = node
-        self.addObserver(node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda c, e, sid=screw.screw_id: self.onScrewHandleMoved(sid))
+        self._screw_line_handlers[screw.screw_id] = handler
+        self.addObserver(node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, handler)
 
     def onScrewHandleMoved(self, screw_id: str) -> None:
         node = self._screw_line_nodes.get(screw_id)
@@ -950,6 +1122,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onScrewSelected(self, row: int) -> None:
         if self.logic.plan is None or row < 0 or row >= len(self.logic.plan.screws):
             self.clearanceLabel.setText("")
+            self._shownScrewId = None
             return
         self._refreshClearanceLabel(self.logic.plan.screws[row].screw_id)
 
@@ -957,14 +1130,27 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         screw = next((s for s in self.logic.plan.screws if s.screw_id == screw_id), None)
         if screw is None:
             return
+        self._shownScrewId = screw_id
         v = screw.validation
         breach = v.get("breach")
-        text = f"{v.get('min_clearance_mm', float('nan')):.1f} mm clearance"
+        # Shows validate.py's verdict; the rule itself lives only there.
+        text = f"{screw.screw_id}: clearance {v.get('min_clearance_mm', float('nan')):.1f} mm, margin {screw.margin_mm:.1f} mm"
+        if breach:
+            text += " — BREACH"
         self.clearanceLabel.setText(text)
         self.clearanceLabel.setStyleSheet("color: #b91c1c; font-weight: bold;" if breach else "color: #15803d;")
 
     def onNewPlan(self):
         alias = self.caseAliasEdit.text or "case"
+        # Remove the previous plan's screw lines. Screw ids restart in a new
+        # plan, so a leftover line (still observed) could otherwise move the
+        # new plan's screw of the same id when dragged.
+        for screw_id, node in self._screw_line_nodes.items():
+            self.removeObserver(node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self._screw_line_handlers[screw_id])
+            if node.GetScene() is not None:
+                slicer.mrmlScene.RemoveNode(node)
+        self._screw_line_nodes = {}
+        self._screw_line_handlers = {}
         self.logic.new_plan(alias)
         self.screwsList.clear()
 
@@ -979,6 +1165,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not path:
             return
         try:
+            self._syncLabelsFromSegmentation()
             self.logic.export_plan_json(path)
         except Exception as exc:
             logging.error(traceback.format_exc())
@@ -991,6 +1178,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not path:
             return
         try:
+            self._syncLabelsFromSegmentation()
             drr_images = self._renderDrrImagesForPlan()
             self.logic.export_report(path, drr_images=drr_images)
         except Exception as exc:
@@ -1027,6 +1215,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not path:
             return
         try:
+            self._syncLabelsFromSegmentation()
             self.logic.export_stl(path)
         except Exception as exc:
             logging.error(traceback.format_exc())
@@ -1039,6 +1228,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not path:
             return
         try:
+            self._syncLabelsFromSegmentation()
             self.logic.export_viewer_html(path)
         except Exception as exc:
             logging.error(traceback.format_exc())

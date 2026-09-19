@@ -14,12 +14,14 @@ step's result and the exported files. Two CTs are used:
            values and scan geometry. Its anatomy is incomplete (no pubis or
            acetabulum), so only mechanics are checked on it, not anatomy.
 
-Run with --testing so message boxes return at once (they are recorded and
-reported here as failures):
+Run with Slicer's normal settings, so that installed extensions (such as
+TotalSegmentator) and the module path to this checkout are loaded:
 
-  Slicer --no-splash --no-main-window --testing
-    --additional-module-paths <repo>/corridor-finder/CorridorFinder
+  Slicer --no-splash --no-main-window
     --python-script <repo>/corridor-finder/tests/slicer/workflow_check.py
+
+Message boxes are intercepted: error/warning displays are recorded and
+fail the step; confirmation prompts are recorded and declined.
 
 Not named test_*.py so pytest never collects it (it needs Slicer).
 Environment: CF_OUT_DIR (exports and the report; default a new temp dir),
@@ -27,6 +29,7 @@ CF_SAMPLE (Sample Data name; empty to skip). Exit code 0 only if every
 check passed.
 """
 import copy
+import importlib.util
 import json
 import os
 import struct
@@ -37,6 +40,7 @@ import traceback
 
 import numpy as np
 import slicer
+import vtk
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 if REPO_ROOT not in sys.path:
@@ -77,6 +81,8 @@ def _record_dialog(kind):
 
 slicer.util.errorDisplay = _record_dialog("errorDisplay")
 slicer.util.warningDisplay = _record_dialog("warningDisplay")
+slicer.util.confirmOkCancelDisplay = lambda text, *a, **k: log(f"    [declined confirmation] {text}") and False
+slicer.util.confirmYesNoDisplay = lambda text, *a, **k: log(f"    [declined confirmation] {text}") and False
 
 
 def step(name):
@@ -126,7 +132,16 @@ def label_centroid_x(logic, label):
     return float(pts[:, 0].mean()) if len(pts) else float("nan")
 
 
-def run_workflow(w, ct, name, *, prefer_ts, check_anatomy):
+def segment_centroid_ras(seg_node, segment_id, ct):
+    """RAS centroid of a segment, computed with Slicer's own IJK-to-RAS."""
+    arr = slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, segment_id, ct)
+    k, j, i = np.argwhere(arr > 0).mean(axis=0)
+    m = vtk.vtkMatrix4x4()
+    ct.GetIJKToRASMatrix(m)
+    return np.array(m.MultiplyPoint([i, j, k, 1.0])[:3])
+
+
+def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     log(f"\n=== {name}: {ct.GetName()} ===")
     logic = w.logic
     logic.corridor_defs = copy.deepcopy(_PRISTINE_CORRIDOR_DEFS)  # undo any mechanics-only relaxation
@@ -135,19 +150,29 @@ def run_workflow(w, ct, name, *, prefer_ts, check_anatomy):
     @step("Segment")
     def segment():
         w.volumeSelector.setCurrentNode(ct)
-        w.segmentTsCheckbox.checked = prefer_ts
+        w.segmentTsCheckbox.checked = True  # TotalSegmentator preferred, as by default
         w.segmentButton.click()
         check(logic.labels_volume is not None, "labels volume created")
         present = sorted(int(v) for v in np.unique(logic.labels_volume.array) if v)
         log(f"    labels present: {[seg.LABEL_NAMES.get(v, v) for v in present]}")
-        check(logic.segmentation_source == "fallback", f"source is fallback (TotalSegmentator not installed): {logic.segmentation_source!r}")
-        check("UNVERIFIED" in w.segmentStatusLabel.text, "panel flags the fallback segmentation as UNVERIFIED")
+        log(f"    status: {w.segmentStatusLabel.text!r}")
+        check(logic.segmentation_source == expect_source, f"segmentation source is {expect_source}: {logic.segmentation_source!r}")
+        if logic.segmentation_source == "fallback":
+            check("UNVERIFIED" in w.segmentStatusLabel.text, "panel flags the fallback segmentation as UNVERIFIED")
+            check(bool(logic.segmentation_note), "panel says why TotalSegmentator was not used")
         check(w.detectLandmarksButton.enabled, "Detect landmarks enabled")
         check(seg.HIP_L in present and seg.HIP_R in present, "both hips labelled")
         xr, xl = label_centroid_x(logic, seg.HIP_R), label_centroid_x(logic, seg.HIP_L)
         log(f"    hip_right centroid x = {xr:.1f} mm, hip_left centroid x = {xl:.1f} mm (RAS)")
         if check_anatomy:
             check(xr > 0 > xl, "patient's right hip is labelled hip_right (+x in RAS)")
+        seg_node = w._bonesSegmentationNode
+        segmentation = seg_node.GetSegmentation() if seg_node else None
+        ids = {segmentation.GetNthSegmentID(i) for i in range(segmentation.GetNumberOfSegments())} if segmentation else set()
+        check(ids == {seg.LABEL_NAMES[v] for v in present}, "'CF bones' segmentation shows exactly the engine's labels")
+        if "hip_right" in ids:
+            shown_x = segment_centroid_ras(seg_node, "hip_right", ct)[0]
+            check(abs(shown_x - xr) < 0.5, f"hip_right is displayed where the engine has it (x {shown_x:.1f} vs {xr:.1f} mm)")
 
     @step("Detect landmarks")
     def landmarks():
@@ -189,6 +214,10 @@ def run_workflow(w, ct, name, *, prefer_ts, check_anatomy):
                 log(f"    {cid:28s} {side:8s} {desc}  [{w.resultsList.count} listed, {time.time() - t0:.1f} s]")
                 check(w.resultsList.count == len(res), f"{cid}/{side}: panel lists every suggestion")
                 found[(cid, side)] = res
+        # Suggestions belong to the corridor they were computed for: changing
+        # the selection must drop them, so Add cannot file them elsewhere.
+        w.corridorCombo.setCurrentIndex(0)
+        check(w.resultsList.count == 0 and not w.addScrewButton.enabled, "changing the corridor clears the old suggestions")
         return found
 
     found = {}
@@ -200,7 +229,7 @@ def run_workflow(w, ct, name, *, prefer_ts, check_anatomy):
         return
 
     fitting = [(k, r) for k, r in found.items() if r and r[0].screw.fits]
-    if check_anatomy:
+    if name == "phantom":
         check(("iliosacral_s1", "right") in dict(fitting), "a screw fits the right iliosacral S1 corridor on the phantom")
     check(bool(fitting), f"at least one corridor yields a screw that fits at the default {w.marginSpin.value} mm margin")
     if not fitting:
@@ -306,12 +335,46 @@ def run_workflow(w, ct, name, *, prefer_ts, check_anatomy):
             html = open(paths["HTML viewer"], encoding="utf-8").read()
             check(screw.screw_id in html, "viewer embeds the plan")
 
+    @step("Correct the segmentation: erase bone around the screw, then restore it")
+    def edit_segmentation():
+        # Erase a 12 mm ball of bone around the screw's midpoint in every
+        # segment, as a user would in Segment Editor. The next action (here:
+        # Export plan JSON) must read the edit back and re-validate the
+        # screw as breached; restoring the bone must restore its clearance.
+        seg_node = w._bonesSegmentationNode
+        segmentation = seg_node.GetSegmentation()
+        m = vtk.vtkMatrix4x4()
+        ct.GetRASToIJKMatrix(m)
+        mid = (np.asarray(screw.entry_xyz) + np.asarray(screw.target_xyz)) / 2.0
+        ci, cj, ck = m.MultiplyPoint([*mid, 1.0])[:3]
+        si, sj, sk = ct.GetSpacing()
+        nk, nj, ni = slicer.util.arrayFromVolume(ct).shape
+        kk, jj, ii = np.ogrid[:nk, :nj, :ni]
+        ball = ((ii - ci) * si) ** 2 + ((jj - cj) * sj) ** 2 + ((kk - ck) * sk) ** 2 <= 12.0 ** 2
+        saved = {}
+        for n in range(segmentation.GetNumberOfSegments()):
+            sid = segmentation.GetNthSegmentID(n)
+            arr = slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, sid, ct)
+            saved[sid] = arr.copy()
+            arr[ball] = 0
+            slicer.util.updateSegmentBinaryLabelmapFromArray(arr, seg_node, sid, ct)
+        json_path = os.path.join(OUT_DIR, f"{name}_edited_plan.json")
+        w._promptSavePath = lambda title, filter_str: json_path
+        w.exportPlanButton.click()
+        check(logic.plan.audit[-1].action == "revalidate", "edit read back and the screw re-validated")
+        check(screw.validation["breach"] is True, "screw is a breach once the bone around it is erased")
+        check("b91c1c" in w.clearanceLabel.styleSheet, "clearance label turned red")
+        for sid, arr in saved.items():
+            slicer.util.updateSegmentBinaryLabelmapFromArray(arr, seg_node, sid, ct)
+        w.exportPlanButton.click()
+        check(screw.validation["breach"] is False, "restoring the bone restores the screw's clearance")
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((drag, (shorten, False)), (export, ("ok",)),
+    for fn, args in ((drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)
@@ -329,12 +392,20 @@ def main():
     global _PRISTINE_CORRIDOR_DEFS
     _PRISTINE_CORRIDOR_DEFS = copy.deepcopy(w.logic.corridor_defs)
 
-    run_workflow(w, make_phantom_ct(), "phantom", prefer_ts=True, check_anatomy=True)
+    ts_installed = importlib.util.find_spec("TotalSegmentator") is not None
+    log(f"TotalSegmentator extension installed: {ts_installed}")
+    # TotalSegmentator finds no pelvis in the synthetic phantom, so the
+    # fallback must take over (with the reason shown) either way.
+    run_workflow(w, make_phantom_ct(), "phantom", expect_source="fallback", check_anatomy=True)
     if SAMPLE:
         import SampleData
 
         ct = SampleData.SampleDataLogic().downloadSample(SAMPLE)
-        run_workflow(w, ct, "sample", prefer_ts=False, check_anatomy=False)
+        # TotalSegmentator labels sides by anatomy, independently of this
+        # module's orientation handling, so on a real CT hip_right must come
+        # out at +x (patient right): an end-to-end left/right check.
+        run_workflow(w, ct, "sample", expect_source="totalsegmentator" if ts_installed else "fallback",
+                     check_anatomy=ts_installed)
 
     log(f"\n{len(_failures)} failed check(s)" + ("" if not _failures else ":"))
     for f in _failures:

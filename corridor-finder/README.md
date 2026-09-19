@@ -103,60 +103,74 @@ through the GUI:
       matrix). Oblique, sagittal/coronal and transformed volumes are
       rejected with an explanation. Before this, every realistic CT was
       rejected and the one layout accepted was mirrored left-right.
-- [x] Workflow mechanics, driven through the panel's own widgets by
-      `tests/slicer/workflow_check.py`, with no error dialogs or exceptions:
-      - on a synthetic pelvis CT stored in the standard DICOM layout:
-        segment (HU fallback; the patient's right hip is labelled right),
-        detect landmarks (APP axes anatomical; dragging a landmark rebuilds
-        the frame), suggest for every corridor and side, add to the plan
-        (markups line at the planned entry/target), drag the target handle
-        (plan, audit trail and clearance label update; the label turns red
-        exactly on breach), export plan JSON (reloads and validates),
-        report (shows BREACH exactly when breached), STL and viewer;
-      - on a real CT (Sample Data "CTAAbdomenPanoramix", lower chest to
-        upper pelvis): segment, detect landmarks, suggest for every
-        corridor and side.
-- [ ] **At the default 2 mm margin no suggestion fits, on either CT.**
-      Add/drag/export above were exercised with the margin set to 0 mm and,
-      in the test only, no minimum corridor length. See "Open design
-      question" below: this needs a clinical decision, not a code tweak.
+- [x] The whole workflow, driven through the panel's own widgets by
+      `tests/slicer/workflow_check.py` (no error dialogs or exceptions):
+      - **Real CT, TotalSegmentator, default 2 mm margin, nothing relaxed**
+        (Sample Data "CTAAbdomenPanoramix", lower chest to upper pelvis):
+        segment (hips and sacrum, shown as the "CF bones" segmentation),
+        detect landmarks, suggest for every corridor and side, add a
+        fitting screw (posterior column left, 7.3 x 90 mm), drag the target
+        handle (plan, audit trail and clearance label update; the label
+        turns red exactly on breach), erase bone around the screw in the
+        segmentation (the screw is re-validated as a breach; restoring the
+        bone restores it), export plan JSON (reloads and validates), report
+        (DRR images; BREACH shown exactly when breached), STL and viewer.
+      - Synthetic pelvis CT in the standard DICOM layout: the same steps
+        with the HU fallback. Nothing fits there at the default margin (see
+        below), so add/drag/export were exercised with the margin at 0 mm
+        and, in the test only, no minimum corridor length.
+- [x] TotalSegmentator (extension revision 270cac2 with TotalSegmentator
+      2.14.0; PyTorch 2.14 with CUDA on an RTX 4060) segments the real CT in
+      about 50 s. It labels sides by anatomy, and its right hip comes out at
+      RAS x = +80 mm, its left at -78 mm: an end-to-end check that this
+      module puts the patient's right on the right. Its output is checked
+      for plausibility. On the synthetic phantom it returned two "hips",
+      both on the patient's right; that is rejected and the fallback runs,
+      with the reason shown. A right hip clearly on the patient's left
+      stops segmentation outright, because the scan's left/right
+      orientation may be wrong.
+- [x] Simulated fluoroscopy: each named view now projects along the right
+      beam for a supine patient (AP, lateral, inlet/outlet, Judet
+      obliques) and shows bone rather than soft tissue. Checked by eye on
+      the real CT. The view angles in corridors.json are unchanged.
 
-### Open design question: the entry (and exit) cortex
+### What still blocks real planning
 
-The corridor search picks entry and target points on the bone *surface*,
-and both the search and `validate.py` take the minimum clearance over the
-whole entry-to-target segment. At the surface the distance to the nearest
-non-bone voxel is about zero, so by the current rule any screw that starts
-at the cortex is a breach. Suggestions end at clearance of about -2.0 or
--0.5 mm and never fit. The iliosacral corridors return no candidates at
-all: their target region is "sacrum *surface* within 12 mm of the S1 body
-centre", and on real anatomy the cortex is further than that from the
-centre.
-
-What the breach rule should exempt at the planned entry (and at the far
-cortex for transiliac-transsacral screws) is a clinical decision. The
-rule stays unchanged until that decision is made.
-
-### Known issues found in Slicer, not yet fixed
-
-- **Simulated fluoroscopy views are wrong.** Every view with `rotate_x = 0`
-  (AP, lateral, iliac and obturator obliques) projects along the body's
-  long axis, giving an axial silhouette. Inlet/outlet are tilted 45 degrees
-  from that. Soft tissue also washes out the bone. Do not rely on the
-  report's DRR images yet.
+- **The HU-threshold fallback cannot be used for corridor search.** Its
+  250 HU threshold keeps cortex but misses most cancellous bone, so its
+  "bone" is a shell with near-zero clearance inside and no screw fits at
+  the default margin. Treat TotalSegmentator (or a corrected
+  segmentation) as required, not optional.
+- **Iliosacral and transiliac-transsacral screws never fit**, even with
+  TotalSegmentator (best clearance -0.3 to -1.1 mm). Suspected cause: the
+  SI joint is a gap between the hip and sacrum labels, so clearance drops
+  to zero where the screw crosses it. `sacral_gap_allowance_mm` in
+  corridors.json was meant for this but is applied only to the
+  containment test, not to clearance. Under investigation.
+- **Entry and exit cortex (open design question).** The search picks
+  entry and target points on the bone surface, and both the search and
+  `validate.py` take the minimum clearance over the whole entry-to-target
+  segment, where the surface itself has clearance of about zero. Screws
+  still fit because the search's refinement moves the endpoints into the
+  bone. For the fitting screw above, every point of the planned segment,
+  endpoints included, has at least 6.9 mm of bone around the axis. So the
+  planned "entry" is not the cortical entry point, and the stretch
+  between the cortex and it is neither validated nor counted in the
+  suggested length. What the breach rule should exempt at the true entry
+  (and at the far cortex for transiliac-transsacral screws) is a clinical
+  decision; the rule is unchanged until it is made.
+- The corridor anchors, textbook directions and DRR view angles in
+  corridors.json have not been reviewed against real anatomy. The Sample
+  Data CT stops above the acetabulum, so the anterior column, posterior
+  column and supra-acetabular results on it are not anatomically
+  meaningful: they only prove the mechanics.
 - The viewer does not draw the screws, and its camera orbits the world
   origin rather than the model. It embeds the full-resolution distance
   field, so a larger CT may exceed its 8 MB size limit.
-- TotalSegmentator is not installed on the test workstation, so
-  `_run_total_segmentator()` has not been exercised. The fallback runs
-  instead and is flagged UNVERIFIED in the panel.
 
 Not yet implemented (tracked in the project plan):
 
 - [ ] Demo CT download script and a real-anatomy sample plan
-- [ ] TotalSegmentator integration (the fallback segmenter above is a
-      coarse stand-in and does not reliably separate bones at a joint —
-      it must not be relied on for real planning without manual review)
 - [ ] A browser (Playwright) test harness for `viewer/app.js` — the
       viewer's clearance logic is currently verified only by careful
       review against `validate.py`, not by an automated test; a golden
@@ -197,29 +211,32 @@ In rough order of likely first failure:
    reformats, and volumes under a transform (harden the transform first).
    Resample such a volume onto an axis-aligned grid in Slicer, or extend
    the conversion to a general direction matrix.
-3. **TotalSegmentator.** `_run_total_segmentator()` guesses at the
-   installed SlicerTotalSegmentator extension's Python API (module name,
-   logic class, `process()` signature, and the lowercase structure names
-   it expects like `"hip_left"`). This is the part most likely to need
-   adjusting to match whatever version you install — check
-   `slicer.modules.totalsegmentator.widgetRepresentation().self().logic`
-   in the Python console to see the real API if the call fails, and the
-   fallback segmenter will kick in automatically (flagged "unverified" in
-   the UI) in the meantime so you can keep testing everything else.
-4. **Everything past segmentation** (landmarks, corridor search, plan,
-   validation, exports) was smoke-tested outside Slicer against a
-   synthetic phantom with the `slicer`/`vtk` modules stubbed out, and ran
-   end to end with no exceptions — so a failure there is more likely a
-   real-anatomy edge case (e.g. a landmark heuristic failing on unusual
-   anatomy) than a wiring bug. Report back what you see and it can be
-   diagnosed from the traceback plus the CT that triggered it.
+3. **TotalSegmentator.** Install the TotalSegmentator extension from the
+   Extensions Manager (it brings PyTorch and NNUNet). The first
+   segmentation installs PyTorch, nnU-Net and the TotalSegmentator package
+   after asking (several GB), then downloads the model weights.
+   `_run_total_segmentator()` calls the extension's
+   `TotalSegmentatorLogic.process()` with the "total" task limited to the
+   hips, sacrum and femurs, at "normal" quality (the 1.5 mm model; the
+   3 mm "fast" model is too coarse for corridors about 10 mm wide).
+   Written against extension revision 270cac2 (TotalSegmentator 2.14.0);
+   if a later version changes that API, the panel falls back and shows
+   the error. With an NVIDIA GPU it takes about a minute; without one,
+   "normal" quality can take 5-50 minutes.
+4. **Past segmentation**, `tests/slicer/workflow_check.py` drives every
+   step inside Slicer (see "Verified inside real 3D Slicer"). Run it after
+   changing the module, and when a real CT misbehaves, save the traceback
+   from the Python console together with the case.
 
 ## Safety
 
 - The HU-threshold fallback segmentation cannot reliably separate bones
-  that touch (hip/sacrum at the SI joint, hip/femur at the joint space).
-  Always confirm segmentation — ideally with TotalSegmentator, and by eye —
-  before trusting a suggested corridor.
+  that touch (hip/sacrum at the SI joint, hip/femur at the joint space),
+  and it misses most cancellous bone. Always confirm the "CF bones"
+  segmentation by eye (left and right are coloured differently) before
+  trusting a suggested corridor, and correct it in Segment Editor if
+  needed: edits are read back before landmarks, suggestions, adding a
+  screw and every export, and screws already in the plan are re-validated.
 - Corridor anchor points in `corridors.json` are initial estimates and
   should be reviewed against real anatomy before clinical use.
 - Simulated fluoroscopy is a parallel projection, not a true cone-beam

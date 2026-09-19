@@ -48,6 +48,51 @@ def labels_for_side(group: str, side: str) -> tuple:
     raise ValueError(f"unknown bone group: {group}")
 
 
+# How far (mm) each hip bone's centroid must lie on its own side of the
+# body's midline. An adult hip bone's centroid is about 80-100 mm from it.
+HIP_SIDE_MARGIN_MM = 20.0
+_BODY_HU = -300.0  # tissue vs air, as for the skin outline
+
+
+def check_hip_sides(labels: np.ndarray, volume_hu: np.ndarray, spacing, origin, margin_mm: float = HIP_SIDE_MARGIN_MM):
+    """Check that hip_right and hip_left lie on the patient's right and left.
+
+    Arrays are ZYX on the same grid; world x is RAS (patient right = +x,
+    see volume.py). The midline is the x centroid of the body outline.
+    Returns (verdict, reason):
+
+    - "ok": each hip is clearly on its own side;
+    - "mirrored": hip_right is clearly on the patient's LEFT and hip_left on
+      the right. For a segmenter that labels sides by anatomy (such as
+      TotalSegmentator) that means the scan's left-right orientation may be
+      wrong, so planning must stop rather than fall back to a segmenter that
+      trusts the orientation;
+    - "implausible": a hip is missing, or the two are not one on each side
+      (seen when TotalSegmentator was run on a synthetic phantom).
+    """
+    sx, ox = float(spacing[0]), float(origin[0])
+
+    def centroid_x(mask):
+        counts = mask.sum(axis=(0, 1), dtype=np.int64)
+        total = int(counts.sum())
+        if total == 0:
+            return None
+        return ox + sx * float(np.dot(np.arange(len(counts)), counts)) / total
+
+    xr, xl = centroid_x(labels == HIP_R), centroid_x(labels == HIP_L)
+    if xr is None or xl is None:
+        return "implausible", "a hip bone is missing"
+    x_mid = centroid_x(volume_hu > _BODY_HU)
+    if x_mid is None:
+        x_mid = (xr + xl) / 2.0
+    where = f"hip_right x = {xr:.0f} mm, hip_left x = {xl:.0f} mm, body midline x = {x_mid:.0f} mm (RAS, patient right is +x)"
+    if xr > x_mid + margin_mm and xl < x_mid - margin_mm:
+        return "ok", where
+    if xr < x_mid - margin_mm and xl > x_mid + margin_mm:
+        return "mirrored", f"the right hip is on the patient's left and the left hip on the right ({where})"
+    return "implausible", f"the hips are not one on each side of the body ({where})"
+
+
 def threshold_bone(volume_hu: np.ndarray, hu_threshold: float = 250.0) -> np.ndarray:
     """Binary bone mask by simple HU thresholding + morphological closing."""
     mask = volume_hu >= hu_threshold

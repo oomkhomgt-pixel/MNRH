@@ -8,18 +8,24 @@ screw trajectory) and a dependency-light PNG writer.
 
 Geometry convention
 --------------------
-A view is defined by two rotations applied to the *world* frame:
+World coordinates are RAS (x = patient right, y = anterior, z = superior)
+and the patient is supine. A view is a C-arm position given by two angles
+(``views_deg`` in corridors.json):
 
-- ``rotate_x_deg``: rotation about the world x axis
-- ``rotate_z_deg``: rotation about the world z axis (applied first)
+- (0, 0) is the AP view: the beam runs anterior to posterior (-y), image
+  columns increase toward the patient's left (-x, so the patient's right
+  is on the image's left, as a radiograph is read) and rows increase
+  caudally (-z, superior at the top).
+- ``rotate_x_deg`` tilts the beam cranio-caudally: negative aims it
+  caudally (inlet), positive cranially (outlet).
+- ``rotate_z_deg`` rolls the C-arm about the patient's long axis: positive
+  brings the beam in from the patient's right (+90 is a lateral; the right
+  iliac oblique is -45, the right obturator oblique +45).
 
-``view_rotation`` returns the 3x3 matrix ``R`` such that ``v_view = R @
-v_world`` maps a world vector into the view frame, where the view frame's
-axes are (row-image-x, row-image-y, ray/beam). Concretely we treat the
-view's local +x as the detector's "column" direction, local +y as the
-detector's "row" direction (pointing down the image, i.e. increasing row
-index goes "up" the patient unless flipped), and local +z as the ray
-(projection) direction -- the volume is summed along this axis.
+The tilt is applied first, then the roll. ``view_rotation`` returns the
+3x3 matrix ``R`` with ``v_view = R @ v_world``: its rows are the world
+directions of the image columns (u), image rows (v) and the beam, and the
+volume is summed along the beam.
 
 The DRR image is produced by resampling the HU volume onto a grid aligned
 with the view frame (via ``scipy.ndimage.affine_transform``) and summing
@@ -66,14 +72,24 @@ def _rotation_z(deg: float) -> np.ndarray:
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=float)
 
 
-def view_rotation(rotate_x_deg: float, rotate_z_deg: float) -> np.ndarray:
-    """3x3 world->view rotation matrix.
+# AP view basis in RAS world coordinates: image columns toward the patient's
+# left, image rows toward the feet, beam from anterior to posterior.
+_AP_U = np.array([-1.0, 0.0, 0.0])
+_AP_V = np.array([0.0, 0.0, -1.0])
+_AP_BEAM = np.array([0.0, -1.0, 0.0])
 
-    Applies the z rotation first, then the x rotation, matching the naming
-    order (rotate_x, rotate_z) as sequential intrinsic rotations of the
-    world frame: ``R = Rx(rotate_x_deg) @ Rz(rotate_z_deg)``.
+
+def view_rotation(rotate_x_deg: float, rotate_z_deg: float) -> np.ndarray:
+    """3x3 world->view matrix whose rows are the world directions of the
+    image columns, image rows and beam for this C-arm position (see the
+    module docstring for the angle conventions).
+
+    The AP basis is tilted about the patient's left-right axis, then rolled
+    about the long axis; the signs make a negative tilt caudal (inlet) and a
+    positive roll bring the beam in from the patient's right.
     """
-    return _rotation_x(rotate_x_deg) @ _rotation_z(rotate_z_deg)
+    carm = _rotation_z(-rotate_z_deg) @ _rotation_x(-rotate_x_deg)
+    return np.stack([carm @ _AP_U, carm @ _AP_V, carm @ _AP_BEAM], axis=0)
 
 
 def load_views(corridors_json_path: Optional[str] = None) -> Dict[str, Tuple[float, float]]:
@@ -101,7 +117,10 @@ def render_view(
     *,
     name: str = "",
     pixel_mm: float = 1.0,
-    hu_clip: Tuple[float, float] = (-200.0, 2000.0),
+    # Only voxels above 150 HU (bone, and calcium or contrast) contribute, so
+    # bony landmarks show the way a C-arm image shows them; with soft tissue
+    # included the body outline washed the bone out on real CTs.
+    hu_clip: Tuple[float, float] = (150.0, 2000.0),
     attenuation_k: float = 2.5e-4,
     percentiles: Tuple[float, float] = (1.0, 99.5),
 ) -> DrrView:
