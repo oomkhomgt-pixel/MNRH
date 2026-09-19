@@ -396,7 +396,10 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             html = open(paths["HTML report"], encoding="utf-8").read()
             check(screw.screw_id in html, "report names the screw")
             check(("BREACH" in html) == screw.validation["breach"], "report shows BREACH exactly when breached")
-            check("right (+) / left (-)" in html, "report names the directions of the skin offsets")
+            if screw.skin_entry_xyz is not None:
+                check("right (+) / left (-)" in html, "report names the directions of the skin offsets")
+            else:
+                check("Skin entry not found" in html and not screw.skin_offsets, "no skin offsets when the skin entry was not found")
             check("Length (cortex to tip)" in html and "Entry on the cortex at" in html, "report says where the screw starts and how long it is")
         if os.path.exists(paths["STL"]):
             with open(paths["STL"], "rb") as f:

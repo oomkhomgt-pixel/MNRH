@@ -659,7 +659,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             screw.angles_scanner = app_frame.screw_angles(direction, app_frame.scanner_frame())
             skin_point, skin_found, offsets = self.skin_entry(start, tip)
             screw.skin_entry_xyz = tuple(float(c) for c in skin_point) if skin_found else None
-            screw.skin_offsets = [o.__dict__ for o in offsets]
+            # Without a skin entry, skin_point is not on the skin: no offsets.
+            screw.skin_offsets = [o.__dict__ for o in offsets] if skin_found else []
 
     def update_screw_in_plan(self, screw_id: str, entry_xyz=None, target_xyz=None) -> None:
         """Called when a surgeon drags a screw's markups line handle. Angles

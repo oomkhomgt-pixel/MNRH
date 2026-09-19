@@ -104,7 +104,12 @@ def _render_drr_images(screw_id: str, drr_images: Optional[Dict[str, Dict[str, b
     return f'<div class="drr-row">{"".join(figures)}</div>'
 
 
-def _render_offsets_table(skin_offsets) -> str:
+def _render_offsets_table(skin_offsets, skin_entry_xyz) -> str:
+    if skin_entry_xyz is None:
+        # Offsets without a skin entry would not be skin offsets (older plans
+        # stored them measured from the bone entry): never show them as such.
+        return ("<p><em>Skin entry not found along the screw's axis within the scan "
+                "(for example, the axis leaves the scan first); no incision offsets.</em></p>")
     if not skin_offsets:
         return "<p><em>No skin offsets recorded.</em></p>"
     rows = []
@@ -205,7 +210,7 @@ def _render_screw_section(screw, drr_images=None) -> str:
   {_render_geometry(screw, validation)}
   {_render_drr_images(screw.get('screw_id', ''), drr_images)}
   <h3>Skin landmark offsets</h3>
-  {_render_offsets_table(screw.get('skin_offsets'))}
+  {_render_offsets_table(screw.get('skin_offsets'), screw.get('skin_entry_xyz'))}
   <h3>Trajectory angles</h3>
   {_render_angles_table(screw.get('angles_app'), screw.get('angles_scanner'))}
 </section>

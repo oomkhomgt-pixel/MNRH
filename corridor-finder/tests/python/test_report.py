@@ -137,6 +137,7 @@ def test_write_report_allows_check_phi_disabled(tmp_path):
 
 def test_skin_offsets_name_their_anatomical_directions():
     plan = _plan_with_screws([3.0])
+    plan.screws[0].skin_entry_xyz = (60.0, 20.0, 100.0)
     plan.screws[0].skin_offsets = [{"landmark": "asis_right", "dx_cm": 1.0, "dy_cm": -2.0, "dz_cm": 3.0, "distance_cm": 3.7}]
     html_str = render_report_html(plan)
     # dx/dy/dz alone do not say which way is positive; RAS: +x is the
@@ -177,3 +178,14 @@ def test_report_calls_an_unplaceable_entry_a_breach_whatever_the_clearance():
     plan = _plan_with_screws([5.0])
     plan.screws[0].validation["warning_codes"] = ["entry_not_outer"]
     assert "BREACH" in render_report_html(plan)
+
+
+def test_offsets_without_a_skin_entry_are_not_shown_as_skin_offsets():
+    # Plans made before this fix stored offsets measured from the bone
+    # entry when the skin entry was not found.
+    plan = _plan_with_screws([3.0])
+    plan.screws[0].skin_entry_xyz = None
+    plan.screws[0].skin_offsets = [{"landmark": "ischial_tuberosity_right", "dx_cm": 0.66, "dy_cm": 0.6, "dz_cm": -0.07, "distance_cm": 0.89}]
+    html_str = render_report_html(plan)
+    assert "Skin entry not found" in html_str
+    assert "ischial_tuberosity_right" not in html_str
