@@ -574,7 +574,11 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._showEngineImportError(str(exc))
             return
 
-        layout = qt.QVBoxLayout(self.parent)
+        # ScriptedLoadableModuleWidget.setup() has already installed a layout
+        # on self.parent and exposed it as self.layout. Creating another
+        # QVBoxLayout on the same widget makes Qt warn and silently drop every
+        # widget we add, so always append to the existing self.layout.
+        layout = self.layout
 
         # --- Input volume ---
         inputBox = ctk.ctkCollapsibleButton()
@@ -700,8 +704,18 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     # ---- UI callbacks ---------------------------------------------------
 
+    def _currentCorridorId(self) -> str:
+        """The selected corridor's id.
+
+        NOTE: QComboBox::currentData() is a plain method with a default
+        argument, not a Qt property, so PythonQt does NOT expose it as an
+        attribute — reading ``combo.currentData`` yields a bound method
+        object rather than the data. Go through itemData(currentIndex).
+        """
+        return self.corridorCombo.itemData(self.corridorCombo.currentIndex)
+
     def _onCorridorChanged(self):
-        cid = self.corridorCombo.currentData
+        cid = self._currentCorridorId()
         spec = self.logic.corridor_defs[cid]
         self.sideCombo.clear()
         for side in CORRIDOR_SIDE_OPTIONS[spec["side"]]:
@@ -776,7 +790,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.set_landmark_manual(name, engine_xyz)
 
     def onSuggest(self):
-        cid = self.corridorCombo.currentData
+        cid = self._currentCorridorId()
         side = self.sideCombo.currentText
         margin = self.marginSpin.value
         try:
@@ -806,7 +820,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.logic.plan is None:
             self.onNewPlan()
 
-        cid = self.corridorCombo.currentData
+        cid = self._currentCorridorId()
         side = self.sideCombo.currentText
         margin = self.marginSpin.value
         screw_id = f"{cid}_{side}_{len(self.logic.plan.screws) + 1}"
