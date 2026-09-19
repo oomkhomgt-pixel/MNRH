@@ -8,10 +8,12 @@ length, the exemption distance transform) must come out identical; the
 clearance may only be up to 0.1 mm lower in the viewer, never higher, and
 the viewer must never call safe a screw validate.py calls a breach. A
 screw moved too far from where it was exported must be refused, not
-guessed. Skipped when Node is not installed.
+guessed. Skipped when Node is not installed, unless CF_REQUIRE_NODE=1 (set
+in CI): then they run, and a missing Node fails them.
 """
 import base64
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,7 +30,10 @@ from corridor_engine.volume import Volume
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "tests" / "node" / "clearance_golden.mjs"
-needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+# CI sets CF_REQUIRE_NODE=1 so that a missing Node cannot pass as a skip.
+needs_node = pytest.mark.skipif(
+    shutil.which("node") is None and os.environ.get("CF_REQUIRE_NODE") != "1", reason="Node is not installed"
+)
 
 CATALOG = [float(v) for v in range(10, 105, 5)]
 

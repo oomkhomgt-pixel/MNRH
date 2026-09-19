@@ -249,7 +249,9 @@ pytest -q
 
 `tests/python/test_viewer_clearance_golden.py` runs the viewer's screw
 check under Node (`node` on the PATH) against `validate.py` and is skipped
-without it.
+without it, unless `CF_REQUIRE_NODE=1`, which makes a missing Node a
+failure. The CI workflow (`.github/workflows/corridor-finder.yml` at the
+repo root) installs Node 22 and sets it.
 The Slicer-side checks run inside Slicer:
 
 ```

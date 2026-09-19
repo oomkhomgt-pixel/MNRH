@@ -1,4 +1,6 @@
-# Corridor Finder checks — engine unit tests (pytest) and viewer export tests (Playwright).
+# Corridor Finder checks — engine unit tests (pytest), including the golden tests that run the
+# viewer's screw check (viewer/clearance.js) under Node against validate.py. The viewer's
+# rendering has no browser test yet (see corridor-finder/README.md, Status).
 #
 # workflow_dispatch only for now, matching portfolio.yml, while the project is still under
 # active development. Enable push/pull_request triggers once the engine has stabilized.
@@ -29,44 +31,20 @@ jobs:
           cache: pip
           cache-dependency-path: corridor-finder/requirements-dev.txt
 
+      # `node` on the PATH for tests/python/test_viewer_clearance_golden.py, pinned here rather
+      # than taken from whatever the runner image ships. No npm packages, so no npm cache.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: ติดตั้ง dependencies
         run: pip install -r requirements-dev.txt -e .
         timeout-minutes: 5
 
+      # CF_REQUIRE_NODE=1 makes the golden tests fail, instead of skip, if `node` is missing.
+      # -ra ends the log with every failed and skipped test, skips with their reason (-rs
+      # alone would drop the failures from that list).
       - name: รัน pytest
-        run: pytest -q
-
-  node:
-    name: ชุดทดสอบ viewer export (Playwright)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: corridor-finder/tests/node
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: corridor-finder/tests/node/package-lock.json
-
-      - name: ติดตั้ง playwright
-        run: npm ci
-        timeout-minutes: 5
-
-      - name: แคชเบราว์เซอร์ของ playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('corridor-finder/tests/node/package-lock.json') }}
-
-      - name: ติดตั้ง Chromium
-        run: npx playwright install chromium
-        timeout-minutes: 5
-
-      - name: รันชุดทดสอบ
-        run: node run.mjs
-        timeout-minutes: 8
+        run: pytest -q -ra
+        env:
+          CF_REQUIRE_NODE: "1"
