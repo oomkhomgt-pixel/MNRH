@@ -14,8 +14,9 @@ import dialogs from "./dialogs.test.mjs";
 import feedback from "./feedback.test.mjs";
 import logbook from "./logbook.test.mjs";
 import lifecycle from "./lifecycle.test.mjs";
+import dataops from "./dataops.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle };
+const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle, dataops };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 

@@ -692,6 +692,70 @@ export default async function run() {
       t.check("หน้าเข้าสู่ระบบ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+
+    /* ---------- งานวิจัย: หน้านี้เปิดให้ทุกบทบาท จึงต้องกรองที่ชั้นข้อมูลเอง ----------
+       เดิม renderResearch() วาด store.data.research ทั้งก้อน และ editResearch() ไม่มี guard เลย
+       แพทย์ประจำบ้านจึงเปิดหน้านี้แล้วแก้หรือลบโครงการของเพื่อนได้จากปุ่มบนหน้าจอปกติ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const ids = await page.evaluate(() => {
+        const resUser = store.data.users.find(u => u.role === "resident" && u.residentId);
+        const other = store.data.residents.find(r => r.id !== resUser.residentId);
+        store.data.research = [
+          { id:"rs_mine", title:"โครงการของฉัน", residentId: resUser.residentId, advisor:"ก", subspecialty:"general", type:"Retrospective", stages:{}, updates:[] },
+          { id:"rs_other", title:"โครงการของเพื่อน", residentId: other.id, advisor:"ข", subspecialty:"general", type:"Retrospective", stages:{}, updates:[] }
+        ];
+        store.save();
+        return { userId: resUser.id, mine: resUser.residentId, other: other.id };
+      });
+
+      await page.evaluate(id => localStorage.setItem("mnrh_ortho_portfolio_session_v1",
+        JSON.stringify({ userId: id, at: new Date().toISOString() })), ids.userId);
+      await page.reload();
+      await page.waitForFunction(() => typeof currentUser === "function" && !!currentUser());
+
+      const asRes = await page.evaluate(() => {
+        renderResearch();
+        const box = document.querySelector("#researchList");
+        /* นับการ์ดที่วาดออกมาจริง ไม่ใช่ผลของ canSeeResident() — ต้องวัดสิ่งที่ผู้ใช้เห็นบนหน้าจอ */
+        const shown = box.querySelectorAll(":scope > .card").length;
+        /* กดแก้โครงการของเพื่อนด้วยการเรียกฟังก์ชันตรง ๆ ต้องไม่เปิดกล่อง */
+        editResearch("rs_other");
+        const opened = !!document.querySelector("#dlg")?.open;
+        if (opened) document.querySelector("#dlg").close();
+        return {
+          role: myRole(), shown,
+          html: box.innerHTML,
+          editButtons: box.querySelectorAll("[data-rs-edit]").length,
+          opened, stillThere: store.data.research.length
+        };
+      });
+      t.eq("แพทย์ประจำบ้านเห็นโครงการวิจัยเฉพาะของตัวเอง", asRes.shown, 1);
+      t.check("ชื่อโครงการของเพื่อนไม่ปรากฏในหน้า", !asRes.html.includes("โครงการของเพื่อน"), asRes.role);
+      t.check("โครงการของตัวเองยังเห็นได้", asRes.html.includes("โครงการของฉัน"));
+      t.eq("ไม่มีปุ่มแก้ไขขั้นตอนให้แพทย์ประจำบ้าน", asRes.editButtons, 0);
+      t.check("เรียก editResearch() ของคนอื่นตรง ๆ ไม่เปิดกล่อง", !asRes.opened);
+      t.eq("ไม่มีโครงการไหนถูกลบระหว่างทาง", asRes.stillThere, 2);
+
+      /* อาจารย์ยังต้องทำงานได้เหมือนเดิม — ไม่ใช่ปิดทั้งหน้าแล้วจบ */
+      const staffUserId = await page.evaluate(() => store.data.users.find(u => u.role === "staff").id);
+      await page.evaluate(id => localStorage.setItem("mnrh_ortho_portfolio_session_v1",
+        JSON.stringify({ userId: id, at: new Date().toISOString() })), staffUserId);
+      await page.reload();
+      await page.waitForFunction(() => typeof currentUser === "function" && !!currentUser());
+      const asStaff = await page.evaluate(() => {
+        renderResearch();
+        const box = document.querySelector("#researchList");
+        editResearch("rs_other");
+        const opened = !!document.querySelector("#dlg")?.open;
+        if (opened) document.querySelector("#dlg").close();
+        return { blocks: box.querySelectorAll("[data-rs-edit]").length, opened };
+      });
+      t.eq("อาจารย์ยังเห็นปุ่มแก้ไขของทุกโครงการ", asStaff.blocks, 2);
+      t.check("อาจารย์ยังเปิดกล่องแก้ไขได้", asStaff.opened);
+      t.check("หน้างานวิจัย: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();

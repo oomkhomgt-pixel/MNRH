@@ -2271,10 +2271,16 @@ const store = {
        ผลคือหลังล้างข้อมูล คอลเลกชันนั้นเป็น undefined จนกว่าจะรีโหลด แล้วปุ่มที่ไปแตะมันก็พัง
        ปล่อยให้ migrate() สร้างโครงให้แทน — มันสร้างทุกคีย์ด้วย ||= อยู่แล้ว จึงรันบนก้อนว่างได้
        และคอลเลกชันที่เพิ่มในอนาคตจะไม่หลุดซ้ำอีก */
+    /* บัญชีของคนที่กดล้างต้องอยู่ต่อ — ถ้า users ว่าง canManage() เป็น false ทันที แท็บตั้งค่าและปุ่ม
+       "นำเข้าไฟล์สำรอง" ถูกซ่อน และเมื่อรีโหลด renderLoginGate() ก็ซ่อนหน้าเข้าสู่ระบบ (users ว่าง
+       = โหมดที่ยังไม่ตั้งบัญชี) กลายเป็นล็อกตัวเองออกถาวรจนต้องล้าง site data จากเบราว์เซอร์
+       ทั้งที่กล่องยืนยันเพิ่งบอกให้สำรองไฟล์ไว้กู้คืน — ล้างข้อมูล ไม่ใช่ล้างคนที่กดล้าง */
+    const me = currentUser();
     localStorage.removeItem(APP.key);
     /* เหตุผลเดียวกับ reset(): ฐานเปรียบเทียบเก่าต้องไม่ข้ามมาเทียบกับก้อนที่ล้างใหม่ */
     try { localStorage.removeItem(BASELINE_KEY); } catch {}
     this.data = { meta:{ created:new Date().toISOString() } };
+    if (me) this.data.users = [me];
     this.migrate();
     this.save();
   },
@@ -6994,6 +7000,8 @@ function renderResidentDetail() {
   </div>`;
 
   box.querySelectorAll("[data-act-open]").forEach(b => b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+  /* บล็อกงานวิจัยในแฟ้มใช้ researchBlock ตัวเดียวกับหน้างานวิจัย — ปุ่มแก้ไขที่นี่เคยไม่ถูกผูกไว้เลย */
+  box.querySelectorAll("[data-rs-edit]").forEach(b => b.addEventListener("click", () => editResearch(b.dataset.rsEdit)));
   box.querySelector("[data-edit-res]")?.addEventListener("click", () => editResident(r.id));
   box.querySelector("[data-portfolio]")?.addEventListener("click", () => printPortfolio(r.id));
   box.querySelector("[data-resdash]")?.addEventListener("click", () => exportResidentDashboard(r.id));
@@ -9135,7 +9143,7 @@ function researchBlock(pj, compact) {
       </div>
       <div class="row no-print">
         <span class="tag ${late.length ? "bad" : done === RESEARCH_STAGES.length ? "ok" : "b"}">${done}/${RESEARCH_STAGES.length} ขั้น</span>
-        <button class="btn-sm" data-rs-edit="${pj.id}">แก้ไขขั้นตอน</button>
+        ${canAssess() ? `<button class="btn-sm" data-rs-edit="${pj.id}">แก้ไขขั้นตอน</button>` : ""}
       </div>
     </div>
     ${barFor(pct(done, RESEARCH_STAGES.length))}
@@ -9159,8 +9167,11 @@ function researchBlock(pj, compact) {
 
 function renderResearch() {
   const box = $("#researchList");
-  const list = store.data.research.slice().sort((a, b) => (a.residentId).localeCompare(b.residentId));
-  box.innerHTML = list.length ? list.map(pj => researchBlock(pj, false)).join("") : `<p class="empty">ยังไม่มีโครงการวิจัยในระบบ</p>`;
+  /* หน้านี้เปิดให้ทุกบทบาท (ปุ่มกลุ่ม "แพทย์ประจำบ้าน" ไม่มี data-perm) — ต้องกรองที่ชั้นข้อมูลเอง
+     ไม่งั้นแพทย์ประจำบ้านเห็นชื่อเรื่อง อาจารย์ที่ปรึกษา และขั้นที่ล่าช้าของเพื่อนทุกคน */
+  const list = store.data.research.filter(pj => canSeeResident(pj.residentId))
+    .sort((a, b) => (a.residentId).localeCompare(b.residentId));
+  box.innerHTML = list.length ? list.map(pj => researchBlock(pj, false)).join("") : `<p class="empty">ยังไม่มีโครงการวิจัยที่บัญชีนี้มีสิทธิ์เห็น</p>`;
   box.querySelectorAll("[data-rs-edit]").forEach(b => b.addEventListener("click", () => editResearch(b.dataset.rsEdit)));
 }
 
@@ -9895,6 +9906,9 @@ function editResident(id) {
 }
 
 function editResearch(id) {
+  /* กล่องนี้เปลี่ยนเจ้าของโครงการและลบโครงการได้ จึงเป็นสิทธิ์ของอาจารย์/ผู้จัดหลักสูตรเท่านั้น
+     ให้ตรงกับปุ่ม "+ เพิ่มโครงการ" ที่เป็น data-perm="staff" อยู่แล้ว — guard ในฟังก์ชันกันทางเรียกอื่นด้วย */
+  if (!canAssess()) { toast("การแก้ไขโครงการวิจัยเป็นสิทธิ์ของอาจารย์"); return; }
   const pj = id ? store.data.research.find(x => x.id === id) : null;
   const body = `
     <label class="f"><span>ชื่อโครงการ</span><input name="title" value="${esc(pj?.title || "")}" /></label>
@@ -9924,6 +9938,7 @@ function editResearch(id) {
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(pj ? [{ label:"ลบโครงการ", cls:"btn-danger", onClick: () => {
+        audit("ลบโครงการวิจัย", pj.title + " · " + (store.resident(pj.residentId)?.name || pj.residentId));
         removeWithUndo("ลบโครงการวิจัยแล้ว", [{ list:"research", keep: x => x.id !== pj.id }]);
       }}] : [])
   ]);
@@ -10951,9 +10966,20 @@ function importJson(file) {
       if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
       if (!(await confirmDialog("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม)",
             { title: "นำเข้าไฟล์สำรอง", okLabel: "แทนที่ข้อมูลในเครื่อง", danger: true }))) return;
-      /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset() */
-      try { localStorage.removeItem(BASELINE_KEY); } catch {}
-      await runDestructiveDataOp(() => { store.data = data; store.migrate(); store.save(); });
+      await runDestructiveDataOp(() => {
+        /* migrate() ไล่ทุกคอลเลกชัน ถ้าไฟล์มีคีย์รูปร่างผิด (เช่น "services": {} ซึ่ง ||= ไม่ทับให้
+           เพราะ object เป็น truthy) มันจะ throw กลางทาง — เดิมแทน store.data ไปก่อนแล้ว จึงเหลือก้อนที่
+           แปลงไม่จบค้างในหน่วยความจำ ทั้งที่ผู้ใช้เห็นข้อความ "นำเข้าไม่สำเร็จ" และหน้าจอยังเหมือนเดิม
+           แล้วการบันทึกครั้งถัดไป (กดแก้อะไรก็ได้ หรือแม้แต่ออกจากระบบ) จะเขียนก้อนนั้นทับข้อมูลจริง
+           แปลงให้จบก่อน ถ้าพังคืนของเดิมแล้วโยนต่อ — ไม่แตะ localStorage จนกว่าจะสำเร็จจริง */
+        const prev = store.data;
+        try { store.data = data; store.migrate(); }
+        catch (e) { store.data = prev; throw e; }
+        /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset()
+           แต่ล้างหลังแปลงสำเร็จเท่านั้น ไม่งั้นนำเข้าพลาดแล้วฐานเปรียบเทียบของข้อมูลเดิมหายไปด้วย */
+        try { localStorage.removeItem(BASELINE_KEY); } catch {}
+        store.save();
+      });
       selectedResident = null; renderAll();
       audit("นำเข้าข้อมูลทั้งชุดจากไฟล์", data.residents.length + " คน · " + data.activities.length + " กิจกรรม");
       toast("นำเข้าข้อมูลแล้ว");
@@ -11610,9 +11636,9 @@ function init() {
     selectedResident = null; renderAll(); toast("โหลดข้อมูลสาธิตใหม่แล้ว");
   });
   $("#btnWipe").addEventListener("click", async () => {
-    if (!(await confirmDialog("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน", { title: "ลบข้อมูลทั้งหมด", okLabel: "ลบทั้งหมด", danger: true }))) return;
+    if (!(await confirmDialog("ลบข้อมูลทั้งหมดในเครื่องนี้? การลบย้อนกลับไม่ได้ ควรสำรองไฟล์ JSON ไว้ก่อน — บัญชีที่กำลังใช้อยู่จะถูกเก็บไว้ให้ เพื่อให้นำไฟล์สำรองกลับเข้ามาได้", { title: "ลบข้อมูลทั้งหมด", okLabel: "ลบทั้งหมด", danger: true }))) return;
     await runDestructiveDataOp(() => store.wipe());
-    selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว");
+    selectedResident = null; renderAll(); toast("ลบข้อมูลแล้ว — เหลือไว้เฉพาะบัญชีที่กำลังใช้อยู่");
   });
 
   setupApp();
