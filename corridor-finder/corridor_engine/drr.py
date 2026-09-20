@@ -46,6 +46,7 @@ import numpy as np
 from scipy.ndimage import affine_transform
 
 MNRH_ORANGE = (242, 142, 19)  # #F28E13
+SAFE_AREA_GREEN = (34, 197, 94)  # where a screw's entry may still sit
 
 
 @dataclass
@@ -273,30 +274,83 @@ def _bresenham_ish_line_mask(shape, p0, p1, width_px: float) -> np.ndarray:
     return dist2 <= (width_px / 2.0) ** 2
 
 
-def draw_screw(view: DrrView, entry_xyz, target_xyz, *, width_px: float = 3.0, value: float = 1.0) -> np.ndarray:
-    """Return an RGB uint8 overlay: greyscale DRR + orange screw axis + scale bar."""
-    img = np.clip(view.image, 0.0, 1.0)
-    h, w = img.shape
-    grey = (img * 255.0).astype(np.uint8)
-    rgb = np.stack([grey, grey, grey], axis=-1).astype(np.uint8)
+def _as_rgb(view: DrrView, rgb: Optional[np.ndarray]) -> np.ndarray:
+    """The view as an RGB image to draw on, or the one passed in."""
+    if rgb is not None:
+        return rgb
+    grey = (np.clip(view.image, 0.0, 1.0) * 255.0).astype(np.uint8)
+    return np.stack([grey, grey, grey], axis=-1).astype(np.uint8)
+
+
+def draw_points(view: DrrView, points_xyz, *, rgb: Optional[np.ndarray] = None, radius_px: float = 1.5, color=SAFE_AREA_GREEN, value: float = 0.65) -> np.ndarray:
+    """Tint where a set of world points projects. On a view looking down a
+    screw (guidance.down_the_barrel_view) the safe entry area drawn this way
+    is what the surgeon is aiming inside of. Draws into ``rgb`` when given,
+    so overlays can be stacked (this one first, the screw over it)."""
+    from scipy.ndimage import binary_dilation
+
+    rgb = _as_rgb(view, rgb)
+    pts = np.atleast_2d(np.asarray(points_xyz, dtype=float))
+    if pts.shape[0] == 0:
+        return rgb
+    h, w = rgb.shape[:2]
+    cols, rows = np.atleast_2d(project_point(view, pts)).T
+    cols, rows = np.round(cols).astype(int), np.round(rows).astype(int)
+    on_image = (rows >= 0) & (rows < h) & (cols >= 0) & (cols < w)
+    mask = np.zeros((h, w), dtype=bool)
+    mask[rows[on_image], cols[on_image]] = True
+    reach = int(np.ceil(radius_px))
+    if reach:
+        dy, dx = np.mgrid[-reach:reach + 1, -reach:reach + 1]
+        mask = binary_dilation(mask, structure=dy ** 2 + dx ** 2 <= radius_px ** 2)
+    tint = np.array(color, dtype=float)
+    rgb[mask] = (tint * value + rgb[mask].astype(float) * (1.0 - value)).astype(np.uint8)
+    return rgb
+
+
+def draw_screw(view: DrrView, entry_xyz, target_xyz, *, rgb: Optional[np.ndarray] = None, width_px: float = 3.0, value: float = 1.0) -> np.ndarray:
+    """Return an RGB uint8 overlay: greyscale DRR (or ``rgb``, to draw over
+    something already drawn) + orange screw axis + scale bar."""
+    rgb = _as_rgb(view, rgb)
+    h, w = rgb.shape[:2]
 
     p0 = project_point(view, entry_xyz)
     p1 = project_point(view, target_xyz)
     mask = _bresenham_ish_line_mask((h, w), p0, p1, width_px)
+
     orange = np.array(MNRH_ORANGE, dtype=np.uint8)
     rgb[mask] = (orange.astype(float) * value + rgb[mask].astype(float) * (1.0 - value)).astype(np.uint8)
 
-    # 50mm scale bar, bottom-left, with a small margin.
-    bar_len_px = max(1, int(round(50.0 / view.pixel_mm)))
+    _draw_scale_bar(rgb, view.pixel_mm)
+    return rgb
+
+
+def _draw_scale_bar(rgb: np.ndarray, pixel_mm: float) -> None:
+    """A 50 mm white bar, bottom-left, so any view can be measured by eye."""
+    h, w = rgb.shape[:2]
+    bar_len_px = max(1, int(round(50.0 / pixel_mm)))
     margin = max(4, int(0.02 * min(h, w)))
     bar_row0 = max(0, h - margin - 3)
     bar_row1 = min(h, bar_row0 + 3)
-    bar_col0 = margin
-    bar_col1 = min(w, bar_col0 + bar_len_px)
-    if bar_row1 > bar_row0 and bar_col1 > bar_col0:
-        rgb[bar_row0:bar_row1, bar_col0:bar_col1] = np.array([255, 255, 255], dtype=np.uint8)
+    bar_col1 = min(w, margin + bar_len_px)
+    if bar_row1 > bar_row0 and bar_col1 > margin:
+        rgb[bar_row0:bar_row1, margin:bar_col1] = np.array([255, 255, 255], dtype=np.uint8)
 
-    return rgb
+
+def crop_around(view: DrrView, rgb: np.ndarray, center_xyz, *, half_mm: float = 60.0, zoom: int = 3) -> np.ndarray:
+    """A zoomed cut-out of a drawn view around a world point, with its own
+    scale bar. A view looking down a screw is mostly empty field; what the
+    surgeon needs is the few centimetres around the entry."""
+    col, row = project_point(view, center_xyz)
+    half_px = max(1, int(round(half_mm / view.pixel_mm)))
+    h, w = rgb.shape[:2]
+    row0, row1 = max(0, int(round(row)) - half_px), min(h, int(round(row)) + half_px + 1)
+    col0, col1 = max(0, int(round(col)) - half_px), min(w, int(round(col)) + half_px + 1)
+    if row1 <= row0 or col1 <= col0:
+        return rgb  # the point is off the image; the whole view is still true
+    cut = np.kron(rgb[row0:row1, col0:col1], np.ones((zoom, zoom, 1), dtype=np.uint8))
+    _draw_scale_bar(cut, view.pixel_mm / zoom)
+    return cut
 
 
 def _write_png_minimal(path: str, arr: np.ndarray) -> None:

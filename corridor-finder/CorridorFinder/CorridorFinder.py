@@ -90,6 +90,8 @@ try:
         corridor as corridor_search,
         drr as drr_mod,
         edt as edt_mod,
+        entry_zone as entry_zone_mod,
+        guidance as guidance_mod,
         landmarks as landmarks_mod,
         mesh as mesh_mod,
         phi as phi_mod,
@@ -295,6 +297,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.plan: Optional["plan_mod.Plan"] = None
         self._edt_cache: Dict[tuple, EngineVolume] = {}
         self._body_mask: Optional[EngineVolume] = None  # for skin entries
+        # screw id -> (what it was computed from, EntryArea): measuring the
+        # room around an entry takes seconds, and four exports in a row ask
+        # for the same one.
+        self._entry_area_cache: Dict[str, tuple] = {}
+        self._labels_version = 0
 
     # ---- Segmentation --------------------------------------------------
 
@@ -306,6 +313,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.frame = None
         self._edt_cache = {}
         self._body_mask = None
+        self._labels_version += 1
 
     def segment(self, prefer_total_segmentator: bool = True) -> str:
         """Populate self.labels_volume. Returns "totalsegmentator" or
@@ -410,6 +418,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return False
         self.labels_volume = EngineVolume(array=new, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
         self._edt_cache = {}
+        self._labels_version += 1
         return True
 
     # ---- Landmarks / frame ---------------------------------------------
@@ -580,6 +589,52 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             tip_rule=self.tip_rule(corridor_id), catalog_lengths_mm=self.catalog_lengths(diameter_mm),
         )
 
+    # ---- Aiming guidance -------------------------------------------------
+
+    def screw_guidance(self, screw, *, with_entry_area: bool = False) -> dict:
+        """How to aim a validated screw: its direction in words (in the APP
+        frame and in the scan's own axes), the C-arm angles that look
+        straight down it, and, when asked for, the room around its entry,
+        which costs seconds rather than milliseconds."""
+        v = screw.validation or {}
+        if v.get("start_xyz") is None or v.get("tip_xyz") is None:
+            return {}
+        direction = np.asarray(v["tip_xyz"], dtype=float) - np.asarray(v["start_xyz"], dtype=float)
+        barrel = guidance_mod.down_the_barrel_view(direction)
+        out = {
+            "direction_scanner": guidance_mod.describe_direction(direction, app_frame.scanner_frame(), screw.side).sentence,
+            "barrel_view": {"rotate_x_deg": barrel.rotate_x_deg, "rotate_z_deg": barrel.rotate_z_deg, "reading": barrel.reading},
+        }
+        if self.frame is not None:
+            out["direction_app"] = guidance_mod.describe_direction(direction, self.frame, screw.side).sentence
+        if with_entry_area:
+            area = self.entry_area(screw)
+            out["entry_area"] = {
+                "sentence": area.sentence(),
+                "room_mm": area.room_mm,
+                "room_is_at_least": area.room_is_at_least,
+                "extents_mm": area.extents_mm,
+                "step_mm": area.step_mm,
+                "half_extent_mm": area.half_extent_mm,
+                "n_entries": int(len(area.entry_points_xyz)),
+            }
+        return out
+
+    def entry_area(self, screw) -> "entry_zone_mod.EntryArea":
+        """Where this screw's entry may sit and still pass the same check the
+        plan applies. Recomputed whenever the screw or the bones change."""
+        key = (tuple(screw.entry_xyz), tuple(screw.target_xyz), screw.diameter_mm, screw.margin_mm, screw.tip_rule, self._labels_version)
+        cached = self._entry_area_cache.get(screw.screw_id)
+        if cached is None or cached[0] != key:
+            self._progress(f"Measuring the room around {screw.screw_id}'s entry...")
+            area = entry_zone_mod.safe_entry_area(
+                screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm,
+                self.clearance_field(screw.corridor_id, screw.side), self.labels_volume,
+                tip_rule=self.tip_rule(screw.corridor_id), catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
+            )
+            self._entry_area_cache[screw.screw_id] = (key, area)
+        return self._entry_area_cache[screw.screw_id][1]
+
     # ---- Skin entry -----------------------------------------------------
 
     def skin_entry(self, bone_entry_xyz, target_xyz):
@@ -652,6 +707,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return
         screw.validation = v.__dict__
         screw.length_mm = float(v.length_mm)
+        # Cheap guidance every time, so a dragged screw never shows the
+        # direction it had before; the room around its entry costs seconds,
+        # so it is dropped here and measured on request or at export.
+        screw.guidance = self.screw_guidance(screw)
         if derived:
             start, tip = np.asarray(v.start_xyz, dtype=float), np.asarray(v.tip_xyz, dtype=float)
             direction = (tip - start) / max(float(np.linalg.norm(tip - start)), 1e-9)
@@ -691,12 +750,13 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             self.plan.log("revalidate", screw_id=screw.screw_id, before=before, after=dict(validation=screw.validation, length_mm=screw.length_mm))
 
     def refresh_derived(self) -> None:
-        """Recompute every screw's validation, angles and skin entry from its
-        current handles; run before anything is exported. A validation that
-        changes is logged in the audit trail."""
+        """Recompute every screw's validation, angles, skin entry and aiming
+        guidance from its current handles; run before anything is exported.
+        A validation that changes is logged in the audit trail."""
         for screw in self.plan.screws:
             before = dict(validation=screw.validation, length_mm=screw.length_mm)
             self._validate_plan_screw(screw, derived=True)
+            screw.guidance = self.screw_guidance(screw, with_entry_area=True)
             if (screw.length_mm, screw.validation.get("breach"), screw.validation.get("min_clearance_mm")) != (
                 before["length_mm"], before["validation"].get("breach"), before["validation"].get("min_clearance_mm")
             ):
@@ -751,6 +811,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._screw_line_nodes: Dict[str, "vtkMRMLMarkupsLineNode"] = {}
         self._screw_line_handlers: Dict[str, object] = {}  # to detach observers
         self._screw_model_nodes: Dict[str, "vtkMRMLModelNode"] = {}  # the screws as validated
+        self._entry_area_nodes: Dict[str, "vtkMRMLModelNode"] = {}  # where each entry may sit
         self._landmark_fiducial_node = None
         self._bonesSegmentationNode = None
         self._shownScrewId = None  # screw whose clearance the label shows
@@ -850,7 +911,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         planForm.addRow(_("Screws in plan:"), self.screwsList)
 
         self.clearanceLabel = qt.QLabel("")
+        self.clearanceLabel.setWordWrap(True)
         planForm.addRow(_("Live clearance:"), self.clearanceLabel)
+
+        self.entryAreaButton = qt.QPushButton(_("Show where this entry may sit"))
+        self.entryAreaButton.setToolTip(_("Slide this screw sideways and mark every entry that still passes the same check (takes a few seconds)."))
+        self.entryAreaButton.enabled = False
+        planForm.addRow(self.entryAreaButton)
 
         # --- Export ---
         exportBox = ctk.ctkCollapsibleButton()
@@ -873,6 +940,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.suggestButton.clicked.connect(self.onSuggest)
         self.addScrewButton.clicked.connect(self.onAddScrew)
         self.newPlanButton.clicked.connect(self.onNewPlan)
+        self.entryAreaButton.clicked.connect(self.onShowEntryArea)
         self.screwsList.currentRowChanged.connect(self.onScrewSelected)
         self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
@@ -1205,6 +1273,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.logic.plan is None or row < 0 or row >= len(self.logic.plan.screws):
             self.clearanceLabel.setText("")
             self._shownScrewId = None
+            self.entryAreaButton.enabled = False
             return
         self._refreshClearanceLabel(self.logic.plan.screws[row].screw_id)
 
@@ -1217,6 +1286,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if screw is None:
             return
         self._shownScrewId = screw_id
+        self.entryAreaButton.enabled = True
         row = next((i for i, s in enumerate(self.logic.plan.screws) if s.screw_id == screw_id), None)
         if row is not None and row < self.screwsList.count:
             self.screwsList.item(row).setText(self._screwListText(screw))  # the length follows the handles
@@ -1230,6 +1300,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         text += f"\n{screw.diameter_mm} x {screw.length_mm:.0f} mm from the entry cortex"
         if v.get("protrusion_mm") is not None:
             text += f", tip {v['protrusion_mm']:.1f} mm past the far cortex"
+        guidance = screw.guidance or {}
+        if guidance.get("direction_app") or guidance.get("direction_scanner"):
+            text += f"\nAim: {guidance.get('direction_app') or guidance['direction_scanner']}"
+        if (guidance.get("barrel_view") or {}).get("reading"):
+            text += f"\nC-arm down the screw: {guidance['barrel_view']['reading']}"
+        if (guidance.get("entry_area") or {}).get("sentence"):
+            text += f"\nEntry room: {guidance['entry_area']['sentence']}"
         for warning in warnings:
             text += f"\nWarning: {warning}"
         self.clearanceLabel.setText(text)
@@ -1240,6 +1317,47 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             style = "color: #15803d;"
         self.clearanceLabel.setStyleSheet(style)
+
+    def onShowEntryArea(self) -> None:
+        """Measure the room around the selected screw's entry and mark every
+        entry that still passes, on the bone."""
+        screw = next((s for s in self.logic.plan.screws if s.screw_id == self._shownScrewId), None)
+        if screw is None:
+            return
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        try:
+            area = self.logic.entry_area(screw)
+            screw.guidance = self.logic.screw_guidance(screw, with_entry_area=True)
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+            return
+        finally:
+            qt.QApplication.restoreOverrideCursor()
+        self._showEntryAreaPoints(screw.screw_id, area.entry_points_xyz)
+        self._refreshClearanceLabel(screw.screw_id)
+
+    def _showEntryAreaPoints(self, screw_id: str, points) -> None:
+        """Show the safe entries as a patch of points on the bone surface."""
+        node = self._entry_area_nodes.get(screw_id)
+        vtk_points = vtk.vtkPoints()
+        for p in points:
+            vtk_points.InsertNextPoint(*_engine_to_ras(p))
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(vtk_points)
+        vertices = vtk.vtkVertexGlyphFilter()
+        vertices.SetInputData(poly)
+        vertices.Update()
+        if node is None or node.GetScene() is None:
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", f"CF_{screw_id}_entry_area")
+            node.CreateDefaultDisplayNodes()
+            node.GetDisplayNode().SetColor(0.13, 0.77, 0.37)
+            node.GetDisplayNode().SetPointSize(6)
+            node.GetDisplayNode().SetRepresentation(1)  # points, not a surface
+            node.GetDisplayNode().SetVisibility2D(True)
+            self._entry_area_nodes[screw_id] = node
+        node.SetAndObservePolyData(vertices.GetOutput())
+        node.SetDisplayVisibility(vtk_points.GetNumberOfPoints() > 0)
 
     def _updateScrewModel(self, screw) -> None:
         """Show the screw as validate.py checked it: from its entry-cortex
@@ -1287,10 +1405,11 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 slicer.mrmlScene.RemoveNode(node)
         self._screw_line_nodes = {}
         self._screw_line_handlers = {}
-        for node in self._screw_model_nodes.values():
+        for node in list(self._screw_model_nodes.values()) + list(self._entry_area_nodes.values()):
             if node.GetScene() is not None:
                 slicer.mrmlScene.RemoveNode(node)
         self._screw_model_nodes = {}
+        self._entry_area_nodes = {}
         self.logic.new_plan(alias)
         self.screwsList.clear()
 
@@ -1326,27 +1445,36 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
 
     def _renderDrrImagesForPlan(self) -> dict:
+        import io
+
+        from PIL import Image
+
+        def png(overlay) -> bytes:
+            buf = io.BytesIO()
+            Image.fromarray(overlay).save(buf, format="PNG")
+            return buf.getvalue()
+
         all_views = sorted({v for s in self.logic.plan.screws for v in s.drr_views})
-        if not all_views:
-            return {}
-        rendered = self.logic.render_views(all_views)
+        rendered = self.logic.render_views(all_views) if all_views else {}
         images = {}
         for screw in self.logic.plan.screws:
             per_screw = {}
+            # The screw as validated: entry cortex to tip.
+            v = screw.validation or {}
+            start = v.get("start_xyz") or screw.entry_xyz
+            tip = v.get("tip_xyz") or screw.target_xyz
             for view_name in screw.drr_views:
                 view = rendered.get(view_name)
-                if view is None:
-                    continue
-                # The screw as validated: entry cortex to tip.
-                v = screw.validation or {}
-                overlay = drr_mod.draw_screw(view, v.get("start_xyz") or screw.entry_xyz, v.get("tip_xyz") or screw.target_xyz)
-                import io
-
-                from PIL import Image
-
-                buf = io.BytesIO()
-                Image.fromarray(overlay).save(buf, format="PNG")
-                per_screw[view_name] = buf.getvalue()
+                if view is not None:
+                    per_screw[view_name] = png(drr_mod.draw_screw(view, start, tip))
+            # One more view per screw: straight down it, where the screw is a
+            # dot inside the area its entry may move in.
+            barrel = (screw.guidance or {}).get("barrel_view")
+            if barrel is not None:
+                view = drr_mod.render_view(self.logic.hu_volume, barrel["rotate_x_deg"], barrel["rotate_z_deg"], name="down the screw")
+                overlay = drr_mod.draw_points(view, self.logic.entry_area(screw).entry_points_xyz)
+                overlay = drr_mod.draw_screw(view, start, tip, rgb=overlay)
+                per_screw["down the screw"] = png(drr_mod.crop_around(view, overlay, start))
             images[screw.screw_id] = per_screw
         return images
 

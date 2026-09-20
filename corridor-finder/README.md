@@ -78,6 +78,15 @@ This is under active development. What's implemented and unit tested today:
       ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
 - [x] Skin entry point + landmark-relative incision offsets
+- [x] Aiming guidance for a planned screw:
+      - its direction in words ("13 degrees cephalad, and in the axial plane
+        15 degrees anterior of straight medial"), in the anterior pelvic
+        plane and in the scan's own axes;
+      - the C-arm angles that look straight down it, with a reading in inlet
+        or outlet tilt and obliquity, and a simulated image of that view;
+      - the safe entry area: every entry the screw can be slid to and still
+        pass the same check the plan applies, as a patch on the bone, the
+        room in mm in each direction, and an outline on that image.
 - [x] DRR (simulated fluoroscopy) rendering, per the view angles in
       `corridors.json`
 - [x] Plan JSON schema, PHI stripping, printable HTML report
@@ -186,6 +195,21 @@ through the GUI:
       - **Viewer, in a browser.** It draws the checked screw. A handle
         dragged far away, or both handles on one point, reads "not
         checked", never "safe".
+- [x] Aiming guidance, in the same headless runs, on the real CT's
+      posterior column screw:
+      - its direction in words, in both frames: "49 degrees cephalad, and
+        in the axial plane 62 degrees posterior of straight medial";
+      - the C-arm angles looking straight down it: "48 degrees of outlet
+        (cephalad) tilt, 30 degrees oblique, the beam entering from the
+        patient's right". The check takes the beam of the view those angles
+        name and confirms it runs along the screw.
+      - the safe entry area: 103 entries, measured in 1.4 s, each one
+        re-checked against the plan's own validation; a safe circle of
+        3.0 mm around the planned entry, 10 mm of room toward the head and
+        anterior but 3 mm across that. It is shown on the bone in Slicer
+        and marked on a simulated view down the screw.
+      - the panel and the report carry all of it, and dragging a handle
+        updates the direction rather than leaving the old one on screen.
 
 ### What still blocks real planning
 

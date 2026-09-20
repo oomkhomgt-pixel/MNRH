@@ -168,3 +168,47 @@ def test_draw_screw_marks_orange_pixels():
     # at least one orange pixel should be close to the segment midpoint
     dmin = np.min(np.hypot(cols - mid_col, rows - mid_row))
     assert dmin < 5.0
+
+
+def test_draw_points_marks_where_the_points_project():
+    from corridor_engine.drr import draw_points
+
+    vol = _rod_volume()
+    view = render_view(vol, rotate_x_deg=0.0, rotate_z_deg=0.0, name="ap", pixel_mm=1.0)
+    points = np.array([vol.ijk_to_world((40, 30, 30)), vol.ijk_to_world((60, 30, 30))])
+
+    rgb = draw_points(view, points, radius_px=1.0)
+    for point in points:
+        col, row = project_point(view, point)
+        assert tuple(rgb[int(round(row)), int(round(col))]) != tuple(rgb[0, 0])
+    # The tint is blended with the image, so look for greenish pixels.
+    tinted = (rgb[..., 1].astype(int) > rgb[..., 0].astype(int) + 20) & (rgb[..., 1].astype(int) > rgb[..., 2].astype(int) + 20)
+    assert 4 <= tinted.sum() <= 30  # two small discs, nothing else
+
+    # A screw drawn afterwards goes on top of the area, not under it.
+    over = draw_screw(view, points[0], points[1], rgb=rgb)
+    col, row = project_point(view, points[0])
+    assert tuple(over[int(round(row)), int(round(col))]) == MNRH_ORANGE
+
+    # Points outside the image are skipped rather than wrapping around.
+    plain = draw_points(view, np.zeros((0, 3)))
+    far = np.array([[1e4, 1e4, 1e4]])
+    assert np.array_equal(draw_points(view, far, radius_px=1.0), plain)
+
+
+def test_crop_around_zooms_in_on_a_point_and_keeps_its_scale_bar():
+    from corridor_engine.drr import crop_around
+
+    vol = _rod_volume()
+    view = render_view(vol, rotate_x_deg=0.0, rotate_z_deg=0.0, name="ap", pixel_mm=1.0)
+    centre = vol.ijk_to_world((60, 30, 30))
+    rgb = draw_screw(view, vol.ijk_to_world((10, 30, 30)), vol.ijk_to_world((110, 30, 30)))
+
+    cut = crop_around(view, rgb, centre, half_mm=20.0, zoom=3)
+    assert cut.shape[0] == cut.shape[1] == (2 * 20 + 1) * 3
+    # The screw runs through the middle of the cut-out, and a 50 mm bar at
+    # this zoom is 150 px wide, so it spans it.
+    middle = cut[cut.shape[0] // 2]
+    assert np.any(np.all(middle == np.array(MNRH_ORANGE, dtype=np.uint8), axis=-1))
+    white = np.all(cut == np.array([255, 255, 255], dtype=np.uint8), axis=-1)
+    assert white[-8:, :].sum() > 100

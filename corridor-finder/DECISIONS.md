@@ -148,3 +148,15 @@ README:
 4. 5-case pilot.
 5. Virtual reduction (section 3).
 6. 20-case blinded validation.
+
+## 6. Aiming guidance (added on the surgeon's request, 2026-09-20)
+
+Asked for after step 1: the tool should say where the entry is and how to
+aim, not only that a screw fits. The conventions below were chosen while
+implementing it and are open to correction.
+
+| # | Choice | Note |
+| --- | --- | --- |
+| 6.1 | A direction is given as **how far it runs cephalad or caudad, then how far it swings anterior or posterior of straight medial** (or of straight lateral, whichever it is nearer), measured for the screw's own side. Both frames are reported: the anterior pelvic plane, and the scan's own axes as the patient lay on the table. | Midline screws read "toward the patient's left/right" instead of medial. |
+| 6.2 | The **C-arm view looking straight down the screw** is given as the tilt and roll of the existing DRR views (so inlet/outlet and obliquity read the same way), with a sentence, and rendered as a simulated image in which the screw is a dot. | It is a starting position: the DRR is a parallel projection, with no magnification or source distance. |
+| 6.3 | The **safe entry area** is the set of entries the screw can be **slid sideways to, keeping its direction**, and still pass the same check the plan applies. The tip moves with it and must stay safe too. Reported as the radius of the safe circle around the planned entry, the room in each of four named directions, a patch of points on the bone in Slicer, and a green area on the view down the screw. | Measured on a 1 mm grid out to 10 mm, so the numbers are conservative by about 1 mm. It does not cover pivoting the screw about its tip, which is a different question. |

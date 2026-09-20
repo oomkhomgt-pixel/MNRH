@@ -55,6 +55,9 @@ class ScrewPlan:
     angles_app: dict = field(default_factory=dict)
     angles_scanner: dict = field(default_factory=dict)
     validation: dict = field(default_factory=dict)
+    # How to aim it: the direction in words, the C-arm view that looks down
+    # the screw, and the room around its entry (guidance.py, entry_zone.py).
+    guidance: dict = field(default_factory=dict)
     drr_views: list = field(default_factory=list)
     source: str = "auto"  # "auto" or "adjusted"
     # "inside" or "through" (corridors.json "tip", DECISIONS.md 1.5); the

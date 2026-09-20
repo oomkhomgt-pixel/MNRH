@@ -51,6 +51,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file_
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from corridor_engine import drr as drr_mod  # noqa: E402
 from corridor_engine import plan as plan_mod  # noqa: E402
 from corridor_engine import segmentation as seg  # noqa: E402
 from corridor_engine.phantoms import pelvis_like  # noqa: E402
@@ -346,6 +347,51 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     except Exception:
         return
 
+    @step("Aiming guidance: direction, C-arm view down the screw, room at the entry")
+    def guidance():
+        w.screwsList.setCurrentRow(0)
+        g = screw.guidance
+        log(f"    aim: {g.get('direction_app')}")
+        log(f"    aim (scan axes): {g.get('direction_scanner')}")
+        log(f"    C-arm down the screw: {g.get('barrel_view', {}).get('reading')}")
+        check(bool(g.get("direction_app")) and bool(g.get("direction_scanner")), "the screw's direction is given in words, in both frames")
+        barrel = g.get("barrel_view") or {}
+        check("rotate_x_deg" in barrel and "rotate_z_deg" in barrel and bool(barrel.get("reading")),
+              "the C-arm view looking down the screw is given, with angles and a reading")
+        if barrel:
+            # The view it names must really look down the screw: its beam is
+            # the screw's own direction.
+            beam = drr_mod.view_rotation(barrel["rotate_x_deg"], barrel["rotate_z_deg"])[2]
+            v = screw.validation
+            axis = np.asarray(v["tip_xyz"]) - np.asarray(v["start_xyz"])
+            axis = axis / np.linalg.norm(axis)
+            check(float(np.dot(beam, axis)) > 0.9999, f"that view's beam runs along the screw (cos {float(np.dot(beam, axis)):.6f})")
+
+        t0 = time.time()
+        w.entryAreaButton.click()
+        area = w.logic.entry_area(screw)
+        room = screw.guidance.get("entry_area") or {}
+        log(f"    entry room: {room.get('sentence')}  [{time.time() - t0:.1f} s, {room.get('n_entries')} entries]")
+        check(bool(room.get("sentence")), "the room around the entry is measured and described")
+        node = w._entry_area_nodes.get(screw.screw_id)
+        check(node is not None and node.GetPolyData().GetNumberOfPoints() == len(area.entry_points_xyz),
+              "every safe entry is shown as a point on the bone")
+        check("Entry room" in w.clearanceLabel.text and "C-arm down the screw" in w.clearanceLabel.text,
+              "the panel says how to aim the screw and how much room its entry has")
+        # Nothing the area calls safe may disagree with the plan's own check.
+        # An offset is a sideways slide of the whole screw, so it is taken
+        # from the grid, not from where the shifted screw meets the cortex.
+        centre = area.safe.shape[0] // 2
+        axis_1, axis_2 = np.asarray(area.axis_1), np.asarray(area.axis_2)
+        bad = []
+        for i2, i1 in np.argwhere(area.safe)[:: max(1, int(area.safe.sum()) // 8)]:
+            shift = (i1 - centre) * area.step_mm * axis_1 + (i2 - centre) * area.step_mm * axis_2
+            v2 = w.logic.validate_screw(screw.corridor_id, screw.side, np.asarray(screw.entry_xyz) + shift,
+                                        np.asarray(screw.target_xyz) + shift, screw.diameter_mm, screw.margin_mm)
+            if v2.breach:
+                bad.append(np.round(shift, 2).tolist())
+        check(not bad, f"every entry the area shows passes the plan's own check (bad: {bad[:3]})")
+
     @step("Drag the target handle")
     def drag(delta_mm, expect_breach):
         t = [0.0] * 3
@@ -401,6 +447,9 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             else:
                 check("Skin entry not found" in html and not screw.skin_offsets, "no skin offsets when the skin entry was not found")
             check("Length (cortex to tip)" in html and "Entry on the cortex at" in html, "report says where the screw starts and how long it is")
+            check("How to aim it" in html and "C-arm looking down the screw" in html and "Room at the entry" in html,
+                  "report says how to aim the screw, where to put the C-arm and how much room the entry has")
+            check("down the screw" in html, "report shows the view looking down the screw")
         if os.path.exists(paths["STL"]):
             with open(paths["STL"], "rb") as f:
                 f.seek(80)
@@ -468,7 +517,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

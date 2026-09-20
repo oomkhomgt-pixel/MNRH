@@ -134,6 +134,27 @@ def _render_offsets_table(skin_offsets, skin_entry_xyz) -> str:
     )
 
 
+def _render_guidance(guidance: dict) -> str:
+    """How to aim the screw: its direction in words, the C-arm position that
+    looks straight down it, and how far its entry may move."""
+    if not guidance:
+        return "<p><em>No aiming guidance recorded.</em></p>"
+    lines = []
+    for key, label in (("direction_app", "Direction, anterior pelvic plane"), ("direction_scanner", "Direction, scan axes")):
+        if guidance.get(key):
+            lines.append(f"{label}: {guidance[key]}")
+    barrel = guidance.get("barrel_view") or {}
+    if barrel.get("reading"):
+        lines.append(
+            f"C-arm looking down the screw: {barrel['reading']} "
+            f"(tilt {_fmt_mm(barrel.get('rotate_x_deg'), 0)} degrees, roll {_fmt_mm(barrel.get('rotate_z_deg'), 0)} degrees)"
+        )
+    area = guidance.get("entry_area") or {}
+    if area.get("sentence"):
+        lines.append(f"Room at the entry: {area['sentence']}")
+    return "<ul>" + "".join(f"<li>{_esc(line)}</li>" for line in lines) + "</ul>"
+
+
 def _render_angles_table(angles_app: dict, angles_scanner: dict) -> str:
     keys = sorted(set(angles_app or {}) | set(angles_scanner or {}))
     if not keys:
@@ -208,6 +229,8 @@ def _render_screw_section(screw, drr_images=None) -> str:
      Source: {_esc(screw.get('source', ''))}</p>
   <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
   {_render_geometry(screw, validation)}
+  <h3>How to aim it</h3>
+  {_render_guidance(screw.get('guidance'))}
   {_render_drr_images(screw.get('screw_id', ''), drr_images)}
   <h3>Skin landmark offsets</h3>
   {_render_offsets_table(screw.get('skin_offsets'), screw.get('skin_entry_xyz'))}

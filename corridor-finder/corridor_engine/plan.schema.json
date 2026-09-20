@@ -70,6 +70,7 @@
         "angles_app": { "type": "object" },
         "angles_scanner": { "type": "object" },
         "validation": { "type": "object" },
+        "guidance": { "type": "object", "description": "Aiming guidance derived from the validated screw: direction in words, the C-arm view down it, and the room around its entry." },
         "drr_views": {
           "type": "array",
           "items": { "type": "string" }

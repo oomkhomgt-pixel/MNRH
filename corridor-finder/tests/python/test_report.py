@@ -189,3 +189,23 @@ def test_offsets_without_a_skin_entry_are_not_shown_as_skin_offsets():
     html_str = render_report_html(plan)
     assert "Skin entry not found" in html_str
     assert "ischial_tuberosity_right" not in html_str
+
+
+def test_report_says_how_to_aim_the_screw():
+    plan = _plan_with_screws([3.0])
+    plan.screws[0].guidance = {
+        "direction_app": "13 degrees cephalad, and in the axial plane 15 degrees anterior of straight medial",
+        "direction_scanner": "11 degrees cephalad, and in the axial plane 14 degrees anterior of straight medial",
+        "barrel_view": {"rotate_x_deg": 12.8, "rotate_z_deg": -104.6, "reading": "13 degrees of outlet (cephalad) tilt, 75 degrees oblique, the beam entering from behind on the patient's right"},
+        "entry_area": {"sentence": "the entry can move 3.0 mm in any direction (5 mm toward the head, 4 mm toward the feet, 2 mm anterior, 6 mm posterior)"},
+    }
+    html_str = render_report_html(plan)
+    assert "How to aim it" in html_str
+    assert "Direction, anterior pelvic plane: 13 degrees cephalad" in html_str
+    assert "C-arm looking down the screw: 13 degrees of outlet" in html_str
+    assert "tilt 13 degrees, roll -105 degrees" in html_str
+    assert "Room at the entry: the entry can move 3.0 mm in any direction" in html_str
+
+
+def test_report_without_guidance_says_so():
+    assert "No aiming guidance recorded" in render_report_html(_plan_with_screws([3.0]))
