@@ -286,6 +286,25 @@ through the GUI:
   articular surface, and which fluoroscopic views belong to each. The 3D
   pictures of each corridor's entry and target regions are what that
   review is being done on.
+- **Every corridor, on four full-pelvis fracture CTs** (CTPelvic1K CLINIC
+  0012, 0023, 0025, 0060, expert labels, 2 mm margin, both sides): 31 of 60
+  corridor/side/case combinations give a screw. What the failures mean:
+  - the **posterior column** (both routes) and the **supra-acetabular /
+    LC-2** corridors hold up: each gives a screw on 5 to 6 of the 8
+    hemipelves that are not grossly displaced, at 7.0-7.3 mm and 2.1-4.4 mm
+    of clearance;
+  - the **anterior column** gives a screw on at least one side of three
+    cases, 3.5-7.3 mm;
+  - the **transiliac-transsacral S1 corridor fails on all four cases, both
+    directions**: it measures 140-181 mm and the widest screw it would take
+    is between nothing and 0.8 mm. S2 works on one hemipelvis only. Either
+    these four sacra take no transsacral screw, which is common, or the
+    entry region on the lateral ilium is not where the surgeon would start
+    one;
+  - most of the rest are "too narrow" on a **pre-reduction** CT, where the
+    fracture itself reads as a gap in the bone. Planning on reduced anatomy
+    (DECISIONS.md section 3, step 5) is what those need, and until it exists
+    every number on a displaced hemipelvis is pessimistic.
 - **No transiliac-transsacral corridor was found on CLINIC_0025.** S1
   measures 180 mm but has no room at all along it (thin in the ilium at
   16-20 mm, nothing crossing the left SI joint at 45-48 mm, thin in the

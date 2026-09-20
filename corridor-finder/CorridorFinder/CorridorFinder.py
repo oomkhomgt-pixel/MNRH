@@ -1535,6 +1535,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 text = f"#{i+1}: NO SCREW FITS: no axis of {lo:.0f}-{hi:.0f} mm from the cortex joins the entry and target regions"
             elif r.reason == "length":
                 text = f"#{i+1}: NO SCREW FITS: {r.length_mm:.0f} mm from the cortex; no catalogue length within {lo:.0f}-{hi:.0f} mm"
+            elif r.reason == "blocked":
+                text = (f"#{i+1}: NO SCREW FITS: room enough ({r.checked_diameter_mm} mm screw has "
+                        f"{v.min_clearance_mm:.1f} mm of clearance), but")
             elif v.breach:
                 text = f"#{i+1}: NO SCREW FITS: too narrow ({r.checked_diameter_mm} mm screw: clearance {v.min_clearance_mm:.1f} mm, margin {margin:.1f} mm)"
             else:

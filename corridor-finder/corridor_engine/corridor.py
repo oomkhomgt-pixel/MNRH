@@ -63,8 +63,10 @@ class CorridorResult:
     # the diameter that best shows why (checked_diameter_mm).
     validation: Optional[Validation] = None
     checked_diameter_mm: Optional[float] = None
-    # When nothing fits: "too_narrow", "length" (no catalogue length suits the
-    # axis) or "too_short" (no axis of the corridor's length range was found).
+    # When nothing fits: "too_narrow", "length" (no catalogue length suits
+    # the axis), "too_short" (no axis of the corridor's length range was
+    # found) or "blocked" (wide enough, but something about the entry or the
+    # tip stops it -- validation.warnings says what).
     reason: Optional[str] = None
     # What this suggestion is, when it is not simply the widest one found:
     # "longest on this line".
@@ -324,7 +326,13 @@ def _check_axis(e, x, unit, diameters, catalog, margin_mm, edt_vol, labels_vol, 
         target = np.asarray(x)
         if made:
             d, v = made[-1]
-            reason = "too_narrow"
+            # The thinnest diameter that is made in a suitable length says
+            # what is wrong: too little room, or room enough but an entry or
+            # a tip the rules refuse. Calling the second one "too narrow"
+            # sent the surgeon looking for a narrower screw that does not
+            # exist, on a corridor wide enough for a 7 mm one.
+            blocked = _BLOCKING_WARNINGS & set(v.warning_codes)
+            reason = "blocked" if (not v.breach and blocked) else "too_narrow"
             screw = ScrewChoice(diameter_mm=None, length_mm=None, fits=False)
         else:
             d, v = tried[0]
