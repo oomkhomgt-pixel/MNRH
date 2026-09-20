@@ -116,6 +116,39 @@ roughness. That review belongs to step 3, on the full-pelvis CTs.
 | 2.3 | Automatic references are **capped at 4 mm**. A wider measurement is shown with a warning ("measured 5.1 mm, capped at 4.0 mm") and can be raised deliberately. |
 | 2.4 | The surgeon **declares the disrupted side(s)** (none / right / left / both). The tool measures both joints and pre-selects the wider as disrupted when they differ by more than 2 mm, and **no iliosacral or transiliac corridor is suggested until the choice is confirmed**. |
 
+### How step 2 is implemented
+
+- **What is measured** (`si_joint.py`), per side: the space the hip and the
+  sacrum face each other across, in the band between the S1 and S2 body
+  centres. For each empty voxel between them, the distance from one bone to
+  the other through it, which is the same quantity the bridging uses. Space
+  past the joint's rims does not have the two bones on opposite sides of
+  it, and space wider than 8 mm is the interosseous ligament's rather than
+  the joint's; neither counts. The reported width is the one covering 90%
+  of the rest.
+- **What it costs is shown with it.** Next to each width, the panel and the
+  report say how much of that joint the bridge actually covers, since the
+  rest of the joint stays a gap and a screw crossing there reads as a
+  breach. On the sample CT (no injury) the joints measured 7.0 mm on the
+  right and 7.1 mm on the left, so both were capped to 4 mm (bridging 4 mm
+  covers 46% and 47% of them), which is the case 2.3 was written for.
+- **The declaration gates the corridors.** Until the surgeon picks none,
+  right, left or both, nothing is bridged and any corridor marked
+  `crosses_si_joint` in corridors.json refuses to be suggested, saying why.
+  When the two joints differ by more than 2 mm, the panel names the wider
+  one as the one that looks disrupted; the surgeon still has to choose it.
+- **Both widths are editable** afterwards, per side, and an edit rebuilds
+  every distance field, so the suggestions and the live check follow it. A
+  deliberately raised width is accepted (2.3); only the automatic reference
+  is capped.
+- **An edited segmentation re-measures** the joints and keeps the
+  declaration.
+- **corridors.json** no longer carries a fixed `sacral_gap_allowance_mm`;
+  it says only which corridors cross the joint.
+- **The plan and report record** what each joint measured, which side was
+  declared disrupted, what was counted as bone and how much of the joint
+  that covered.
+
 ## 3. Post-reduction corridors
 
 Intra-operatively the injury is reduced before fixation, so the corridor that is

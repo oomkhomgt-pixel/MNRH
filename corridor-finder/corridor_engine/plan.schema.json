@@ -4,7 +4,7 @@
   "title": "MNRH Corridor Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "coordinate_system", "case_alias", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "audit"],
+  "required": ["schema", "coordinate_system", "case_alias", "software", "disclaimer", "case", "frame", "landmarks", "screws", "screw_library", "si_joint", "audit"],
   "properties": {
     "schema": { "type": "string" },
     "coordinate_system": { "enum": ["RAS"], "description": "All positions in the plan are 3D Slicer RAS world coordinates in mm: x = patient right, y = anterior, z = superior." },
@@ -31,6 +31,7 @@
     },
     "landmarks": { "type": "object" },
     "screw_library": { "type": "object" },
+    "si_joint": { "type": "object", "description": "Per sacroiliac joint: what it measured, which side the surgeon declared disrupted, and how much of the joint was counted as bone (DECISIONS.md section 2)." },
     "screws": {
       "type": "array",
       "items": { "$ref": "#/$defs/screwPlan" }

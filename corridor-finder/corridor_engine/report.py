@@ -90,6 +90,18 @@ def _clearance_class(validation: dict, margin_mm) -> str:
     return "clearance-ok"
 
 
+def _render_si_joint(si_joint) -> str:
+    """The sacroiliac joints, which decide whether a sacral screw can fit:
+    what each measured, which the surgeon declared disrupted, and how much
+    of each was counted as bone."""
+    if not si_joint or not si_joint.get("sentences"):
+        return ""
+    disrupted = si_joint.get("disrupted")
+    said = f"disrupted: {disrupted}" if disrupted else "which joint is disrupted was not declared"
+    items = "".join(f"<li>{_esc(line)}</li>" for line in si_joint["sentences"])
+    return f"<h2>Sacroiliac joint</h2><p>{_esc(said)}</p><ul>{items}</ul>"
+
+
 def _render_drr_images(screw_id: str, drr_images: Optional[Dict[str, Dict[str, bytes]]]) -> str:
     if not drr_images or screw_id not in drr_images:
         return ""
@@ -290,6 +302,7 @@ def render_report_html(plan, *, drr_images: dict = None, title: str = "Corridor 
 <body>
 <h1>{_esc(title)}</h1>
 <p>Case: {_esc(case_alias)}</p>
+{_render_si_joint(data.get("si_joint"))}
 <div class="disclaimer">{_esc(disclaimer)}</div>
 {body_sections}
 <div class="audit-appendix">

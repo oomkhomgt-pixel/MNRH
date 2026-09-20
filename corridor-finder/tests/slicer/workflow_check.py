@@ -54,6 +54,7 @@ if REPO_ROOT not in sys.path:
 from corridor_engine import drr as drr_mod  # noqa: E402
 from corridor_engine import plan as plan_mod  # noqa: E402
 from corridor_engine import segmentation as seg  # noqa: E402
+from corridor_engine import si_joint as si_joint_mod  # noqa: E402
 from corridor_engine.phantoms import pelvis_like  # noqa: E402
 
 OUT_DIR = os.environ.get("CF_OUT_DIR") or tempfile.mkdtemp(prefix="cf_workflow_")
@@ -246,6 +247,43 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(np.allclose(logic.frame.origin, before + np.array([-5.0, 0.0, 0.0]), atol=1e-6), "APP origin moved by half the ASIS drag")
         node.SetNthControlPointPosition(idx, *p)  # put it back
 
+    @step("Sacroiliac joint: measured, declared, and gating the sacral corridors")
+    def sacroiliac():
+        for line in logic.si_sentences():
+            log(f"    {line}")
+        check(logic.si_disrupted is None and not logic.si_bridge_mm,
+              "nothing is bridged until the surgeon says which joint is disrupted")
+
+        # A corridor that crosses the joint is refused until then.
+        w.corridorCombo.setCurrentIndex(w.corridorCombo.findData("iliosacral_s1"))
+        w.sideCombo.setCurrentIndex(w.sideCombo.findText("right"))
+        seen = len(_dialogs)
+        w.suggestButton.click()
+        refused = [text for _kind, text in _dialogs[seen:] if "sacroiliac" in text.lower()]
+        check(bool(refused) and not w._current_results, "an iliosacral corridor is refused until the joint is declared")
+        del _dialogs[seen:]  # that dialog is the point of the check
+
+        measured = [side for side, width in logic.si_widths.items() if width.n_samples > 0]
+        if check_anatomy and expect_source == "totalsegmentator":
+            check(sorted(measured) == ["left", "right"], "both joints were measured on the real CT")
+        else:
+            log(f"    measured joints: {measured or 'none: this phantom has no joint space'}")
+
+        w.siDisruptedCombo.setCurrentIndex(w.siDisruptedCombo.findText("none"))
+        check(logic.si_disrupted == "none" and set(logic.si_bridge_mm) == {"right", "left"},
+              f"declaring the joints sets what is bridged: { {k: round(v, 2) for k, v in logic.si_bridge_mm.items()} }")
+        check(all(0 < mm <= si_joint_mod.MAX_BRIDGE_MM for mm in logic.si_bridge_mm.values()),
+              "each width is positive and within the 4 mm cap")
+
+        # What is bridged is what the screws are checked against.
+        original = logic.si_bridge_mm["right"]
+        wide = float(logic.clearance_field("iliosacral_s1", "right").array.sum())
+        w.siRightSpin.value = 0.5
+        narrow = float(logic.clearance_field("iliosacral_s1", "right").array.sum())
+        check(narrow < wide, "narrowing what counts as bone narrows the corridor's own distance field")
+        w.siRightSpin.value = original
+        check(float(logic.clearance_field("iliosacral_s1", "right").array.sum()) == wide, "and putting it back restores it")
+
     @step("Suggest every corridor and side")
     def suggest_all():
         found = {}
@@ -280,6 +318,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     try:
         segment()
         landmarks()
+        sacroiliac()
         found = suggest_all()
     except Exception:
         return
@@ -438,6 +477,8 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             check(json.load(open(paths["JSON"], encoding="utf-8"))["coordinate_system"] == "RAS", "plan JSON states its coordinate system")
             check(loaded.screws[0].tip_rule == screw.tip_rule and loaded.screws[0].validation.get("start_xyz") is not None,
                   "plan JSON carries the tip rule and where the screw starts")
+            check(loaded.si_joint.get("disrupted") == logic.si_disrupted and loaded.si_joint.get("bridge_mm"),
+                  "plan JSON records the sacroiliac joints and what was bridged")
         if os.path.exists(paths["HTML report"]):
             html = open(paths["HTML report"], encoding="utf-8").read()
             check(screw.screw_id in html, "report names the screw")
@@ -447,6 +488,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             else:
                 check("Skin entry not found" in html and not screw.skin_offsets, "no skin offsets when the skin entry was not found")
             check("Length (cortex to tip)" in html and "Entry on the cortex at" in html, "report says where the screw starts and how long it is")
+            check("Sacroiliac joint" in html, "report states the sacroiliac joints and what was counted as bone")
             check("How to aim it" in html and "C-arm looking down the screw" in html and "Room at the entry" in html,
                   "report says how to aim the screw, where to put the C-arm and how much room the entry has")
             check("down the screw" in html, "report shows the view looking down the screw")

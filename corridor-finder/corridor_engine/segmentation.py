@@ -93,9 +93,11 @@ def check_hip_sides(labels: np.ndarray, volume_hu: np.ndarray, spacing, origin, 
     return "implausible", f"the hips are not one on each side of the body ({where})"
 
 
-def sacroiliac_gap_fill(labels: np.ndarray, spacing, gap_mm: float, hips=(HIP_R, HIP_L)) -> np.ndarray:
+def sacroiliac_gap_fill(labels: np.ndarray, spacing, gap_mm, hips=(HIP_R, HIP_L)) -> np.ndarray:
     """The sacroiliac joint space: voxels that are not bone but lie within
-    ``gap_mm`` of both the sacrum and one of ``hips``.
+    ``gap_mm`` of both the sacrum and one of ``hips``. ``gap_mm`` is one
+    width, or a width per hip label, since a patient's two joints differ
+    and only one of them may be disrupted (si_joint.bridging_widths).
 
     Iliosacral and transiliac-transsacral screws cross the SI joint by
     design, and in a bone segmentation the joint is a thin gap between the
@@ -104,16 +106,19 @@ def sacroiliac_gap_fill(labels: np.ndarray, spacing, gap_mm: float, hips=(HIP_R,
     bones' outer cortex instead. Only gaps up to ``gap_mm`` wide and only
     between a hip and the sacrum are bridged, so holes inside the sacrum
     (foramina, canal) and every outer cortex are unaffected. This is what
-    corridors.json's ``sacral_gap_allowance_mm`` specifies.
+    si_joint.py measures the widths; corridors.json says which corridors
+    cross the joint at all (``crosses_si_joint``).
     """
+    widths = dict(gap_mm) if isinstance(gap_mm, dict) else {hip: float(gap_mm) for hip in hips}
     fill = np.zeros(labels.shape, dtype=bool)
     sacrum = labels == SACRUM
-    if gap_mm <= 0 or not sacrum.any():
+    widest = max(widths.values(), default=0.0)
+    if widest <= 0 or not sacrum.any():
         return fill
     sx, sy, sz = spacing
     zyx_spacing = (sz, sy, sx)
-    # Work in a box around the sacrum; the joint lies within gap_mm of it.
-    pad = np.array([int(np.ceil(gap_mm / s)) + 1 for s in zyx_spacing])
+    # Work in a box around the sacrum; the joint lies within the width of it.
+    pad = np.array([int(np.ceil(widest / s)) + 1 for s in zyx_spacing])
     idx = np.argwhere(sacrum)
     lo = np.maximum(idx.min(axis=0) - pad, 0)
     hi = np.minimum(idx.max(axis=0) + pad + 1, labels.shape)
@@ -122,12 +127,13 @@ def sacroiliac_gap_fill(labels: np.ndarray, spacing, gap_mm: float, hips=(HIP_R,
     to_sacrum = ndi.distance_transform_edt(sub != SACRUM, sampling=zyx_spacing)
     sub_fill = np.zeros(sub.shape, dtype=bool)
     for hip in hips:
-        if (sub == hip).any():
+        width = widths.get(hip, 0.0)
+        if width > 0 and (sub == hip).any():
             to_hip = ndi.distance_transform_edt(sub != hip, sampling=zyx_spacing)
             # Within the allowance of both bones AND between them (the two
             # distances add up to about the gap), so the bridge does not
             # bulge past the joint line at its rims.
-            sub_fill |= (to_hip <= gap_mm) & (to_sacrum <= gap_mm) & (to_hip + to_sacrum <= gap_mm + max(spacing))
+            sub_fill |= (to_hip <= width) & (to_sacrum <= width) & (to_hip + to_sacrum <= width + max(spacing))
     fill[box] = sub_fill & (sub == 0)
     return fill
 

@@ -74,6 +74,12 @@ This is under active development. What's implemented and unit tested today:
       - its tip stays inside bone, or passes the far cortex for transiliac
         and LC-2 screws;
       - only the cortex being crossed is exempted, not gaps inside the bone.
+- [x] Per-patient sacroiliac joint width (DECISIONS.md section 2): each
+      joint measured between the two bones at the S1-S2 level, shown with
+      how much of it a bridge would cover, capped at 4 mm, editable per
+      side, and gated on the surgeon declaring which side is disrupted.
+      What is counted as bone there is what the corridor search and the
+      live check use.
 - [x] Bony landmark detection (ASIS, PSIS, iliac crest, pubic tubercle,
       ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
@@ -176,12 +182,15 @@ through the GUI:
         and no breach. Adding it to the plan re-validates it to exactly the
         same length and clearance.
       - **Results on the real CT** (mechanics only: this CT stops above the
-        acetabulum, so the anchors are not anatomical):
-        - posterior column: 7.3 x 85 mm on both sides;
-        - LC-2 left: 4.5 x 110 mm, tip 0.1 mm past the far cortex;
-        - iliosacral S1 left 4.5 x 80 mm and S2 left 3.5 x 80 mm;
-        - LC-2 right and iliosacral S1/S2 right: too narrow;
-        - transiliac: its far cortex is 144 mm from the entry cortex,
+        acetabulum, so the anchors are not anatomical; the sacral ones are
+        with both joints declared intact and 4 mm of each counted as bone):
+        - posterior column: 7.3 x 85 mm right, 7.3 x 90 mm left;
+        - LC-2 left: 4.5 x 110 mm, tip 0.2 mm past the far cortex;
+        - iliosacral S1: 4.5 x 80 mm on both sides (clearance 2.9 mm right,
+          2.5 mm left); S2: 4.5 x 80 mm on both sides (2.7 and 2.5 mm);
+        - LC-2 right: too narrow (0.3 mm at 6.5 mm) and its entry is 66
+          degrees off the cortex;
+        - transiliac: its far cortex is 146 mm from the entry cortex,
           below the corridor's 150 mm minimum;
         - anterior column: no axis of the corridor's length exists.
       - **Slicer display.** The screw is shown as a model from its cortex
@@ -195,6 +204,22 @@ through the GUI:
       - **Viewer, in a browser.** It draws the checked screw. A handle
         dragged far away, or both handles on one point, reads "not
         checked", never "safe".
+- [x] Per-patient sacroiliac joint width (DECISIONS.md section 2), in the
+      same headless runs:
+      - on the real CT both joints were measured: 7.0 mm on the right and
+        7.1 mm on the left, both capped to the 4 mm reference, with the
+        panel and report saying that 4 mm covers only 46% and 47% of them;
+      - before the surgeon says which joint is disrupted, nothing is
+        bridged and every corridor marked `crosses_si_joint` refuses to be
+        suggested, naming the reason;
+      - declaring them sets both widths, and editing one rebuilds that
+        corridor's own distance field (narrowing it narrows the field,
+        restoring it restores it exactly);
+      - the plan JSON and the report carry what was measured, what was
+        declared and what was counted as bone.
+      This is what the screw results above were produced with. Whether
+      about 7 mm is this patient's joint or the segmentation's error has
+      not been checked against the CT itself; that belongs to step 3.
 - [x] Aiming guidance, in the same headless runs, on the real CT's
       posterior column screw:
       - its direction in words, in both frames: "49 degrees cephalad, and
@@ -218,22 +243,19 @@ through the GUI:
   "bone" is a shell with near-zero clearance inside and no screw fits at
   the default margin. Treat TotalSegmentator (or a corrected
   segmentation) as required, not optional.
-- **Iliosacral and transiliac-transsacral screws are still limited by the
-  SI joint** on the real CT. Only the left S1 and S2 corridors take a
-  screw (4.5 and 3.5 mm), and the right side is too narrow. Confirmed
-  cause: the SI joint. Before the screw rules (step 1), for every best
-  candidate the minimum clearance lay within 0-1.5 mm of both the hip and
-  the sacrum.
-  `sacral_gap_allowance_mm` (2 mm) was applied only to the containment
-  test; the clearance now also counts the joint space up to that width
-  as bone (`segmentation.sacroiliac_gap_fill`), which raised the best
-  clearances (e.g. S1 right from -0.3 to 0.6 mm) but not enough. In these
-  labels the gap from the hip's joint surface to the sacrum has a median
-  of about 4 mm, and only 11-15% of it is within 2 mm. **Decided**
-  (DECISIONS.md section 2): the bridged width becomes patient-specific,
-  taken from the intact joint (editable, capped at 4 mm; 4 mm when both
-  joints are disrupted), once the surgeon has confirmed which side is
-  disrupted. Not implemented yet (step 2).
+- **What counts as bone across the SI joint is now a measurement the
+  surgeon has to check on each case.** Step 2 is implemented, and it is
+  what unblocked the sacral corridors: with both joints declared intact
+  and 4 mm of each counted as bone, S1 and S2 take a 4.5 mm screw on both
+  sides of the real CT (before, only the left side took one, and S2 left
+  only 3.5 mm). But on that CT each joint measures about 7 mm, so 4 mm
+  covers less than half of it; the rest stays a gap, and a screw crossing
+  there still reads as a breach. Whether such a joint is really that wide,
+  or the segmentation's surfaces are eroded, has not been reviewed against
+  the CT itself — that is part of step 3, on full-pelvis CTs. The
+  transiliac corridor is still refused on this CT for a different reason:
+  its far cortex is 146 mm from the entry cortex, below the corridor's
+  150 mm minimum.
 - The corridor anchors, textbook directions and DRR view angles in
   corridors.json have not been reviewed against real anatomy. The Sample
   Data CT stops above the acetabulum, so the anterior column, posterior

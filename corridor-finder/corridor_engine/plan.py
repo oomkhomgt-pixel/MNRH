@@ -82,6 +82,9 @@ class Plan:
     landmarks: dict = field(default_factory=dict)
     screws: list = field(default_factory=list)  # list[ScrewPlan]
     screw_library: dict = field(default_factory=dict)
+    # What each sacroiliac joint measured, which side the surgeon declared
+    # disrupted, and what was counted as bone there (DECISIONS.md section 2).
+    si_joint: dict = field(default_factory=dict)
     audit: list = field(default_factory=list)  # list[AuditEntry]
     software: dict = field(default_factory=dict)
     disclaimer: str = DISCLAIMER
@@ -116,6 +119,7 @@ class Plan:
             "landmarks": _to_jsonable(self.landmarks),
             "screws": screws,
             "screw_library": _to_jsonable(self.screw_library),
+            "si_joint": _to_jsonable(self.si_joint),
             "audit": audit,
             "software": _to_jsonable(self.software),
             "disclaimer": self.disclaimer,
@@ -141,6 +145,7 @@ class Plan:
             landmarks=data.get("landmarks", {}),
             screws=screws,
             screw_library=data.get("screw_library", {}),
+            si_joint=data.get("si_joint", {}),
             audit=audit,
             software=data.get("software", {}),
             disclaimer=data.get("disclaimer", DISCLAIMER),

@@ -90,6 +90,7 @@ try:
         corridor as corridor_search,
         drr as drr_mod,
         edt as edt_mod,
+        si_joint as si_joint_mod,
         entry_zone as entry_zone_mod,
         guidance as guidance_mod,
         landmarks as landmarks_mod,
@@ -302,6 +303,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # for the same one.
         self._entry_area_cache: Dict[str, tuple] = {}
         self._labels_version = 0
+        # The sacroiliac joints (DECISIONS.md section 2): what they measure,
+        # which side the surgeon says is disrupted, and what is therefore
+        # counted as bone in each. Sacral corridors wait for that call.
+        self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
+        self.si_disrupted: Optional[str] = None
+        self.si_bridge_mm: Dict[str, float] = {}
 
     # ---- Segmentation --------------------------------------------------
 
@@ -419,6 +426,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.labels_volume = EngineVolume(array=new, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
         self._edt_cache = {}
         self._labels_version += 1
+        if self.landmarks:
+            self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+            self.set_si_disrupted(self.si_disrupted)  # same declaration, re-measured joints
         return True
 
     # ---- Landmarks / frame ---------------------------------------------
@@ -428,7 +438,39 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             raise RuntimeError("segment() must be called first")
         self.landmarks = landmarks_mod.detect_landmarks(self.labels_volume)
         self._build_frame()
+        self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        self.set_si_disrupted(None)  # the surgeon confirms it before any sacral corridor
         return self.landmarks
+
+    # ---- Sacroiliac joint ------------------------------------------------
+
+    def set_si_disrupted(self, disrupted: Optional[str]) -> None:
+        """Record which joint(s) the surgeon says are disrupted, and take the
+        widths that follow (DECISIONS.md 2.2). None means not yet said, and
+        blocks the corridors that cross the joint."""
+        self.si_disrupted = disrupted
+        self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, disrupted) if disrupted else {}
+        self._edt_cache = {}
+        self._entry_area_cache = {}
+
+    def set_si_bridge_mm(self, side: str, width_mm: float) -> None:
+        """Override what is counted as bone in one joint, after the surgeon
+        has measured it on the axial CT."""
+        self.si_bridge_mm[side] = float(width_mm)
+        self._edt_cache = {}
+        self._entry_area_cache = {}
+
+    def si_bridge_by_label(self) -> Dict[int, float]:
+        return {seg_mod.HIP_R: self.si_bridge_mm.get("right", 0.0), seg_mod.HIP_L: self.si_bridge_mm.get("left", 0.0)}
+
+    def si_sentences(self) -> List[str]:
+        """What to show the surgeon about the two joints."""
+        lines = []
+        for side in ("right", "left"):
+            width = self.si_widths.get(side)
+            if width is not None:
+                lines.append(width.sentence(self.si_bridge_mm.get(side)))
+        return lines
 
     def landmark_warnings(self) -> List[str]:
         if not self.landmarks:
@@ -468,18 +510,20 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return (seg_mod.SACRUM,)
         return seg_mod.labels_for_side(group, side)
 
-    def _edt_for_bones(self, label_ids: tuple, si_gap_mm: float = 0.0) -> EngineVolume:
+    def _edt_for_bones(self, label_ids: tuple, si_widths: Optional[Dict[int, float]] = None) -> EngineVolume:
         """Distance field (mm) inside the union of ``label_ids``. With
-        ``si_gap_mm``, the sacroiliac joint space between a hip in the union
-        and the sacrum counts as bone (see seg_mod.sacroiliac_gap_fill)."""
+        ``si_widths`` (mm per hip label), that much of the sacroiliac joint
+        between a hip in the union and the sacrum counts as bone (see
+        seg_mod.sacroiliac_gap_fill)."""
         ids = tuple(sorted(label_ids))
-        key = (ids, float(si_gap_mm))
+        widths = {label: mm for label, mm in (si_widths or {}).items() if mm > 0 and label in ids}
+        key = (ids, tuple(sorted(widths.items())))
         if key in self._edt_cache:
             return self._edt_cache[key]
         mask = np.isin(self.labels_volume.array, ids)
         hips = tuple(h for h in (seg_mod.HIP_R, seg_mod.HIP_L) if h in ids)
-        if si_gap_mm > 0 and seg_mod.SACRUM in ids and hips:
-            mask |= seg_mod.sacroiliac_gap_fill(self.labels_volume.array, self.labels_volume.spacing, si_gap_mm, hips=hips)
+        if widths and seg_mod.SACRUM in ids and hips:
+            mask |= seg_mod.sacroiliac_gap_fill(self.labels_volume.array, self.labels_volume.spacing, widths, hips=hips)
         edt = edt_mod.bone_edt_mm(mask, self.labels_volume.spacing)
         vol = EngineVolume(array=edt, spacing=self.labels_volume.spacing, origin=self.labels_volume.origin)
         self._edt_cache[key] = vol
@@ -497,8 +541,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """THE distance field a screw of this corridor and side is checked
         against: by the corridor search, by validate_screw and in the
         exported viewer, so the three can never disagree about the bone."""
-        gap = self.corridor_defs[corridor_id].get("sacral_gap_allowance_mm") or 0.0
-        return self._edt_for_bones(self._traverse_labels(corridor_id, side), gap)
+        crosses = self.corridor_defs[corridor_id].get("crosses_si_joint")
+        return self._edt_for_bones(self._traverse_labels(corridor_id, side), self.si_bridge_by_label() if crosses else None)
 
     def suggest_corridor(self, corridor_id: str, side: str, margin_mm: Optional[float] = None) -> List["corridor_search.CorridorResult"]:
         """side is 'left' or 'right' for per_side corridors, ignored (pass
@@ -507,6 +551,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             raise RuntimeError("segment() and detect_landmarks() must both succeed first")
 
         spec = self.corridor_defs[corridor_id]
+        if spec.get("crosses_si_joint") and self.si_disrupted is None:
+            raise RuntimeError(
+                "This corridor crosses the sacroiliac joint, so how much of that joint counts as bone has to be "
+                "settled first: say which joint is disrupted (none / right / left / both) in the SI joint row."
+            )
         margin_mm = margin_mm if margin_mm is not None else self.screw_library["margin_default_mm"]
 
         entry_side = spec["entry"].get("reference_side", side)
@@ -531,7 +580,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         edt_vol = self.clearance_field(corridor_id, side)
 
         valid_vol = None
-        gap_mm = spec.get("sacral_gap_allowance_mm")
+        gap_mm = max(self.si_bridge_mm.values(), default=0.0) if spec.get("crosses_si_joint") else 0.0
         if gap_mm:
             from scipy.ndimage import binary_dilation
 
@@ -661,9 +710,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             frame=frame_dict,
             landmarks=landmarks_dict,
             screw_library=self.screw_library,
+            si_joint=self.si_joint_record(),
             software={"name": "Corridor Finder", "version": "0.1.0"},
         )
         return self.plan
+
+    def si_joint_record(self) -> dict:
+        """What the plan and report say about the joints: what was measured,
+        what the surgeon declared, and what was counted as bone."""
+        return {
+            "disrupted": self.si_disrupted,
+            "bridge_mm": dict(self.si_bridge_mm),
+            "measured_mm": {side: float(w.measured_mm) for side, w in self.si_widths.items()},
+            "covered": {side: round(w.covers(self.si_bridge_mm.get(side, 0.0)), 3) for side, w in self.si_widths.items()},
+            "sentences": self.si_sentences(),
+        }
 
     def add_screw_to_plan(self, result, corridor_id: str, side: str, screw_id: str, margin_mm: float, drr_views: Optional[List[str]] = None) -> "plan_mod.ScrewPlan":
         if self.plan is None:
@@ -763,10 +824,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                 self.plan.log("revalidate", screw_id=screw.screw_id, before=before, after=dict(validation=screw.validation, length_mm=screw.length_mm))
 
     def export_plan_json(self, path: str) -> None:
+        self.plan.si_joint = self.si_joint_record()
         self.refresh_derived()
         plan_mod.save_plan(self.plan, path)
 
     def export_report(self, path: str, drr_images: Optional[dict] = None) -> None:
+        self.plan.si_joint = self.si_joint_record()
         self.refresh_derived()
         report_mod.write_report(self.plan, path, drr_images=drr_images)
 
@@ -815,6 +878,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._landmark_fiducial_node = None
         self._bonesSegmentationNode = None
         self._shownScrewId = None  # screw whose clearance the label shows
+        self._updating_si = False  # while the panel writes the SI widths itself
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
@@ -866,6 +930,33 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         corridorBox.text = _("2. Corridors")
         layout.addWidget(corridorBox)
         corridorForm = qt.QFormLayout(corridorBox)
+
+        self.siLabel = qt.QLabel(_("measured after Detect landmarks"))
+        self.siLabel.setWordWrap(True)
+        corridorForm.addRow(_("SI joint:"), self.siLabel)
+
+        self.siDisruptedCombo = qt.QComboBox()
+        self.siDisruptedCombo.addItems([_("not set"), "none", "right", "left", "both"])
+        self.siDisruptedCombo.setToolTip(
+            _("Which sacroiliac joint the injury has opened. A disrupted joint is not a measurement of anything, "
+              "so it takes the intact side's width; with both disrupted a fixed 4 mm is used. Corridors that cross "
+              "the joint are not suggested until this is set."))
+        corridorForm.addRow(_("Disrupted joint:"), self.siDisruptedCombo)
+
+        widthsRow = qt.QWidget()
+        widthsLayout = qt.QHBoxLayout(widthsRow)
+        widthsLayout.setContentsMargins(0, 0, 0, 0)
+        self.siRightSpin = qt.QDoubleSpinBox()
+        self.siLeftSpin = qt.QDoubleSpinBox()
+        for label, spin in ((_("right"), self.siRightSpin), (_("left"), self.siLeftSpin)):
+            spin.setRange(0.0, 10.0)
+            spin.setSingleStep(0.1)
+            spin.setSuffix(" mm")
+            spin.enabled = False
+            spin.setToolTip(_("How much of this joint counts as bone. Check it against the axial CT and correct it."))
+            widthsLayout.addWidget(qt.QLabel(label))
+            widthsLayout.addWidget(spin)
+        corridorForm.addRow(_("Counted as bone:"), widthsRow)
 
         self.corridorCombo = qt.QComboBox()
         for cid, spec in self.logic.corridor_defs.items():
@@ -944,6 +1035,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.screwsList.currentRowChanged.connect(self.onScrewSelected)
         self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
+        self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
+        self.siRightSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("right", value))
+        self.siLeftSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("left", value))
         self.exportPlanButton.clicked.connect(self.onExportPlan)
         self.exportReportButton.clicked.connect(self.onExportReport)
         self.exportStlButton.clicked.connect(self.onExportStl)
@@ -1133,6 +1227,12 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         self._placeLandmarkFiducials()
+        self._updating_si = True
+        try:
+            self.siDisruptedCombo.setCurrentIndex(0)
+        finally:
+            self._updating_si = False
+        self._syncSiWidths()
         warnings = self.logic.landmark_warnings()
         self.landmarkWarningsLabel.setText("\n".join(warnings) if warnings else _("none"))
         self.suggestButton.enabled = self.logic.frame is not None
@@ -1169,6 +1269,42 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if name in self.logic.landmarks and np.allclose(self.logic.landmarks[name].xyz, engine_xyz, atol=1e-6):
                 continue
             self.logic.set_landmark_manual(name, engine_xyz)
+
+    def onSiDisruptedChanged(self, index: int) -> None:
+        self.logic.set_si_disrupted(None if index == 0 else self.siDisruptedCombo.currentText)
+        self._syncSiWidths()
+        self._clearSuggestions()
+
+    def onSiWidthChanged(self, side: str, value: float) -> None:
+        if self._updating_si or self.logic.si_disrupted is None:
+            return
+        self.logic.set_si_bridge_mm(side, value)
+        self._refreshSiLabel()
+        self._clearSuggestions()
+
+    def _syncSiWidths(self) -> None:
+        """Show the widths that follow from the declaration, without taking
+        that for the surgeon editing them."""
+        self._updating_si = True
+        try:
+            declared = self.logic.si_disrupted is not None
+            for side, spin in (("right", self.siRightSpin), ("left", self.siLeftSpin)):
+                spin.value = self.logic.si_bridge_mm.get(side, 0.0)
+                spin.enabled = declared
+        finally:
+            self._updating_si = False
+        self._refreshSiLabel()
+
+    def _refreshSiLabel(self) -> None:
+        lines = self.logic.si_sentences()
+        if not lines:
+            self.siLabel.setText(_("measured after Detect landmarks"))
+            return
+        if self.logic.si_disrupted is None:
+            suggestion = si_joint_mod.looks_disrupted(self.logic.si_widths)
+            prompt = _("say which joint is disrupted before suggesting a sacral corridor")
+            lines.append(prompt + (_(" — the {0} one looks disrupted").format(suggestion) if suggestion else ""))
+        self.siLabel.setText("\n".join(lines))
 
     def onSuggest(self):
         cid = self._currentCorridorId()
