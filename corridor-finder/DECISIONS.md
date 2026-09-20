@@ -118,20 +118,28 @@ roughness. That review belongs to step 3, on the full-pelvis CTs.
 
 ### How step 2 is implemented
 
-- **What is measured** (`si_joint.py`), per side: the space the hip and the
-  sacrum face each other across, in the band between the S1 and S2 body
-  centres. For each empty voxel between them, the distance from one bone to
-  the other through it, which is the same quantity the bridging uses. Space
-  past the joint's rims does not have the two bones on opposite sides of
-  it, and space wider than 8 mm is the interosseous ligament's rather than
-  the joint's; neither counts. The reported width is the one covering 90%
-  of the rest.
+- **Where it is measured** (`si_joint.py`), per side: at the **anterior
+  bony margin** of the joint, the way it is read off a CT, at every level
+  through the S1-S2 band. The surgeon asked for this after the first
+  version measured the joint as a whole: that takes in the interosseous
+  ligament's space behind the joint, which is naturally wide and irregular,
+  and on four full-pelvis CTs it read 6.9 to 10.5 mm -- the ligament, not
+  the joint. Measured at the anterior margin the same joints read 2.9 to
+  7.2 mm, with medians of 2.4 to 3.8 mm.
+- **What is measured**, at each level: the **gap** across the joint (the
+  width of the joint space at its front end) and the **step** along it (how
+  far the ilium's anterior cortex beside the joint sits in front of or
+  behind the sacrum's, and how far above or below). A hemipelvis does not
+  displace in one plane only, so the step is kept as a vector and reported
+  in both directions. The up-or-down part cannot be read off a single level
+  -- both points are taken at the same level -- so it comes from sliding
+  one margin's profile along the other; where the joint margin runs too
+  straight for that to mean anything, the tool says so instead of reporting
+  zero.
 - **What it costs is shown with it.** Next to each width, the panel and the
   report say how much of that joint the bridge actually covers, since the
   rest of the joint stays a gap and a screw crossing there reads as a
-  breach. On the sample CT (no injury) the joints measured 7.0 mm on the
-  right and 7.1 mm on the left, so both were capped to 4 mm (bridging 4 mm
-  covers 46% and 47% of them), which is the case 2.3 was written for.
+  breach.
 - **The declaration gates the corridors.** Until the surgeon picks none,
   right, left or both, nothing is bridged and any corridor marked
   `crosses_si_joint` in corridors.json refuses to be suggested, saying why.

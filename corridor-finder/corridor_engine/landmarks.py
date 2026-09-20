@@ -21,6 +21,12 @@ from . import segmentation as seg
 from .volume import Volume
 
 
+# The pubic body is the part of a hemipelvis that reaches furthest across
+# toward the other side. This is how much of the bone, ranked by that reach,
+# is searched for the tubercle on its front.
+PUBIS_MEDIAL_PERCENTILE = 90.0
+
+
 @dataclass
 class Landmark:
     xyz: np.ndarray
@@ -53,6 +59,7 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
     hip_masks = {"right": arr == seg.HIP_R, "left": arr == seg.HIP_L}
     femur_masks = {"right": arr == seg.FEMUR_R, "left": arr == seg.FEMUR_L}
     sacrum_mask = arr == seg.SACRUM
+    sac_pts = labels_vol.mask_voxel_centers_world(sacrum_mask)
 
     for side, hip_mask in hip_masks.items():
         pts = labels_vol.mask_voxel_centers_world(hip_mask)
@@ -69,16 +76,20 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         out[f"iliac_crest_apex_{side}"] = Landmark(_extreme_point(pts, np.array([0.0, 0.0, 1.0])))
         out[f"ischial_tuberosity_{side}"] = Landmark(_extreme_point(pts, np.array([0.0, 0.0, -1.0])))
 
-        x_mid = pts[:, 0].mean()
-        near_midline = pts[np.abs(pts[:, 0] - x_mid) < np.ptp(pts[:, 0]) * 0.35]
-        if near_midline.shape[0] == 0:
-            near_midline = pts
-        z2 = near_midline[:, 2]
-        lower_medial = near_midline[z2 < z2.min() + 0.5 * (z2.max() - z2.min())]
-        if lower_medial.shape[0] == 0:
-            lower_medial = near_midline
-        score_dir = np.array([0.0, 0.7, 0.7])
-        out[f"pubic_tubercle_{side}"] = Landmark(_extreme_point(lower_medial, score_dir / np.linalg.norm(score_dir)))
+        # Pubic tubercle: on the front of the pubic body, beside the
+        # symphysis. The pubic body is what reaches furthest across toward
+        # the other hemipelvis, so of the bone that reaches furthest that
+        # way, take the point that reaches furthest forward. (Patient right
+        # is +x, so "across" is -x for the right hip and +x for the left;
+        # which hip this is comes from its label, not from any x sign.)
+        # Ranking the whole hemipelvis by anterior and superior together
+        # instead lands on the acetabular roof, a hand's breadth too far
+        # out, and ranking the bone near the midline by height alone slides
+        # outward along the superior ramus as it climbs.
+        toward_other_side = -1.0 if side == "right" else 1.0
+        reach = pts[:, 0] * toward_other_side
+        medial = pts[reach >= np.percentile(reach, PUBIS_MEDIAL_PERCENTILE)]
+        out[f"pubic_tubercle_{side}"] = Landmark(_extreme_point(medial, np.array([0.0, 1.0, 0.0])))
 
     for side, femur_mask in femur_masks.items():
         pts = labels_vol.mask_voxel_centers_world(femur_mask)
@@ -94,7 +105,6 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         candidates = far if far.shape[0] > 0 else pts
         out[f"greater_trochanter_{side}"] = Landmark(_extreme_point(candidates, np.array([0.0, 0.0, 1.0])))
 
-    sac_pts = labels_vol.mask_voxel_centers_world(sacrum_mask)
     if sac_pts.shape[0] > 0:
         z = sac_pts[:, 2]
         z_lo, z_hi = z.min(), z.max()
@@ -138,8 +148,19 @@ def sanity_warnings(landmarks: Dict[str, Landmark]) -> list:
     pt_r, pt_l = get("pubic_tubercle_right"), get("pubic_tubercle_left")
     if pt_r is not None and pt_l is not None:
         d = np.linalg.norm(pt_r - pt_l)
-        if d > 40.0:
-            warnings.append(f"Pubic tubercles are {d:.0f} mm apart (expected <= 40 mm)")
+        # Each point sits on the front of its own pubic body, so up to about
+        # 25 mm out from the midline; beyond 60 mm apart the symphysis is
+        # either sprung or the points are not on the pubis at all.
+        if d > 60.0:
+            warnings.append(f"Pubic tubercles are {d:.0f} mm apart (expected <= 60 mm): either the symphysis is "
+                            f"disrupted or a landmark is misplaced")
+
+    if asis_r is not None and asis_l is not None:
+        mid_x = (asis_r[0] + asis_l[0]) / 2.0
+        for side, pt in (("Right", pt_r), ("Left", pt_l)):
+            if pt is not None and abs(pt[0] - mid_x) > 60.0:
+                warnings.append(f"{side} pubic tubercle is {abs(pt[0] - mid_x):.0f} mm from the midline "
+                                f"(expected within 60 mm)")
 
     if asis_r is not None and pt_r is not None and asis_r[2] < pt_r[2]:
         warnings.append("Right ASIS is not superior to the right pubic tubercle")

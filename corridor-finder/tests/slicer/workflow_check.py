@@ -276,7 +276,12 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
               "each width is positive and within the 4 mm cap")
 
         # What is bridged is what the screws are checked against.
-        original = logic.si_bridge_mm["right"]
+        # The panel's spin box carries two decimals, so that is the width a
+        # surgeon can set and restore; start from it, since assigning the
+        # value already shown changes nothing and would leave the logic on
+        # the unrounded measurement.
+        original = round(logic.si_bridge_mm["right"], 2)
+        logic.set_si_bridge_mm("right", original)
         wide = float(logic.clearance_field("iliosacral_s1", "right").array.sum())
         w.siRightSpin.value = 0.5
         narrow = float(logic.clearance_field("iliosacral_s1", "right").array.sum())

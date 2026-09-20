@@ -74,12 +74,18 @@ This is under active development. What's implemented and unit tested today:
       - its tip stays inside bone, or passes the far cortex for transiliac
         and LC-2 screws;
       - only the cortex being crossed is exempted, not gaps inside the bone.
-- [x] Per-patient sacroiliac joint width (DECISIONS.md section 2): each
-      joint measured between the two bones at the S1-S2 level, shown with
-      how much of it a bridge would cover, capped at 4 mm, editable per
-      side, and gated on the surgeon declaring which side is disrupted.
-      What is counted as bone there is what the corridor search and the
-      live check use.
+- [x] Per-patient sacroiliac joint (DECISIONS.md section 2), measured at
+      the anterior bony margin, level by level through the S1-S2 band:
+      - the **gap** across the joint at its anterior end;
+      - the **step** along it, as a vector: how far the ilium's anterior
+        cortex sits in front of or behind the sacrum's, and how far above
+        or below. Where the joint margin is too straight for an up-or-down
+        shift to leave any trace, the tool says so rather than reporting
+        zero.
+      The gap is what counts as bone across the joint, shown with how much
+      of the joint that covers, capped at 4 mm, editable per side, and
+      gated on the surgeon declaring which side is disrupted. It is what
+      the corridor search and the live check use.
 - [x] Bony landmark detection (ASIS, PSIS, iliac crest, pubic tubercle,
       ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
@@ -204,22 +210,21 @@ through the GUI:
       - **Viewer, in a browser.** It draws the checked screw. A handle
         dragged far away, or both handles on one point, reads "not
         checked", never "safe".
-- [x] Per-patient sacroiliac joint width (DECISIONS.md section 2), in the
-      same headless runs:
-      - on the real CT both joints were measured: 7.0 mm on the right and
-        7.1 mm on the left, both capped to the 4 mm reference, with the
-        panel and report saying that 4 mm covers only 46% and 47% of them;
+- [x] Per-patient sacroiliac joint (DECISIONS.md section 2), in the same
+      headless runs:
+      - on the real CT both joints were measured at their anterior margin:
+        right gap 3.7 mm with a 4.9 mm step (the ilium 3.9 mm in front of
+        and 2.0 mm below the sacrum), left gap 4.1 mm with a 9.7 mm step
+        (4.4 mm in front, 8.0 mm below), the left one just over the cap;
       - before the surgeon says which joint is disrupted, nothing is
         bridged and every corridor marked `crosses_si_joint` refuses to be
         suggested, naming the reason;
       - declaring them sets both widths, and editing one rebuilds that
         corridor's own distance field (narrowing it narrows the field,
-        restoring it restores it exactly);
+        restoring it restores it exactly, to the 0.01 mm the panel carries);
       - the plan JSON and the report carry what was measured, what was
         declared and what was counted as bone.
-      This is what the screw results above were produced with. Whether
-      about 7 mm is this patient's joint or the segmentation's error has
-      not been checked against the CT itself; that belongs to step 3.
+      This is what the screw results above were produced with.
 - [x] Aiming guidance, in the same headless runs, on the real CT's
       posterior column screw:
       - its direction in words, in both frames: "49 degrees cephalad, and
@@ -243,19 +248,29 @@ through the GUI:
   "bone" is a shell with near-zero clearance inside and no screw fits at
   the default margin. Treat TotalSegmentator (or a corrected
   segmentation) as required, not optional.
-- **What counts as bone across the SI joint is now a measurement the
-  surgeon has to check on each case.** Step 2 is implemented, and it is
-  what unblocked the sacral corridors: with both joints declared intact
-  and 4 mm of each counted as bone, S1 and S2 take a 4.5 mm screw on both
-  sides of the real CT (before, only the left side took one, and S2 left
-  only 3.5 mm). But on that CT each joint measures about 7 mm, so 4 mm
-  covers less than half of it; the rest stays a gap, and a screw crossing
-  there still reads as a breach. Whether such a joint is really that wide,
-  or the segmentation's surfaces are eroded, has not been reviewed against
-  the CT itself — that is part of step 3, on full-pelvis CTs. The
-  transiliac corridor is still refused on this CT for a different reason:
-  its far cortex is 146 mm from the entry cortex, below the corridor's
-  150 mm minimum.
+- **What counts as bone across the SI joint is a measurement the surgeon
+  has to check on each case.** Step 2 is implemented, and it is what
+  unblocked the sacral corridors: on the real CT S1 takes a 7.0 mm screw
+  on the right and 4.5 mm on the left, and S2 4.5 mm on both sides
+  (before step 2: left only, and S2 left only 3.5 mm). The anterior gap it
+  measures is 2.9-7.2 mm on four full-pelvis CTs (medians 2.4-3.8 mm),
+  so most joints now fall under the 4 mm cap on their own, but the reading
+  still has to be checked against the axial CT on every case. The step it
+  reports has a bilateral "ilium in front of the sacrum" component of
+  0.8-7.8 mm on those four cases, which is partly anatomy rather than
+  injury; until that is settled with the surgeon, read the injured side
+  against the intact one rather than the absolute number. The transiliac
+  corridor is still refused on the sample CT for a different reason: its
+  far cortex is 146 mm from the entry cortex, below the corridor's 150 mm
+  minimum.
+- **The corridor anchors do not all survive a real full pelvis.** On the
+  CTPelvic1K CLINIC cases the posterior column finds nothing on either
+  side: its target is anchored to the PSIS and lands beside the SI joint,
+  so every candidate axis from the ischial tuberosity crosses the greater
+  sciatic notch and reads as air ("too narrow"). The transiliac corridor
+  measures 181 mm, longer than any catalogue length. Both are for the
+  surgeon to settle in step 3; the 3D pictures of each corridor's entry
+  and target regions are what that review is being done on.
 - The corridor anchors, textbook directions and DRR view angles in
   corridors.json have not been reviewed against real anatomy. The Sample
   Data CT stops above the acetabulum, so the anterior column, posterior
