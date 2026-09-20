@@ -62,10 +62,25 @@ export default async function run() {
           importJson(new File([JSON.stringify(backup)], "backup.json", { type:"application/json" }));
           await new Promise(r => setTimeout(r, 600));
         } finally { confirmDialog = realCD; }
-        return { residents: store.data.residents.length, name: store.data.residents[0]?.name || "" };
+        return { residents: store.data.residents.length, name: store.data.residents[0]?.name || "",
+                 me: currentUser()?.username || "", manage: canManage(), users: store.data.users.length };
       });
       t.eq("นำไฟล์สำรองกลับเข้ามาได้หลังล้างข้อมูล", [restored.residents, restored.name],
            [1, "นพ. ทดสอบกู้คืน"]);
+      /* ไฟล์สำรองที่ไม่มีบัญชีเลย (แปลงจากระบบเดิม หรือถูกตัดบัญชี/รหัสผ่านออกตามคำเตือนของปุ่มส่งออก)
+         ต้องไม่ล็อกคนที่กดนำเข้าออก — ไม่งั้นรีโหลดแล้ว renderLoginGate() ซ่อนหน้าเข้าสู่ระบบ
+         เพราะ users ว่าง กลายเป็นแอปที่ไม่มีใครเข้าได้และไม่มีปุ่มสร้างบัญชี */
+      t.eq("ไฟล์ที่ไม่มีบัญชีเลย ไม่ล็อกคนที่กดนำเข้าออก", [restored.me, restored.manage, restored.users],
+           [before.me, true, 1]);
+      await page.reload();
+      await page.waitForFunction(() => typeof store !== "undefined" && !!store.data);
+      const afterImport = await page.evaluate(() => ({
+        me: currentUser()?.username || "", manage: canManage(),
+        importHidden: !!document.querySelector("#btnImport")?.hidden
+      }));
+      t.eq("รีโหลดหลังนำเข้าไฟล์ที่ไม่มีบัญชี ยังเข้าใช้งานได้", [afterImport.me, afterImport.manage],
+           [before.me, true]);
+      t.check("ยังเห็นปุ่มนำเข้า จึงแก้ทางด้วยไฟล์ที่ถูกต้องได้", !afterImport.importHidden);
       t.check("ล้างข้อมูล: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
@@ -80,7 +95,8 @@ export default async function run() {
       const before = await page.evaluate(() => {
         store.data.meta.__probe = "ของเดิมต้องอยู่ครบ";
         store.save();
-        return { residents: store.data.residents.length, activities: store.data.activities.length };
+        return { residents: store.data.residents.length, activities: store.data.activities.length,
+                 me: currentUser().username };
       });
 
       const failed = await page.evaluate(async () => {
@@ -121,16 +137,23 @@ export default async function run() {
 
       /* ไฟล์ที่ถูกต้องยังต้องนำเข้าได้ตามปกติ — ไม่ใช่กันพลาดจนใช้งานจริงไม่ได้ */
       const ok = await page.evaluate(async () => {
+        /* ไฟล์สำรองจากอีกเครื่อง: uid() สุ่มคนละชุด บัญชีเดียวกันจึงคนละ id — ต้องผูกเซสชันกลับ
+           ด้วยชื่อผู้ใช้ ไม่ใช่ปล่อยให้ currentUser() หลุดเป็น undefined กลางเซสชัน */
+        const mine = currentUser();
         const good = { residents:[{ id:"r_y", name:"นพ. ไฟล์ดี", year:3, cohort:"2567", active:true }],
-                       activities:[], services:[], users:[], meta:{} };
+                       activities:[], services:[],
+                       users:[{ ...mine, id:"usr_from_other_device" }], meta:{} };
         const realCD = confirmDialog; confirmDialog = async () => true;
         try {
           importJson(new File([JSON.stringify(good)], "good.json", { type:"application/json" }));
           await new Promise(r => setTimeout(r, 600));
         } finally { confirmDialog = realCD; }
-        return { residents: store.data.residents.length, name: store.data.residents[0]?.name || "" };
+        return { residents: store.data.residents.length, name: store.data.residents[0]?.name || "",
+                 me: currentUser()?.username || "", manage: canManage(), users: store.data.users.length };
       });
       t.eq("ไฟล์ที่ถูกต้องยังนำเข้าได้", [ok.residents, ok.name], [1, "นพ. ไฟล์ดี"]);
+      t.eq("ไฟล์จากอีกเครื่อง (id บัญชีคนละชุด) ผูกเซสชันกลับด้วยชื่อผู้ใช้ ไม่สร้างบัญชีซ้ำ",
+           [ok.me, ok.manage, ok.users], [before.me, true, 1]);
       t.check("นำเข้าไฟล์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

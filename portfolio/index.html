@@ -10966,6 +10966,7 @@ function importJson(file) {
       if (!data || !Array.isArray(data.residents) || !Array.isArray(data.activities)) throw new Error("โครงสร้างไฟล์ไม่ถูกต้อง");
       if (!(await confirmDialog("นำเข้าไฟล์นี้จะแทนที่ข้อมูลทั้งหมดในเครื่อง (" + data.residents.length + " คน, " + data.activities.length + " กิจกรรม)",
             { title: "นำเข้าไฟล์สำรอง", okLabel: "แทนที่ข้อมูลในเครื่อง", danger: true }))) return;
+      const me = currentUser();
       await runDestructiveDataOp(() => {
         /* migrate() ไล่ทุกคอลเลกชัน ถ้าไฟล์มีคีย์รูปร่างผิด (เช่น "services": {} ซึ่ง ||= ไม่ทับให้
            เพราะ object เป็น truthy) มันจะ throw กลางทาง — เดิมแทน store.data ไปก่อนแล้ว จึงเหลือก้อนที่
@@ -10975,6 +10976,19 @@ function importJson(file) {
         const prev = store.data;
         try { store.data = data; store.migrate(); }
         catch (e) { store.data = prev; throw e; }
+        /* ทะเบียนบัญชีถูกแทนที่ด้วยของไฟล์ — id สุ่มคนละชุดทุกเครื่อง บัญชีเดียวกันจึงคนละ id
+           ถ้าไม่ผูกเซสชันกลับ currentUser() เป็น undefined กลางเซสชัน แท็บตั้งค่าและปุ่มนำเข้า
+           หายทันที และถ้าไฟล์ไม่มีบัญชีเลย (เช่น ไฟล์ตั้งต้นที่แปลงจากระบบเดิม หรือไฟล์ที่ตัด
+           บัญชีกับรหัสผ่านออกตามคำเตือนของปุ่มส่งออก) พอรีโหลด renderLoginGate() ก็ซ่อนหน้า
+           เข้าสู่ระบบเพราะ users ว่าง — ล็อกทั้งแอปถาวรแบบเดียวกับ wipe()
+           ผูกกลับด้วยชื่อผู้ใช้ก่อน ถ้าไฟล์ไม่มีบัญชีนี้เลยให้คงบัญชีของคนที่กดนำเข้าไว้
+           (ต่างจาก applyMerged() ที่ signOut ได้ เพราะที่นั่นยังมีทะเบียนให้ล็อกอินกลับเสมอ) */
+        if (me) {
+          const users = (store.data.users ||= []);
+          const again = users.find(u => u.id === me.id) || users.find(u => u.username === me.username);
+          if (again) { session = { ...session, userId: again.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
+          else { users.push(me); session = { ...session, userId: me.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
+        }
         /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset()
            แต่ล้างหลังแปลงสำเร็จเท่านั้น ไม่งั้นนำเข้าพลาดแล้วฐานเปรียบเทียบของข้อมูลเดิมหายไปด้วย */
         try { localStorage.removeItem(BASELINE_KEY); } catch {}
