@@ -2326,6 +2326,17 @@ const residentsPlus = (list, ...ids) => {
   ids.filter(Boolean).forEach(id => { if (!out.some(r => r.id === id)) { const r = store.resident(id); if (r) out.push(r); } });
   return out;
 };
+/* ตารางหมุนเวียนรายเดือนดูย้อนหลังได้ (เลือกปีการศึกษาอื่นที่ไม่ใช่ปีที่ทะเบียนอยู่ตอนนี้) — ปีที่ผ่านมาต้องยังเห็น
+   แถวของคนที่จบไปแล้วด้วย ไม่งั้นทั้งแถวหายจากตาราง/CSV/ใบพิมพ์ทั้งที่ข้อมูลการหมุนเวียนยังอยู่ครบ
+   "ปีปัจจุบัน" ในความหมายนี้คือปีที่ทะเบียนชั้นปี (meta.yearRolledAY) อยู่ ไม่ใช่ currentAY() ตรงๆ เพราะผู้จัดหลักสูตร
+   กดปุ่ม "เลื่อนชั้นปีตอนนี้" ล่วงหน้าได้ก่อนวันจริง 1 ก.ค. — ทะเบียนขยับไปแล้วแม้ currentAY() ยังไม่ขยับตาม
+   ปีที่ทะเบียนอยู่ตอนนี้ยังคงใช้เฉพาะคนที่ฝึกอบรมอยู่เหมือนเดิม (หน้าปฏิบัติงาน ตาม activeResidents()) */
+const residentsForAY = (ay) => {
+  const opAY = store.data.meta?.yearRolledAY || currentAY();
+  if (String(ay) === String(opAY)) return activeResidents();
+  const ids = (store.data.rotations || []).filter(r => academicYear(r.start) === ay).map(r => r.residentId);
+  return residentsPlus(activeResidents(), ...ids);
+};
 const visibleActivities = () => (store.data.activities || []).filter(a => canSeeResident(a.residentId));
 
 function audit(action, detail) {
@@ -5381,12 +5392,15 @@ function renderMonthGrid() {
   if (presetWrap) presetWrap.hidden = !hasPreset;
   $("#btnGeneratePlan")?.classList.toggle("btn-primary", !hasPreset);
   const months = ayMonths(ayView);
+  /* ปีที่กำลังดูอาจเป็นปีเก่า — รายชื่อต้องรวมคนที่จบไปแล้วถ้ามีข้อมูลการหมุนเวียนของปีนั้นด้วย
+     ไม่งั้นทั้งแถวหายจากตาราง (residentsForAY) ปีปัจจุบันยังเป็นแค่คนที่ฝึกอบรมอยู่เหมือนเดิม */
+  const ayResidents = residentsForAY(ayView);
   /* ปีที่มีตารางจริงฝังไว้: เรียงแถวตามตารางต้นฉบับ (4.1 … 1.5) และบอกรหัสแถว จะได้เทียบกับกระดาษของกลุ่มงานได้ทันที
      คนที่ไม่อยู่ในตาราง (หรือปีอื่น) เรียงตามชั้นปี/ชื่อเหมือนเดิมต่อท้าย */
   const preset = ROTATION_PRESETS[String(ayView)];
-  const presetMap = preset ? matchPresetRows(preset, activeResidents()) : {};
+  const presetMap = preset ? matchPresetRows(preset, ayResidents) : {};
   const rowOf = {}; (preset?.rows || []).forEach((pr, i) => { if (presetMap[pr.row]) rowOf[presetMap[pr.row]] = { i, row: pr.row }; });
-  const rs = activeResidents().slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = ayResidents.slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
   const usedIds = new Set();
   /* ผู้จัดหลักสูตร: ถ้าตารางที่บันทึกไว้ยังไม่ตรงตารางจริง (หรือจับคู่ชื่อไม่ครบ) บอกไว้เหนือตารางพร้อมทางไป — ไม่ต้องเดาว่าทำไมหน้าเว็บไม่เหมือนกระดาษ */
@@ -5445,7 +5459,7 @@ function renderMonthGrid() {
       <tbody>${teamSvcs.map(t => `<tr>
         <th class="who"><span style="color:${serviceInk(t.id)};font-weight:650">${esc(t.name)}</span></th>
         ${months.map(mm => {
-          const people = activeResidents().filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
+          const people = ayResidents.filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
           const sen = people.filter(r => r.year >= 3).length, jun = people.length - sen;
           /* สัญลักษณ์กำกับด้วย เพื่อให้อ่านออกตอนพิมพ์ขาวดำหรือเมื่อแยกสีไม่ได้ */
           const state = !people.length ? ["bad", "✕", "ไม่มีคนลงสาย"]
@@ -5465,7 +5479,7 @@ function renderMonthGrid() {
 
 function monthCsvRows() {
   const months = ayMonths(ayView || currentAY());
-  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
+  const rs = residentsForAY(ayView || currentAY()).slice().sort((a, b) => b.year - a.year);
   const head = ["แพทย์ประจำบ้าน","ชั้นปี", ...months.map(monthLabel)];
   return [head].concat(rs.map(r => [r.name, r.year, ...months.map(mm =>
     rotationsInMonth(r.id, mm).map(rot => serviceById(rot.serviceId)?.name || "").join(" / "))]));
@@ -5473,7 +5487,7 @@ function monthCsvRows() {
 
 function printMonthGrid() {
   const months = ayMonths(ayView || currentAY());
-  const rs = activeResidents().slice().sort((a, b) => b.year - a.year);
+  const rs = residentsForAY(ayView || currentAY()).slice().sort((a, b) => b.year - a.year);
   const html = reportHead("ตารางหมุนเวียนรายเดือน", "ปีการศึกษา " + (ayView || currentAY())) + `
   <div class="card"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
@@ -5546,9 +5560,12 @@ function applyPresetDialog() {
   const months = ayMonths(ay);
   const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
   const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
-  const guess = matchPresetRows(preset, activeResidents());
+  /* ปีที่กำลังลงอาจเป็นปีเก่า — ตัวเลือกต้องรวมคนที่จบไปแล้วถ้ามีข้อมูลของปีนั้นด้วย ไม่งั้นเลือกกลับไม่ได้เลย
+     แล้วบล็อกของเขาที่ inYear แทนที่ทั้งช่วงจะหายไปถาวร (กู้ได้แค่จาก "ประวัติแผนอัตโนมัติ") */
+  const ayResidents = residentsForAY(ay);
+  const guess = matchPresetRows(preset, ayResidents);
   const opts = (pr) => {
-    const rs = activeResidents().slice().sort((a, b) => (+b.year === +pr.year) - (+a.year === +pr.year) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+    const rs = ayResidents.slice().sort((a, b) => (+b.year === +pr.year) - (+a.year === +pr.year) || b.year - a.year || a.name.localeCompare(b.name, "th"));
     return `<option value="">— ไม่ลงแถวนี้ —</option>` + rs.map(r =>
       `<option value="${r.id}" ${guess[pr.row] === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${esc(String(r.year))})</option>`).join("");
   };
@@ -5951,7 +5968,8 @@ function editTalk(id, preset = {}) {
         const rec = { date, start: dlgVal("start"), end: dlgVal("end"), slot: dlgVal("slot"), type,
                       residentId: dlgVal("residentId"), chiefId, coResidentIds, title, subspecialty: dlgVal("subspecialty"),
                       location: dlgVal("location"), moderatorId: dlgVal("moderatorId") };
-        if (t) Object.assign(t, rec); else store.data.schedule.push({ id: uid("talk"), activityId: null, note:"", ...rec });
+        if (t) { reconcileTalkLinks(t, rec); Object.assign(t, rec); ensureLinkedTalkActivities(t); }
+        else store.data.schedule.push({ id: uid("talk"), activityId: null, note:"", ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
     ...(t && talkStatus(t) === "missing" && canEditResidentData(t.residentId)
@@ -5976,6 +5994,23 @@ function editTalk(id, preset = {}) {
   sync();
   ["type", "date", "residentId", "chiefId"].forEach(n => $('#dlgBody [name="' + n + '"]')?.addEventListener("change", sync));
   $$('#dlgBody [name="co"]').forEach(el => el.addEventListener("change", sync));
+}
+
+/* แก้ chief/ผู้จัดร่วมของแถวที่เคยผูกกิจกรรมไว้แล้ว (เรียกก่อน Object.assign ทับค่าเดิมของ t เสมอ) —
+   เดิมแก้ chiefId/coResidentIds แล้วกิจกรรม "กำกับ:"/Kahoot quiz ที่สร้างให้คนเดิมยังค้างอยู่ที่ chiefActivityId/
+   coActivityIds เพราะ ensureLinkedTalkActivities เช็คแค่ "เรคคอร์ดที่อ้างยังอยู่ไหม" ไม่ได้เช็คว่าเป็นของคนที่ตรงกับ
+   แถวตอนนี้หรือเปล่า — กล่องรายละเอียดจึงขึ้นว่า "บันทึกการกำกับแล้ว" ให้คนใหม่ทั้งที่เขาไม่มีกิจกรรมนี้เลย
+   ส่วนคนเดิมมีกิจกรรมค้างอยู่ในแฟ้มทั้งที่ไม่ใช่ chief/ผู้จัดร่วมของแถวนี้แล้ว
+   เลิกผูก (ลบ scheduleId ของกิจกรรมนั้น) เท่านั้น ไม่ลบกิจกรรม — ยังอยู่ในแฟ้มเจ้าของเดิมเหมือนกับตอนแถว
+   หลุดวันพฤหัสฯ ใน migrate() แล้วให้ ensureLinkedTalkActivities สร้างของใหม่ให้คนที่ถูกใส่แทน */
+function reconcileTalkLinks(t, rec) {
+  const unlink = (id) => { const a = id && store.data.activities.find(x => x.id === id); if (a) delete a.scheduleId; };
+  if (t.chiefId && t.chiefId !== rec.chiefId) { unlink(t.chiefActivityId); t.chiefActivityId = null; }
+  const oldCo = Array.isArray(t.coResidentIds) ? t.coResidentIds : (t.coResidentId ? [t.coResidentId] : []);
+  const oldActs = coActivityIdsOf(t);
+  const kept = new Map(oldCo.map((rid, i) => [rid, oldActs[i]]).filter(([rid, aid]) => rid && aid));
+  oldCo.forEach((rid, i) => { if (!rec.coResidentIds.includes(rid)) unlink(oldActs[i]); });
+  t.coActivityIds = rec.coResidentIds.map(rid => kept.get(rid) || null);
 }
 
 /* กิจกรรมพ่วงของแถวเดียวกัน — สร้างครั้งเดียว (ข้ามถ้าเรคคอร์ดที่อ้างยังอยู่):

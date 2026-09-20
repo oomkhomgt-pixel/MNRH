@@ -1344,6 +1344,63 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- ตารางหมุนเวียนของปีที่ผ่านมายังเห็นคนที่จบไปแล้ว ----------
+       เดิมตาราง/CSV/ใบพิมพ์/การจับคู่ตารางจริง (ROTATION_PRESETS) ใช้ activeResidents() ตรง ๆ
+       พอผ่าน 1 ก.ค. ไปแล้วครั้งหนึ่ง คนที่จบไปแล้วหายทั้งแถวจากปีที่ผ่านมา ทั้งที่ข้อมูลการหมุนเวียนยังอยู่ครบ
+       และถ้าผู้จัดหลักสูตรกดปุ่ม "ใช้ตารางจริงของกลุ่มงาน" ตามคำแนะนำที่ระบบขึ้นเอง บล็อกของคนที่จบไปแล้วจะถูกลบถาวร */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async () => {
+        showView("rotation");
+        ayView = "2569"; renderMonthGrid();
+        const before = document.querySelectorAll("#monthGrid tbody tr").length;
+        const csvBefore = monthCsvRows().length - 1;
+        const grads = store.data.residents.filter(x => x.year === 4);
+        const gradNames = grads.map(x => x.name), gradIds = grads.map(x => x.id);
+
+        /* เลื่อนชั้นปี — ปี 4 ของปีการศึกษา 2569 จบการศึกษา (active:false) */
+        store.rollAcademicYear("2570", "manual");
+        store.save(); renderAll();
+        ayView = "2569"; renderMonthGrid();
+        const afterRowNames = [...document.querySelectorAll("#monthGrid tbody tr")].map(tr => tr.querySelector("th.who")?.textContent || "");
+        const csvAfter = monthCsvRows().length - 1;
+
+        /* ใบพิมพ์ก็ต้องยังมีครบ (stub window.print กันเปิดกล่องพิมพ์จริงตามธรรมเนียมชุดทดสอบนี้) */
+        window.print = () => {};
+        printMonthGrid();
+        const printHtml = document.querySelector("#reportBody")?.innerHTML || "";
+        const printHasAll = gradNames.every(n => printHtml.includes(n));
+
+        /* จับคู่ตารางจริงของปี 2569 (ROTATION_PRESETS): คนที่จบไปแล้วต้องยังเลือกได้ในกล่องจับคู่ (ไม่งั้นกดใช้ตารางจริง
+           แล้วบล็อกของเขาจะหายถาวร เพราะ applyRotationPlanForAY แทนที่ทั้งปีด้วยเฉพาะคนที่จับคู่ได้) — ปี 4 เดิมไม่ถูกเลื่อนชั้น
+           (จบค้างอยู่ปี 4) ชื่อจึงยังจับคู่อัตโนมัติได้ต่อ ต่างจากปี 1–3 ที่เลื่อนชั้นแล้วปีในทะเบียนไม่ตรงกับตารางเก่าอีกต่อไป
+           (คนละประเด็นกับที่นี่แก้ — ยังเลือกเองในกล่องจับคู่ได้เพราะยังอยู่ในตัวเลือก) */
+        const ayResidents = residentsForAY("2569");
+        const selectableIds = new Set(ayResidents.map(x => x.id));
+        const preset = ROTATION_PRESETS["2569"];
+        const mapping = matchPresetRows(preset, ayResidents);
+        const gradSelectable = gradIds.every(id => selectableIds.has(id));
+        const gradAutoMatched = gradIds.every(id => Object.values(mapping).includes(id));
+
+        /* ย้อนกลับให้ไม่กระทบเทสต์อื่นที่รันต่อจากนี้ */
+        store.undoYearRoll(); store.save(); renderAll();
+
+        return { before, gradNames, afterCount: afterRowNames.length,
+                 gradStillShown: gradNames.every(n => afterRowNames.some(x => x.includes(n))),
+                 csvBefore, csvAfter, printHasAll, gradSelectable, gradAutoMatched };
+      });
+      t.eq("ก่อนเลื่อนชั้นปี ตารางปี 2569 มี 20 แถว", r.before, 20);
+      t.check("มีคนปี 4 ที่กำลังจะจบอยู่ในข้อมูลสาธิต", r.gradNames.length > 0, r.gradNames.join(", "));
+      t.eq("หลังเลื่อนชั้นปี (คนจบไปแล้ว) ตารางของปี 2569 ยังมี 20 แถวเท่าเดิม ไม่หายไป", r.afterCount, 20);
+      t.check("แถวของทุกคนที่จบไปแล้วยังอยู่ในตารางปี 2569", r.gradStillShown, r.gradNames.join(", "));
+      t.eq("CSV ของปี 2569 ก็ยังมี 20 แถวเท่าเดิมหลังเลื่อนชั้นปี", r.csvAfter, r.csvBefore);
+      t.check("ใบพิมพ์ของปี 2569 ยังมีชื่อคนที่จบไปแล้วครบทุกคน", r.printHasAll, r.gradNames.join(", "));
+      t.check("กล่องจับคู่ตารางจริงของปี 2569 ยังมีคนที่จบไปแล้วให้เลือกได้ทุกคน หลังเลื่อนชั้นปี", r.gradSelectable);
+      t.check("จับคู่ตารางจริงอัตโนมัติของปี 2569 ยังจับคนที่จบไปแล้วได้ครบทุกคน (ปี 4 ไม่ถูกเลื่อนชั้นซ้ำตอนจบ)", r.gradAutoMatched);
+      t.check("ตารางย้อนหลังของคนที่จบแล้ว: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- เครื่องที่มีข้อมูลเก่า: เปิดเวอร์ชันใหม่แล้วระบบลงตารางจริงปี 2569 ให้เองครั้งเดียว (สำรองก่อน) ----------
        ผู้ใช้เปิดเว็บจริงแล้วยังเห็นตารางเก่าใน localStorage — migrate() ต้องแทนที่ให้ ไม่ต้องรอกดปุ่ม แต่ทำครั้งเดียว ไม่ทับที่แก้เองภายหลัง */
     {
@@ -1501,6 +1558,93 @@ export default async function run() {
       t.check("มีบันทึกลง audit และตั้งข้อความแจ้งเมื่อกวาดเจอของจริง", r.after.auditGrew && !!r.after.notice, r.after.notice);
       t.check("กวาดครั้งเดียวแล้ว โหลด/migrate ซ้ำอีกครั้งไม่ไปแตะแถวอื่นเพิ่ม (ไม่ใช่ทุกครั้งที่โหลด)", r.secondRunUntouched);
       t.check("เก็บกวาดแถวหลุดวัน: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- แก้ chief/ผู้จัดร่วมของแถวที่ผูกกิจกรรมไว้แล้ว ต้องย้ายเครดิตไปคนใหม่ ไม่ใช่ค้างอยู่กับคนเดิม ----------
+       เดิมปุ่ม "บันทึก" ใน editTalk แค่ Object.assign ทับค่าแถว ไม่เรียก ensureLinkedTalkActivities และไม่ล้าง
+       chiefActivityId/coActivityIds เดิม — เปลี่ยน chief แล้วกล่องรายละเอียดขึ้นว่า "บันทึกการกำกับแล้ว" ให้คนใหม่
+       ทั้งที่กิจกรรมยังอยู่ในแฟ้มของคนเดิม (actExists(chiefActivityId) เป็นจริงเพราะเรคคอร์ดยังอยู่ ไม่ได้เช็คว่าเป็นของใคร) */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const mkAct = (rid, type, title) => ({
+          id: uid("act"), residentId: rid, type, subspecialty:"trauma", title, date: todayISO(),
+          academicYear: academicYear(todayISO()), source: type === "topic" ? "manual" : "schedule", evidence:null,
+          wfme:[], assessment:null, verified:false, verifiedBy:"", note:"", scheduleId:"", createdAt: new Date().toISOString()
+        });
+        /* topic/journal/quiz ลงได้เฉพาะวันพฤหัสฯ */
+        let thu = todayISO(); while (new Date(thu + "T00:00:00").getDay() !== thursdayDay()) thu = addDaysISO(thu, 1);
+        const seniors = store.data.residents.filter(x => x.year >= 3 && x.active !== false);
+        const [oldChief, newChief] = seniors;
+        const presenter = store.data.residents.find(x => x.active !== false && ![oldChief.id, newChief.id].includes(x.id));
+
+        /* --- topic: เปลี่ยน chief กลางคัน --- */
+        const presAct = mkAct(presenter.id, "topic", "ทดสอบสลับ chief");
+        const chiefAct = mkAct(oldChief.id, "supervise", "กำกับ: ทดสอบสลับ chief");
+        store.data.activities.push(presAct, chiefAct);
+        const topicId = uid("talk");
+        store.data.schedule.push({ id: topicId, date: thu, start:"07:30", end:"08:30", slot:"Topic presentation",
+          type:"topic", residentId: presenter.id, chiefId: oldChief.id, coResidentIds:[], title:"ทดสอบสลับ chief",
+          subspecialty:"trauma", location:"", moderatorId:"", activityId: presAct.id, chiefActivityId: chiefAct.id, note:"" });
+        presAct.scheduleId = topicId; chiefAct.scheduleId = topicId;
+
+        editTalk(topicId);
+        const chiefSel = document.querySelector('#dlgBody [name="chiefId"]');
+        chiefSel.value = newChief.id; chiefSel.dispatchEvent(new Event("change"));
+        document.querySelector("#dlgFoot .btn-primary").click();
+
+        const row = store.data.schedule.find(x => x.id === topicId);
+        const oldChiefActAfter = store.data.activities.find(x => x.id === chiefAct.id);
+        const newChiefAct = store.data.activities.find(x => x.id === row.chiefActivityId);
+        const topicResult = {
+          chiefChanged: row.chiefId === newChief.id,
+          newActCreated: !!newChiefAct && newChiefAct.id !== chiefAct.id && newChiefAct.residentId === newChief.id &&
+            newChiefAct.type === "supervise" && newChiefAct.scheduleId === topicId,
+          oldActKeptButUnlinked: !!oldChiefActAfter && !oldChiefActAfter.scheduleId,
+          presenterActUntouched: presAct.scheduleId === topicId
+        };
+
+        /* --- quiz: สลับผู้จัดร่วมคนหนึ่ง เก็บอีกคนไว้เหมือนเดิม (จับคู่ตามตัวคน ไม่ใช่ตำแหน่งในอาเรย์) --- */
+        const others = store.data.residents.filter(x => x.active !== false && ![presenter.id, oldChief.id, newChief.id].includes(x.id));
+        const [host, stay, out, incoming] = others;
+        const hostAct = mkAct(host.id, "quiz", "ทดสอบ Kahoot");
+        const stayAct = mkAct(stay.id, "quiz", "ทดสอบ Kahoot");
+        const outAct = mkAct(out.id, "quiz", "ทดสอบ Kahoot");
+        store.data.activities.push(hostAct, stayAct, outAct);
+        const quizId = uid("talk");
+        store.data.schedule.push({ id: quizId, date: thu, start:"10:00", end:"10:30", slot:"Kahoot quiz",
+          type:"quiz", residentId: host.id, chiefId:"", coResidentIds:[stay.id, out.id], coActivityIds:[stayAct.id, outAct.id],
+          title:"ทดสอบ Kahoot", subspecialty:"trauma", location:"", moderatorId:"", activityId: hostAct.id, note:"" });
+        hostAct.scheduleId = quizId; stayAct.scheduleId = quizId; outAct.scheduleId = quizId;
+
+        editTalk(quizId);
+        document.querySelectorAll('#dlgBody [name="co"]').forEach(el => { el.checked = el.value === stay.id || el.value === incoming.id; });
+        document.querySelector("#dlgFoot .btn-primary").click();
+
+        const qrow = store.data.schedule.find(x => x.id === quizId);
+        const stayActAfter = store.data.activities.find(x => x.id === stayAct.id);
+        const outActAfter = store.data.activities.find(x => x.id === outAct.id);
+        const incomingActId = (qrow.coActivityIds || [])[qrow.coResidentIds.indexOf(incoming.id)];
+        const incomingAct = store.data.activities.find(x => x.id === incomingActId);
+        const quizResult = {
+          coListChanged: qrow.coResidentIds.includes(stay.id) && qrow.coResidentIds.includes(incoming.id) && !qrow.coResidentIds.includes(out.id),
+          stayActSameIdAndLinked: stayActAfter?.id === stayAct.id && stayActAfter?.scheduleId === quizId,
+          outActKeptButUnlinked: !!outActAfter && !outActAfter.scheduleId,
+          incomingActCreated: !!incomingAct && incomingAct.residentId === incoming.id && incomingAct.type === "quiz" && incomingAct.scheduleId === quizId
+        };
+
+        return { topicResult, quizResult };
+      });
+      t.check("เปลี่ยน chief แล้วแถวอัปเดตเป็นคนใหม่", r.topicResult.chiefChanged, JSON.stringify(r.topicResult));
+      t.check("chief คนใหม่ได้กิจกรรม 'กำกับ' ของตัวเอง ผูกกับแถวเดียวกัน (ไม่ใช่ยืมของคนเดิม)", r.topicResult.newActCreated, JSON.stringify(r.topicResult));
+      t.check("กิจกรรมของ chief คนเดิมยังอยู่ในแฟ้มเขา แค่เลิกผูกกับแถวนี้ (ไม่ถูกลบ ไม่ถูกยึดให้คนใหม่)", r.topicResult.oldActKeptButUnlinked, JSON.stringify(r.topicResult));
+      t.check("กิจกรรมของผู้นำเสนอเองไม่ถูกแตะ", r.topicResult.presenterActUntouched);
+      t.check("สลับผู้จัดร่วม Kahoot: รายชื่อใหม่ถูกต้อง (คนที่ถูกถอดออกไม่อยู่ในรายชื่อแล้ว)", r.quizResult.coListChanged, JSON.stringify(r.quizResult));
+      t.check("ผู้จัดร่วมที่ยังอยู่เหมือนเดิม ไม่ถูกสร้างกิจกรรมซ้ำ (จับคู่ตามตัวคน ไม่ใช่ตำแหน่งในอาเรย์)", r.quizResult.stayActSameIdAndLinked, JSON.stringify(r.quizResult));
+      t.check("ผู้จัดร่วมที่ถูกถอดออกยังมีกิจกรรมอยู่ในแฟ้มเขา แค่เลิกผูกกับแถวนี้", r.quizResult.outActKeptButUnlinked, JSON.stringify(r.quizResult));
+      t.check("ผู้จัดร่วมคนใหม่ได้กิจกรรม Kahoot quiz ของตัวเอง ผูกกับแถวเดียวกัน", r.quizResult.incomingActCreated, JSON.stringify(r.quizResult));
+      t.check("สลับ chief/ผู้จัดร่วม: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
