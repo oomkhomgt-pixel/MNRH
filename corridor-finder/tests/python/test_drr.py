@@ -89,7 +89,10 @@ def test_named_views_have_anatomical_beam_directions():
         "iliac_oblique_left": (-s, -s, 0),
         "obturator_oblique_left": (s, -s, 0),
     }
-    views = {k: v for k, v in views.items() if not k.startswith("posterior_column_triangle")}
+    # Views defined by composing two others are checked in test_views.py,
+    # against this patient's own anatomy rather than a fixed beam.
+    computed = ("posterior_column_triangle", "outlet_obturator_oblique")
+    views = {k: v for k, v in views.items() if not k.startswith(computed)}
     assert set(expected_beam) == set(views)
     for name, beam in expected_beam.items():
         assert np.allclose(view_rotation(*views[name])[2], beam, atol=1e-9), name

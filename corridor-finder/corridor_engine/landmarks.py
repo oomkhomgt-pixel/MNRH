@@ -37,6 +37,7 @@ BRIM_STEP_MM = 3.0
 BRIM_BEHIND_EMINENCE_MM = 60.0
 EMINENCE_FROM_MIDLINE_MM = 20.0  # nearer the midline than this is still the pubic body
 BRIM_FOLLOW_MM = 15.0  # how far the traced edge may move back or forward per level
+PROMONTORY_BAND_MM = 15.0  # the promontory is the front of the sacrum's top
 
 
 @dataclass
@@ -62,7 +63,7 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
 
     Returns a dict keyed by landmark name (e.g. "asis_right", "psis_left",
     "pubic_tubercle_right", "ischial_tuberosity_left", "greater_trochanter_right",
-    "pelvic_brim_left", "iliopectineal_eminence_right",
+    "pelvic_brim_left", "iliopectineal_eminence_right", "sacral_promontory",
     "femoral_head_center_left", "si_joint_center_right", "s1_body_center",
     "s2_body_center", "iliac_crest_apex_right"), each an auto-sourced Landmark.
     """
@@ -158,6 +159,9 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         z_lo, z_hi = z.min(), z.max()
         s1_band = sac_pts[(z > z_lo + 0.55 * (z_hi - z_lo)) & (z < z_lo + 0.75 * (z_hi - z_lo))]
         s2_band = sac_pts[(z > z_lo + 0.35 * (z_hi - z_lo)) & (z < z_lo + 0.55 * (z_hi - z_lo))]
+        top = sac_pts[z >= z_hi - PROMONTORY_BAND_MM]
+        if top.shape[0] > 0:
+            out["sacral_promontory"] = Landmark(_extreme_point(top, np.array([0.0, 1.0, 0.0])))
         if s1_band.shape[0] > 0:
             out["s1_body_center"] = Landmark(s1_band.mean(axis=0))
         if s2_band.shape[0] > 0:

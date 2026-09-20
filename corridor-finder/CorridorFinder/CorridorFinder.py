@@ -92,6 +92,7 @@ try:
         drr as drr_mod,
         edt as edt_mod,
         si_joint as si_joint_mod,
+        views as views_mod,
         entry_zone as entry_zone_mod,
         guidance as guidance_mod,
         landmarks as landmarks_mod,
@@ -322,6 +323,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # to hold a fracture has to start on the near side of it, not past
         # it (corridors.json: clear_of_fracture_mm).
         self.fracture_sites: List[np.ndarray] = []
+        # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
+        self.patient_views: Dict[str, "views_mod.View"] = {}
         self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
         self.si_disrupted: Optional[str] = None
         self.si_bridge_mm: Dict[str, float] = {}
@@ -444,6 +447,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._labels_version += 1
         if self.landmarks:
             self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+            self._compute_views()
             self.set_si_disrupted(self.si_disrupted)  # same declaration, re-measured joints
         return True
 
@@ -455,8 +459,33 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.landmarks = landmarks_mod.detect_landmarks(self.labels_volume)
         self._build_frame()
         self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        self._compute_views()
         self.set_si_disrupted(None)  # the surgeon confirms it before any sacral corridor
         return self.landmarks
+
+    def _compute_views(self) -> None:
+        """Work out where the C-arm goes for this patient, rather than using
+        the textbook angles (DECISIONS.md 7.6)."""
+        try:
+            self.patient_views = views_mod.patient_views(
+                self.labels_volume, self.landmarks, self.frame, textbook=self.view_defs)
+        except Exception:
+            logging.warning("per-patient views could not be computed:\n%s", traceback.format_exc())
+            self.patient_views = {}
+
+    def view_angles(self, name: str) -> tuple:
+        """The angles to render a named view at: this patient's own where
+        they could be worked out, the textbook ones otherwise."""
+        view = self.patient_views.get(name)
+        if view is not None:
+            return view.rotate_x_deg, view.rotate_z_deg
+        spec = self.view_defs.get(name, {})
+        return float(spec.get("rotate_x", 0.0)), float(spec.get("rotate_z", 0.0))
+
+    def view_sentences(self, names=None) -> List[str]:
+        """What each view is and where it puts the C-arm, in words."""
+        names = names or sorted(self.patient_views)
+        return [self.patient_views[n].sentence() for n in names if n in self.patient_views]
 
     # ---- Sacroiliac joint ------------------------------------------------
 
@@ -495,9 +524,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
 
     def set_landmark_manual(self, name: str, xyz_engine: np.ndarray) -> None:
         """Record a surgeon-dragged landmark position (already converted to
-        engine coordinates by the caller) and rebuild the APP frame."""
+        engine coordinates by the caller), rebuild the APP frame, and with it
+        the C-arm angles, which are built on the landmarks."""
         self.landmarks[name] = landmarks_mod.Landmark(xyz=np.asarray(xyz_engine, dtype=float), source="manual")
         self._build_frame()
+        self._compute_views()
 
     def _build_frame(self) -> None:
         required = ("asis_right", "asis_left", "pubic_tubercle_right", "pubic_tubercle_left")
@@ -802,7 +833,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     # ---- DRR -------------------------------------------------------------
 
     def render_views(self, view_names: List[str]) -> Dict[str, "drr_mod.DrrView"]:
-        return drr_mod.render_corridor_views(self.hu_volume, view_names)
+        """Render each named view at this patient's own angles."""
+        out = {}
+        for name in view_names:
+            rotate_x, rotate_z = self.view_angles(name)
+            out[name] = drr_mod.render_view(self.hu_volume, rotate_x, rotate_z, name=name)
+        return out
 
     # ---- Plan / export -----------------------------------------------
 
