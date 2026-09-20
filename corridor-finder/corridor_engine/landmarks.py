@@ -25,10 +25,18 @@ from .volume import Volume
 # toward the other side. This is how much of the bone, ranked by that reach,
 # is searched for the tubercle on its front.
 PUBIS_MEDIAL_PERCENTILE = 90.0
-# The pelvic brim runs along the inner edge of the hemipelvis. Its front
-# half, which is what a posterior column screw aims at or starts from, lies
-# this close to the midline and in front of the sacrum.
-BRIM_HALF_WIDTH_MM = 60.0
+# The pelvic brim is traced as the inner edge of the hemipelvis, level by
+# level, from just above the pubic tubercle to the S1 body. An antegrade
+# posterior column screw starts on it this far behind the iliopectineal
+# eminence (DECISIONS.md 7.3).
+BRIM_STEP_MM = 3.0
+# 60 mm was chosen on four hemipelves: nearer the eminence than about
+# 50 mm, every axis to the ischium crosses the acetabulum and reads as
+# 1-3 mm wide; from 55 mm back the corridor opens to a 7.3 mm screw with
+# 2.5-4.3 mm of clearance. Still to be confirmed by the surgeon.
+BRIM_BEHIND_EMINENCE_MM = 60.0
+EMINENCE_FROM_MIDLINE_MM = 20.0  # nearer the midline than this is still the pubic body
+BRIM_FOLLOW_MM = 15.0  # how far the traced edge may move back or forward per level
 
 
 @dataclass
@@ -54,7 +62,7 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
 
     Returns a dict keyed by landmark name (e.g. "asis_right", "psis_left",
     "pubic_tubercle_right", "ischial_tuberosity_left", "greater_trochanter_right",
-    "pelvic_brim_left",
+    "pelvic_brim_left", "iliopectineal_eminence_right",
     "femoral_head_center_left", "si_joint_center_right", "s1_body_center",
     "s2_body_center", "iliac_crest_apex_right"), each an auto-sourced Landmark.
     """
@@ -95,17 +103,40 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         medial = pts[reach >= np.percentile(reach, PUBIS_MEDIAL_PERCENTILE)]
         out[f"pubic_tubercle_{side}"] = Landmark(_extreme_point(medial, np.array([0.0, 1.0, 0.0])))
 
-        # Pelvic brim: the top of the hemipelvis's inner edge in front of the
-        # sacrum, i.e. the arcuate and pectineal lines where they rise over
-        # the hip joint. A posterior column screw runs between here and the
-        # ischial tuberosity, either way round, so this is the far end of
-        # that corridor.
+        # Pelvic brim: the inner edge of the hemipelvis traced level by level
+        # from the pubis up to the sacrum, which is the pectineal line
+        # running back into the arcuate line. Its most forward point is the
+        # iliopectineal eminence, and an antegrade posterior column screw
+        # starts on the brim behind it (DECISIONS.md 7.3).
         if sac_pts.shape[0] > 0:
-            midline_x = float(sac_pts[:, 0].mean())
-            in_front = float(np.percentile(sac_pts[:, 1], 90.0))
-            brim = pts[(np.abs(pts[:, 0] - midline_x) <= BRIM_HALF_WIDTH_MM) & (pts[:, 1] >= in_front)]
-            if brim.shape[0] > 0:
-                out[f"pelvic_brim_{side}"] = Landmark(_extreme_point(brim, np.array([0.0, 0.0, 1.0])))
+            z_start = float(out[f"pubic_tubercle_{side}"].xyz[2]) if f"pubic_tubercle_{side}" in out else float(z_lo)
+            curve = _brim_curve(pts, float(sac_pts[:, 0].mean()), side, z_start,
+                                float(sac_pts[:, 2].max()),
+                                float(np.percentile(sac_pts[:, 1], 98.0)))
+            # Something has to stand for the brim even where the trace does
+            # not run (a scan that stops above the pubis, an odd shape): the
+            # bone that reaches furthest toward the midline between the
+            # pubis and the sacrum, which is the brim where there is one.
+            toward = 1.0 if side == "right" else -1.0
+            between = pts[(pts[:, 2] >= z_start) & (pts[:, 2] <= float(sac_pts[:, 2].max()))]
+            if between.shape[0] == 0:
+                between = pts
+            out[f"pelvic_brim_{side}"] = Landmark(
+                between[int(np.argmin((between[:, 0] - float(sac_pts[:, 0].mean())) * toward))])
+            if curve.shape[0] >= 3:
+                # The pubic body is further forward than the eminence, so it
+                # is left out: the eminence is the most forward point of the
+                # brim once the trace has left the symphysis.
+                midline_x = float(sac_pts[:, 0].mean())
+                toward_midline = 1.0 if side == "right" else -1.0
+                past_pubis = ((curve[:, 0] - midline_x) * toward_midline) >= EMINENCE_FROM_MIDLINE_MM
+                if not past_pubis.any():
+                    past_pubis = np.ones(curve.shape[0], dtype=bool)
+                eminence = int(np.flatnonzero(past_pubis)[np.argmax(curve[past_pubis][:, 1])])
+                out[f"iliopectineal_eminence_{side}"] = Landmark(curve[eminence])
+                along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(curve, axis=0), axis=1))])
+                behind = np.argmin(np.abs(along - (along[eminence] + BRIM_BEHIND_EMINENCE_MM)))
+                out[f"pelvic_brim_{side}"] = Landmark(curve[int(behind)])
 
     for side, femur_mask in femur_masks.items():
         pts = labels_vol.mask_voxel_centers_world(femur_mask)
@@ -138,6 +169,33 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
             out[f"si_joint_center_{side}"] = Landmark(pts.mean(axis=0))
 
     return out
+
+
+def _brim_curve(pts: np.ndarray, midline_x: float, side: str, z_lo: float, z_hi: float,
+                sacral_front_y: float) -> np.ndarray:
+    """The hemipelvis's inner edge from the pubis up to the sacrum: at each
+    level, the bone that reaches furthest toward the midline. The trace is
+    stopped where it passes behind the sacrum's front, which is where the
+    brim ends and the sacroiliac surface begins."""
+    toward_midline = 1.0 if side == "right" else -1.0  # distance from the midline, positive
+    curve = []
+    for z in np.arange(z_lo, z_hi, BRIM_STEP_MM):
+        band = pts[np.abs(pts[:, 2] - z) <= BRIM_STEP_MM / 2.0]
+        if band.shape[0] == 0:
+            continue
+        if curve:
+            # Stay on the same ridge: higher up, the ilium beside the
+            # sacroiliac joint is more medial than the brim, and the trace
+            # would jump back to it and stop there.
+            near = band[np.abs(band[:, 1] - curve[-1][1]) <= BRIM_FOLLOW_MM]
+            if near.shape[0] == 0:
+                break
+            band = near
+        inner = band[int(np.argmin((band[:, 0] - midline_x) * toward_midline))]
+        if inner[1] < sacral_front_y:
+            break
+        curve.append(inner)
+    return np.asarray(curve)
 
 
 def _dilate_touch(mask: np.ndarray, iterations: int = 3) -> np.ndarray:

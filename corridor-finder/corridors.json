@@ -151,7 +151,7 @@
         "landmark": "pelvic_brim",
         "offset_mm": [
           0,
-          -12,
+          0,
           0
         ],
         "radius_mm": 20,
@@ -162,13 +162,13 @@
         "offset_mm": [
           0,
           -5,
-          12
+          20
         ],
-        "radius_mm": 22,
+        "radius_mm": 35,
         "restrict_to_label": "hip"
       },
       "length_range_mm": [
-        80,
+        70,
         150
       ],
       "prefer_diameter_mm": 6.5,
@@ -208,8 +208,8 @@
         "landmark": "pelvic_brim",
         "offset_mm": [
           0,
-          -12,
-          -3
+          0,
+          0
         ],
         "radius_mm": 22,
         "restrict_to_label": "hip"
