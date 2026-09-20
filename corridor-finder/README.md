@@ -218,14 +218,6 @@ through the GUI:
   "bone" is a shell with near-zero clearance inside and no screw fits at
   the default margin. Treat TotalSegmentator (or a corrected
   segmentation) as required, not optional.
-- **The entry rule has one provisional value awaiting the surgeon's
-  decision** (DECISIONS.md 1.2a). The agreed rule exempts only the part of
-  the screw's envelope beyond the entry cortex's tangent plane. On the
-  real CT that flagged 91-100% of good entries as breaches, because a
-  segmented cortex is rough and curved. The implementation therefore also
-  ignores non-bone less than 1.5 mm inside that plane. DECISIONS.md 1.2a
-  gives the share of entries still flagged for 0-2.5 mm. Until the
-  surgeon confirms a value, treat 1.5 mm as provisional.
 - **Iliosacral and transiliac-transsacral screws are still limited by the
   SI joint** on the real CT. Only the left S1 and S2 corridors take a
   screw (4.5 and 3.5 mm), and the right side is too narrow. Confirmed

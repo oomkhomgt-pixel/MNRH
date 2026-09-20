@@ -23,7 +23,7 @@ clearance < m** (unchanged, and still identical in `validate.py`,
 | 1.6 | Lengths come from the 5 mm catalogue. **Far-cortex corridors round up**, and the plan and report state the protrusion past the far cortex (0-5 mm); the far crossing is exempted only up to that protrusion. **Inside corridors round down.** | Rounding far-cortex screws down, or up only when protrusion <= 2 mm. |
 | 1.7 | Default margin **2 mm for every corridor** (about the cortex plus TotalSegmentator's ~1 mm boundary error), adjustable per screw. | 3 mm for sacral corridors; 3 mm for all. |
 
-### 1.2a Tolerance for the crossed cortex's shape (PROVISIONAL, awaiting the surgeon's decision)
+### 1.2a Tolerance for the crossed cortex's shape (decided 2026-09-20)
 
 Implementing 1.2 on real segmentations showed that the tangent plane alone
 cannot work. A segmented cortex is neither flat nor smooth: TotalSegmentator
@@ -33,8 +33,11 @@ On the sample CT, the plane alone flagged 91-100% of entries as a breach at
 the entry itself, counting only entries into bone that is clear for 15 mm
 beyond the entry zone.
 
-Implemented provisionally (`cortex.CORTEX_DEPTH_TOLERANCE_MM`, mirrored in
-`viewer/clearance.js`):
+**Decided: 1.5 mm**, after seeing what each value costs (the table below)
+and a cut through a typical entry checked both ways. It matches the
+resolution TotalSegmentator works at, so it covers the segmentation's own
+roughness without excusing anything deeper
+(`cortex.CORTEX_DEPTH_TOLERANCE_MM`, mirrored in `viewer/clearance.js`):
 
 - Non-bone less than **1.5 mm** inside the tangent plane counts as part of
   the crossed cortex.
@@ -57,8 +60,7 @@ surface normal; range over the three angles):
 
 The remaining flags at 1.5 mm have not been reviewed one by one. Some will
 be real (an entry next to an edge or notch), some the segmentation's
-roughness. A smaller tolerance flags more entries; a larger one ignores
-deeper non-bone next to the entry.
+roughness. That review belongs to step 3, on the full-pelvis CTs.
 
 ### How step 1 is implemented
 

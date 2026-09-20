@@ -11,7 +11,7 @@ this applies to is (r + m + tolerance) / cos(angle between the axis and the
 cortex normal), capped at its 60 degree value; steeper crossings get a
 warning.
 
-The tolerance is PROVISIONAL (DECISIONS.md 1.2a): with the tangent plane
+The tolerance is the surgeon's (DECISIONS.md 1.2a): with the tangent plane
 alone (tolerance 0) the rule flagged about 95% of the entries on the sample
 CT that had clear bone right after them, because a segmented cortex is
 neither flat nor smooth (TotalSegmentator works at 1.5 mm and bone curves),
@@ -38,8 +38,9 @@ MAX_SEARCH_MM = 20.0  # how far behind the entry handle / past the target a cort
 NORMAL_RADIUS_MM = 4.0  # bone within this radius defines the cortex normal
 OBLIQUE_WARN_DEG = 60.0  # steeper crossings are flagged (warning only)
 COS_OBLIQUE = 0.5  # cos(OBLIQUE_WARN_DEG), written out so clearance.js matches bit for bit
-# PROVISIONAL (DECISIONS.md 1.2a): non-bone less than this far inside the
-# tangent plane of a crossed cortex counts as that cortex's own shape.
+# DECISIONS.md 1.2a: non-bone less than this far inside the tangent plane of
+# a crossed cortex counts as that cortex's own shape, which at
+# TotalSegmentator's 1.5 mm resolution is as close as its surface is known.
 CORTEX_DEPTH_TOLERANCE_MM = 1.5
 # A far-cortex tip is exempted at most this far past the cortex: the 5 mm
 # catalogue step that rounding up can add (DECISIONS.md 1.6).
