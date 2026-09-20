@@ -121,8 +121,9 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
             between = pts[(pts[:, 2] >= z_start) & (pts[:, 2] <= float(sac_pts[:, 2].max()))]
             if between.shape[0] == 0:
                 between = pts
-            out[f"pelvic_brim_{side}"] = Landmark(
-                between[int(np.argmin((between[:, 0] - float(sac_pts[:, 0].mean())) * toward))])
+            fallback = between[int(np.argmin((between[:, 0] - float(sac_pts[:, 0].mean())) * toward))]
+            out[f"pelvic_brim_{side}"] = Landmark(fallback)
+            out[f"iliopectineal_eminence_{side}"] = Landmark(fallback)
             if curve.shape[0] >= 3:
                 # The pubic body is further forward than the eminence, so it
                 # is left out: the eminence is the most forward point of the

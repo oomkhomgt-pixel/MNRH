@@ -1,6 +1,6 @@
 {
   "schema": "mnrh-corridor-definitions/1",
-  "comment": "offset_mm and textbook_direction are in the image's RAS axes, not the APP frame: x = patient right(+)/left(-), y = anterior(+)/posterior(-), z = cephalad(+)/caudal(-). An offset is added to the named landmark's position; entry/exit regions are a sphere (landmark + offset_mm, radius_mm) intersected with the surface of restrict_to_label. side: 'per_side' values are given for the RIGHT side, where +x is lateral; the LEFT instance mirrors x -> -x. A 'reference_side' of 'opposite' takes the landmark and the bone of the other side, which is how a transiliac-transsacral screw started on one side reaches the other. crosses_si_joint marks the corridors that cross the sacroiliac joint; how much of that joint counts as bone is measured per patient (DECISIONS.md section 2), not set here. Anchors are initial estimates, not yet reviewed against real anatomy. tip: 'inside' keeps the whole screw tip in bone with its full margin (targets are sampled in bone interior, lengths round down); 'through' lets the tip pass the far cortex near the target by up to one 5 mm catalogue step (targets on the far surface, lengths round up), DECISIONS.md 1.5-1.6. clear_of_fracture_mm keeps that end of the screw at least that far on the midline side of a marked fracture, so the screw crosses the fracture rather than starting past it (the surgeon marks the site; with nothing marked the rule does not apply).",
+  "comment": "offset_mm and textbook_direction are in the image's RAS axes, not the APP frame: x = patient right(+)/left(-), y = anterior(+)/posterior(-), z = cephalad(+)/caudal(-). An offset is added to the named landmark's position; entry/exit regions are a sphere (landmark + offset_mm, radius_mm) intersected with the surface of restrict_to_label. side: 'per_side' values are given for the RIGHT side, where +x is lateral; the LEFT instance mirrors x -> -x. A 'reference_side' of 'opposite' takes the landmark and the bone of the other side, which is how a transiliac-transsacral screw started on one side reaches the other. crosses_si_joint marks the corridors that cross the sacroiliac joint; how much of that joint counts as bone is measured per patient (DECISIONS.md section 2), not set here. Anchors are initial estimates, not yet reviewed against real anatomy. tip: 'inside' keeps the whole screw tip in bone with its full margin (targets are sampled in bone interior, lengths round down); 'through' lets the tip pass the far cortex near the target by up to one 5 mm catalogue step (targets on the far surface, lengths round up), DECISIONS.md 1.5-1.6. clear_of_fracture_mm keeps that end of the screw at least that far on the midline side of a marked fracture, so the screw crosses the fracture rather than starting past it (the surgeon marks the site; with nothing marked the rule does not apply). The posterior_column_triangle view is the single view of Sikarinkul et al. (Bangkok Med J 2025;21(2):116-122): obturator oblique 10 degrees with inlet 25 degrees, which shows the corridor bounded by the quadrilateral surface medially, the retro-acetabular surface laterally and the supero-posterior acetabular surface below.",
   "views_deg": {
     "ap": {
       "rotate_x": 0,
@@ -37,6 +37,14 @@
     "lateral_sacral": {
       "rotate_x": 0,
       "rotate_z": 90
+    },
+    "posterior_column_triangle_right": {
+      "rotate_x": -25,
+      "rotate_z": 10
+    },
+    "posterior_column_triangle_left": {
+      "rotate_x": -25,
+      "rotate_z": -10
     }
   },
   "corridors": [
@@ -138,7 +146,7 @@
     },
     {
       "id": "posterior_column_antegrade",
-      "label": "Posterior column (antegrade, from the brim)",
+      "label": "Posterior column (antegrade, lateral to the brim)",
       "side": "per_side",
       "tip": "inside",
       "bones": [
@@ -150,9 +158,9 @@
       "entry": {
         "landmark": "pelvic_brim",
         "offset_mm": [
+          15,
           0,
-          0,
-          0
+          -8
         ],
         "radius_mm": 20,
         "restrict_to_label": "hip"
@@ -160,8 +168,8 @@
       "exit": {
         "landmark": "ischial_tuberosity",
         "offset_mm": [
-          0,
           -5,
+          -15,
           20
         ],
         "radius_mm": 35,
@@ -178,9 +186,9 @@
         -0.97
       ],
       "drr_views": [
+        "posterior_column_triangle",
         "iliac_oblique",
-        "obturator_oblique",
-        "lateral"
+        "ap"
       ]
     },
     {
@@ -197,11 +205,11 @@
       "entry": {
         "landmark": "ischial_tuberosity",
         "offset_mm": [
-          0,
           -8,
-          12
+          -5,
+          8
         ],
-        "radius_mm": 20,
+        "radius_mm": 18,
         "restrict_to_label": "hip"
       },
       "exit": {
@@ -225,8 +233,8 @@
         0.97
       ],
       "drr_views": [
+        "posterior_column_triangle",
         "iliac_oblique",
-        "obturator_oblique",
         "lateral"
       ]
     },

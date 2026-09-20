@@ -89,9 +89,27 @@ def test_named_views_have_anatomical_beam_directions():
         "iliac_oblique_left": (-s, -s, 0),
         "obturator_oblique_left": (s, -s, 0),
     }
+    views = {k: v for k, v in views.items() if not k.startswith("posterior_column_triangle")}
     assert set(expected_beam) == set(views)
     for name, beam in expected_beam.items():
         assert np.allclose(view_rotation(*views[name])[2], beam, atol=1e-9), name
+
+
+def test_posterior_column_triangle_view_is_an_inlet_with_a_little_obturator_tilt():
+    """Sikarinkul et al. (Bangkok Med J 2025;21(2):116-122) take the
+    posterior column in one view: obturator oblique 10 degrees with inlet
+    25 degrees. The beam must therefore run mostly back and down, tilted a
+    little toward the side being drilled."""
+    views = load_views()
+    for side, sign in (("right", -1.0), ("left", 1.0)):
+        beam = view_rotation(*views[f"posterior_column_triangle_{side}"])[2]
+        assert abs(beam[1]) > abs(beam[0]) and abs(beam[1]) > abs(beam[2]), "mostly posterior"
+        assert beam[2] < 0, "tilted caudally, as an inlet is"
+        assert np.isclose(np.degrees(np.arcsin(abs(beam[2]))), 25.0, atol=1.0), "25 degrees of inlet"
+        # The obturator oblique of one side enters from the other, so 10
+        # degrees of it puts that much of the beam across the patient.
+        assert np.sign(beam[0]) == sign and np.isclose(
+            np.degrees(np.arctan2(abs(beam[0]), abs(beam[1]))), 10.0, atol=1.0)
 
 
 def test_ap_view_is_read_like_a_radiograph():
