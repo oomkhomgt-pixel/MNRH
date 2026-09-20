@@ -315,6 +315,25 @@ Not yet implemented (tracked in the project plan):
 - [ ] Pointer-dragging of screw handles in the viewer (handles currently
       move only via the `window.CF.moveHandle` test hook, not the mouse)
 
+## Working on it
+
+Two things make the loop short enough to work in:
+
+- **Read a case without Slicer.** `corridor_engine/nifti.py` loads a
+  .nii/.nii.gz straight into an engine Volume, so landmarks, the sacroiliac
+  measurement, the C-arm views, screw validation and the entry area can all
+  be tried from the plain venv: about 7 seconds for a 92 M-voxel case,
+  against a minute or more to start Slicer and load it there. It accepts
+  only axis-aligned images, the same restriction the Slicer path applies,
+  and it is checked voxel-for-voxel against what Slicer produces on four
+  real CTs. `pip install -r requirements-dev.txt` for nibabel. Corridor
+  *suggestion* still needs Slicer, since the anchors live in the module.
+- **A fast tier of the Slicer harness.** `CF_FAST=1` runs the phantom only,
+  without the exports and without asking TotalSegmentator to look at a
+  phantom it cannot segment: 35 seconds against about 7 minutes. It is for
+  iterating; the full run, with a real CT, TotalSegmentator, the exports and
+  the viewer under Node, is what a commit is checked against.
+
 ## Development
 
 ```

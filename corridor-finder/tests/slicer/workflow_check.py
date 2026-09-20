@@ -57,6 +57,11 @@ from corridor_engine import segmentation as seg  # noqa: E402
 from corridor_engine import si_joint as si_joint_mod  # noqa: E402
 from corridor_engine.phantoms import pelvis_like  # noqa: E402
 
+# CF_FAST=1 runs the phantom only and skips the exports: the tier to
+# iterate on, seconds rather than minutes. It is not a substitute for the
+# full run, which uses a real CT, TotalSegmentator, the exports and the
+# viewer under Node, and which is what a commit is checked against.
+FAST = os.environ.get("CF_FAST", "") not in ("", "0", "false", "no")
 OUT_DIR = os.environ.get("CF_OUT_DIR") or tempfile.mkdtemp(prefix="cf_workflow_")
 os.makedirs(OUT_DIR, exist_ok=True)
 SAMPLE = os.environ.get("CF_SAMPLE", "CTAAbdomenPanoramix")
@@ -94,11 +99,15 @@ slicer.util.confirmOkCancelDisplay = lambda text, *a, **k: log(f"    [declined c
 slicer.util.confirmYesNoDisplay = lambda text, *a, **k: log(f"    [declined confirmation] {text}") and False
 
 
-def step(name):
+def step(name, skip=False):
     """Decorator: run a workflow step, time it, and fail the dataset on an
-    exception or on any error/warning dialog raised during the step."""
+    exception or on any error/warning dialog raised during the step. A step
+    marked ``skip`` is left out of the fast tier and says so."""
     def wrap(fn):
         def run(*args, **kwargs):
+            if skip:
+                log(f"  - {name}: skipped (CF_FAST)")
+                return None
             log(f"  - {name}")
             n_dialogs = len(_dialogs)
             t0 = time.time()
@@ -198,7 +207,11 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     @step("Segment")
     def segment():
         w.volumeSelector.setCurrentNode(ct)
-        w.segmentTsCheckbox.checked = True  # TotalSegmentator preferred, as by default
+        # TotalSegmentator preferred, as by default. In the fast tier it is
+        # not asked for on the phantom: it takes over a minute to look at a
+        # phantom it cannot segment, and the full run is what checks that
+        # path.
+        w.segmentTsCheckbox.checked = not (FAST and expect_source == "fallback")
         w.segmentButton.click()
         check(logic.labels_volume is not None, "labels volume created")
         present = sorted(int(v) for v in np.unique(logic.labels_volume.array) if v)
@@ -207,7 +220,8 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(logic.segmentation_source == expect_source, f"segmentation source is {expect_source}: {logic.segmentation_source!r}")
         if logic.segmentation_source == "fallback":
             check("UNVERIFIED" in w.segmentStatusLabel.text, "panel flags the fallback segmentation as UNVERIFIED")
-            check(bool(logic.segmentation_note), "panel says why TotalSegmentator was not used")
+            if w.segmentTsCheckbox.checked:  # it was asked for and declined to run
+                check(bool(logic.segmentation_note), "panel says why TotalSegmentator was not used")
         check(w.detectLandmarksButton.enabled, "Detect landmarks enabled")
         check(seg.HIP_L in present and seg.HIP_R in present, "both hips labelled")
         xr, xl = label_centroid_x(logic, seg.HIP_R), label_centroid_x(logic, seg.HIP_L)
@@ -453,7 +467,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(breach == expect_breach, f"breach is {expect_breach} after moving the target by {delta_mm} mm")
         check(("b91c1c" in w.clearanceLabel.styleSheet) == breach, "clearance label is red exactly when breached")
 
-    @step("Export plan JSON, report, STL and viewer")
+    @step("Export plan JSON, report, STL and viewer", skip=FAST)
     def export(tag):
         paths = {
             "JSON": os.path.join(OUT_DIR, f"{name}_{tag}_plan.json"),
@@ -584,10 +598,12 @@ def main():
 
     ts_installed = importlib.util.find_spec("TotalSegmentator") is not None
     log(f"TotalSegmentator extension installed: {ts_installed}")
+    if FAST:
+        log("CF_FAST: the phantom only, without the exports. Run without it before committing.")
     # TotalSegmentator finds no pelvis in the synthetic phantom, so the
     # fallback must take over (with the reason shown) either way.
     run_workflow(w, make_phantom_ct(), "phantom", expect_source="fallback", check_anatomy=True)
-    if SAMPLE:
+    if SAMPLE and not FAST:
         import SampleData
 
         ct = SampleData.SampleDataLogic().downloadSample(SAMPLE)

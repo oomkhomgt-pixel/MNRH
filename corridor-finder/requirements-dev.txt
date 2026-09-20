@@ -1,5 +1,6 @@
-numpy>=1.26,<2.3
-scipy>=1.11,<1.15
-scikit-image>=0.22,<0.25
-pytest>=7.4,<9
-jsonschema>=4.20,<5
+# Development and batch work only; the Slicer module needs none of this.
+# nibabel lets corridor_engine.nifti read a case without starting
+# Slicer, which is what makes a sweep over a dataset or the blinded
+# validation (DECISIONS.md section 5) practical.
+-r requirements.txt
+nibabel>=5.2,<6
