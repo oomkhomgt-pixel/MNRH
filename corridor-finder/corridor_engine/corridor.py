@@ -66,6 +66,9 @@ class CorridorResult:
     # When nothing fits: "too_narrow", "length" (no catalogue length suits the
     # axis) or "too_short" (no axis of the corridor's length range was found).
     reason: Optional[str] = None
+    # What this suggestion is, when it is not simply the widest one found:
+    # "longest on this line".
+    note: Optional[str] = None
 
 
 def _surface_shell(mask: np.ndarray) -> np.ndarray:

@@ -87,7 +87,17 @@ This is under active development. What's implemented and unit tested today:
       gated on the surgeon declaring which side is disrupted. It is what
       the corridor search and the live check use.
 - [x] Bony landmark detection (ASIS, PSIS, iliac crest, pubic tubercle,
-      ischial tuberosity, greater trochanter, SI joint, S1/S2 body centers)
+      pelvic brim, ischial tuberosity, greater trochanter, SI joint, S1/S2
+      body centers)
+- [x] The surgeon marks the fracture, and a screw put in to hold it has to
+      start on the near side: an anterior column screw's pubic end is kept
+      at least 10 mm on the symphysis side of every mark
+      (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
+      is applied to the screw that comes out, not only to the points the
+      search starts from.
+- [x] Alongside the widest suggestion, the longest screw that fits the same
+      line, when there is one: a corridor is ranked by room, which favours
+      the shortest screw that reaches the target (DECISIONS.md 7.2)
 - [x] Anterior pelvic plane frame + trajectory angle reporting
 - [x] Skin entry point + landmark-relative incision offsets
 - [x] Aiming guidance for a planned screw:
@@ -263,14 +273,27 @@ through the GUI:
   corridor is still refused on the sample CT for a different reason: its
   far cortex is 146 mm from the entry cortex, below the corridor's 150 mm
   minimum.
-- **The corridor anchors do not all survive a real full pelvis.** On the
-  CTPelvic1K CLINIC cases the posterior column finds nothing on either
-  side: its target is anchored to the PSIS and lands beside the SI joint,
-  so every candidate axis from the ischial tuberosity crosses the greater
-  sciatic notch and reads as air ("too narrow"). The transiliac corridor
-  measures 181 mm, longer than any catalogue length. Both are for the
-  surgeon to settle in step 3; the 3D pictures of each corridor's entry
-  and target regions are what that review is being done on.
+- **The corridor anchors are being rewritten with the surgeon, case by
+  case** (step 3, DECISIONS.md section 7). Settled and in corridors.json:
+  the anterior column starts beside the symphysis and may stop above the
+  acetabular roof; the posterior column is **two** corridors, antegrade
+  from the pelvic brim and retrograde from the ischial tuberosity (the old
+  single one aimed at the PSIS, so every axis crossed the greater sciatic
+  notch and read as air); the transiliac-transsacral screw is planned from
+  the side the surgeon picks, S1 or S2, and no screw longer than 180 mm
+  exists in his stock. Still open: where each posterior column route
+  starts and ends exactly, how close either may come to the acetabular
+  articular surface, and which fluoroscopic views belong to each. The 3D
+  pictures of each corridor's entry and target regions are what that
+  review is being done on.
+- **No transiliac-transsacral corridor was found on CLINIC_0025.** S1
+  measures 180 mm but has no room at all along it (thin in the ilium at
+  16-20 mm, nothing crossing the left SI joint at 45-48 mm, thin in the
+  sacrum at 120-133 mm); counting 4, 6 or even 8 mm of both joints as bone
+  does not change that, so the joint is not what blocks it. S2 measures
+  156 mm and is 1.7 mm wide. Either that sacrum takes no transsacral screw
+  or the entry region on the lateral ilium is not where the surgeon would
+  start one; that is his call.
 - The corridor anchors, textbook directions and DRR view angles in
   corridors.json have not been reviewed against real anatomy. The Sample
   Data CT stops above the acetabulum, so the anterior column, posterior

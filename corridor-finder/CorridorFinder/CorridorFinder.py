@@ -42,6 +42,7 @@ supporting them is future work.
 # (observed in Slicer 5.12.4 before jsonschema was pip-installed).
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -229,6 +230,17 @@ def engine_array_to_node_array(volume_node, array_zyx: np.ndarray) -> np.ndarray
     return node_array_to_engine_array(volume_node, array_zyx)
 
 
+def other_side(side: str) -> str:
+    return "left" if side == "right" else "right"
+
+
+def resolve_side(reference: str, side: str) -> str:
+    """A corridor end can name its own side, a fixed side, or the opposite
+    one: a transiliac-transsacral screw starts on the side the surgeon
+    picks and comes out of the other ilium."""
+    return other_side(side) if reference == "opposite" else reference
+
+
 def volume_node_to_engine_volume(volume_node) -> EngineVolume:
     """Convert a scalar volume node (HU or label map) to an engine Volume in
     RAS world coordinates."""
@@ -306,6 +318,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # The sacroiliac joints (DECISIONS.md section 2): what they measure,
         # which side the surgeon says is disrupted, and what is therefore
         # counted as bone in each. Sacral corridors wait for that call.
+        # Where the surgeon has marked the fracture. A screw that is meant
+        # to hold a fracture has to start on the near side of it, not past
+        # it (corridors.json: clear_of_fracture_mm).
+        self.fracture_sites: List[np.ndarray] = []
         self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
         self.si_disrupted: Optional[str] = None
         self.si_bridge_mm: Dict[str, float] = {}
@@ -505,9 +521,36 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return self.landmarks[name].xyz
         raise KeyError(f"landmark {name!r} (side={side!r}) not found; run detect_landmarks() first")
 
+    def set_fracture_sites(self, points) -> None:
+        """Record the fracture sites the surgeon has marked (world xyz)."""
+        self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
+
+    def _is_clear_of_fracture(self, point, side: str, clear_mm: float) -> bool:
+        """Is this point at least ``clear_mm`` on the midline side of every
+        marked fracture?"""
+        if not self.fracture_sites or not clear_mm:
+            return True
+        toward_midline = -1.0 if side == "right" else 1.0  # patient right is +x
+        return all((float(point[0]) - float(site[0])) * toward_midline >= clear_mm for site in self.fracture_sites)
+
+    def _clear_of_fracture(self, mask: np.ndarray, side: str, clear_mm: float) -> np.ndarray:
+        """Drop the part of an anchor region that is not at least ``clear_mm``
+        on the midline side of every marked fracture: a screw put in to hold
+        a fracture has to start before it."""
+        if not self.fracture_sites or not clear_mm:
+            return mask
+        toward_midline = -1.0 if side == "right" else 1.0  # patient right is +x
+        x = (np.arange(mask.shape[2]) * self.labels_volume.spacing[0] + self.labels_volume.origin[0])
+        keep = np.ones(mask.shape[2], dtype=bool)
+        for site in self.fracture_sites:
+            keep &= ((x - site[0]) * toward_midline) >= clear_mm
+        return mask & keep[None, None, :]
+
     def _bone_labels_for(self, group: str, side: str) -> tuple:
         if group == "sacrum":
             return (seg_mod.SACRUM,)
+        if group.endswith("_opposite"):  # the other hemipelvis, as a transsacral screw reaches
+            return seg_mod.labels_for_side(group[: -len("_opposite")], other_side(side))
         return seg_mod.labels_for_side(group, side)
 
     def _edt_for_bones(self, label_ids: tuple, si_widths: Optional[Dict[int, float]] = None) -> EngineVolume:
@@ -558,8 +601,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             )
         margin_mm = margin_mm if margin_mm is not None else self.screw_library["margin_default_mm"]
 
-        entry_side = spec["entry"].get("reference_side", side)
-        exit_side = spec["exit"].get("reference_side", side)
+        entry_side = resolve_side(spec["entry"].get("reference_side", side), side)
+        exit_side = resolve_side(spec["exit"].get("reference_side", side), side)
         mirror = -1.0 if (spec["side"] == "per_side" and side == "left") else 1.0
 
         entry_landmark = self._resolve_landmark_xyz(spec["entry"]["landmark"], entry_side)
@@ -573,8 +616,16 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         exit_bone_group = spec["exit"]["restrict_to_label"]
         entry_labels = self._bone_labels_for(entry_bone_group, entry_side)
         exit_labels = self._bone_labels_for(exit_bone_group, exit_side)
-        entry_mask = np.isin(self.labels_volume.array, entry_labels)
-        exit_mask = np.isin(self.labels_volume.array, exit_labels)
+        entry_mask = self._clear_of_fracture(
+            np.isin(self.labels_volume.array, entry_labels), entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))
+        exit_mask = self._clear_of_fracture(
+            np.isin(self.labels_volume.array, exit_labels), exit_side, spec["exit"].get("clear_of_fracture_mm", 0.0))
+        if not entry_mask.any() or not exit_mask.any():
+            raise RuntimeError(
+                "Nothing is left of this corridor's entry or target region once the screw has to stay "
+                f"{max(spec['entry'].get('clear_of_fracture_mm', 0.0), spec['exit'].get('clear_of_fracture_mm', 0.0)):.0f} mm "
+                "on the midline side of the marked fracture. Check where the fracture is marked."
+            )
 
         traverse_labels = self._traverse_labels(corridor_id, side)
         edt_vol = self.clearance_field(corridor_id, side)
@@ -610,9 +661,62 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             tip_rule=self.tip_rule(corridor_id),
             catalog_lengths_mm={s["diameter_mm"]: s["lengths_mm"] for s in self.screw_library["screws"]},
         )
-        return results
+        # The search refines an entry along the cortex after choosing it, so
+        # the fracture rule has to be checked on the screw that comes out,
+        # not only on the points it started from.
+        kept = []
+        for r in results:
+            start = r.validation.start_xyz if (r.validation and r.validation.start_xyz is not None) else r.entry_xyz
+            tip = r.validation.tip_xyz if (r.validation and r.validation.tip_xyz is not None) else r.target_xyz
+            if (self._is_clear_of_fracture(start, entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))
+                    and self._is_clear_of_fracture(tip, exit_side, spec["exit"].get("clear_of_fracture_mm", 0.0))):
+                kept.append(r)
+        longest = self._longest_on_axis(kept[0], corridor_id, side, margin_mm) if kept else None
+        if longest is not None:
+            kept.append(longest)
+        if results and not kept:
+            raise RuntimeError(
+                "Every corridor found here would put the screw past the marked fracture rather than across it. "
+                "Move or clear the fracture mark, or plan this screw from the other direction."
+            )
+        return kept
 
     # ---- Validation --------------------------------------------------
+
+    def _longest_on_axis(self, result, corridor_id: str, side: str, margin_mm: float):
+        """The longest screw of the same diameter that still passes, on the
+        same entry and direction. A corridor is ranked by how much room a
+        screw has in it, which favours the shortest one that reaches the
+        target region; when a longer screw fits the same line, the surgeon
+        should see it rather than have to find it by dragging."""
+        v = result.validation
+        if v is None or v.start_xyz is None or v.tip_xyz is None or not result.screw.fits:
+            return None
+        start = np.asarray(v.start_xyz, dtype=float)
+        direction = np.asarray(v.tip_xyz, dtype=float) - start
+        norm = float(np.linalg.norm(direction))
+        if norm < 1e-9:
+            return None
+        direction /= norm
+        diameter = result.screw.diameter_mm
+        for length in sorted(self.catalog_lengths(diameter) or [], reverse=True):
+            if length <= (result.screw.length_mm or 0.0) + 1e-6:
+                return None  # nothing longer than the one already suggested
+            target = start + direction * length
+            check = self.validate_screw(corridor_id, side, start, target, diameter, margin_mm)
+            if check.breach or check.length_mm is None:
+                continue
+            longer = copy.deepcopy(result)
+            longer.entry_xyz = start
+            longer.target_xyz = np.asarray(check.tip_xyz, dtype=float) if check.exit_xyz is None else target
+            longer.length_mm = float(check.length_mm)
+            longer.screw = corridor_search.ScrewChoice(diameter_mm=diameter, length_mm=check.length_mm, fits=True)
+            longer.validation = check
+            longer.min_edt_mm = float(check.min_clearance_mm + margin_mm)
+            longer.r_safe_mm = float(check.min_clearance_mm + margin_mm - diameter / 2.0)
+            longer.note = "longest on this line"
+            return longer
+        return None
 
     def tip_rule(self, corridor_id: str) -> str:
         """The corridor's tip rule, "inside" or "through" (corridors.json
@@ -879,6 +983,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._bonesSegmentationNode = None
         self._shownScrewId = None  # screw whose clearance the label shows
         self._updating_si = False  # while the panel writes the SI widths itself
+        self._fracture_node = None  # where the surgeon marked the fracture
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
@@ -930,6 +1035,21 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         corridorBox.text = _("2. Corridors")
         layout.addWidget(corridorBox)
         corridorForm = qt.QFormLayout(corridorBox)
+
+        fractureRow = qt.QWidget()
+        fractureLayout = qt.QHBoxLayout(fractureRow)
+        fractureLayout.setContentsMargins(0, 0, 0, 0)
+        self.fractureButton = qt.QPushButton(_("Mark fracture"))
+        self.fractureButton.setToolTip(
+            _("Click a point on each fracture in the slice views. A screw put in to hold a fracture has to "
+              "start on the near side of it: an anterior column screw is then started at least 10 mm toward "
+              "the symphysis from the nearest mark."))
+        self.fractureClearButton = qt.QPushButton(_("Clear"))
+        self.fractureLabel = qt.QLabel(_("none marked"))
+        fractureLayout.addWidget(self.fractureButton)
+        fractureLayout.addWidget(self.fractureClearButton)
+        fractureLayout.addWidget(self.fractureLabel, 1)
+        corridorForm.addRow(_("Fracture:"), fractureRow)
 
         self.siLabel = qt.QLabel(_("measured after Detect landmarks"))
         self.siLabel.setWordWrap(True)
@@ -1035,6 +1155,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.screwsList.currentRowChanged.connect(self.onScrewSelected)
         self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
+        self.fractureButton.clicked.connect(self.onMarkFracture)
+        self.fractureClearButton.clicked.connect(self.onClearFractures)
         self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
         self.siRightSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("right", value))
         self.siLeftSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("left", value))
@@ -1270,6 +1392,46 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             self.logic.set_landmark_manual(name, engine_xyz)
 
+    # ---- Fracture sites -------------------------------------------------
+
+    def _fractureNode(self):
+        if self._fracture_node is None or slicer.mrmlScene.GetNodeByID(self._fracture_node.GetID()) is None:
+            self._fracture_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "CF_Fracture")
+            self._fracture_node.GetDisplayNode().SetSelectedColor(0.95, 0.35, 0.1)
+            self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.onFractureMoved)
+            self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent, self.onFractureMoved)
+        return self._fracture_node
+
+    def onMarkFracture(self):
+        """Put the mouse into place-point mode on the fracture node, so the
+        surgeon clicks the fracture where he sees it in the slice views."""
+        node = self._fractureNode()
+        selection = slicer.app.applicationLogic().GetSelectionNode()
+        selection.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selection.SetActivePlaceNodeID(node.GetID())
+        slicer.app.applicationLogic().GetInteractionNode().SetPlaceModePersistence(1)
+        slicer.app.applicationLogic().GetInteractionNode().SetCurrentInteractionMode(
+            slicer.vtkMRMLInteractionNode.Place)
+
+    def onClearFractures(self):
+        if self._fracture_node is not None:
+            self._fracture_node.RemoveAllControlPoints()
+        self.onFractureMoved(None, None)
+
+    def onFractureMoved(self, caller, event):
+        node = self._fracture_node
+        points = []
+        if node is not None:
+            for i in range(node.GetNumberOfControlPoints()):
+                ras = [0.0, 0.0, 0.0]
+                node.GetNthControlPointPosition(i, ras)
+                points.append(_ras_to_engine(ras))
+        self.logic.set_fracture_sites(points)
+        self.fractureLabel.setText(
+            _("none marked") if not points else _("{0} marked; screws that hold a fracture start clear of it")
+            .format(len(points)))
+        self._clearSuggestions()
+
     def onSiDisruptedChanged(self, index: int) -> None:
         self.logic.set_si_disrupted(None if index == 0 else self.siDisruptedCombo.currentText)
         self._syncSiWidths()
@@ -1329,6 +1491,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             v = r.validation
             if r.screw.fits:
                 text = f"#{i+1}: {r.screw.diameter_mm} mm x {r.screw.length_mm:.0f} mm, clearance {v.min_clearance_mm:.1f} mm"
+                if r.note:
+                    text += f" ({r.note})"
                 if v.protrusion_mm is not None:
                     text += f", tip {v.protrusion_mm:.1f} mm past the far cortex"
             elif r.reason == "too_short":

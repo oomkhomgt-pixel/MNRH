@@ -25,6 +25,10 @@ from .volume import Volume
 # toward the other side. This is how much of the bone, ranked by that reach,
 # is searched for the tubercle on its front.
 PUBIS_MEDIAL_PERCENTILE = 90.0
+# The pelvic brim runs along the inner edge of the hemipelvis. Its front
+# half, which is what a posterior column screw aims at or starts from, lies
+# this close to the midline and in front of the sacrum.
+BRIM_HALF_WIDTH_MM = 60.0
 
 
 @dataclass
@@ -50,17 +54,17 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
 
     Returns a dict keyed by landmark name (e.g. "asis_right", "psis_left",
     "pubic_tubercle_right", "ischial_tuberosity_left", "greater_trochanter_right",
+    "pelvic_brim_left",
     "femoral_head_center_left", "si_joint_center_right", "s1_body_center",
     "s2_body_center", "iliac_crest_apex_right"), each an auto-sourced Landmark.
     """
     arr = labels_vol.array
     out: Dict[str, Landmark] = {}
 
+    sac_pts = labels_vol.mask_voxel_centers_world(arr == seg.SACRUM)
     hip_masks = {"right": arr == seg.HIP_R, "left": arr == seg.HIP_L}
     femur_masks = {"right": arr == seg.FEMUR_R, "left": arr == seg.FEMUR_L}
     sacrum_mask = arr == seg.SACRUM
-    sac_pts = labels_vol.mask_voxel_centers_world(sacrum_mask)
-
     for side, hip_mask in hip_masks.items():
         pts = labels_vol.mask_voxel_centers_world(hip_mask)
         if pts.shape[0] == 0:
@@ -90,6 +94,18 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         reach = pts[:, 0] * toward_other_side
         medial = pts[reach >= np.percentile(reach, PUBIS_MEDIAL_PERCENTILE)]
         out[f"pubic_tubercle_{side}"] = Landmark(_extreme_point(medial, np.array([0.0, 1.0, 0.0])))
+
+        # Pelvic brim: the top of the hemipelvis's inner edge in front of the
+        # sacrum, i.e. the arcuate and pectineal lines where they rise over
+        # the hip joint. A posterior column screw runs between here and the
+        # ischial tuberosity, either way round, so this is the far end of
+        # that corridor.
+        if sac_pts.shape[0] > 0:
+            midline_x = float(sac_pts[:, 0].mean())
+            in_front = float(np.percentile(sac_pts[:, 1], 90.0))
+            brim = pts[(np.abs(pts[:, 0] - midline_x) <= BRIM_HALF_WIDTH_MM) & (pts[:, 1] >= in_front)]
+            if brim.shape[0] > 0:
+                out[f"pelvic_brim_{side}"] = Landmark(_extreme_point(brim, np.array([0.0, 0.0, 1.0])))
 
     for side, femur_mask in femur_masks.items():
         pts = labels_vol.mask_voxel_centers_world(femur_mask)

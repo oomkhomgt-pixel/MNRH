@@ -203,3 +203,21 @@ implementing it and are open to correction.
 | 6.1 | A direction is given as **how far it runs cephalad or caudad, then how far it swings anterior or posterior of straight medial** (or of straight lateral, whichever it is nearer), measured for the screw's own side. Both frames are reported: the anterior pelvic plane, and the scan's own axes as the patient lay on the table. | Midline screws read "toward the patient's left/right" instead of medial. |
 | 6.2 | The **C-arm view looking straight down the screw** is given as the tilt and roll of the existing DRR views (so inlet/outlet and obliquity read the same way), with a sentence, and rendered as a simulated image in which the screw is a dot. | It is a starting position: the DRR is a parallel projection, with no magnification or source distance. |
 | 6.3 | The **safe entry area** is the set of entries the screw can be **slid sideways to, keeping its direction**, and still pass the same check the plan applies. The tip moves with it and must stay safe too. Reported as the radius of the safe circle around the planned entry, the room in each of four named directions, a patch of points on the bone in Slicer, and a green area on the view down the screw. | Measured on a 1 mm grid out to 10 mm, so the numbers are conservative by about 1 mm. It does not cover pivoting the screw about its tip, which is a different question. |
+
+## 7. The corridors themselves
+
+From the surgeon, on seeing the first anchors drawn on full-pelvis CTs
+(step 3). These are what corridors.json is set from.
+
+| # | Decision |
+| --- | --- |
+| 7.1 | An **anterior column screw** (either direction) has its pubic end at least **10 mm on the symphysis side of the fracture**: a screw put in to hold a fracture starts before it, not past it. The surgeon marks the fracture; with nothing marked the rule does not apply. |
+| 7.2 | Its tip **does not have to reach the lateral cortex of the ilium**: stopping above the acetabular roof is a screw. The longest trajectory is still reported when one exists, and so are the alternatives. |
+| 7.3 | There are **two posterior column routes**, not one: **antegrade** from the pelvic brim or iliac crest down the posterior column and across the fracture, and **retrograde** from the ischial tuberosity back up to the brim (the "butt screw"). The old single corridor aimed at the PSIS, which puts the greater sciatic notch in the way of every axis. |
+| 7.4 | A **transiliac-transsacral screw** is planned from the side the surgeon chooses, entering the **lateral ilium** and leaving the opposite one. Its safety is read first from the **lateral view (the iliac cortical density) to find the corridor**, then from **inlet and outlet** views; it must not breach the anterior sacral cortex, the sacral canal or a nerve foramen, and it takes **all six cortices** (ipsilateral ilium, sacrum, contralateral ilium). |
+| 7.5 | The screws available are **130-150 mm in normal use and none longer than 180 mm**; most Thai patients do not need more. A corridor that needs a longer screw is reported as not available, with its measured length. |
+
+Still to settle with the surgeon (step 3 continues): exactly where each
+posterior column route starts and ends, how close either may come to the
+acetabular articular surface, which fluoroscopic views belong to each, and
+whether the fracture level decides between the two routes.
