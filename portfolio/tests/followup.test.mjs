@@ -124,6 +124,37 @@ export default async function run() {
         return { planned: ids.size, gradsPlanned: gradIds.filter(id => ids.has(id)).length,
                  y4then: y4then.length, y4Elective: y4Elective.length };
       }, r.ayOld);
+      /* คนที่ไม่มี cohort (ข้อมูลเก่าที่ยังไม่ผ่าน migrate หรือถูกล้างช่องไว้) ต้องไม่หายจากแผนเงียบ ๆ
+         เดิม map ก่อน filter ทำให้ filter เรียก yearOnAY บนสำเนาที่ r.year ถูกเขียนทับแล้ว ได้คนละค่ากับรอบแรก */
+      const noCohort = await page.evaluate(() => {
+        /* เงื่อนไขที่ทำให้สองรอบได้คนละค่า: ปีที่จัดต้องเก่ากว่าปีปฏิทินปัจจุบัน (d = currentAY − ay ≥ 1)
+           และคนนั้นต้องมีชั้นปี ณ ปีนั้น ≤ d — ที่นี่ d = 1 และเขาเป็นปี 1 ของปีนั้น (ปี 2 ในวันนี้) */
+        const ay = String(+currentAY() - 1);
+        const victim = { id:"res_nocohort", name:"นพ. ไม่มีปีที่เข้า", year:2, active:true };
+        const p = buildRotationPlan(ay, [victim], store.data.services, store.data.staff);
+        return { ay, yearThen: yearOnAY(victim, ay), inPlan: p.rotations.some(x => x.residentId === victim.id) };
+      });
+      t.eq("ชั้นปี ณ ปีนั้นของคนที่ไม่มี cohort คำนวณย้อนได้", noCohort.yearThen, 1);
+      t.check("คนที่ไม่มีปีที่เข้าฝึกอบรมบันทึกไว้ ยังถูกจัดในแผนของปีเก่า ไม่หายเงียบ ๆ",
+              noCohort.inPlan, "ปีการศึกษา " + noCohort.ay);
+
+      /* กันที่ต้นทาง: ช่อง "ปีที่เข้าฝึกอบรม" ต้องกรอกและต้องเป็น พ.ศ. 4 หลัก */
+      const guard = await page.evaluate(async () => {
+        const res = activeResidents()[0];
+        const before = res.cohort;
+        editResident(res.id);
+        await new Promise(x => setTimeout(x, 150));
+        document.querySelector('#dlgBody [name="cohort"]').value = "";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "บันทึก").click();
+        await new Promise(x => setTimeout(x, 150));
+        const stillOpen = !!document.querySelector("#dlg")?.open;
+        const err = document.querySelector("#dlgBody .err")?.textContent || "";
+        document.querySelector("#dlg")?.close();
+        return { stillOpen, err, unchanged: store.resident(res.id).cohort === before };
+      });
+      t.check("ล้างช่องปีที่เข้าแล้วบันทึกไม่ผ่าน และค่าเดิมไม่ถูกเขียนทับ",
+              guard.stillOpen && guard.unchanged && !!guard.err, guard.err);
+
       t.check("คนที่จบไปแล้วยังถูกจัดในแผนของปีที่เขายังเรียนอยู่", plan.gradsPlanned > 0,
               plan.gradsPlanned + " จาก " + plan.planned + " คนที่ถูกจัด");
       t.check("ปี 4 ของปีนั้นได้ elective ตามกติกา (จัดตามชั้นปีของปีนั้น ไม่ใช่ชั้นปีวันนี้)",

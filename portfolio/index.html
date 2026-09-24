@@ -2801,10 +2801,13 @@ function buildRotationPlan(ay, residentsIn, services, staff) {
   /* ปุ่ม "สร้างแผนอัตโนมัติ" ใช้ปีที่กำลังดูอยู่ (ayView) ซึ่งเป็นปีเก่าได้ — r.year เป็นชั้นปี "วันนี้"
      ที่ถูกขยับ +1 ทุก 1 ก.ค. ถ้าเอามาใช้ตรง ๆ คนที่ปีนั้นเป็นปี 1 จะถูกจัดตามกติกาของปี 3 และ
      โควตา elective ของปี 3/ปี 4 จะคุมผิดกลุ่มคนทั้งหมด แปลงเป็นชั้นปี ณ ปีที่กำลังจัดก่อนเสมอ
-     และตัดคนที่ปีนั้นยังไม่เข้าฝึกอบรมหรือจบไปแล้วออก (yearOnAY คืน 0) */
+     และตัดคนที่ปีนั้นยังไม่เข้าฝึกอบรมหรือจบไปแล้วออก (yearOnAY คืน 0)
+     ต้องกรองก่อนแล้วค่อยแปลง — ถ้าแปลงก่อน รอบ filter จะเรียก yearOnAY บนสำเนาที่ r.year ถูกเขียนทับแล้ว
+     ซึ่งสำหรับคนที่ไม่มี cohort (entryAYOf ตกไปใช้ currentAY() − (year−1)) จะได้คนละค่ากับรอบแรก
+     แล้วคนนั้นถูกกรองทิ้งเงียบ ๆ ทั้งที่ควรอยู่ในแผน */
   const residents = residentsIn
-    .map(r => { const y = yearOnAY(r, ay); return y && y !== r.year ? { ...r, year: y } : r; })
-    .filter(r => yearOnAY(r, ay) >= 1);
+    .filter(r => yearOnAY(r, ay) >= 1)
+    .map(r => { const y = yearOnAY(r, ay); return y !== r.year ? { ...r, year: y } : r; });
   const months = ayMonths(ay);
   const idx = (calendarMonth) => months.findIndex(x => x.m === calendarMonth);
   const teams = services.filter(x => x.team).map(x => x.id);
@@ -9971,7 +9974,12 @@ function editResident(id) {
   showDialog(r ? "แก้ไขข้อมูลแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", body, [
     { label:"บันทึก", cls:"btn-primary", onClick: () => {
         const name = dlgVal("name"); if (!name) return fieldError("name", "กรุณาใส่ชื่อ");
-        const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort: dlgVal("cohort"), advisor: dlgVal("advisor") };
+        /* ปีที่เข้าฝึกอบรมเป็นค่าตั้งต้นของทั้ง "รุ่น" และการคำนวณชั้นปีย้อนหลัง (entryAYOf/yearOnAY)
+           ถ้าปล่อยว่างได้ ทุกอย่างจะตกไปใช้ currentAY() − (ชั้นปีปัจจุบัน − 1) ซึ่งผิดทันทีที่คนนั้นเคย
+           ถูกเลื่อนชั้นปีมาแล้ว — และ migrate() รอบถัดไปจะเขียนค่าที่ผิดนั้นลง localStorage ถาวร */
+        const cohort = dlgVal("cohort").trim();
+        if (!/^\d{4}$/.test(cohort)) return fieldError("cohort", "กรุณาใส่ปีการศึกษาที่เข้าฝึกอบรมเป็นตัวเลข 4 หลัก (พ.ศ.)");
+        const rec = { name, nick: dlgVal("nick"), year: +dlgVal("year") || 1, cohort, advisor: dlgVal("advisor") };
         if (r) { rec.active = !!$('#dlgBody [name="active"]')?.checked; rec.graduatedAY = rec.active ? "" : dlgVal("graduatedAY"); }
         else { rec.active = true; rec.graduatedAY = ""; }
         /* ตรวจบัญชีให้ผ่านก่อนค่อยสร้างคน — ไม่งั้นจะได้คนครึ่งเดียวค้างไว้ตอน return false */
