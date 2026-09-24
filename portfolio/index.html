@@ -1587,6 +1587,14 @@ const TALK_OUTCOME_BY_ID = Object.fromEntries(TALK_OUTCOMES.map(x => [x.id, x]))
 const talkOutcomeFor = (avg) => avg == null ? "" : avg >= 3.5 ? "pass" : avg >= 2.5 ? "advice" : "redo";
 /* แบบประเมินลงกองใช้เกณฑ์เดียวกันแต่เข้มกว่าเล็กน้อย เพราะเป็นภาพรวมทั้งเดือน: ≥3.6 ผ่าน · ≥2.8 ผ่านโดยมีข้อแนะนำ · ต่ำกว่านั้นต้องติดตามเป็นพิเศษ */
 const rotationOutcomeFor = (avg) => avg == null ? "" : avg >= 3.6 ? "pass" : avg >= 2.8 ? "advice" : "watch";
+/* "ต้องนำเสนอซ้ำ" และ "ต้องติดตามเป็นพิเศษ" คือจุดเริ่มของงานที่ต้องทำต่อ ไม่ใช่งานที่จบแล้ว
+   เดิมสองค่านี้ถูกนิยามไว้ในฟอร์มแต่ไม่เคยถูกใช้เป็นเงื่อนไขที่ไหนเลยในไฟล์ทั้งไฟล์ — พออาจารย์
+   กด "รับรอง" (ซึ่งแปลว่า "ผมดูแล้ว" ไม่ใช่ "ผ่าน") รายการก็หลุดจากทุกคิว และถูกนับเป็นผลงานครบ
+   จนใบที่พิมพ์ส่งราชวิทยาลัยฯ ขึ้นว่า "ครบตามเกณฑ์" ทั้งที่ยังต้องนำเสนอซ้ำ */
+const needsRedo = (a) => a?.assessment?.outcome === "redo";
+const rotationEvalWatched = (ev) => !!ev && rotationFormItems()
+  .filter(it => it.kind === "choice" && !rotationScored(it))
+  .some(it => String(ev.answers?.[it.id] ?? "") === "watch");
 const talkEvalItemsFor = (type) =>
   TALK_EVAL_ITEMS.concat(TALK_EVAL_EXTRA[type] ? [{ ...TALK_EVAL_EXTRA[type], group:"เฉพาะประเภทนี้" }] : []);
 
@@ -2325,6 +2333,13 @@ const visibleActiveResidents = () => visibleResidents().filter(isActiveResident)
 const batchBase = () => +(store.data.programme?.batchBase || BATCH_BASE_DEFAULT);
 const entryAYOf = (r) => +r?.cohort || (r?.year ? +currentAY() - (+r.year - 1) : 0);
 const batchOf = (r) => { const e = entryAYOf(r); return e ? e - batchBase() : ""; };
+/* ชั้นปี "ณ ปีการศึกษาหนึ่ง ๆ" — r.year เป็นค่าปัจจุบันที่ถูกขยับ +1 ทุก 1 ก.ค. ใช้ตัดสินเรื่องของอดีตไม่ได้
+   คืน 0 ถ้าปีนั้นยังไม่ได้เข้าฝึกอบรมหรือจบไปแล้ว เพื่อให้ผู้เรียกเลือกได้เองว่าจะซ่อนแถวหรือแสดง "—" */
+const yearOnAY = (r, ay) => {
+  const e = entryAYOf(r); if (!e || !ay) return 0;
+  const y = +ay - e + 1;
+  return y >= 1 && y <= 4 ? y : 0;
+};
 const batchLabel = (r) => batchOf(r) !== "" ? "รุ่น " + batchOf(r) : "";
 /* รายการคนสำหรับตัวเลือก: คนที่ยังฝึกอบรมอยู่ + คนที่แถวนั้นอ้างถึงอยู่แล้ว (แม้จบไปแล้ว) จะได้ไม่หลุดตอนแก้ของเก่า */
 const residentsPlus = (list, ...ids) => {
@@ -2782,7 +2797,14 @@ function rotationYearWarnings(rotations, services, residents) {
   return out;
 }
 
-function buildRotationPlan(ay, residents, services, staff) {
+function buildRotationPlan(ay, residentsIn, services, staff) {
+  /* ปุ่ม "สร้างแผนอัตโนมัติ" ใช้ปีที่กำลังดูอยู่ (ayView) ซึ่งเป็นปีเก่าได้ — r.year เป็นชั้นปี "วันนี้"
+     ที่ถูกขยับ +1 ทุก 1 ก.ค. ถ้าเอามาใช้ตรง ๆ คนที่ปีนั้นเป็นปี 1 จะถูกจัดตามกติกาของปี 3 และ
+     โควตา elective ของปี 3/ปี 4 จะคุมผิดกลุ่มคนทั้งหมด แปลงเป็นชั้นปี ณ ปีที่กำลังจัดก่อนเสมอ
+     และตัดคนที่ปีนั้นยังไม่เข้าฝึกอบรมหรือจบไปแล้วออก (yearOnAY คืน 0) */
+  const residents = residentsIn
+    .map(r => { const y = yearOnAY(r, ay); return y && y !== r.year ? { ...r, year: y } : r; })
+    .filter(r => yearOnAY(r, ay) >= 1);
   const months = ayMonths(ay);
   const idx = (calendarMonth) => months.findIndex(x => x.m === calendarMonth);
   const teams = services.filter(x => x.team).map(x => x.id);
@@ -4441,10 +4463,14 @@ function progressFor(res, ay = currentAY()) {
   const req = store.data.requirements[res.year] || {};
   const all = store.activitiesOf(res.id);
   const inYear = ay ? all.filter(a => a.academicYear === ay) : all;
+  /* งานที่อาจารย์ตัดสินว่า "ต้องนำเสนอซ้ำ" ยังไม่ใช่ผลงานที่ครบ — ถ้านับรวม ตัวเลขความก้าวหน้า
+     และใบที่พิมพ์ส่งราชวิทยาลัยฯ จะบอกว่าครบทั้งที่ยังมีงานค้างจริง */
+  const redoList = inYear.filter(needsRedo);
   const lines = ACTIVITY_TYPES.map(t => {
     const need = +(req[t.id] || 0);
-    const done = inYear.filter(a => a.type === t.id).length;
-    return { type: t, need, done, pct: pct(done, need), short: Math.max(0, need - done) };
+    const done = inYear.filter(a => a.type === t.id && !needsRedo(a)).length;
+    const redo = inYear.filter(a => a.type === t.id && needsRedo(a)).length;
+    return { type: t, need, done, redo, pct: pct(done, need), short: Math.max(0, need - done) };
   });
   const myCases   = (store.data.cases || []).filter(c => c.participants?.some(x => x.residentId === res.id));
   const casesYear = ay ? myCases.filter(c => c.date && academicYear(c.date) === ay) : myCases;
@@ -4466,7 +4492,7 @@ function progressFor(res, ay = currentAY()) {
   const doneTotal = lines.reduce((n, l) => n + Math.min(l.done, l.need), 0)
     + Math.min(surgeonDone, surgeonNeed) + Math.min(assistDone, assistNeed) + Math.min(observerDone, observeNeed);
   return {
-    ay, lines, subsDone, subsNeed, missingSubs,
+    ay, lines, subsDone, subsNeed, missingSubs, redoList,
     logbook: {
       total: myCases.length, inYear: casesYear.length,
       surgeon:  { done: surgeonDone,  need: surgeonNeed,  pct: pct(surgeonDone, surgeonNeed) },
@@ -4517,6 +4543,23 @@ function gapsFor(res) {
   if (!rotNow) out.push({ level:"warn", text:"ยังไม่ได้กำหนดช่วงหมุนเวียนของวันนี้" });
   const unverified = store.activitiesOf(res.id).filter(a => !a.verified).length;
   if (unverified) out.push({ level:"warn", text:"มี " + unverified + " รายการที่อาจารย์ยังไม่รับรอง" });
+  /* รายการที่อาจารย์ตัดสินว่าต้องนำเสนอซ้ำ ต้องขึ้นเป็นงานค้างของเจ้าตัว ไม่ใช่ข้อความที่ฝังอยู่
+     ในรายละเอียดของกิจกรรมเก่าซึ่งไม่มีใครเปิดอ่านย้อนหลัง */
+  if (p.redoList.length) out.push({
+    level: "bad",
+    text: "ต้องนำเสนอซ้ำ " + p.redoList.length + " เรื่อง — " +
+          p.redoList.slice(0, 3).map(a => "“" + a.title.slice(0, 30) + "”").join(", ") +
+          (p.redoList.length > 3 ? " และอื่น ๆ" : "")
+  });
+  /* ผลลงกอง "ต้องติดตามเป็นพิเศษ" ก็เช่นกัน — เดิมหลุดจาก backlog ทันทีที่บันทึกผล
+     และไม่มีรายงานไหนในระบบรวบรวมว่าตอนนี้ใครอยู่ในกลุ่มที่ต้องตามบ้าง */
+  const watched = (store.data.rotationEvals || [])
+    .filter(ev => ev.residentId === res.id && rotationEvalWatched(ev))
+    .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+  if (watched.length) out.push({
+    level: "bad",
+    text: "ผลประเมินลงกองระบุว่าต้องติดตามเป็นพิเศษ " + watched.length + " เดือน (ล่าสุด " + watched[0].month + ")"
+  });
   return out;
 }
 
@@ -4655,6 +4698,8 @@ function todayForResident(iso, all) {
   /* ค้างอยู่ — นับเฉพาะของฉัน */
   const acts = me ? store.activitiesOf(me) : [];
   const waiting = acts.filter(a => !a.verified);
+  /* งานที่อาจารย์ตัดสินว่าต้องนำเสนอซ้ำ — รับรองแล้วจึงไม่อยู่ใน waiting แต่ยังเป็นงานที่เจ้าตัวต้องทำต่อ */
+  const redoActs = acts.filter(needsRedo);
   const unverifiedCases = (store.data.cases || []).filter(c =>
     (c.participants || []).some(p => p.residentId === me && !p.verified));
   const rcostTodoCases = me ? rcostTodo(me) : [];
@@ -4666,6 +4711,12 @@ function todayForResident(iso, all) {
         ${waiting.slice(0, 4).map(a => `<button class="sess" data-tact="${esc(a.id)}">
           <span class="pill">${fmtDate(a.date)}</span><b>${esc(a.title)}</b></button>`).join("")
           || `<p class="small muted" style="margin:.3rem 0 0">รับรองครบแล้ว</p>`}</div>
+      <div class="nowcard"><div class="between"><b>ต้องนำเสนอซ้ำ</b>
+        <span class="tag ${redoActs.length ? "bad" : "ok"}">${redoActs.length}</span></div>
+        ${redoActs.slice(0, 4).map(a => `<button class="sess" data-tact="${esc(a.id)}">
+          <span class="pill">${fmtDate(a.date)}</span><b>${esc(a.title)}</b></button>`).join("")
+          || `<p class="small muted" style="margin:.3rem 0 0">ไม่มีเรื่องที่ต้องนำเสนอซ้ำ</p>`}
+        ${redoActs.length ? `<p class="small muted" style="margin:.3rem 0 0">นับเป็นยังไม่ครบเกณฑ์จนกว่าจะนำเสนอใหม่ — เปิดดูข้อเสนอแนะของอาจารย์ได้ที่แต่ละรายการ</p>` : ""}</div>
       <div class="nowcard"><div class="between"><b>เคสที่มีชื่อคุณแต่ยังไม่รับรอง</b>
         <span class="tag ${unverifiedCases.length ? "warn" : "ok"}">${unverifiedCases.length}</span></div>
         <p class="small muted" style="margin:.3rem 0 0">การรับรองเป็นของอาจารย์ ไม่ใช่สิ่งที่คุณกดเองได้</p>
@@ -7223,18 +7274,26 @@ function rotationsToAssess(month) {
 /* ประเภทที่ไม่มีแบบประเมิน (เช่น การลงชื่อเข้าร่วมประชุม) ไม่เข้าคิวประเมิน — ไม่งั้นคิวจะค้างตลอดกาล */
 const noEvalType = (type) => !!TYPE_BY_ID[type]?.noEval;
 const talksToAssess = () => visibleActivities().filter(a => !noEvalType(a.type) && (!a.assessment || !a.verified));
+/* งานที่ประเมินจบแล้วแต่ผลบอกว่ายังไม่จบจริง — ไม่ได้อยู่ในคิว "ยังไม่ประเมิน" เพราะประเมินไปแล้ว
+   ถ้าไม่มีที่รวบรวมไว้ ก็ไม่มีใครในทีมเห็นว่าตอนนี้ค้างอยู่กี่เรื่องและของใคร */
+const talksToRedo = () => visibleActivities().filter(needsRedo);
+const rotationsWatched = () => (store.data.rotationEvals || [])
+  .filter(ev => canSeeResident(ev.residentId) && rotationEvalWatched(ev))
+  .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
 
 function renderAssess() {
   if (!$("#assessNav")) return;
   if (!assessView.month) assessView.month = lastClosedMonth();
   const counts = { talks: talksToAssess().length,
-                   month: rotationsToAssess(assessView.month).filter(r => !rotationEvalFor(r.id)).length };
+                   month: rotationsToAssess(assessView.month).filter(r => !rotationEvalFor(r.id)).length,
+                   follow: talksToRedo().length + rotationsWatched().length };
   const pages = [
-    { id:"talks", th:"งานนำเสนอ",       n:counts.talks },
-    { id:"month", th:"ลงกองสิ้นเดือน",   n:counts.month }
+    { id:"talks",  th:"งานนำเสนอ",      n:counts.talks },
+    { id:"month",  th:"ลงกองสิ้นเดือน",  n:counts.month },
+    { id:"follow", th:"ต้องตามต่อ",      n:counts.follow, done:"ไม่มีที่ต้องตาม" }
   ];
   $("#assessCounts").innerHTML = pages.map(pg =>
-    `<span class="tag ${pg.n ? "warn" : "ok"}">${esc(pg.th)} ${pg.n ? "ค้าง " + pg.n : "ครบแล้ว"}</span>`).join("");
+    `<span class="tag ${pg.n ? "warn" : "ok"}">${esc(pg.th)} ${pg.n ? "ค้าง " + pg.n : esc(pg.done || "ครบแล้ว")}</span>`).join("");
   $("#assessNav").innerHTML = pages.map(pg =>
     `<button data-assess="${pg.id}" aria-current="${assessView.page === pg.id}">${esc(pg.th)}${
       pg.n ? ` <span class="muted small">(${pg.n})</span>` : ""}</button>`).join("");
@@ -7255,6 +7314,49 @@ function renderAssess() {
     </div>`;
     renderActivityFilters();
     renderActivityTable();
+    applyPermissions();
+    return;
+  }
+
+  if (assessView.page === "follow") {
+    /* หน้านี้ปิดวงจรของผลประเมินสองค่าที่แปลว่า "ยังไม่จบ" — เดิมกดรับรอง/บันทึกผลแล้วรายการหลุด
+       จากทุกคิวทันที ไม่มีใครในทีมเห็นว่ามีใครค้างอะไรอยู่ และเจ้าตัวก็ไม่ถูกทวง */
+    const redo = talksToRedo(), watched = rotationsWatched();
+    body.innerHTML = `<div class="card">
+      <h2>ต้องตามต่อ</h2>
+      <p class="muted small">ประเมินไปแล้ว แต่ผลบอกว่ายังไม่จบ — งานนำเสนอที่ต้องนำเสนอซ้ำ
+        และรอบลงกองที่ผลระบุว่าต้องติดตามเป็นพิเศษ · รายการเหล่านี้ไม่ถูกนับเป็นผลงานครบเกณฑ์</p>
+      <h3>งานนำเสนอที่ต้องนำเสนอซ้ำ <span class="tag ${redo.length ? "bad" : "ok"}">${redo.length}</span></h3>
+      ${redo.length ? `<div class="tbl-wrap"><table>
+        <thead><tr><th>วันที่</th><th>แพทย์ประจำบ้าน</th><th>เรื่อง</th><th>ข้อเสนอแนะ</th><th></th></tr></thead>
+        <tbody>${redo.map(a => {
+          const r = store.resident(a.residentId);
+          return `<tr>
+            <td class="small">${fmtDate(a.date)}</td>
+            <td class="small">${esc(r?.name || "—")}</td>
+            <td class="small">${esc(a.title)}</td>
+            <td class="small muted">${esc((a.assessment?.comment || "").slice(0, 60) || "—")}</td>
+            <td class="no-print"><button class="btn-sm" data-act-open="${a.id}">เปิด</button></td>
+          </tr>`;
+        }).join("")}</tbody></table></div>` : `<p class="empty">ไม่มีเรื่องที่ต้องนำเสนอซ้ำ</p>`}
+      <h3 style="margin-top:1rem">ผลลงกองที่ต้องติดตามเป็นพิเศษ <span class="tag ${watched.length ? "bad" : "ok"}">${watched.length}</span></h3>
+      ${watched.length ? `<div class="tbl-wrap"><table>
+        <thead><tr><th>เดือน</th><th>แพทย์ประจำบ้าน</th><th>สาย / หน่วยที่วน</th><th>ผลประเมิน</th><th></th></tr></thead>
+        <tbody>${watched.map(ev => {
+          const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
+          return `<tr>
+            <td class="small">${esc(ev.month || "—")}</td>
+            <td class="small">${esc(r?.name || "—")}</td>
+            <td class="small">${esc(svc?.name || "—")}</td>
+            <td class="small">${esc(rotationOutcomeLabel(ev) || rotationEvalLabel(ev))}</td>
+            <td class="no-print">${ev.rotationId ? `<button class="btn-sm" data-rotev="${esc(ev.rotationId)}">เปิด</button>` : ""}</td>
+          </tr>`;
+        }).join("")}</tbody></table></div>` : `<p class="empty">ไม่มีรอบที่ต้องติดตามเป็นพิเศษ</p>`}
+    </div>`;
+    body.querySelectorAll("[data-act-open]").forEach(b =>
+      b.addEventListener("click", () => openActivity(b.dataset.actOpen)));
+    body.querySelectorAll("[data-rotev]").forEach(b =>
+      b.addEventListener("click", () => openRotationEval(b.dataset.rotev)));
     applyPermissions();
     return;
   }
@@ -9891,14 +9993,41 @@ function editResident(id) {
         audit(r ? "แก้ไขทะเบียนแพทย์ประจำบ้าน" : "เพิ่มแพทย์ประจำบ้าน", name + (mkUser ? " · พร้อมบัญชี " + mkUser.username : ""));
         store.save(); renderAll(); toast(mkUser ? "บันทึกแล้ว · สร้างบัญชี " + mkUser.username + " ให้แล้ว" : "บันทึกแล้ว");
       }},
-    ...(r ? [{ label:"ลบรายชื่อนี้", cls:"btn-danger", onClick: () => {
+    ...(r ? [{ label:"ลบรายชื่อนี้", cls:"btn-danger", onClick: async () => {
         const n = store.activitiesOf(r.id).length;
-        audit("ลบแพทย์ประจำบ้าน", r.name + " · พร้อมกิจกรรม " + n + " รายการ");
+        /* เดิมลบแค่ 3 คอลเลกชัน ทิ้งบัญชีที่ผูกไว้ไว้ทั้งที่ใช้งานได้ — loadSession() ไม่เคยเช็คว่า
+           residentId ที่ผูกไว้ยังมีตัวตนจริง เจ้าตัวจึงยังล็อกอินและบันทึกข้อมูลใหม่ได้ต่อไป แต่ข้อมูลนั้น
+           ไม่โผล่ในรายงานของผู้ดูแลเลยเพราะไม่มีชื่อในทะเบียนแล้ว (หน้าบัญชีผู้ใช้ก็ขึ้น "ผูกกับ —"
+           เหมือนบัญชีที่ไม่เคยผูกใคร) ลบไปพร้อมกันในธุรกรรมเดียว เลิกทำได้ทั้งชุด */
+        const meId = currentUser()?.id;
+        const accs = (store.data.users || []).filter(u => u.residentId === r.id && u.id !== meId);
+        const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).length;
+        const epas = (store.data.epaAssessments || []).filter(x => x.residentId === r.id).length;
+        const visits = (store.data.visits || []).filter(x => x.residentId === r.id).length;
+        /* เคสผ่าตัดกับตารางนำเสนอเป็นระเบียนร่วมกับคนอื่น ลบข้างเดียวไม่ได้ — แต่ต้องบอกว่าจะเหลืออะไรไว้
+           ไม่ใช่ปล่อยให้ผู้ใช้เข้าใจว่าลบแล้วหมดทุกอย่าง */
+        const inCases = (store.data.cases || []).filter(c => (c.participants || []).some(p => p.residentId === r.id)).length;
+        const inTalks = (store.data.schedule || []).filter(t => t.residentId === r.id
+          || t.chiefId === r.id || (t.coResidentIds || []).includes(r.id)).length;
+        if (!(await confirmAny("ลบ " + r.name + " ออกจากทะเบียน?\n" +
+              "จะถูกลบไปด้วย: กิจกรรม " + n + " · ช่วงหมุนเวียน " + rots + " · ผลประเมิน EPA " + epas +
+              " · คำขอเข้าคาบ " + visits + (accs.length ? " · บัญชีผู้ใช้ " + accs.map(u => u.username).join(", ") : "") +
+              (inCases || inTalks ? "\nยังมีชื่ออยู่ในระเบียนร่วมกับคนอื่น (เคสผ่าตัด " + inCases + " · ตารางนำเสนอ " + inTalks +
+                ") — ไม่ถูกลบให้ ต้องแก้ที่รายการนั้นเอง" : "") +
+              "\nถ้าต้องการเก็บข้อมูลไว้วิเคราะห์ ให้ติ๊ก “ยังฝึกอบรมอยู่” ออก แทนการลบ",
+              { okLabel: "ลบออกจากทะเบียน", danger: true }))) return false;
+        audit("ลบแพทย์ประจำบ้าน", r.name + " · กิจกรรม " + n + " · ช่วงหมุนเวียน " + rots +
+              " · บัญชี " + (accs.map(u => u.username).join(", ") || "—"));
         selectedResident = null;
         removeWithUndo("ลบ " + r.name + " และกิจกรรม " + n + " รายการแล้ว", [
           { list:"residents", keep: x => x.id !== r.id },
           { list:"activities", keep: a => a.residentId !== r.id },
-          { list:"research", keep: p => p.residentId !== r.id }], () => { selectedResident = r.id; });
+          { list:"research", keep: p => p.residentId !== r.id },
+          /* บัญชีที่กำลังใช้อยู่ไม่ลบ ไม่งั้นผู้จัดหลักสูตรที่ผูกกับทะเบียนตัวเองจะล็อกตัวเองออก */
+          { list:"users", keep: u => u.residentId !== r.id || u.id === meId },
+          { list:"rotations", keep: x => x.residentId !== r.id },
+          { list:"epaAssessments", keep: x => x.residentId !== r.id },
+          { list:"visits", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; });
       }}] : [])
   ]);
   previewBatch();
@@ -11535,7 +11664,14 @@ function init() {
   });
   $("#ayPick").addEventListener("change", (e) => { ayView = e.target.value; renderMonthGrid(); });
   $("#btnGeneratePlan").addEventListener("click", async () => {
+    /* ปุ่มถูกซ่อนด้วย data-perm="admin" อยู่แล้ว — guard ในฟังก์ชันกันทางเรียกอื่น แบบเดียวกับ
+       applyPresetDialog() ซึ่งเป็นปุ่มฝาแฝดที่มี guard นี้อยู่ก่อนแล้ว */
+    if (!canManage()) { toast("การสร้างแผนหมุนเวียนเป็นสิทธิ์ของผู้จัดหลักสูตร"); return; }
     const ay = ayView || currentAY();
+    /* ปีที่กำลังลงอาจเป็นปีเก่า ต้องใช้รายชื่อของปีนั้น (รวมคนที่จบไปแล้ว) ไม่ใช่คนที่ยังฝึกอยู่วันนี้
+       ไม่งั้นแถวของคนที่จบแล้วหายจากปีนั้นถาวรเมื่อแผนใหม่แทนที่ทั้งช่วง — เป็นปัญหาเดียวกับที่
+       applyPresetDialog() แก้ไปแล้ว แต่ปุ่มนี้ไม่ได้แก้ตาม */
+    const planRoster = residentsForAY(ay);
     const months = ayMonths(ay);
     const from = monthStartISO(months[0]), to = monthEndISO(months[11]);
     const inYear = (store.data.rotations || []).filter(r => r.start >= from && r.start <= to);
@@ -11543,23 +11679,26 @@ function init() {
     /* ปีที่มีตารางจริงของกลุ่มงาน: ตารางจริงมาก่อนเสมอ ตัวจัดแผนได้จัดแค่คนที่ไม่อยู่ในตารางจริง
        (เคยกดปุ่มนี้แล้วตารางจริงทั้งปีหายไป จนต้องไปกู้จากประวัติ) */
     const preset = ROTATION_PRESETS[String(ay)];
-    const mapping = preset ? matchPresetRows(preset, activeResidents()) : {};
+    const mapping = preset ? matchPresetRows(preset, planRoster) : {};
     const mappedIds = new Set(Object.values(mapping).filter(Boolean));
     const keepPreset = !!preset && mappedIds.size > 0;
-    const todo = keepPreset ? activeResidents().filter(r => !mappedIds.has(r.id)) : activeResidents();
+    const todo = keepPreset ? planRoster.filter(r => !mappedIds.has(r.id)) : planRoster;
     if (keepPreset && !todo.length) {
       toast("ทุกคนอยู่ในตารางจริงของกลุ่มงานแล้ว — ไม่มีใครให้จัดเพิ่ม แก้รายช่องได้ที่ตาราง", 7000);
       return;
     }
-    if (!(await confirmDialog(keepPreset
+    /* ลงปีเก่าเป็นการกระทำคนละความหมายกับลงปีปัจจุบัน ต้องบอกให้ชัดก่อน ไม่ใช่แค่จำนวนที่จะถูกแทนที่ */
+    const oldAY = String(ay) !== String(store.data.meta?.yearRolledAY || currentAY())
+      ? "\nนี่คือปีการศึกษาที่ผ่านมาแล้ว — แผนจะถูกคิดจากชั้นปีของแต่ละคน ณ ปี " + ay + " ไม่ใช่ชั้นปีปัจจุบัน" : "";
+    if (!(await confirmDialog((keepPreset
                  ? "ปีการศึกษา " + ay + " มีตารางจริงของกลุ่มงาน — ตัวจัดแผนจะเติมเฉพาะ " + todo.length +
                    " คนที่ไม่อยู่ในตารางจริง ไม่แตะแถวของตารางจริง\nเลิกทำได้ทันทีหลังสร้าง"
                  : "สร้างแผนหมุนเวียนของปีการศึกษา " + ay + " ใหม่ตามกติกาของหลักสูตร?\n" +
-                   "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง",
+                   "ช่วงหมุนเวียนเดิมในปีนี้ " + inYear.length + " รายการจะถูกแทนที่ (ผลประเมินและ logbook ไม่ถูกลบ) — เลิกทำได้ทันทีหลังสร้าง") + oldAY,
                  { title: "สร้างแผนอัตโนมัติ", okLabel: keepPreset ? "เติมคนที่เหลือ" : "สร้างแผน" }))) return;
     const plan = buildRotationPlan(ay, todo, store.data.services, store.data.staff);
     if (keepPreset)
-      plan.rotations = presetRotationsFor(ay, String(ay), mapping, activeResidents(), store.data.services, store.data.staff)
+      plan.rotations = presetRotationsFor(ay, String(ay), mapping, planRoster, store.data.services, store.data.staff)
         .concat(plan.rotations);
     const { prevRotations } = applyRotationPlanForAY(ay, plan.rotations, "generate");
     audit("สร้างแผนหมุนเวียน", "ปีการศึกษา " + ay + " · " + plan.rotations.length + " บล็อก");
