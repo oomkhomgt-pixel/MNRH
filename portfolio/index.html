@@ -2203,7 +2203,11 @@ const store = {
     const d = this.data; d.meta ||= {};
     const fromAY = String(d.meta.yearRolledAY || currentAY());
     if (+toAY <= +fromAY) return null;
-    const before = (d.residents || []).map(r => ({ id: r.id, year: r.year, active: r.active !== false, name: r.name, graduatedAY: r.graduatedAY || "" }));
+    /* เก็บค่าเดิมตามจริง รวมว่า "ไม่มีช่องนี้" ด้วย — เดิมเก็บ active เป็น true/false และ graduatedAY เป็น "" แทนค่าที่ไม่มี
+       ย้อนกลับแล้วทุกคนจึงได้ช่องใหม่ที่ไม่เคยมี ทะเบียนทั้งชุดต่างจากฐานเปรียบเทียบ พอซิงก์ก็ถูกนับว่า "เครื่องนี้แก้ทุกคน"
+       แล้วชนะการรวมข้อมูลทับสิ่งที่เครื่องอื่นแก้ */
+    const before = (d.residents || []).map(r => ({ id: r.id, year: r.year, active: r.active, name: r.name, graduatedAY: r.graduatedAY,
+      has: { active: "active" in r, graduatedAY: "graduatedAY" in r } }));
     let promoted = 0; const graduated = [];
     for (let y = +fromAY + 1; y <= +toAY; y++) {
       (d.residents || []).forEach(r => {
@@ -2233,7 +2237,12 @@ const store = {
     lr.before.forEach(b => {
       const r = (d.residents || []).find(x => x.id === b.id); if (!r) return;
       (d.users || []).forEach(u => { if (u.residentId === r.id && u.displayName === r.name) u.displayName = b.name; });
-      r.year = b.year; r.active = b.active; r.name = b.name; r.graduatedAY = b.graduatedAY;
+      r.year = b.year; r.name = b.name;
+      /* บันทึกรุ่นเก่า (ไม่มี b.has) คืนแบบเดิม · รุ่นใหม่คืนตรงตามของเดิม — ช่องที่เดิมไม่มีก็ลบทิ้ง ไม่เติมค่าว่าง */
+      ["active", "graduatedAY"].forEach(k => {
+        if (b.has && !b.has[k]) delete r[k];
+        else r[k] = b.has ? b[k] : (k === "active" ? b.active : b.graduatedAY);
+      });
     });
     this.setRolledAY(lr.fromAY);
     delete d.meta.lastYearRoll;

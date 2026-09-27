@@ -85,13 +85,14 @@ export default async function run() {
       const before = store.data.meta.lastYearRoll.before;
       const ok = store.undoYearRoll();
       const restored = before.every(b => { const r = store.data.residents.find(x => x.id === b.id);
-        return r.year === b.year && (r.active !== false) === b.active && r.name === b.name && (r.graduatedAY || "") === b.graduatedAY; });
+        return r.year === b.year && (r.active !== false) === (b.active !== false) && r.name === b.name && (r.graduatedAY || "") === (b.graduatedAY || ""); });
       return { ok, restored, flag: store.data.meta.yearRolledAY, ay: String(currentAY()), lrGone: !store.data.meta.lastYearRoll,
                allActive: store.data.residents.every(r => r.active !== false), noSuffix: !store.data.residents.some(r => /\(รุ่น/.test(r.name)) };
     });
     t.check("ย้อนกลับแล้ว ชั้นปี/สถานะ/ชื่อ กลับเป็นชุดก่อนเลื่อนครบทุกคน และธงกลับเป็นปีก่อน",
             undo.ok && undo.restored && undo.allActive && undo.noSuffix && undo.lrGone && undo.flag === String(+undo.ay - 1),
             JSON.stringify(undo));
+
 
     /* ---------- เลื่อนเอง (ปุ่มผู้จัดหลักสูตร) ทำงานเหมือนกัน และไม่เลื่อนซ้ำเมื่อโหลดใหม่ ---------- */
     const manual = await page.evaluate(() => {

@@ -45,8 +45,8 @@ async function staleDevice(page) {
     const target = remote.residents.find(r => r.active !== false && r.year === 3);
     target.advisor = "อ.ที่แก้จากเครื่องอื่นหลังเลื่อนชั้นปี";
     store.undoYearRoll(); store.save();             /* เครื่องนี้กลับไปเป็นทะเบียนของปีก่อน */
-    /* ฐานเปรียบเทียบต้องถ่ายหลังย้อนกลับ — undoYearRoll คืนค่าไม่ตรงไบต์เดิม (เช่น เติม graduatedAY:"")
-       ถ้าถ่ายก่อน เครื่องนี้จะดูเหมือนแก้ทะเบียนทุกคน ซึ่งไม่ใช่สถานการณ์ที่ต้องการทดสอบ */
+    /* ถ่ายฐานเปรียบเทียบหลังย้อนกลับ ให้ฐานตรงกับของในเครื่องแน่นอนโดยไม่ขึ้นกับรายละเอียดของ undoYearRoll
+       (ว่าย้อนกลับตรงทุกไบต์หรือไม่ ตรวจแยกในบล็อกที่ 4) */
     const stale = JSON.parse(JSON.stringify(fullPayload()));
     writeBaseline(5, stale);                        /* ซิงก์กับคลาวด์ครั้งล่าสุดตอนก่อนขึ้นปีใหม่ */
     localStorage.setItem("__test_remote", JSON.stringify(remote));
@@ -141,6 +141,27 @@ export default async function run() {
       t.check("ดึงไม่ได้ก็ยังเลื่อนชั้นปีจากข้อมูลในเครื่อง (ครั้งเดียว)", r.cursor === s.ay && onceOk, JSON.stringify(r.calls));
       t.check("บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์", /ก่อนเลื่อนชั้นปีไม่สำเร็จ/.test(r.status), r.status);
       t.check("ดึงไม่ได้: ไม่มี error หลุดในคอนโซล", errors.filter(e => !/503|Failed to load resource/.test(e)).length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
+       เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ
+       พอซิงก์ก็ถูกนับว่า "เครื่องนี้แก้ทุกคน" แล้วชนะการรวมข้อมูลทับสิ่งที่เครื่องอื่นแก้ — ต้องรันบนข้อมูลสดที่ยังไม่เคยถูกเลื่อน */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const snap = JSON.stringify(store.data.residents), users = JSON.stringify(store.data.users);
+        const hadGradKey = store.data.residents.some(x => "graduatedAY" in x);
+        store.setRolledAY(+currentAY() - 1);
+        store.rollAcademicYear(String(currentAY()), "manual");
+        const changed = JSON.stringify(store.data.residents) !== snap;
+        store.undoYearRoll();
+        return { hadGradKey, changed, same: JSON.stringify(store.data.residents) === snap,
+                 usersSame: JSON.stringify(store.data.users) === users };
+      });
+      t.check("ตั้งต้น: ข้อมูลสดยังไม่มีช่อง graduatedAY และการเลื่อนเปลี่ยนทะเบียนจริง", !r.hadGradKey && r.changed, JSON.stringify(r));
+      t.check("เลื่อนแล้วย้อนกลับ ทะเบียนและบัญชีกลับมาตรงตามเดิมทุกไบต์ (ไม่เติมช่องที่ไม่เคยมี)", r.same && r.usersSame, JSON.stringify(r));
+      t.check("ย้อนกลับตรงทุกไบต์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
   } finally {
