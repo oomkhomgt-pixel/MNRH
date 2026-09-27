@@ -257,9 +257,12 @@ def _render_reduction(data: dict) -> str:
     if not reduced:
         return ""
     reduction = data.get("reduction") or {}
-    rows = "".join(f"<tr><td>{_esc(k)}</td><td>{_fmt_mm(v)} mm</td></tr>"
+    rows = "".join(f"<tr><td>{_esc(k)}</td><td>"
+                   + (f"{_fmt_mm(v)} mm" if isinstance(v, (int, float)) else "UNCONSTRAINED: not pinned down")
+                   + "</td></tr>"
                    for k, v in sorted((reduction.get("residual_mm") or {}).items()))
-    table = (f"<table><thead><tr><th>Region</th><th>Remaining error of the reduction</th></tr></thead>"
+    table = (f"<table><thead><tr><th>Region</th><th>Remaining error of the reduction (90th-percentile surface "
+             f"mismatch after the fit, or the error measured on phantoms, whichever is larger)</th></tr></thead>"
              f"<tbody>{rows}</tbody></table>") if rows else "<p><em>No regional error was given.</em></p>"
     return (f'<div class="reduction-banner"><strong>{_esc(REDUCED_BANNER)}</strong> '
             f"Screws on it: {_esc(', '.join(reduced))}. Proposed by: {_esc(reduction.get('source', 'unknown'))}. "

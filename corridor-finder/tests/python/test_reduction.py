@@ -89,7 +89,7 @@ def test_a_region_is_its_surface_not_its_centre():
     points = np.array([[x, 20.0, 35.0] for x in range(0, 61, 2)], dtype=float)
     assert np.linalg.norm(points - joint.mean(axis=0), axis=1).min() > 30.0
     assert [w["region"] for w in reduction_warnings(points, np.full(len(points), 1.0), r)] == ["si_right"]
-    assert len(Reduction(moves=[], residual_mm={}, region_xyz={"x": np.zeros((5000, 3))}).record()["region_xyz"]["x"]) == 200
+    assert len(Reduction(moves=[], residual_mm={"x": 1.0}, region_xyz={"x": np.zeros((5000, 3))}).record()["region_xyz"]["x"]) == 200
 
 
 def test_the_record_keeps_what_redoes_the_reduction():
@@ -99,3 +99,26 @@ def test_the_record_keeps_what_redoes_the_reduction():
     rec = r.record()
     assert rec["units"][0]["transform"][0][3] == -6.0 and rec["units"][0]["voxels"] == 20 * 20 * 20
     assert rec["residual_mm"] == {"si_right": 1.2}
+
+
+def test_an_unconstrained_region_always_warns():
+    """The displacement engine gives inf where too little surface pins the
+    reduction down: never safe, however much room the screw has."""
+    r = Reduction(moves=[], residual_mm={"si_right": float("inf")}, region_xyz={"si_right": (30.0, 20.0, 20.0)},
+                  notes=["si_right: unconstrained"])
+    points = np.array([[x, 20.0, 20.0] for x in range(0, 61, 5)], dtype=float)
+    found = reduction_warnings(points, np.full(len(points), 50.0), r)
+    assert [w["region"] for w in found] == ["si_right"]
+    assert "not pinned down" in warning_text(found[0])
+    rec = r.record()
+    assert rec["residual_mm"] == {"si_right": None} and rec["unconstrained"] == ["si_right"]
+
+
+def test_a_region_missing_its_error_or_its_surface_is_refused():
+    with pytest.raises(ValueError, match="both an error and a surface"):
+        Reduction(moves=[], residual_mm={"si_right": 1.0, "symphysis": 2.0}, region_xyz={"si_right": (0, 0, 0)})
+    with pytest.raises(ValueError, match="both an error and a surface"):
+        Reduction(moves=[], residual_mm={}, region_xyz={"si_right": (0, 0, 0)})
+    for bad in (float("nan"), -1.0, None):
+        with pytest.raises(ValueError):
+            Reduction(moves=[], residual_mm={"si_right": bad}, region_xyz={"si_right": (0, 0, 0)})

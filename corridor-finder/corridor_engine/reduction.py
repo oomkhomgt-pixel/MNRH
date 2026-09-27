@@ -57,13 +57,27 @@ class Reduction:
 
     moves: List[Move]
     # Remaining error after the fit, mm, per region ("si_right", "si_left",
-    # "symphysis", "fracture_<id>") -- in the reduced anatomy.
+    # "symphysis", "fracture_<id>") -- in the reduced anatomy. The
+    # displacement engine gives max(90th-percentile surface mismatch after
+    # the fit, the error measured on phantoms for that kind of region), and
+    # float("inf") for a region too little surface pins down
+    # ("unconstrained"): that always warns, never reads as safe.
     residual_mm: Dict[str, float]
     # Where each region is: points on its surface (N x 3, or one point),
     # world mm, in the reduced anatomy.
     region_xyz: Dict[str, Sequence]
     source: str = "unspecified"  # who proposed it, for the plan and report
     notes: List[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        # A region with an error but no place, or a place but no error, would
+        # silently drop out of the warnings and read as safe.
+        missing = sorted(set(self.residual_mm) ^ set(self.region_xyz))
+        if missing:
+            raise ValueError(f"regions without both an error and a surface: {missing}")
+        for k, v in self.residual_mm.items():
+            if v is None or np.isnan(float(v)) or float(v) < 0:
+                raise ValueError(f"{k}: the reduction's error must be a number >= 0, or inf when unconstrained")
 
     def record(self) -> dict:
         """What the plan keeps: enough to redo the reduction and to say how
@@ -72,7 +86,10 @@ class Reduction:
             "source": self.source,
             "units": [{"name": m.name, "transform": m.transform.tolist(),
                        "voxels": int(m.mask.sum())} for m in self.moves],
-            "residual_mm": {k: float(v) for k, v in self.residual_mm.items()},
+            # JSON has no infinity: an unconstrained region is kept as null
+            # and named, so a plan read back cannot mistake it for 0.
+            "residual_mm": {k: (float(v) if np.isfinite(float(v)) else None) for k, v in self.residual_mm.items()},
+            "unconstrained": sorted(k for k, v in self.residual_mm.items() if not np.isfinite(float(v))),
             "region_xyz": {k: _thinned(v).tolist() for k, v in self.region_xyz.items()},
             "notes": list(self.notes),
         }
@@ -161,10 +178,7 @@ def reduction_warnings(points_xyz: np.ndarray, spare_mm: np.ndarray, reduction: 
     spare_mm = np.asarray(spare_mm, dtype=float).reshape(-1)
     out = []
     for region, residual in sorted(reduction.residual_mm.items()):
-        where = reduction.region_xyz.get(region)
-        if where is None:
-            continue
-        surface = _points(where)
+        surface = _points(reduction.region_xyz[region])
         # Distance from each screw point to the nearest point of the region.
         d = np.full(len(points_xyz), np.inf)
         for chunk in np.array_split(surface, max(1, len(surface) // 2000 + 1)):
@@ -181,5 +195,9 @@ def reduction_warnings(points_xyz: np.ndarray, spare_mm: np.ndarray, reduction: 
 
 def warning_text(w: dict) -> str:
     region = w["region"].replace("si_", "sacroiliac joint, ").replace("_", " ")
+    if not np.isfinite(w["residual_mm"]):
+        return (f"fit depends on the reduction: at the {region} the reduction is not pinned down (too little "
+                f"facing surface), so this screw's {max(w['spare_mm'], 0.0):.1f} mm to spare cannot be relied on")
     return (f"fit depends on the reduction: at the {region} the reduction is uncertain by "
-            f"{w['residual_mm']:.1f} mm, more than this screw's {max(w['spare_mm'], 0.0):.1f} mm to spare")
+            f"{w['residual_mm']:.1f} mm (90th-percentile surface mismatch after the fit, or the error measured on "
+            f"phantoms, whichever is larger), more than this screw's {max(w['spare_mm'], 0.0):.1f} mm to spare")
