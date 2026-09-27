@@ -95,13 +95,19 @@ class JointWidth:
             parts.append(f"{abs(self.step_anterior_mm):.1f} mm "
                          f"{'in front of' if self.step_anterior_mm > 0 else 'behind'}")
         if self.cephalad_known and abs(self.step_cephalad_mm) >= 0.5:
+            # Pinned in the tests: a true up-or-down shift reads about a
+            # quarter short (3, 5, 8 mm come back as 2, 3.8, 6.8), so the
+            # sentence says so rather than let the number pass as exact.
             parts.append(f"{abs(self.step_cephalad_mm):.1f} mm "
                          f"{'above' if self.step_cephalad_mm > 0 else 'below'}")
         unknown = "" if self.cephalad_known else " (whether it is also up or down cannot be told from this joint)"
         if not parts:
             return ("no step" if self.cephalad_known
                     else "no step across the joint; up or down cannot be told from it")
-        return "the ilium " + " and ".join(parts) + " the sacrum" + unknown
+        text = "the ilium " + " and ".join(parts) + " the sacrum" + unknown
+        if self.cephalad_known and abs(self.step_cephalad_mm) >= 0.5:
+            text += "; the up-or-down figure reads about a quarter short"
+        return text
 
     def sentence(self, bridge_mm: Optional[float] = None) -> str:
         if self.n_samples == 0:
