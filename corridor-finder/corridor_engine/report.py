@@ -215,6 +215,9 @@ def _render_geometry(screw: dict, validation: dict) -> str:
             lines.append(f"Tip: through the far cortex, protruding {_fmt_mm(protrusion)} mm")
     else:
         lines.append("Tip: inside bone, with the full margin")
+    past = validation.get("past_fracture_mm")
+    if isinstance(past, (int, float)):
+        lines.append(f"Screw beyond the marked fracture: {_fmt_mm(past, 0)} mm")
     items = "".join(f"<li>{_esc(line)}</li>" for line in lines)
     warnings = validation.get("warnings") or []
     warn_html = ""

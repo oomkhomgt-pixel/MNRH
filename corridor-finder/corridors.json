@@ -249,6 +249,10 @@
       "label": "Supra-acetabular / LC-2",
       "side": "per_side",
       "tip": "through",
+      "short_tip": {
+        "past_fracture_mm": 32,
+        "note": "DECISIONS.md 7.12: reach the far cortex if possible; otherwise stop in bone with 32 mm past the marked fracture"
+      },
       "bones": [
         "hip"
       ],

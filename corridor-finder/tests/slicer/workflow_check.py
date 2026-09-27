@@ -323,7 +323,8 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
                 res = w._current_results
                 desc = w.resultsList.item(0).text() if w.resultsList.count else "no candidates"
                 log(f"    {cid:28s} {side:8s} {desc}  [{w.resultsList.count} listed, {time.time() - t0:.1f} s]")
-                check(w.resultsList.count == len(res), f"{cid}/{side}: panel lists every suggestion")
+                check(w.resultsList.count == len(res) + len(logic.suggestion_notes),
+                      f"{cid}/{side}: panel lists every suggestion, and every note after them")
                 lo, hi = logic.corridor_defs[cid]["length_range_mm"]
                 for r in res:
                     if not r.screw.fits:

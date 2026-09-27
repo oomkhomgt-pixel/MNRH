@@ -219,3 +219,11 @@ def test_report_states_the_distance_to_the_acetabular_surface():
     html_str = render_report_html(plan)
     assert html_str.count("Distance to the acetabular articular surface") == 1
     assert "0.4 mm (may touch it, not cross it)" in html_str
+
+
+def test_report_states_how_much_screw_is_past_the_fracture():
+    """DECISIONS 7.12: an LC-2 that stops in bone says how much of it is
+    beyond the marked fracture."""
+    plan = _plan_with_screws([3.0])
+    plan.screws[0].validation["past_fracture_mm"] = 36.4
+    assert "Screw beyond the marked fracture: 36 mm" in render_report_html(plan)

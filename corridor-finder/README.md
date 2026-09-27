@@ -95,6 +95,11 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] An LC-2 that cannot reach the far cortex within 130 mm (or the
+      length asked for) may stop in bone with 32 mm past the fracture,
+      marked as 3 or more points (DECISIONS.md 7.12). Checked on
+      CLINIC_0025 with a synthetic fracture plane; not yet on a real
+      marked crescent fracture.
 - [x] Per-structure margin (DECISIONS.md 7.9): a screw may touch the
       acetabular articular surface but not cross it, while every other
       surface -- cortex, sacral canal, foramina -- keeps the full margin.

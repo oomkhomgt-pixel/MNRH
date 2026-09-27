@@ -91,6 +91,7 @@ try:
         corridor as corridor_search,
         drr as drr_mod,
         edt as edt_mod,
+        fracture as fracture_mod,
         si_joint as si_joint_mod,
         structures as structures_mod,
         views as views_mod,
@@ -562,6 +563,24 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """Record the fracture sites the surgeon has marked (world xyz)."""
         self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
 
+    def fracture_plane(self, side: str) -> Optional["fracture_mod.FracturePlane"]:
+        """The fracture of this side's hip bone as a plane through the marks
+        on it (three or more, not on one line; DECISIONS.md 7.12), or None.
+        A mark counts for the hip bone that is within 5 mm of it."""
+        if not self.fracture_sites or self.labels_volume is None:
+            return None
+        hip = seg_mod.HIP_R if side == "right" else seg_mod.HIP_L
+        vol = self.labels_volume
+        reach = np.ceil(5.0 / np.array([vol.spacing[2], vol.spacing[1], vol.spacing[0]])).astype(int)
+        marks = []
+        for site in self.fracture_sites:
+            k, j, i = np.round(vol.world_to_zyx_index(site)).astype(int)
+            lo = np.maximum(np.array([k, j, i]) - reach, 0)
+            hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
+            if (hi > lo).all() and (vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] == hip).any():
+                marks.append(site)
+        return fracture_mod.fit_plane(marks)
+
     def _is_clear_of_fracture(self, point, side: str, clear_mm: float) -> bool:
         """Is this point at least ``clear_mm`` on the midline side of every
         marked fracture?"""
@@ -858,6 +877,14 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                         f"No trajectory here takes a screw of {cost_break:.0f} mm or less"
                         + (" that still passes the far cortex" if self.tip_rule(corridor_id) == "through" else "")
                         + ".")
+        if spec.get("short_tip") and results:
+            limit = length_mm if length_mm is not None else cost_break
+            if limit and not any(r.screw.fits and r.screw.length_mm <= limit + 1e-6 for r in kept):
+                short = self._short_of_far_cortex(kept + list(results), corridor_id, side, margin_mm,
+                                                  float(limit), exact=length_mm is not None,
+                                                  search_again=search_again)
+                if short is not None:
+                    kept.append(short)
         if length_mm is not None and not any(r.screw.fits for r in kept):
             self.suggestion_notes.append(f"No trajectory here takes a {length_mm:.0f} mm screw.")
         if results and not kept:
@@ -905,6 +932,71 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             longer.note = "longest on this line"
             return longer
         return None
+
+    def _short_of_far_cortex(self, candidates, corridor_id: str, side: str, margin_mm: float,
+                             limit_mm: float, exact: bool, search_again: Optional[dict] = None):
+        """DECISIONS.md 7.12: when the screw cannot reach the far cortex within
+        ``limit_mm``, the best one on the corridors found that stops in bone
+        with at least the corridor's ``past_fracture_mm`` beyond the marked
+        fracture. With no fracture marked, none: the far cortex is required."""
+        need = float(self.corridor_defs[corridor_id]["short_tip"]["past_fracture_mm"])
+        plane = self.fracture_plane(side)
+        if plane is None:
+            self.suggestion_notes.append(
+                "Without the fracture marked, this screw has to reach the far cortex. Marking the fracture "
+                f"(3 or more points along it) would allow a shorter screw with its tip in bone, {need:.0f} mm "
+                "past the fracture.")
+            return None
+        if search_again is not None:
+            # The widest corridors at any length in the corridor's range: a
+            # screw that stops in bone is best taken on one of them, shortened,
+            # rather than only on axes whose far cortex happens to be near the
+            # length asked for.
+            candidates = list(candidates) + list(corridor_search.search_corridor(
+                length_range_mm=tuple(self.corridor_defs[corridor_id]["length_range_mm"]), **search_again))
+        best, best_key = None, None
+        seen = []
+        for r in candidates:
+            v = r.validation
+            if v is None or v.start_xyz is None:
+                continue
+            start = np.asarray(v.start_xyz, dtype=float)
+            direction = np.asarray(r.direction, dtype=float)
+            if any(np.linalg.norm(start - a) < 1.0 and np.linalg.norm(direction - b) < 0.02 for a, b in seen):
+                continue
+            seen.append((start, direction))
+            for d in sorted(self.stocked_diameters(), reverse=True):
+                lengths = [L for L in (self.catalog_lengths(d) or []) if L <= limit_mm + 1e-6]
+                if exact:
+                    lengths = [L for L in lengths if abs(L - limit_mm) < 1e-6]
+                for length in sorted(lengths, reverse=True):
+                    check = self.validate_screw(corridor_id, side, start, start + direction * length, d, margin_mm,
+                                                tip_rule="inside")
+                    if (check.breach or check.tip_xyz is None or check.start_xyz is None
+                            or corridor_search._BLOCKING_WARNINGS & set(check.warning_codes)):
+                        continue
+                    past = fracture_mod.past_fracture_mm(plane, check.start_xyz, check.tip_xyz)
+                    if past is None or past < need:
+                        continue
+                    key = (d, float(check.min_clearance_mm), float(check.length_mm))
+                    if best_key is None or key > best_key:
+                        best_key = key
+                        best = copy.deepcopy(r)
+                        best.entry_xyz = tuple(float(c) for c in start)
+                        best.target_xyz = tuple(float(c) for c in check.tip_xyz)
+                        best.length_mm = float(check.length_mm)
+                        best.screw = corridor_search.ScrewChoice(diameter_mm=d, length_mm=check.length_mm, fits=True)
+                        best.validation = check
+                        best.tip_rule = "inside"
+                        best.reason = None
+                        best.min_edt_mm = float(check.min_clearance_mm + d / 2.0)
+                        best.r_safe_mm = float(check.min_clearance_mm + d / 2.0 - margin_mm)
+                        best.note = f"tip in bone, {past:.0f} mm past the fracture"
+                    break  # the longest that passes, for this diameter on this line
+        if best is None:
+            self.suggestion_notes.append(
+                f"No screw of {limit_mm:.0f} mm or less here stops in bone {need:.0f} mm past the marked fracture.")
+        return best
 
     def _with_plain_rule_results(self, results, corridor_id: str, side: str, margin_mm: float, plain_search: dict):
         """Where the acetabular rule is in force, what the full-margin rule
@@ -962,15 +1054,26 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                 return [float(v) for v in entry["lengths_mm"]]
         return None
 
-    def validate_screw(self, corridor_id: str, side: str, entry_xyz, target_xyz, diameter_mm: float, margin_mm: float) -> "validate_mod.Validation":
+    def screw_tip_rule(self, corridor_id: str, planned: Optional[str]) -> str:
+        """The tip rule a screw is checked with: its corridor's, except that a
+        corridor with a "short_tip" rule (the LC-2, DECISIONS.md 7.12) takes
+        a screw planned to stop in bone. Nothing else can relax a rule."""
+        rule = self.tip_rule(corridor_id)
+        if planned == "inside" and rule == "through" and self.corridor_defs[corridor_id].get("short_tip"):
+            return "inside"
+        return rule
+
+    def validate_screw(self, corridor_id: str, side: str, entry_xyz, target_xyz, diameter_mm: float, margin_mm: float,
+                       tip_rule: Optional[str] = None) -> "validate_mod.Validation":
         """THE check of a screw of this corridor: validate.py's rule with the
-        corridor's tip rule and the library's lengths for the diameter,
-        against the corridor's own distance field. The exported viewer
-        repeats it with the plan's tip_rule and screw_library."""
+        corridor's tip rule (or the screw's own, where screw_tip_rule allows
+        it) and the library's lengths for the diameter, against the
+        corridor's own distance field. The exported viewer repeats it with
+        the plan's tip_rule and screw_library."""
         return validate_mod.validate_screw(
             entry_xyz, target_xyz, diameter_mm, margin_mm,
             edt_volume=self.clearance_field(corridor_id, side, margin_mm), labels_volume=self.labels_volume,
-            tip_rule=self.tip_rule(corridor_id), catalog_lengths_mm=self.catalog_lengths(diameter_mm),
+            tip_rule=self.screw_tip_rule(corridor_id, tip_rule), catalog_lengths_mm=self.catalog_lengths(diameter_mm),
         )
 
     # ---- Aiming guidance -------------------------------------------------
@@ -1014,7 +1117,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             area = entry_zone_mod.safe_entry_area(
                 screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm,
                 self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm), self.labels_volume,
-                tip_rule=self.tip_rule(screw.corridor_id), catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
+                tip_rule=self.screw_tip_rule(screw.corridor_id, screw.tip_rule),
+                catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
             )
             self._entry_area_cache[screw.screw_id] = (key, area)
         return self._entry_area_cache[screw.screw_id][1]
@@ -1077,7 +1181,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             margin_mm=margin_mm,
             drr_views=[self._resolve_view(v, side) for v in (drr_views or self.corridor_defs[corridor_id].get("drr_views", []))],
         )
-        screw.tip_rule = self.tip_rule(corridor_id)
+        screw.tip_rule = self.screw_tip_rule(corridor_id, getattr(result, "tip_rule", None))
         self._validate_plan_screw(screw)
         self.plan.screws.append(screw)
         self.plan.log("add_screw", screw_id=screw_id, after=screw.__dict__)
@@ -1101,7 +1205,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         tip). A check that cannot run marks the screw as a breach, never
         leaves a stale "safe"."""
         try:
-            v = self.validate_screw(screw.corridor_id, screw.side, screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm)
+            v = self.validate_screw(screw.corridor_id, screw.side, screw.entry_xyz, screw.target_xyz, screw.diameter_mm,
+                                    screw.margin_mm, tip_rule=screw.tip_rule)
         except ValueError as exc:
             # No bone around the axis at all: reads as a breach everywhere.
             screw.validation = {"breach": True, "min_clearance_mm": -screw.diameter_mm / 2.0, "warnings": [str(exc)], "warning_codes": ["invalid"]}
@@ -1112,6 +1217,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             articular = self.articular_clearance(screw, v.start_xyz, v.tip_xyz)
             if articular is not None:
                 screw.validation = dict(screw.validation, articular_clearance_mm=articular)
+            short = self.corridor_defs[screw.corridor_id].get("short_tip")
+            if short and self.screw_tip_rule(screw.corridor_id, screw.tip_rule) == "inside":
+                # A screw that stops short of the far cortex has to be far
+                # enough past the fracture, however it was moved.
+                plane = self.fracture_plane(screw.side)
+                past = fracture_mod.past_fracture_mm(plane, v.start_xyz, v.tip_xyz) if plane is not None else None
+                need = float(short["past_fracture_mm"])
+                extra = {"past_fracture_mm": past}
+                if past is None or past < need:
+                    problem = ("stops short of the far cortex without crossing the marked fracture"
+                               if past is None else
+                               f"stops short of the far cortex only {past:.0f} mm past the fracture (needs {need:.0f})")
+                    extra["warnings"] = list(screw.validation.get("warnings") or []) + [problem]
+                    extra["warning_codes"] = list(screw.validation.get("warning_codes") or []) + ["short_of_fracture"]
+                screw.validation = dict(screw.validation, **extra)
         # Cheap guidance every time, so a dragged screw never shows the
         # direction it had before; the room around its entry costs seconds,
         # so it is dropped here and measured on request or at export.
@@ -1714,6 +1834,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _("none marked") if not points else _("{0} marked; screws that hold a fracture start clear of it")
             .format(len(points)))
         self._clearSuggestions()
+        # A planned screw that stops in bone depends on where the fracture is.
+        if self.logic.plan is not None:
+            for screw in self.logic.plan.screws:
+                if self.logic.corridor_defs.get(screw.corridor_id, {}).get("short_tip") and screw.tip_rule == "inside":
+                    self.logic._validate_plan_screw(screw, derived=False)
+                    if screw.screw_id == getattr(self, "_shownScrewId", None):
+                        self._refreshClearanceLabel(screw.screw_id)
 
     def onSiDisruptedChanged(self, index: int) -> None:
         self.logic.set_si_disrupted(None if index == 0 else self.siDisruptedCombo.currentText)
@@ -1892,6 +2019,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         text += f"\n{screw.diameter_mm} x {screw.length_mm:.0f} mm from the entry cortex"
         if v.get("protrusion_mm") is not None:
             text += f", tip {v['protrusion_mm']:.1f} mm past the far cortex"
+        if v.get("past_fracture_mm") is not None:
+            text += f", tip in bone {v['past_fracture_mm']:.0f} mm past the marked fracture"
         guidance = screw.guidance or {}
         if guidance.get("direction_app") or guidance.get("direction_scanner"):
             text += f"\nAim: {guidance.get('direction_app') or guidance['direction_scanner']}"
