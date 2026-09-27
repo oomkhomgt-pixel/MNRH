@@ -157,6 +157,15 @@ roughness. That review belongs to step 3, on the full-pelvis CTs.
   declared disrupted, what was counted as bone and how much of the joint
   that covered.
 
+## 8. Order of work, as it now stands
+
+| # | Decision |
+| --- | --- |
+| 8.1 | **Reduce first, then find the corridor.** On a pre-reduction CT the fracture itself reads as a gap and narrows every corridor through it -- on the four public fracture CTs, 31 of 60 corridor/side/case combinations give a screw, and on the most displaced only 2 of 18. Virtual reduction (section 3) therefore comes **before** the pilot, not after it. |
+| 8.2 | The pilot runs on **public CTs** for now; hospital cases are not available yet. |
+| 8.3 | The surgeon will check the computed C-arm angles against a **real C-arm on his own cases**, and may use **Brainlab navigation**, which the plan will eventually have to export to. |
+| 8.4 | The displacement-measurement project (pre/post-operative CT, the widest gap at the sacrum, sacroiliac joint, symphysis, rami and acetabulum) **shares this engine**. Neither project keeps its own copy of a measurement the other already makes -- the sacroiliac gap and step above all -- and the two are kept in step. |
+
 ## 3. Post-reduction corridors
 
 Intra-operatively the injury is reduced before fixation, so the corridor that is
@@ -220,7 +229,10 @@ From the surgeon, on seeing the first anchors drawn on full-pelvis CTs
 | 7.6 | **Fluoroscopic views per route**, from the literature, to be set on each patient's own anatomy rather than by fixed angles: posterior column, **the posterior column triangle view** (obturator oblique 10 degrees with inlet 25 degrees, Sikarinkul et al.) with iliac oblique and AP or cross-table lateral to confirm; anterior column, obturator oblique first (most accurate for the joint), then iliac oblique/outlet and inlet; iliosacral and transsacral, the **true lateral of the sacrum first** for the iliac cortical density, then inlet (S1 anterior cortex over S2) and outlet (symphysis at the S2 foramen, both foramina clear). |
 | 7.3 | There are **two posterior column routes**, not one: **antegrade** from the pelvic brim or iliac crest down the posterior column and across the fracture, and **retrograde** from the ischial tuberosity back up to the brim (the "butt screw"). The old single corridor aimed at the PSIS, which puts the greater sciatic notch in the way of every axis. |
 | 7.4 | A **transiliac-transsacral screw** is planned from the side the surgeon chooses, entering the **lateral ilium** and leaving the opposite one. Its safety is read first from the **lateral view (the iliac cortical density) to find the corridor**, then from **inlet and outlet** views; it must not breach the anterior sacral cortex, the sacral canal or a nerve foramen, and it takes **all six cortices** (ipsilateral ilium, sacrum, contralateral ilium). |
-| 7.5 | The screws available are **130-150 mm in normal use and none longer than 180 mm**; most Thai patients do not need more. A corridor that needs a longer screw is reported as not available, with its measured length. |
+| 7.5 | The screws available are **130-150 mm in normal use and none longer than 180 mm**; most Thai patients do not need more. A corridor that needs a longer screw is reported as not available, with its measured length. The diameters the surgeon uses in practice are **6.5 and 7.3 mm**; those are what is suggested, and the thinner ones are only used to say how narrow a corridor is. |
+| 7.10 | **Screw length is chosen, not only found.** Screws over **130 mm cost significantly more**, so when the widest corridor needs a longer one, the best corridor within 130 mm is offered beside it; and the surgeon can ask for a trajectory that takes a particular length. |
+| 7.8 | A **dysmorphic sacrum has no S1 transsacral corridor**, and the answer there is **S2, or S3**, not a narrower S1 screw. The tool has to recognise dysmorphism and say which level to use. Its reading of the corridor is to be taken from the **iliac cortical density** (the alar slope) on the lateral, as in theatre. |
+| 7.9 | A screw may **touch the acetabular articular surface but not penetrate it**, so the margin there is **0 mm**, while the **sacral canal and the nerve foramina keep the full 2 mm**, as does every other cortex. The margin is therefore per structure, not one number for the whole screw. |
 
 Still to settle with the surgeon (step 3 continues): exactly where each
 posterior column route starts and ends, how close either may come to the

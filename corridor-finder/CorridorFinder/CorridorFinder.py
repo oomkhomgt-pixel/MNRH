@@ -325,6 +325,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.fracture_sites: List[np.ndarray] = []
         # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
         self.patient_views: Dict[str, "views_mod.View"] = {}
+        # What the last suggestion could not offer, in words, for the panel.
+        self.suggestion_notes: List[str] = []
         self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
         self.si_disrupted: Optional[str] = None
         self.si_bridge_mm: Dict[str, float] = {}
@@ -618,12 +620,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         crosses = self.corridor_defs[corridor_id].get("crosses_si_joint")
         return self._edt_for_bones(self._traverse_labels(corridor_id, side), self.si_bridge_by_label() if crosses else None)
 
-    def suggest_corridor(self, corridor_id: str, side: str, margin_mm: Optional[float] = None) -> List["corridor_search.CorridorResult"]:
+    def suggest_corridor(self, corridor_id: str, side: str, margin_mm: Optional[float] = None,
+                         length_mm: Optional[float] = None) -> List["corridor_search.CorridorResult"]:
         """side is 'left' or 'right' for per_side corridors, ignored (pass
-        'midline') for the transiliac-transsacral corridor."""
+        'midline') for the transiliac-transsacral corridor.
+
+        ``length_mm`` asks for a trajectory that takes a screw of exactly that
+        catalogue length, for when the surgeon wants a particular screw.
+        Without it, when the widest corridor needs a screw longer than the
+        catalogue's cost break (130 mm, which costs significantly more), the
+        best corridor within that length is offered as well (DECISIONS.md
+        7.10)."""
         if self.labels_volume is None or self.frame is None:
             raise RuntimeError("segment() and detect_landmarks() must both succeed first")
 
+        self.suggestion_notes = []
         spec = self.corridor_defs[corridor_id]
         if spec.get("crosses_si_joint") and self.si_disrupted is None:
             raise RuntimeError(
@@ -686,10 +697,18 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             valid_vol=valid_vol,
             labels_vol=self.labels_volume,
             margin_mm=margin_mm,
-            screw_diameters_mm=[s["diameter_mm"] for s in self.screw_library["screws"]],
-            length_range_mm=tuple(spec["length_range_mm"]),
+            screw_diameters_mm=self.stocked_diameters(),
+            length_range_mm=self._length_range(spec, length_mm),
             textbook_direction=textbook,
             tip_rule=self.tip_rule(corridor_id),
+            catalog_lengths_mm={s["diameter_mm"]: s["lengths_mm"] for s in self.screw_library["screws"]},
+        )
+        search_again = dict(
+            entry_mask=entry_mask, exit_mask=exit_mask, entry_center_xyz=entry_center,
+            entry_radius_mm=spec["entry"]["radius_mm"], exit_center_xyz=exit_center,
+            exit_radius_mm=spec["exit"]["radius_mm"], edt_vol=edt_vol, valid_vol=valid_vol,
+            labels_vol=self.labels_volume, margin_mm=margin_mm, screw_diameters_mm=self.stocked_diameters(),
+            textbook_direction=textbook, tip_rule=self.tip_rule(corridor_id),
             catalog_lengths_mm={s["diameter_mm"]: s["lengths_mm"] for s in self.screw_library["screws"]},
         )
         # The search refines an entry along the cortex after choosing it, so
@@ -702,9 +721,32 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             if (self._is_clear_of_fracture(start, entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))
                     and self._is_clear_of_fracture(tip, exit_side, spec["exit"].get("clear_of_fracture_mm", 0.0))):
                 kept.append(r)
-        longest = self._longest_on_axis(kept[0], corridor_id, side, margin_mm) if kept else None
+        longest = self._longest_on_axis(kept[0], corridor_id, side, margin_mm) if (kept and length_mm is None) else None
         if longest is not None:
             kept.append(longest)
+        # A screw over the cost break costs significantly more, so if the
+        # widest corridor needs one, find the best one that does not.
+        cost_break = self.screw_library.get("cost_break_mm")
+        fitting = [r for r in kept if r.screw.fits]
+        if (length_mm is None and cost_break and fitting
+                and min(r.screw.length_mm for r in fitting) > cost_break):
+            low, _ = spec["length_range_mm"]
+            if low <= cost_break:
+                cheaper = corridor_search.search_corridor(
+                    length_range_mm=(float(low), float(cost_break)), **search_again)
+                cheaper = [r for r in cheaper if r.screw.fits and r.screw.length_mm <= cost_break + 1e-6
+                           and self._is_clear_of_fracture(
+                               r.validation.start_xyz, entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))]
+                if cheaper:
+                    cheaper[0].note = f"best within {cost_break:.0f} mm"
+                    kept.append(cheaper[0])
+                else:
+                    self.suggestion_notes.append(
+                        f"No trajectory here takes a screw of {cost_break:.0f} mm or less"
+                        + (" that still passes the far cortex" if self.tip_rule(corridor_id) == "through" else "")
+                        + ".")
+        if length_mm is not None and not any(r.screw.fits for r in kept):
+            self.suggestion_notes.append(f"No trajectory here takes a {length_mm:.0f} mm screw.")
         if results and not kept:
             raise RuntimeError(
                 "Every corridor found here would put the screw past the marked fracture rather than across it. "
@@ -737,6 +779,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             check = self.validate_screw(corridor_id, side, start, target, diameter, margin_mm)
             if check.breach or check.length_mm is None:
                 continue
+            if check.length_mm <= (result.screw.length_mm or 0.0) + 0.5:
+                return None  # the rule shortened it back to the screw already offered
             longer = copy.deepcopy(result)
             longer.entry_xyz = start
             longer.target_xyz = np.asarray(check.tip_xyz, dtype=float) if check.exit_xyz is None else target
@@ -748,6 +792,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             longer.note = "longest on this line"
             return longer
         return None
+
+    def _length_range(self, spec: dict, length_mm: Optional[float]) -> tuple:
+        """The corridor's own length range, or, when the surgeon asks for a
+        particular screw, just that length."""
+        if length_mm is None:
+            return tuple(spec["length_range_mm"])
+        return (float(length_mm), float(length_mm))
+
+    def stocked_diameters(self) -> List[float]:
+        """The diameters the surgeon actually uses (screws.json in_stock,
+        DECISIONS.md 7.5). A suggestion in a screw he does not open is not a
+        suggestion."""
+        screws = self.screw_library["screws"]
+        stocked = [s["diameter_mm"] for s in screws if s.get("in_stock", True)]
+        return stocked or [s["diameter_mm"] for s in screws]
 
     def tip_rule(self, corridor_id: str) -> str:
         """The corridor's tip rule, "inside" or "through" (corridors.json
@@ -1129,6 +1188,17 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.marginSpin.setValue(self.logic.screw_library["margin_default_mm"])
         corridorForm.addRow(_("Safety margin (mm):"), self.marginSpin)
 
+        self.lengthSpin = qt.QSpinBox()
+        self.lengthSpin.setRange(0, 250)
+        self.lengthSpin.setSingleStep(5)
+        self.lengthSpin.setSpecialValueText(_("any"))
+        self.lengthSpin.setSuffix(" mm")
+        self.lengthSpin.setToolTip(
+            _("Ask for a trajectory that takes a screw of this length, e.g. to stay within 130 mm, above which "
+              "screws cost significantly more. Left at 'any', the widest corridor is offered, and when it needs a "
+              "screw over 130 mm the best one within 130 mm is offered too."))
+        corridorForm.addRow(_("Screw length:"), self.lengthSpin)
+
         self.suggestButton = qt.QPushButton(_("Suggest corridor"))
         self.suggestButton.enabled = False
         corridorForm.addRow(self.suggestButton)
@@ -1191,6 +1261,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.screwsList.currentRowChanged.connect(self.onScrewSelected)
         self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
+        self.lengthSpin.valueChanged.connect(self._clearSuggestions)
         self.fractureButton.clicked.connect(self.onMarkFracture)
         self.fractureClearButton.clicked.connect(self.onClearFractures)
         self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
@@ -1514,7 +1585,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.landmarkWarningsLabel.setText(
                     _("The segmentation was edited after landmarks were detected; "
                       "run Detect landmarks again if bones near a landmark changed."))
-            results = self.logic.suggest_corridor(cid, side, margin_mm=margin)
+            length = self.lengthSpin.value or None
+            results = self.logic.suggest_corridor(cid, side, margin_mm=margin, length_mm=length)
         except Exception as exc:
             logging.error(traceback.format_exc())
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
@@ -1545,6 +1617,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if v is not None and v.warnings:
                 text += " [" + "; ".join(v.warnings) + "]"
             self.resultsList.addItem(text)
+        for note in self.logic.suggestion_notes:
+            self.resultsList.addItem(note)
         self.addScrewButton.enabled = len(self._current_results) > 0
 
     def onAddScrew(self):
