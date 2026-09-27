@@ -65,12 +65,16 @@ export default async function run() {
     t.check("กดเลิกทำแล้วกลับมาที่ตำแหน่งเดิม จำนวนเท่าเดิม", undo.back && undo.count);
 
     /* ---------- ลบหน่วยแล้วเลิกทำ: ช่วงหมุนเวียนที่ถูกลบตามต้องกลับมาครบ ---------- */
-    const cascade = await page.evaluate(() => {
+    const cascade = await page.evaluate(async () => {
       const svc = store.data.services.find(s => s.team);
       const rots = store.data.rotations.filter(r => r.serviceId === svc.id).length;
       const nS = store.data.services.length, nR = store.data.rotations.length;
       editService(svc.id);
       [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "ลบหน่วยนี้").click();
+      /* ลบหน่วยถามยืนยันก่อนแล้ว (บอกว่าตารางเวรที่อ้างหน่วยนี้จะถูกล้างกี่วัน) — ตอบในกล่องเดิม */
+      await new Promise(r => setTimeout(r, 100));
+      document.querySelector("#dlgBody .confirm-inline [data-ok]")?.click();
+      await new Promise(r => setTimeout(r, 200));
       const afterDel = { s: store.data.services.length, r: store.data.rotations.length };
       document.querySelector("#toasts .toast button")?.click();
       return { rots, deleted: afterDel.s === nS - 1 && afterDel.r === nR - rots,

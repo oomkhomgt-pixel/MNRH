@@ -17,8 +17,9 @@ import lifecycle from "./lifecycle.test.mjs";
 import dataops from "./dataops.test.mjs";
 import followup from "./followup.test.mjs";
 import pastyear from "./pastyear.test.mjs";
+import dutysync from "./dutysync.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle, dataops, followup, pastyear };
+const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle, dataops, followup, pastyear, dutysync };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 

@@ -6816,11 +6816,29 @@ function editService(id) {
         if (svc) Object.assign(svc, rec); else store.data.services.push({ id: uid("svc"), ...rec });
         store.save(); renderAll(); toast("บันทึกแล้ว");
       }},
-    ...(svc ? [{ label:"ลบหน่วยนี้", cls:"btn-danger", onClick: () => {
+    ...(svc ? [{ label:"ลบหน่วยนี้", cls:"btn-danger", onClick: async () => {
         const n = (store.data.rotations || []).filter(r => r.serviceId === svc.id).length;
-        removeWithUndo("ลบ " + svc.name + " และช่วงหมุนเวียน " + n + " ช่วงแล้ว", [
+        /* ตารางเวรรายเดือนอ้างหน่วยไว้ใน duty[].erServiceId / opdServiceId — เดิมลบหน่วยแล้วค่านี้ค้างเป็น id ที่ตายแล้ว
+           computeSessions ยังเข้าบล็อก ER (id ยัง truthy) แต่หาคนในสายไม่เจอเพราะช่วงหมุนเวียนถูกลบไปด้วย
+           ผลคือวันนั้นไม่มีใครถูกจ่ายเวร ER เลย โดยไม่มีคำเตือนที่ไหน — ล้างให้ในธุรกรรมเดียวกันและบอกก่อนว่ากี่วัน */
+        const today = todayISO();
+        const erDays = (store.data.duty || []).filter(d => d.erServiceId === svc.id);
+        const opdDays = (store.data.duty || []).filter(d => d.opdServiceId === svc.id);
+        const upcoming = [...new Set(erDays.concat(opdDays).filter(d => d.date >= today).map(d => d.date))].sort();
+        if (!(await confirmAny("ลบ " + svc.name + "?\nจะถูกลบไปด้วย: ช่วงหมุนเวียน " + n + " ช่วง" +
+              (erDays.length || opdDays.length ? "\nตารางเวรที่ตั้งหน่วยนี้ไว้จะถูกล้างเป็น \"ยังไม่กำหนด\": เวร ER " + erDays.length +
+                " วัน · OPD " + opdDays.length + " วัน" +
+                (upcoming.length ? "\nในจำนวนนี้เป็นวันที่ยังมาไม่ถึง " + upcoming.length + " วัน (เริ่ม " + fmtDate(upcoming[0]) +
+                  ") — ต้องไปตั้งหน่วยรับเวรใหม่ที่ตารางเวรรายเดือน ไม่งั้นวันนั้นจะไม่มีใครรับ ER" : "") : ""),
+              { okLabel: "ลบหน่วย", danger: true }))) return false;
+        const cleared = erDays.map(d => ({ d, f: "erServiceId" })).concat(opdDays.map(d => ({ d, f: "opdServiceId" })));
+        cleared.forEach(({ d, f }) => { d[f] = ""; });
+        audit("ลบหน่วย", svc.name + " · ช่วงหมุนเวียน " + n + " · ล้างเวร ER " + erDays.length + " วัน OPD " + opdDays.length + " วัน");
+        removeWithUndo("ลบ " + svc.name + " และช่วงหมุนเวียน " + n + " ช่วงแล้ว" +
+                       (cleared.length ? " · ล้างตารางเวร " + cleared.length + " ช่อง" : ""), [
           { list:"services", keep: x => x.id !== svc.id },
-          { list:"rotations", keep: r => r.serviceId !== svc.id }]);
+          { list:"rotations", keep: r => r.serviceId !== svc.id }],
+          () => cleared.forEach(({ d, f }) => { d[f] = svc.id; }));
       }}] : [])
   ]);
   renderDraftTemplate();
@@ -7983,6 +8001,11 @@ async function cloudPush(quiet, isRetry) {
   if (!navigator.onLine) { cfg.lastStatus = "ออฟไลน์ — รอส่งเมื่อกลับมาออนไลน์"; paintSyncState(); return; }
   syncing = true; paintSyncState();
   const headers = Object.assign({ "Content-Type": "application/json" }, cfg.token ? { Authorization: "Bearer " + cfg.token } : {});
+  /* ส่งใหม่หลังรวมข้อมูล ต้องเรียกหลังออกจาก try/finally แล้วเท่านั้น — เดิม `return cloudPush(...)` อยู่ใน try
+     finally ของรอบแรกจึงทำงานทันทีที่รอบใหม่ไปหยุดรอ fetch แล้วตั้ง syncing = false ทับรอบใหม่ที่ยังส่งอยู่
+     ตลอดช่วงนั้น (นานได้ถึง 20 วิ) ตัวตั้งเวลาของ markDirty ยิงซ้อนเข้ามาได้ → PUT สองก้อนด้วย baseRev เดียวกัน
+     ก้อนที่แพ้ได้ 409 อีกรอบ แล้วบันทึกรายการ "ชนกัน" ปลอมซ้ำ และป้ายสถานะขึ้นว่าซิงก์เสร็จทั้งที่ยังส่งอยู่ */
+  let retry = false;
   try {
     const payload = fullPayload();
     const res = await fetchWithTimeout(cfg.cloudUrl, {
@@ -8004,20 +8027,20 @@ async function cloudPush(quiet, isRetry) {
       if (!quiet) toast(conflicts.length
         ? "มีคนแก้พร้อมกัน — รวมข้อมูลแล้ว (" + conflicts.length + " รายการชนกัน) กำลังส่งใหม่"
         : "มีคนแก้พร้อมกัน — รวมข้อมูลอัตโนมัติแล้ว กำลังส่งใหม่");
-      syncing = false;
-      return cloudPush(quiet, true);
+      /* ห้าม return ตรงนี้ — return ใน try ออกจากฟังก์ชันทั้งฟังก์ชันหลัง finally บรรทัดส่งใหม่ท้ายฟังก์ชันจะไม่ทำงาน */
+      retry = true;
+    } else {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const body = await res.json().catch(() => ({}));
+      cfg.rev = body.rev ?? cfg.rev;
+      cfg.lastAt = new Date().toISOString();
+      cfg.remoteAt = body.updatedAt || cfg.lastAt;
+      cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว รุ่นที่ " + (body.rev ?? "—") + " · " + Math.round((body.bytes || 0) / 1024) + " KB";
+      cfg.pending = false;
+      writeBaseline(cfg.rev, fullPayload());
+      audit("ส่งข้อมูลทั้งชุดขึ้นคลาวด์", cfg.cloudUrl + " · รุ่นที่ " + (body.rev ?? "—"));
+      if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
     }
-
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const body = await res.json().catch(() => ({}));
-    cfg.rev = body.rev ?? cfg.rev;
-    cfg.lastAt = new Date().toISOString();
-    cfg.remoteAt = body.updatedAt || cfg.lastAt;
-    cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว รุ่นที่ " + (body.rev ?? "—") + " · " + Math.round((body.bytes || 0) / 1024) + " KB";
-    cfg.pending = false;
-    writeBaseline(cfg.rev, fullPayload());
-    audit("ส่งข้อมูลทั้งชุดขึ้นคลาวด์", cfg.cloudUrl + " · รุ่นที่ " + (body.rev ?? "—"));
-    if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
   } catch (e) {
     cfg.lastStatus = "ส่งขึ้นคลาวด์ไม่สำเร็จ: " + e.message;
     cfg.pending = true;
@@ -8025,6 +8048,8 @@ async function cloudPush(quiet, isRetry) {
   } finally {
     syncing = false; suppressDirty = true; store.save(); suppressDirty = false; paintSyncState();
   }
+  /* ไม่มี await คั่นระหว่าง finally กับบรรทัดนี้ รอบใหม่จึงตั้ง syncing = true ต่อทันทีโดยไม่มีช่องให้อะไรแทรก */
+  if (retry) return cloudPush(quiet, true);
 }
 
 async function cloudPull() {
