@@ -1941,11 +1941,21 @@ async function sha256(buf) {
    ===================================================================== */
 const store = {
   data: null,
+  /* เครื่องที่ซิงก์ข้อมูลทั้งชุดกับคลาวด์อัตโนมัติ ห้ามเลื่อนชั้นปีจากข้อมูลในเครื่องตอนโหลด — ข้อมูลในเครื่องอาจเก่า
+     (ไม่ได้เปิดมาตั้งแต่ก่อน 1 ก.ค.) ขณะที่เครื่องอื่นเลื่อนชั้นปีและแก้ทะเบียนต่อไปแล้ว ถ้าเลื่อนเองแล้วดันขึ้นไป
+     ทะเบียนที่เลื่อนจากของเก่าจะชนะการรวมข้อมูลทุกรายการที่ต่างกัน — รอ bootReconcile() ดึงของคลาวด์มารวมก่อน
+     แล้วค่อยเลื่อน (ซึ่งจะไม่เลื่อนซ้ำ เพราะตัวชี้ปีมากับข้อมูลที่ดึงมา) */
+  deferRoll: false,
   load() {
     let raw = null;
     try {
       raw = localStorage.getItem(APP.key);
-      if (raw) { this.data = JSON.parse(raw); this.migrate(); return; }
+      if (raw) {
+        this.data = JSON.parse(raw);
+        const s = this.data?.sync;
+        this.deferRoll = !!(s && s.auto && s.mode === "full" && s.cloudUrl);
+        this.migrate(); return;
+      }
     } catch (e) {
       console.warn("อ่านข้อมูลเดิมไม่ได้", e);
       /* กันสำเนาดิบของข้อมูลเดิมที่อ่านไม่ออกไว้ก่อนเสมอ ไม่งั้นข้อมูลฝึกอบรมทั้งหมดจะหายไป
@@ -1968,6 +1978,13 @@ const store = {
     d.residents ||= []; d.activities ||= []; d.research ||= [];
     d.requirements ||= structuredClone(DEFAULT_REQUIREMENTS);
     d.programme ||= { mission:"", outcomes:[], reviewed:"", documents:[] };
+    d.meta ||= {};
+    /* ตัวชี้ "ทะเบียนชั้นปีตรงกับปีการศึกษาใดแล้ว" ต้องเดินทางไปกับทะเบียนที่ซิงก์ข้ามเครื่อง — เดิมอยู่ใน meta (เฉพาะเครื่อง)
+       แต่ละเครื่องจึงเลื่อนชั้นปีกันเองจากข้อมูลของตัวเอง เครื่องที่ไม่ได้เปิดข้ามปีการศึกษาเลื่อนจากทะเบียนเก่า
+       แล้วดันขึ้นคลาวด์ชนะการรวมข้อมูล ทับสิ่งที่เครื่องอื่นแก้ในทะเบียนหลังเลื่อนไปแล้ว
+       ฉบับที่ซิงก์ (programme.yearRolledAY) เป็นตัวจริง — มากับ residents ชุดเดียวกันเสมอ ฉบับใน meta เป็นสำเนาให้ผู้อ่านเดิม */
+    if (d.programme.yearRolledAY) d.meta.yearRolledAY = String(d.programme.yearRolledAY);
+    else if (d.meta.yearRolledAY) d.programme.yearRolledAY = String(d.meta.yearRolledAY);
     d.staff ||= []; d.services ||= []; d.rotations ||= []; d.schedule ||= [];
     d.cases ||= []; d.orQueue ||= { ...OR_QUEUE_DEFAULT, lastImport:"", lastSource:"" };
     if (!d.orQueue.patientData) d.orQueue.patientData = d.orQueue.dropHn ? "nohn" : "full";
@@ -2156,7 +2173,7 @@ const store = {
           " รายการที่ลงวันอื่นนอกจากวันพฤหัสฯ (ข้อมูลจากรุ่นก่อนที่ยังไม่มีการตรวจ) ตัดออกจากตารางนำเสนอแล้ว — กิจกรรมที่เคยผูกไว้ยังอยู่ในแฟ้มของเจ้าของเดิม";
       }
     }
-    this.rollAcademicYearOnce();
+    if (!this.deferRoll) this.rollAcademicYearOnce();
     this.applyRotationPresetOnce("2569");
     this.applyThursdayPresetOnce();
   },
@@ -2169,10 +2186,14 @@ const store = {
      · เครื่องเก่าที่ยังไม่มีธง: ถือว่าทะเบียนเป็นปัจจุบัน (ตั้งธง ไม่เลื่อน)
      · ข้อมูลสาธิตตั้งธงไว้ที่ปีของตารางจริง (2569) เปิดครั้งแรกปีถัดไปจึงเลื่อนให้เอง
      · เปิดแอปข้ามหลายปี → เลื่อนทีละปีจนทัน · ชุดก่อนเลื่อนเก็บที่ meta.lastYearRoll ย้อนกลับได้ที่หน้าตั้งค่า */
+  setRolledAY(ay) {
+    const d = this.data; d.meta ||= {}; d.programme ||= {};
+    d.meta.yearRolledAY = String(ay); d.programme.yearRolledAY = String(ay);
+  },
   rollAcademicYearOnce() {
     const d = this.data; d.meta ||= {};
     const ay = String(currentAY());
-    if (!d.meta.yearRolledAY) { d.meta.yearRolledAY = ay; return null; }
+    if (!d.meta.yearRolledAY) { this.setRolledAY(ay); return null; }
     if (+d.meta.yearRolledAY >= +ay) return null;
     return this.rollAcademicYear(ay, "auto");
   },
@@ -2199,7 +2220,7 @@ const store = {
         } else { r.year = +r.year + 1; promoted++; }
       });
     }
-    d.meta.yearRolledAY = String(toAY);
+    this.setRolledAY(toAY);
     d.meta.lastYearRoll = { fromAY, toAY: String(toAY), at: new Date().toISOString(), how, before };
     audit("เลื่อนชั้นปีขึ้นปีการศึกษา " + toAY, (how === "auto" ? "อัตโนมัติ" : "ผู้จัดหลักสูตรสั่ง") + " · เลื่อน " + promoted + " คน · จบ " + graduated.length + " คน");
     this.pendingNotice = "ขึ้นปีการศึกษา " + toAY + " แล้ว — เลื่อนชั้นปีให้ " + promoted + " คน" +
@@ -2214,7 +2235,7 @@ const store = {
       (d.users || []).forEach(u => { if (u.residentId === r.id && u.displayName === r.name) u.displayName = b.name; });
       r.year = b.year; r.active = b.active; r.name = b.name; r.graduatedAY = b.graduatedAY;
     });
-    d.meta.yearRolledAY = lr.fromAY;
+    this.setRolledAY(lr.fromAY);
     delete d.meta.lastYearRoll;
     audit("ย้อนกลับการเลื่อนชั้นปี", lr.toAY + " → " + lr.fromAY);
     return true;
@@ -7804,8 +7825,51 @@ function setupSync() {
   const target = syncTarget;
   window.addEventListener("online", () => { if (cfg.auto && cfg.pending) push(true); });
   setInterval(() => { if (cfg.auto && target() && cfg.pending) push(true); }, 10 * 60 * 1000);
-  if (cfg.auto && target()) setTimeout(() => push(true), 3000);
+  if (store.deferRoll) {
+    /* ยังไม่ได้ล็อกอิน = ยังไม่รู้ว่ามีสิทธิ์ดึงข้อมูลทั้งชุดไหม — รอจนล็อกอินแล้วค่อยตัดสิน (หน้าเข้าสู่ระบบบังข้อมูลอยู่แล้ว) */
+    const boot = () => { if (!session) { setTimeout(boot, 2000); return; } bootReconcile().then(() => { if (cfg.auto && target()) push(true); }); };
+    setTimeout(boot, 1500);
+  } else if (cfg.auto && target()) setTimeout(() => push(true), 3000);
   paintSyncState();
+}
+
+/* ดึงของคลาวด์มารวมกับของเครื่องนี้ (สามทาง ด้วยฐานเปรียบเทียบเดียวกับตอนชน 409) ก่อนเลื่อนชั้นปี
+   ตัวชี้ปีที่เลื่อนแล้วมากับข้อมูลที่ดึงมา — เครื่องอื่นเลื่อนไปแล้ว เครื่องนี้จึงไม่เลื่อนซ้ำ และไม่มีทะเบียนที่เลื่อนจาก
+   ของเก่าไปทับการแก้ไขหลังเลื่อนของเครื่องอื่น · ดึงไม่ได้ (ไม่ใช่ผู้จัดหลักสูตร ออฟไลน์ เซิร์ฟเวอร์ล่ม) ก็เลื่อนจาก
+   ข้อมูลในเครื่องเหมือนเดิม — ไม่ปล่อยให้ทะเบียนค้างปีเก่า แต่บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์ */
+async function bootReconcile() {
+  const cfg = syncCfg();
+  let merged = false;
+  if (canManage() && navigator.onLine && cfg.cloudUrl) {
+    try {
+      const res = await fetchWithTimeout(cfg.cloudUrl, {
+        credentials: "include", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
+      }, 20000);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const body = await res.json().catch(() => ({}));
+      if (body.data && (body.rev ?? 0) !== (cfg.rev ?? 0)) {
+        const base = readBaseline();
+        const { merged: m, conflicts } = mergeDatasets(base?.data || null, fullPayload(), body.data);
+        applyMerged(m);
+        recordConflicts(conflicts);
+        cfg.rev = body.rev ?? cfg.rev;
+        /* ฐานใหม่คือของคลาวด์ที่เพิ่งดึงมา — สิ่งที่เครื่องนี้แก้ไว้และชนะการรวมจะยังนับเป็น "ของที่ต้องส่งขึ้นไป" */
+        writeBaseline(cfg.rev, body.data);
+        merged = true;
+      }
+    } catch (e) {
+      cfg.lastStatus = "ดึงข้อมูลจากคลาวด์ก่อนเลื่อนชั้นปีไม่สำเร็จ: " + e.message + " — ใช้ข้อมูลในเครื่อง";
+    }
+  }
+  store.deferRoll = false;
+  const rolled = store.rollAcademicYearOnce();
+  if (merged || rolled) {
+    if (rolled) cfg.pending = true;
+    store.save(); renderAll(); applyPermissions();
+    if (store.pendingNotice) { const msg = store.pendingNotice; store.pendingNotice = ""; toast(msg, 9000); }
+  }
+  paintSyncState();
+  return { merged, rolled };
 }
 
 /* ผู้ที่ไม่ใช่ผู้ดูแลระบบเห็นได้ว่าข้อมูลของตัวเองถูกส่งไปที่ใดและมีอะไรบ้าง แต่แก้ปลายทางไม่ได้
@@ -7927,8 +7991,8 @@ const BASELINE_KEY = "mnrh_ortho_portfolio_baseline_v1";
    (rotationEvals เคยตกหล่นมาแล้ว มีข้อทดสอบใน sync.test.mjs กันไว้) */
 const ID_COLLECTIONS = ["residents","staff","services","rotations","schedule","sessionPicks",
   "activities","research","cases","epas","epaAssessments","users","duty","swaps","visits","rotationEvals","externalConfs","thursdayEvents"];
-/* ก้อนคอนฟิกที่รวมกันทั้งชุด ไม่ใช่รายการที่ merge ทีละตัว — แบบประเมินลงกองอยู่ตรงนี้
-   เพราะ merge รายข้อจะทำลายลำดับ และปล่อยให้สองเครื่องเอาข้อของตัวเองมาสลับกัน
+/* ก้อนคอนฟิก (ไม่ใช่อาเรย์ของรายการที่มี id) — รวมรายช่องด้วย mergeFields() ยกเว้นแบบประเมินลงกอง (rotationForm)
+   ที่ไปทั้งชุดเสมอ เพราะ merge รายข้อจะทำลายลำดับ และปล่อยให้สองเครื่องเอาข้อของตัวเองมาสลับกัน
    จนได้ฟอร์มที่ไม่มีใครออกแบบ */
 const WHOLE_KEYS = ["requirements","epaTargets","programme","keywords","rotationForm"];
 
@@ -7971,11 +8035,36 @@ function mergeDatasets(base, mine, theirs) {
   });
   WHOLE_KEYS.forEach(key => {
     if (sameJson(mine?.[key], base?.[key])) return;               /* เราไม่ได้แก้ */
-    if (!sameJson(theirs?.[key], base?.[key]) && !sameJson(theirs?.[key], mine?.[key]))
-      conflicts.push({ key, id: "(ทั้งชุด)", note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
-    merged[key] = mine[key];
+    /* แบบประเมินลงกองต้องไปทั้งชุดเสมอ (ดูเหตุผลที่ WHOLE_KEYS) — ก้อนคอนฟิกอื่นรวมรายช่อง
+       เดิมทุกก้อนไปทั้งชุด ผู้จัดหลักสูตรสองคนแก้คนละช่อง (เช่น คนหนึ่งแก้เกณฑ์ปี 2 อีกคนแก้พันธกิจ
+       หรือเป้าหมาย EPA คนละหัวข้อ) ฝั่งหนึ่งหายทั้งหมด แม้จะถูกบันทึกเป็นรายการชนกันก็ตาม */
+    if (key === "rotationForm") {
+      if (!sameJson(theirs?.[key], base?.[key]) && !sameJson(theirs?.[key], mine?.[key]))
+        conflicts.push({ key, id: "(ทั้งชุด)", note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
+      merged[key] = mine[key];
+      return;
+    }
+    merged[key] = mergeFields(base?.[key], mine?.[key], theirs?.[key], key, "", conflicts);
   });
   return { merged, conflicts };
+}
+/* รวมสามทางรายช่องของก้อนคอนฟิก — ลงไปในวัตถุย่อยได้ (เช่น requirements[ปี][ประเภท]) ส่วนอาเรย์และค่าเดี่ยว
+   เป็นหน่วยเล็กสุด · ฝั่งเดียวที่แก้ = เอาฝั่งนั้น · แก้ทั้งสองฝั่งเป็นค่าต่างกัน = เก็บของเครื่องนี้และบันทึกว่าชน
+   ช่องที่ฝั่งหนึ่งลบและอีกฝั่งไม่ได้แตะ = ลบจริง */
+const isPlainObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+function mergeFields(b, m, t, key, path, conflicts) {
+  if (sameJson(m, b)) return t;                                   /* ช่องนี้เราไม่ได้แก้ */
+  if (sameJson(t, b) || sameJson(t, m)) return m;                 /* แก้ฝั่งเดียว หรือแก้เหมือนกัน */
+  if (isPlainObj(m) && isPlainObj(t) && (b === undefined || isPlainObj(b))) {
+    const out = {};
+    new Set([...Object.keys(t), ...Object.keys(m), ...Object.keys(b || {})]).forEach(k => {
+      const v = mergeFields(b?.[k], m[k], t[k], key, path ? path + "." + k : k, conflicts);
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  conflicts.push({ key, id: path || "(ทั้งชุด)", note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
+  return m;
 }
 
 function applyMerged(data) {

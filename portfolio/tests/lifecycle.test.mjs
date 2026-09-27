@@ -27,7 +27,8 @@ export default async function run() {
       const snap = store.data.residents.map(r => ({ id: r.id, year: r.year, name: r.name }));
       const y4 = snap.filter(x => x.year === 4).map(x => x.id);
       const ay = String(currentAY());
-      store.data.meta.yearRolledAY = String(+ay - 1);
+      /* ข้อมูลรุ่นเก่า: ตัวชี้ปีอยู่แค่ใน meta ยังไม่มีฉบับที่ซิงก์ (programme.yearRolledAY) — ตรงกับเครื่องจริงที่อัปเดตมา */
+      store.data.meta.yearRolledAY = String(+ay - 1); delete store.data.programme.yearRolledAY;
       store.save(); store.load();                /* migrate() → rollAcademicYearOnce() */
       const d = store.data;
       const promotedOk = snap.filter(x => x.year < 4).every(x => d.residents.find(r => r.id === x.id).year === x.year + 1);
@@ -94,7 +95,7 @@ export default async function run() {
 
     /* ---------- เลื่อนเอง (ปุ่มผู้จัดหลักสูตร) ทำงานเหมือนกัน และไม่เลื่อนซ้ำเมื่อโหลดใหม่ ---------- */
     const manual = await page.evaluate(() => {
-      store.data.meta.yearRolledAY = String(currentAY());
+      store.setRolledAY(currentAY());
       const to = String(+currentAY() + 1);
       const out = store.rollAcademicYear(to, "manual");
       store.save(); store.load();           /* ธงนำหน้าปีจริง → migrate ต้องไม่เลื่อนซ้ำ */
