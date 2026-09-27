@@ -17,8 +17,41 @@ the mirrored side's by mutual nearest neighbour, keeping pairs whose
 surface normals agree, and register.ransac_rigid finds the largest set of
 pairs that one rigid transform explains; pairs are re-made under that
 transform until it settles. That body is fragment 0, the main body. Its
-points are removed and the search repeats from its transform on what is
-left, so fragments 1..k are what one transform cannot explain.
+points are removed and the search repeats on what is left, so fragments
+1..k are what one transform cannot explain.
+
+**Bone no body carries home.** Every hip voxel is carried home by its
+own body's transform and mirrored back; a piece that lands further than
+the inlier distance from the intact hip, and is at least the smallest
+fragment there can be for where it lies (DECISIONS 3.2), is bone the
+bodies found so far do not explain.
+
+**Where the search for the next body starts.** Nearest-neighbour pairing
+only finds a transform it starts near. Started from the main body alone,
+a 58 cm3 iliac-wing fragment on the phantom was found at 10 and 15 mm and
+missed at 20, 25 and 23.3 mm with 10 degrees: none of its pairs agreed, the
+search ended, and the finder said "one body" with the fragment inside it.
+So when the search from the main body finds nothing while there is bone
+no body carries home, it starts again from the main body shifted by how
+far that bone's unexplained surface lies from the mirrored surface no body
+yet reaches (the fragment's empty home), as a whole and toward each of
+that surface's largest patches, and keeps whichever start explains most
+of what is left. Only then: tried every time, those starts fitted a 3 cm3
+fracture face 40 mm away on the 5 mm phantom and promoted it (fact 3
+again); and preferred to the main body's start whenever they explained
+more, they took the 5 mm fragment from 95% to 90% pure. A body found that
+way is there only because of the unexplained bone, so it must mostly be
+that bone (FROM_UNEXPLAINED_SHARE): on 38 normal hemipelvises, without
+that check, the only body these starts added was 8.3 cm3, 51.8 mm off, of
+which 21% had been unexplained, where the phantom's 20 mm fragment was 89%
+and the body found on CLINIC_0012 94%.
+
+**Nothing unexplained is dropped silently.** When the search ends with
+such bone left, its mask, its volume and the share of the surface no body
+explains are carried on the result and named in its warnings and its
+sentence, and reduce_labels refuses to move a hemipelvis with it in. It is
+either a fragment the search did not separate or asymmetry the mirror
+does not have, and nothing here can tell which.
 
 **When a candidate is a fragment.** All of (DECISIONS 3.2):
 
@@ -52,6 +85,18 @@ side (a bilateral injury, DECISIONS 2.4) there is no reference: the finder
 needs one, so nothing is found, and fitting the fractures together is
 slice 1b.
 
+**to_reference has no validated error bound**, and nothing here claims
+one. The residual is how well a body fits the mirrored side, and a
+closest-point distance cannot see a surface sliding along itself; on the
+phantom the reduced 10 mm fragment lands p90 1.3 mm out against a residual
+of 1.13 mm (0.2 mm with the exact plane, so the gap is the plane's). The
+plane uncertainty is the spread between two references, not the plane's
+error: on 20 normal, undisplaced pelvises the main body "travels home"
+5.8-45.9 mm while it reads 0.0-32.4 mm. No number in a result tells a
+displaced hemipelvis from a plane that is off, so every FragmentSet carries
+the reason in ``to_reference_unvalidated`` and reduce_labels refuses unless
+the caller accepts it explicitly.
+
 **Below the floor** a number is still a number (DECISIONS 1.4): it is
 flagged with the floor, never zeroed.
 """
@@ -62,6 +107,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage as ndi
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from . import segmentation as seg
@@ -86,10 +133,18 @@ MAX_ROUNDS = 30  # re-pairing rounds per body
 SETTLED_MM = 0.05  # a body's transform has settled when no point moves more than this
 MIN_PAIRS = 30
 MAX_FRAGMENTS = 6
+MAX_CANDIDATES = 12  # bodies examined, promoted or not, before the search stops
+CLUSTER_MM = 2.0 * SAMPLE_MM  # unexplained surface points this close are one patch
+START_CLUSTERS = 3  # the mirrored surface's largest unreached patches a search starts toward
+FROM_UNEXPLAINED_SHARE = 0.5  # a body found from unexplained bone must be mostly that bone
 ARTICULAR_GAP_MM = 6.0  # hip bone this close to the femoral head is at the joint
 FEMUR_BONE_HU = 200.0  # unlabelled bone in the CT, for the femoral head
 MIN_FEMUR_CM3 = 20.0  # a femoral head is far larger; smaller is not it
 SIDES = ("right", "left", "both")
+
+TO_REFERENCE_NOT_VALIDATED = (
+    "the transform home has no validated error bound: on real anatomy the mirror plane's own error dominates it, "
+    "and neither the residual nor the plane uncertainty bounds it")
 
 
 @dataclass
@@ -100,10 +155,10 @@ class Fragment:
     volume_cm3: float
     to_reference: Optional[np.ndarray]  # 4x4, current position -> home; None when refused
     to_parent: np.ndarray  # 4x4, current position -> where it belongs on its parent as it lies
-    residual_mm: float  # 90th percentile closest-point distance once home
+    residual_mm: float  # 90th percentile closest-point distance once home: fit quality, not an error bound
     travel_mm: float  # furthest any of its surface points travels home
     relative_travel_mm: float  # furthest any of its surface points travels under to_parent
-    plane_uncertainty_mm: float  # carried by to_reference and travel_mm (DECISIONS 2.3)
+    plane_uncertainty_mm: float  # carried by to_reference and travel_mm (DECISIONS 2.3); not an error bound
     below_floor: bool  # travel_mm under the case's residual floor (DECISIONS 1.4)
     articular: bool  # reaches the acetabular articular surface
     n_points: int
@@ -133,6 +188,17 @@ class FragmentSet:
     rejected: List[Candidate] = field(default_factory=list)
     refused: str = ""  # why there is no to_reference, when there is none
     warnings: List[str] = field(default_factory=list)
+    # Hip bone that no body carries home onto the intact side, in pieces at
+    # least the smallest fragment for where they lie (DECISIONS 3.2); and the
+    # surface points no body explains, with their share of the surface.
+    unexplained: Optional[np.ndarray] = None  # bool, on the labels grid
+    unexplained_cm3: float = 0.0
+    unexplained_pieces: int = 0
+    unexplained_points: int = 0
+    unexplained_share: float = 0.0
+    # Why to_reference may not be applied as it stands; reduce_labels refuses
+    # while it is set. Set on every result, hand-built ones included.
+    to_reference_unvalidated: str = TO_REFERENCE_NOT_VALIDATED
 
     def sentence(self) -> str:
         if self.refused:
@@ -145,7 +211,13 @@ class FragmentSet:
             text += (f"; fragment {f.index}, {f.volume_cm3:.1f} cm3, {f.relative_travel_mm:.1f} mm off its parent, "
                      f"{f.travel_mm:.1f} mm from home")
         if not moved:
-            text += "; one body"
+            text += "; one body" + (" found" if self.unexplained_cm3 > 0 else "")
+        if self.unexplained_cm3 > 0:
+            text += (f"; {self.unexplained_cm3:.1f} cm3 in {self.unexplained_pieces} piece"
+                     f"{'s' if self.unexplained_pieces != 1 else ''} that no body carries home "
+                     f"({100 * self.unexplained_share:.0f}% of the surface unexplained)")
+        if self.to_reference_unvalidated:
+            text += "; the transform home is not validated for use"
         return text
 
 
@@ -242,11 +314,22 @@ def _floor(residual: np.ndarray) -> float:
     return float(np.percentile(best, FLOOR_PERCENTILE))
 
 
-def articular_surface(labels_vol: Volume, side: str, ct: Optional[Volume] = None) -> Optional[np.ndarray]:
-    """The injured hip's voxels within ARTICULAR_GAP_MM of the femoral head:
-    from the femur label when the labels have one, else from unlabelled
-    bone in the CT. None when neither shows a femoral head, and then the
-    ring minimum applies everywhere."""
+def articular_surface(labels_vol: Volume, side: str, ct: Optional[Volume] = None,
+                      allow_unvalidated_ct_femur: bool = False) -> Optional[np.ndarray]:
+    """The injured hip's voxels within ARTICULAR_GAP_MM of the femoral head,
+    from the femur label. None when the labels have no femur, and then the
+    ring minimum applies everywhere (find_fragments says so).
+
+    The femoral head can also be taken from unlabelled bone in the CT
+    (FEMUR_BONE_HU), but only when ``allow_unvalidated_ct_femur`` asks for
+    it: that heuristic has not been compared with a real femur segmentation,
+    and a femur found in the wrong place would move the 0.5 cm3 acetabular
+    minimum of DECISIONS 3.2 to the wrong bone. It is for looking, not for
+    reporting (agreed with Corridor Finder, 2026-09-27, for the same reason
+    its articular margin does not use it). Without the flag ``ct`` is not
+    used."""
+    if not allow_unvalidated_ct_femur:
+        ct = None
     hip_id = _hip_ids(side)[0]
     femur_id = seg.FEMUR_R if side == "right" else seg.FEMUR_L
     labels = labels_vol.array
@@ -316,7 +399,7 @@ def find_fragments(labels_vol: Volume, mirror: ConfirmedMirror, injured: str,
                         f"ring minimum applied everywhere; an acetabular fragment of "
                         f"{MIN_FRAGMENT_ACETABULAR_CM3:.1f}-{MIN_FRAGMENT_RING_CM3:.1f} cm3 would not be reported")
 
-    points, normals, _ = _surface(box_vol, hip)
+    points, normals, point_voxels = _surface(box_vol, hip)
     # Every surface voxel on the mirrored side, so a closest-point distance
     # is a distance to the surface and not to the nearest sampled point.
     q, qn, _ = _surface(labels_vol, intact, thin=False)
@@ -334,30 +417,44 @@ def find_fragments(labels_vol: Volume, mirror: ConfirmedMirror, injured: str,
                          "the two hip bones may not be mirror images at all")
     floor = _floor(matcher.residual(main, points, normals))
     inlier = max(INLIER_FACTOR * floor, min_inlier)
-    main = matcher.consensus(points, normals, main, inlier)
+    refound = matcher.consensus(points, normals, main, inlier)
+    main = refound if refound is not None else main
     distinct = max(DISTINCT_TRANSFORM_FACTOR * floor, mirror.uncertainty_mm)
 
+    reference = _Intact(labels_vol, intact, m, inlier)
     bodies = [main]
     explained = matcher.residual(main, points, normals) < inlier
     rejected: List[Candidate] = []
     remaining = ~explained
-    while len(bodies) <= MAX_FRAGMENTS and remaining.sum() >= MIN_PAIRS:
-        rest = np.flatnonzero(remaining)
-        found = matcher.consensus(points[rest], normals[rest], main, inlier)
-        if found is None:
+    while remaining.sum() >= MIN_PAIRS:
+        if len(bodies) > MAX_FRAGMENTS or len(bodies) + len(rejected) >= MAX_CANDIDATES:
+            warnings.append(f"the search stopped after {len(bodies) - 1 + len(rejected)} candidates with "
+                            f"{int(remaining.sum())} surface points still unexplained")
             break
-        support = rest[matcher.residual(found, points[rest], normals[rest]) < inlier]
+        rest = np.flatnonzero(remaining)
+        found, support = _search(matcher, points, normals, rest, [main], inlier)
+        stray = None  # the bone no body carried home, when the search had to start from it
         if support.size < MIN_PAIRS:
+            now = _regions(box_vol, hip, points, _assign(matcher, bodies, points, normals, inlier), len(bodies),
+                           box_articular)
+            stray, _ = reference.off(box_vol, hip, now, bodies, box_articular)
+            found, support = _search(matcher, points, normals, rest, _shifted_starts(
+                matcher, bodies, points, normals, rest, rest[stray[tuple(point_voxels[rest].T)]], inlier), inlier)
+        if found is None or support.size < MIN_PAIRS:
             break
         remaining[support] = False
         owner = _assign(matcher, bodies + [found], points, normals, inlier)
-        mask = _regions(box_vol, hip, points, owner, len(bodies) + 1, box_articular) == len(bodies)
+        regions = _regions(box_vol, hip, points, owner, len(bodies) + 1, box_articular)
+        mask = regions == len(bodies)
         volume = float(mask.sum()) * voxel_cm3
         pieces, n = ndi.label(mask, structure=np.ones((3, 3, 3)))
         share = float(np.bincount(pieces.ravel())[1:].max() / mask.sum()) if n else 0.0
         reaches_joint = bool(box_articular is not None and (mask & box_articular).any())
-        relative = float(np.max(np.linalg.norm(transform_points(found, points[support])
-                                               - transform_points(main, points[support]), axis=1)))
+        # Measured over the candidate as it would be reported, never over
+        # the islands _regions has just given to the main body: those lie far
+        # from the candidate, so a rotation difference moves them further.
+        own = _own(regions, point_voxels, owner, len(bodies))
+        relative = float(travel_mm(invert(main) @ found, points[own]).max()) if own.any() else 0.0
         minimum = MIN_FRAGMENT_ACETABULAR_CM3 if reaches_joint else MIN_FRAGMENT_RING_CM3
         reasons = []
         if volume < minimum:
@@ -369,23 +466,29 @@ def find_fragments(labels_vol: Volume, mirror: ConfirmedMirror, injured: str,
             reasons.append(f"moves {relative:.1f} mm off the main body, not more than {distinct:.1f} mm "
                            f"(max of {DISTINCT_TRANSFORM_FACTOR:.0f} x floor {floor:.2f} mm, plane "
                            f"uncertainty {mirror.uncertainty_mm:.2f} mm)")
+        if stray is not None and mask.any() and (mask & stray).sum() < FROM_UNEXPLAINED_SHARE * mask.sum():
+            reasons.append(f"found from bone no body carried home, but only {100 * (mask & stray).sum() / mask.sum():.0f}% "
+                           f"of it is that bone, under {100 * FROM_UNEXPLAINED_SHARE:.0f}%")
         if reasons:
             rejected.append(Candidate(volume, reaches_joint, share, relative, distinct, reasons))
         else:
             bodies.append(found)
 
     owner = _assign(matcher, bodies, points, normals, inlier)
-    fragments = []
+    regions = _regions(box_vol, hip, points, owner, len(bodies), box_articular)
     for k, transform in enumerate(bodies):
-        own = owner == k
+        own = _own(regions, point_voxels, owner, k)
         if own.sum() >= MIN_PAIRS:  # settle each body on its final share of the surface
             settled = matcher.consensus(points[own], normals[own], transform, inlier)
             transform = settled if settled is not None else transform
             bodies[k] = transform
     owner = _assign(matcher, bodies, points, normals, inlier)
     regions = _regions(box_vol, hip, points, owner, len(bodies), box_articular)
+    fragments = []
     for k, transform in enumerate(bodies):
-        own = owner == k
+        # Every number is taken over the surface of the mask that is
+        # reported (DECISIONS 1.2), not over what _assign first gave the body.
+        own = _own(regions, point_voxels, owner, k)
         mask = np.zeros(labels.shape, dtype=bool)
         mask[box] = regions == k
         residual = matcher.residual(transform, points[own], normals[own])
@@ -406,8 +509,127 @@ def find_fragments(labels_vol: Volume, mirror: ConfirmedMirror, injured: str,
             articular=bool(box_articular is not None and (regions == k)[box_articular].any()),
             n_points=int(own.sum()),
         ))
+    unvalidated = (f"{TO_REFERENCE_NOT_VALIDATED}; here the main body travels {fragments[0].travel_mm:.1f} mm "
+                   f"home against a reference uncertainty of {mirror.uncertainty_mm:.1f} mm, and nothing measured "
+                   f"tells a displaced hemipelvis from a mirror plane that is off")
+
+    stray, pieces = reference.off(box_vol, hip, regions, bodies, box_articular)
+    unexplained = np.zeros(labels.shape, dtype=bool)
+    unexplained[box] = stray
+    unexplained_cm3 = float(stray.sum()) * voxel_cm3
+    unexplained_points = int((owner < 0).sum())
+    share = unexplained_points / len(points)
+    if pieces:
+        warnings.append(f"{unexplained_cm3:.1f} cm3 of the {injured} hip, in {pieces} piece"
+                        f"{'s' if pieces != 1 else ''} each at least the smallest fragment for where it lies, "
+                        f"is carried by no body to within {inlier:.1f} mm of the intact side, and "
+                        f"{unexplained_points} of {len(points)} surface points ({100 * share:.0f}%) are explained "
+                        f"by no body: a fragment the search did not separate, or asymmetry the mirror does not have")
     return FragmentSet(injured, mirror.reference, mirror.choice, fragments, floor, inlier, mirror.uncertainty_mm,
-                       rejected, "", warnings)
+                       rejected, "", warnings, unexplained=unexplained, unexplained_cm3=unexplained_cm3,
+                       unexplained_pieces=pieces, unexplained_points=unexplained_points, unexplained_share=share,
+                       to_reference_unvalidated=unvalidated)
+
+
+def _clusters(points: np.ndarray, radius_mm: float) -> List[np.ndarray]:
+    """Indices of each patch of points linked within ``radius_mm``, the
+    largest first."""
+    pairs = cKDTree(points).query_pairs(radius_mm, output_type="ndarray")
+    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(points), len(points)))
+    _, which = connected_components(graph, directed=False)
+    order = np.argsort(-np.bincount(which), kind="stable")
+    return [np.flatnonzero(which == c) for c in order]
+
+
+def _search(matcher: _Matcher, points, normals, rest, starts, inlier_mm):
+    """Of the transforms consensus reaches on the ``rest`` points from each
+    start, the one that explains most of them, and those it explains."""
+    found, support = None, rest[:0]
+    for start in starts:
+        candidate = matcher.consensus(points[rest], normals[rest], start, inlier_mm)
+        if candidate is None:
+            continue
+        agree = rest[matcher.residual(candidate, points[rest], normals[rest]) < inlier_mm]
+        if agree.size > support.size:
+            found, support = candidate, agree
+    return found, support
+
+
+def _shifted_starts(matcher: _Matcher, bodies, points, normals, rest, stray, inlier_mm):
+    """When ``stray`` (the unexplained points, of ``rest``, on bone no body
+    carries home) are enough to pair: the main body's transform shifted by
+    how far they lie from the mirrored surface no body yet reaches, as a
+    whole and toward each of its START_CLUSTERS largest patches (see the
+    module docstring)."""
+    main = bodies[0]
+    if stray.size < MIN_PAIRS:
+        return
+    explained = np.setdiff1d(np.arange(len(points)), rest)
+    if explained.size:
+        residuals = np.stack([matcher.residual(t, points[explained], normals[explained]) for t in bodies])
+        best = np.argmin(residuals, axis=0)
+        claimed = np.concatenate([transform_points(t, points[explained[best == k]]) for k, t in enumerate(bodies)])
+        reach, _ = cKDTree(claimed).query(matcher.target)
+        empty = matcher.target[reach >= inlier_mm]
+    else:
+        empty = matcher.target
+    if len(empty) < MIN_PAIRS:
+        return
+    moved = transform_points(main, points[stray])
+    shift = np.eye(4)
+    shift[:3, 3] = empty.mean(axis=0) - moved.mean(axis=0)
+    yield shift @ main
+    for home in _clusters(empty, CLUSTER_MM)[:START_CLUSTERS]:
+        if home.size >= MIN_PAIRS:
+            shift = np.eye(4)
+            shift[:3, 3] = empty[home].mean(axis=0) - moved.mean(axis=0)
+            yield shift @ main
+
+
+class _Intact:
+    """The intact hip, for asking where a body's transform carries bone."""
+
+    def __init__(self, labels_vol: Volume, intact: np.ndarray, mirror_matrix: np.ndarray, reach_mm: float):
+        self.labels_vol = labels_vol
+        self.mirror = mirror_matrix
+        sx, sy, sz = labels_vol.spacing
+        pad = np.ceil(np.array([reach_mm / s for s in (sz, sy, sx)])).astype(int) + 1
+        idx = np.argwhere(intact)
+        self.lo = np.maximum(idx.min(axis=0) - pad, 0)
+        self.hi = np.minimum(idx.max(axis=0) + pad + 1, intact.shape)
+        box = tuple(slice(a, b) for a, b in zip(self.lo, self.hi))
+        self.near = ndi.distance_transform_edt(~intact[box], sampling=(sz, sy, sx)) <= reach_mm
+
+    def off(self, vol: Volume, hip: np.ndarray, regions: np.ndarray, bodies,
+            articular: Optional[np.ndarray]) -> Tuple[np.ndarray, int]:
+        """The hip voxels (on ``vol``'s grid) that their own body's
+        transform, followed by the mirror back across the plane, does not
+        carry to within the reach of the intact hip, kept only in pieces at
+        least the smallest fragment for where they lie (DECISIONS 3.2); and
+        how many such pieces there are. A voxel in no body is carried
+        nowhere."""
+        stray = hip.copy()
+        for k, transform in enumerate(bodies):
+            voxels = np.argwhere(regions == k)
+            # The transform carries a body home onto the mirrored intact
+            # side; the mirror, its own inverse, carries that onto the intact.
+            world = transform_points(self.mirror @ transform, vol.zyx_indices_to_world(voxels))
+            at = np.rint(self.labels_vol.world_to_zyx_indices(world)).astype(int) - self.lo[:, None]
+            inside = np.all((at >= 0) & (at < (self.hi - self.lo)[:, None]), axis=0)
+            landed = np.zeros(len(voxels), dtype=bool)
+            landed[inside] = self.near[tuple(at[:, inside])]
+            stray[tuple(voxels[landed].T)] = False
+        pieces, n = ndi.label(stray, structure=np.ones((3, 3, 3)))
+        if not n:
+            return stray, 0
+        sx, sy, sz = vol.spacing
+        sizes = np.bincount(pieces.ravel())[1:] * (sx * sy * sz / 1000.0)
+        at_joint = np.zeros(n + 1, dtype=bool)
+        if articular is not None:
+            at_joint[np.unique(pieces[articular & stray])] = True
+        minimum = np.where(at_joint[1:], MIN_FRAGMENT_ACETABULAR_CM3, MIN_FRAGMENT_RING_CM3)
+        keep = np.flatnonzero(sizes >= minimum) + 1
+        return np.isin(pieces, keep), int(keep.size)
 
 
 def _assign(matcher: _Matcher, bodies, points, normals, inlier_mm) -> np.ndarray:
@@ -429,6 +651,14 @@ def _assign(matcher: _Matcher, bodies, points, normals, inlier_mm) -> np.ndarray
                 smoothed[i] = int(np.argmax(counts))
         owner = smoothed
     return owner
+
+
+def _own(regions: np.ndarray, point_voxels: np.ndarray, owner: np.ndarray, k: int) -> np.ndarray:
+    """The surface points that lie in body ``k``'s final region, after
+    _regions has carried small pieces to their neighbours (DECISIONS 3.2),
+    and that some body explains (a fracture face explained by none is not
+    fitted, so it is not measured)."""
+    return (regions[tuple(point_voxels.T)] == k) & (owner >= 0)
 
 
 def _regions(vol: Volume, hip: np.ndarray, points, owner, n_bodies: int,
@@ -468,13 +698,28 @@ def _regions(vol: Volume, hip: np.ndarray, points, owner, n_bodies: int,
     return out
 
 
-def reduce_labels(labels_vol: Volume, fragments: FragmentSet) -> Volume:
+def reduce_labels(labels_vol: Volume, fragments: FragmentSet, accept_unvalidated: bool = False) -> Volume:
     """Virtual reduction: every body of the injured hemipelvis moved home
-    by its to_reference, on the same grid; everything else untouched. This
-    is the call Corridor Finder's virtual reduction makes before searching
-    for corridors. Refused when there is no transform home."""
+    by its to_reference, on the same grid; everything else untouched. Where
+    a moved body lands on another bone, that bone is kept: the overlap is
+    the reduction's own error, and erasing a sacrum under it would change
+    the corridors. This is the call Corridor Finder's virtual reduction
+    makes before searching for corridors. Refused when there is no
+    transform home, and while ``fragments.to_reference_unvalidated`` is set
+    unless ``accept_unvalidated`` says the caller knows: that is for
+    measuring the reduction itself against a phantom's known transform, not
+    for moving a patient's hemipelvis before corridors are planned on it.
+    Refused regardless while fragments.unexplained_cm3 is not zero."""
     if fragments.refused:
         raise ValueError(f"no virtual reduction: {fragments.refused}")
+    if fragments.to_reference_unvalidated and not accept_unvalidated:
+        raise ValueError(f"no virtual reduction: {fragments.to_reference_unvalidated} "
+                         "(accept_unvalidated=True applies it anyway)")
+    if fragments.unexplained_cm3 > 0:
+        # Not waived by accept_unvalidated, which accepts the plane's error:
+        # this bone would be moved by a transform known not to be its own.
+        raise ValueError(f"no virtual reduction: {fragments.unexplained_cm3:.1f} cm3 of the {fragments.side} hip "
+                         "is carried home by no body, so moving the hemipelvis would leave it out of place")
     injured_id = _hip_ids(fragments.side)[0]
     out = labels_vol.array.copy()
     for f in fragments.fragments:
@@ -495,5 +740,6 @@ def reduce_labels(labels_vol: Volume, fragments: FragmentSet) -> Volume:
         inside = np.all((src >= 0) & (src < np.array(out.shape)), axis=1)
         hit = np.zeros(len(grid), dtype=bool)
         hit[inside] = f.mask[tuple(src[inside].T)]
-        out[tuple(grid[hit].T)] = injured_id
+        target = tuple(grid[hit].T)
+        out[target] = np.where(out[target] == 0, injured_id, out[target])
     return Volume(out, labels_vol.spacing, labels_vol.origin)
