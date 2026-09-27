@@ -212,6 +212,32 @@ export default async function run() {
       t.check("ชั้นปีของอดีต: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+
+    /* ---------- 4) หัวหน้าสาย (★) ของวันที่ผ่านมาแล้ว ต้องไม่เปลี่ยนเมื่อเลื่อนชั้นปี ----------
+       เดิม isChiefOn ใช้ r.year ของวันนี้ ทุก 1 ก.ค. หัวหน้าสายของสัปดาห์ที่ผ่านมาจึงกลายเป็นคนอื่นเอง */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(() => {
+        const ayOld = store.data.meta.yearRolledAY || currentAY();
+        const teams = store.data.services.filter(s => s.team);
+        /* วันกลางเดือนที่สามของปีเก่า — มีช่วงหมุนเวียนของทุกสายแน่นอน */
+        const mm = ayMonths(ayOld)[2];
+        const iso = monthStartISO(mm).slice(0, 8) + "15";
+        const snap = () => Object.fromEntries(teams.map(t => [t.id, chiefResidentOfTeam(t.id, iso)?.id || ""]));
+        const before = snap();
+        const topicBefore = teams.map(t => isChiefOn(before[t.id], iso));
+        store.rollAcademicYear(String(+ayOld + 1), "manual");
+        const after = snap();
+        const changed = teams.filter(t => before[t.id] !== after[t.id]).map(t => t.name);
+        return { iso, found: Object.values(before).filter(Boolean).length, teams: teams.length, changed,
+                 stillChief: teams.every((t, i) => !before[t.id] || isChiefOn(before[t.id], iso) === topicBefore[i]) };
+      });
+      t.check("ตั้งต้น: มีหัวหน้าสายของวันที่ผ่านมาให้ตรวจ", r.found > 0, r.found + "/" + r.teams + " สาย · " + r.iso);
+      t.eq("เลื่อนชั้นปีแล้ว หัวหน้าสายของวันที่ผ่านมาไม่เปลี่ยนคน", r.changed, []);
+      t.check("คนที่เป็นหัวหน้าสายวันนั้น (รวมคนที่จบไปแล้ว) ยังถูกนับเป็นหัวหน้าสายของวันนั้น", r.stillChief);
+      t.check("หัวหน้าสายย้อนหลัง: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
   } finally {
     await browser.close();
     await srv.close();

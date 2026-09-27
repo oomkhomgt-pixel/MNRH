@@ -1373,22 +1373,24 @@ export default async function run() {
         const printHasAll = gradNames.every(n => printHtml.includes(n));
 
         /* จับคู่ตารางจริงของปี 2569 (ROTATION_PRESETS): คนที่จบไปแล้วต้องยังเลือกได้ในกล่องจับคู่ (ไม่งั้นกดใช้ตารางจริง
-           แล้วบล็อกของเขาจะหายถาวร เพราะ applyRotationPlanForAY แทนที่ทั้งปีด้วยเฉพาะคนที่จับคู่ได้) — ปี 4 เดิมไม่ถูกเลื่อนชั้น
-           (จบค้างอยู่ปี 4) ชื่อจึงยังจับคู่อัตโนมัติได้ต่อ ต่างจากปี 1–3 ที่เลื่อนชั้นแล้วปีในทะเบียนไม่ตรงกับตารางเก่าอีกต่อไป
-           (คนละประเด็นกับที่นี่แก้ — ยังเลือกเองในกล่องจับคู่ได้เพราะยังอยู่ในตัวเลือก) */
+           แล้วบล็อกของเขาจะหายถาวร เพราะ applyRotationPlanForAY แทนที่ทั้งปีด้วยเฉพาะคนที่จับคู่ได้)
+           และทุกแถวต้องยังจับคู่อัตโนมัติได้ครบหลังเลื่อนชั้นปี — เดิม fallback เทียบ r.year ของวันนี้กับชั้นปีในตาราง
+           แถวที่ชื่อในระบบมีส่วนต่อท้าย (เช่น "นพ. ณภัทร (R3)") จึงหลุดทันทีที่ปี 1–3 ถูกเลื่อนชั้น ตอนนี้เทียบชั้นปีในปีนั้น */
         const ayResidents = residentsForAY("2569");
         const selectableIds = new Set(ayResidents.map(x => x.id));
         const preset = ROTATION_PRESETS["2569"];
         const mapping = matchPresetRows(preset, ayResidents);
         const gradSelectable = gradIds.every(id => selectableIds.has(id));
         const gradAutoMatched = gradIds.every(id => Object.values(mapping).includes(id));
+        const allRowsMatched = preset.rows.filter(pr => mapping[pr.row]).length;
+        const presetRows = preset.rows.length;
 
         /* ย้อนกลับให้ไม่กระทบเทสต์อื่นที่รันต่อจากนี้ */
         store.undoYearRoll(); store.save(); renderAll();
 
         return { before, gradNames, afterCount: afterRowNames.length,
                  gradStillShown: gradNames.every(n => afterRowNames.some(x => x.includes(n))),
-                 csvBefore, csvAfter, printHasAll, gradSelectable, gradAutoMatched };
+                 csvBefore, csvAfter, printHasAll, gradSelectable, gradAutoMatched, allRowsMatched, presetRows };
       });
       t.eq("ก่อนเลื่อนชั้นปี ตารางปี 2569 มี 20 แถว", r.before, 20);
       t.check("มีคนปี 4 ที่กำลังจะจบอยู่ในข้อมูลสาธิต", r.gradNames.length > 0, r.gradNames.join(", "));
@@ -1398,6 +1400,7 @@ export default async function run() {
       t.check("ใบพิมพ์ของปี 2569 ยังมีชื่อคนที่จบไปแล้วครบทุกคน", r.printHasAll, r.gradNames.join(", "));
       t.check("กล่องจับคู่ตารางจริงของปี 2569 ยังมีคนที่จบไปแล้วให้เลือกได้ทุกคน หลังเลื่อนชั้นปี", r.gradSelectable);
       t.check("จับคู่ตารางจริงอัตโนมัติของปี 2569 ยังจับคนที่จบไปแล้วได้ครบทุกคน (ปี 4 ไม่ถูกเลื่อนชั้นซ้ำตอนจบ)", r.gradAutoMatched);
+      t.eq("หลังเลื่อนชั้นปี ทุกแถวของตารางจริงปี 2569 ยังจับคู่อัตโนมัติได้ครบ (เทียบชั้นปีในปีนั้น)", r.allRowsMatched, r.presetRows);
       t.check("ตารางย้อนหลังของคนที่จบแล้ว: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }

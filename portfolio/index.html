@@ -2639,20 +2639,27 @@ const serviceSubs = (svc) => (svc?.subspecialties?.length ? svc.subspecialties :
 const serviceCovers = (svc, subId) => serviceSubs(svc).includes(subId);
 const serviceSubLabel = (svc) => serviceSubs(svc).map(x => SUB_BY_ID[x]?.en || x).join(" / ");
 /* หัวหน้าสาย = ปี 3 ที่อยู่ในสาย · ถ้าเดือนนั้นสายไม่มีปี 3 เลย ปี 4 ที่มาลงสายทำหน้าที่แทน (ปี 4 ปกติวนหน่วยอนุสาขา จึงเป็นหัวหน้าสายเฉพาะกรณีนี้) */
+/* ชั้นปีที่ใช้ตัดสินคือชั้นปี "ในวันนั้น" (yearOnAY) ไม่ใช่ r.year ของวันนี้ — เดิมใช้ r.year ตรง ๆ ★ หัวหน้าสาย
+   และ "หัวหน้าสาย" ของ Topic conference สัปดาห์ที่ผ่านมาจึงเปลี่ยนไปเองทุก 1 ก.ค. (ปี 3 ปีก่อนกลายเป็นปี 4 แล้ว
+   ไม่ถูกนับ ปี 2 ปีก่อนกลายเป็นปี 3 แล้วถูกนับเป็นหัวหน้าย้อนหลัง) และตารางนำเสนอย้อนหลังได้หัวหน้าสายตั้งต้นผิดคน */
 function isChiefOn(residentId, iso) {
   const r = store.resident(residentId);
-  if (!r || (r.year !== 3 && r.year !== 4)) return false;
+  const ay = academicYear(iso);
+  const y = yearOnAY(r, ay);
+  if (!r || (y !== 3 && y !== 4)) return false;
   const rot = rotationOn(residentId, iso);
   const svc = rot ? serviceById(rot.serviceId) : null;
   if (!svc?.team) return false;
-  if (r.year === 3) return true;
+  if (y === 3) return true;
   return !(store.data.rotations || []).some(x => x.serviceId === rot.serviceId &&
-    x.start <= iso && x.end >= iso && store.resident(x.residentId)?.year === 3);
+    x.start <= iso && x.end >= iso && yearOnAY(store.resident(x.residentId), ay) === 3);
 }
-/* หัวหน้าสาย (ปี 3 หรือปี 4 เมื่อไม่มีปี 3) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา */
+/* หัวหน้าสาย (ปี 3 หรือปี 4 เมื่อไม่มีปี 3) ของสาย serviceId ในวันที่ iso — ไม่มีก็คืน null เสมอ ไม่เดา
+   ค้นจากทุกคนในทะเบียน ไม่ใช่เฉพาะคนที่ยังฝึกอยู่ — วันในอดีต หัวหน้าสายอาจเป็นคนที่จบไปแล้ว
+   (คนที่จบแล้วไม่มีช่วงหมุนเวียนในอนาคต จึงไม่มีทางถูกเลือกสำหรับวันข้างหน้า) */
 function chiefResidentOfTeam(serviceId, iso) {
   if (!serviceId) return null;
-  return activeResidents().find(r =>
+  return (store.data.residents || []).find(r =>
     rotationOn(r.id, iso)?.serviceId === serviceId && isChiefOn(r.id, iso)) || null;
 }
 /* ข้อมูลผู้นิเทศ + หัวหน้าสายของ Topic conference วันที่ iso — คำนวณสดทุกครั้ง ไม่เก็บชื่อไว้ตรง ๆ
@@ -5602,10 +5609,14 @@ function applyRotationPlanForAY(ay, newRotations, source, by) {
 function matchPresetRows(preset, residents) {
   const used = new Set(), mapping = {};
   const key = (s) => stripName(s);
+  /* pr.year คือชั้นปีในปีการศึกษาของตารางนั้น — ต้องเทียบกับชั้นปีของคนนั้น "ในปีนั้น" ไม่ใช่ r.year ของวันนี้
+     เดิมพอเลื่อนชั้นปีแล้ว แถวที่จับด้วย fallback (ชื่อขึ้นต้น + ชั้นปีตรง เช่น "นพ. ณภัทร (R3)") หลุดการจับคู่ทันที */
+  const ay = preset.ay || Object.keys(ROTATION_PRESETS).find(k => ROTATION_PRESETS[k] === preset) || "";
+  const yearIn = (r) => (ay ? yearOnAY(r, ay) : 0) || +r.year;
   preset.rows.forEach(pr => {
     const want = key(pr.name);
     const hit = residents.find(r => !used.has(r.id) && key(r.name) === want)
-      || residents.find(r => !used.has(r.id) && +r.year === +pr.year && key(r.name).startsWith(want));
+      || residents.find(r => !used.has(r.id) && yearIn(r) === +pr.year && key(r.name).startsWith(want));
     mapping[pr.row] = hit ? hit.id : "";
     if (hit) used.add(hit.id);
   });
@@ -5641,10 +5652,13 @@ function applyPresetDialog() {
      แล้วบล็อกของเขาที่ inYear แทนที่ทั้งช่วงจะหายไปถาวร (กู้ได้แค่จาก "ประวัติแผนอัตโนมัติ") */
   const ayResidents = residentsForAY(ay);
   const guess = matchPresetRows(preset, ayResidents);
+  /* ลำดับและป้าย "ปี" ของตัวเลือกต้องเป็นชั้นปีในปีของตารางนั้น — ไม่งั้นลงตารางปีเก่า คนที่ตอนนั้นเป็น R2
+     จะขึ้นป้าย "(ปี 4)" และไม่ถูกดันขึ้นบนสุดของแถว R2 เสี่ยงจับคู่ผิดคน */
+  const yIn = (r) => yearOnAY(r, ay);
   const opts = (pr) => {
-    const rs = ayResidents.slice().sort((a, b) => (+b.year === +pr.year) - (+a.year === +pr.year) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+    const rs = ayResidents.slice().sort((a, b) => (yIn(b) === +pr.year) - (yIn(a) === +pr.year) || yIn(b) - yIn(a) || a.name.localeCompare(b.name, "th"));
     return `<option value="">— ไม่ลงแถวนี้ —</option>` + rs.map(r =>
-      `<option value="${r.id}" ${guess[pr.row] === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${esc(String(r.year))})</option>`).join("");
+      `<option value="${r.id}" ${guess[pr.row] === r.id ? "selected" : ""}>${esc(r.name)} (ปี ${esc(String(yIn(r) || "—"))})</option>`).join("");
   };
   const body = `<p class="small muted">${esc(preset.label)} — ตรวจการจับคู่แถว ↔ แพทย์ประจำบ้าน (เดาจากชื่อจริงให้) แล้วกดใช้: แทนที่ช่วงหมุนเวียนเดิม ${inYear.length} รายการของปี ${esc(ay)} โดยสำรองไว้ใน “ประวัติแผนอัตโนมัติ” ก่อน เลิกทำได้ทันที</p>
     <div class="tbl-wrap"><table>
