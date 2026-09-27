@@ -2340,6 +2340,10 @@ const yearOnAY = (r, ay) => {
   const y = +ay - e + 1;
   return y >= 1 && y <= 4 ? y : 0;
 };
+/* ชั้นปีที่แสดงคู่กับข้อมูลของปีการศึกษาหนึ่ง (ตาราง ใบพิมพ์ CSV) — เดิมใส่ r.year ของวันนี้ไว้ข้างเดือน/ปีของอดีต
+   ในแถวเดียวกัน เช่นไฟล์ผลประเมินลงกองที่ส่งราชวิทยาลัยฯ ขึ้น "ชั้นปี 4" ทุกแถวของปีที่เขายังเป็นปี 2
+   คำนวณไม่ได้ให้เว้นว่าง ดีกว่าแสดงชั้นปีวันนี้ซึ่งผิดแน่นอน */
+const yearShownOn = (r, ay) => yearOnAY(r, ay) || "";
 const batchLabel = (r) => batchOf(r) !== "" ? "รุ่น " + batchOf(r) : "";
 /* รายการคนสำหรับตัวเลือก: คนที่ยังฝึกอบรมอยู่ + คนที่แถวนั้นอ้างถึงอยู่แล้ว (แม้จบไปแล้ว) จะได้ไม่หลุดตอนแก้ของเก่า */
 const residentsPlus = (list, ...ids) => {
@@ -2781,17 +2785,23 @@ function defaultSupervisorFor(serviceId, services, staff) {
 /* ตรวจว่ามีใครถูกลงหน่วยที่ไม่ใช่ของชั้นปีตัวเองไหม
    กติกานี้เคยอยู่แต่ในตัวจัดแผน จึงไม่เคยถูกตรวจกับตารางจริงที่ป้อนด้วยมือ
    แล้วปี 1 ก็ถูกลงหน่วยอนุสาขาของปี 4 ไปทั้งเดือนโดยไม่มีอะไรทักท้วง */
-function rotationYearWarnings(rotations, services, residents) {
+/* เทียบกับชั้นปี "ตอนที่ช่วงหมุนเวียนนั้นเกิดขึ้น" ไม่ใช่ชั้นปีวันนี้ — เดิมใช้ r.year ตรง ๆ ความผิดพลาดจริงในอดีต
+   จึงหายเงียบเมื่อคนนั้นเลื่อนชั้นมาตรงกับหน่วยพอดี และกลับกัน ของที่ถูกกติกาตอนนั้นกลับถูกเตือนเท็จ
+   ผู้เรียกที่แปลงชั้นปีไว้แล้ว (buildRotationPlan) ส่ง yearOf = r => r.year เข้ามาแทน
+   ไม่งั้นสำเนาที่ไม่มี cohort จะถูกคำนวณชั้นปีซ้ำจากค่าที่ถูกเขียนทับแล้ว */
+function rotationYearWarnings(rotations, services, residents, yearOf = (r, rot) => yearOnAY(r, academicYear(rot.start))) {
   const svcById = (id) => (services || []).find(x => x.id === id);
   const resById = (id) => (residents || []).find(x => x.id === id);
   const seen = new Set(), out = [];
   (rotations || []).forEach(rot => {
     const svc = svcById(rot.serviceId), r = resById(rot.residentId);
-    if (!svc || !r || !(svc.years || []).length || svc.years.includes(r.year)) return;
+    if (!svc || !r || !(svc.years || []).length) return;
+    const y = yearOf(r, rot);
+    if (!y || svc.years.includes(y)) return;   /* คำนวณชั้นปีของช่วงนั้นไม่ได้ = ไม่เตือนดีกว่าเตือนผิด */
     const key = r.id + "|" + svc.id;
     if (seen.has(key)) return;                 /* คนเดิมหน่วยเดิมหลายเดือน เตือนครั้งเดียวพอ */
     seen.add(key);
-    out.push(r.name + " (ปี " + r.year + ") ถูกลง " + svc.name +
+    out.push(r.name + " (ปี " + y + ") ถูกลง " + svc.name +
              " ซึ่งเป็นหน่วยของปี " + svc.years.join("/") + " · " + fmtDate(rot.start));
   });
   return out;
@@ -2979,7 +2989,7 @@ function buildRotationPlan(ay, residentsIn, services, staff) {
     });
   });
 
-  warnings.push(...rotationYearWarnings(rotations, services, residents));
+  warnings.push(...rotationYearWarnings(rotations, services, residents, (r) => r.year));
   return { rotations, warnings, months };
 }
 
@@ -5460,7 +5470,7 @@ function renderMonthGrid() {
   const preset = ROTATION_PRESETS[String(ayView)];
   const presetMap = preset ? matchPresetRows(preset, ayResidents) : {};
   const rowOf = {}; (preset?.rows || []).forEach((pr, i) => { if (presetMap[pr.row]) rowOf[presetMap[pr.row]] = { i, row: pr.row }; });
-  const rs = ayResidents.slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || b.year - a.year || a.name.localeCompare(b.name, "th"));
+  const rs = ayResidents.slice().sort((a, b) => (rowOf[a.id]?.i ?? 999) - (rowOf[b.id]?.i ?? 999) || yearOnAY(b, ayView) - yearOnAY(a, ayView) || a.name.localeCompare(b.name, "th"));
   const today = todayISO();
   const usedIds = new Set();
   /* ผู้จัดหลักสูตร: ถ้าตารางที่บันทึกไว้ยังไม่ตรงตารางจริง (หรือจับคู่ชื่อไม่ครบ) บอกไว้เหนือตารางพร้อมทางไป — ไม่ต้องเดาว่าทำไมหน้าเว็บไม่เหมือนกระดาษ */
@@ -5482,7 +5492,11 @@ function renderMonthGrid() {
   }
 
   /* ตรวจตารางจริงที่ป้อนไว้ ไม่ใช่แค่แผนที่ระบบสร้าง — จุดที่พลาดคือตอนป้อนตารางด้วยมือ */
-  const ruleWarn = rotationYearWarnings(store.data.rotations, store.data.services, activeResidents());
+  /* กล่องเตือนนี้วาดอยู่เหนือตารางของปีที่เลือก — ต้องเตือนเฉพาะช่วงหมุนเวียนของปีนั้น และรวมคนที่จบไปแล้วด้วย
+     เดิมส่ง rotations ทั้งก้อนกับ activeResidents() เปิดดูปีไหนก็เห็นคำเตือนชุดเดิม และไม่เคยเตือนเรื่องคนที่จบแล้ว */
+  const ruleWarn = rotationYearWarnings(
+    (store.data.rotations || []).filter(x => academicYear(x.start) === String(ayView)),
+    store.data.services, ayResidents);
   const notes = $("#rotationRuleNotes");
   if (notes) notes.innerHTML = ruleWarn.length
     ? `<div class="notice warn small"><b>ตารางที่บันทึกไว้ขัดกติกาชั้นปีของหน่วย</b><br />• ${ruleWarn.map(esc).join("<br />• ")}</div>`
@@ -5491,7 +5505,7 @@ function renderMonthGrid() {
   $("#monthGrid").innerHTML = rs.length ? `<div class="tbl-wrap"><table class="month">
     <thead><tr><th class="who">แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
     <tbody>${rs.map(r => `<tr>
-      <th class="who">${esc(r.name)}<br /><span class="small muted">ชั้นปีที่ ${r.year}${rowOf[r.id] ? " · แถว " + esc(rowOf[r.id].row) : ""}</span></th>
+      <th class="who">${esc(r.name)}<br /><span class="small muted">ชั้นปีที่ ${yearShownOn(r, ayView) || "—"}${rowOf[r.id] ? " · แถว " + esc(rowOf[r.id].row) : ""}</span></th>
       ${months.map(mm => {
         const list = rotationsInMonth(r.id, mm);
         list.forEach(x => usedIds.add(x.serviceId));
@@ -5520,7 +5534,8 @@ function renderMonthGrid() {
         <th class="who"><span style="color:${serviceInk(t.id)};font-weight:650">${esc(t.name)}</span></th>
         ${months.map(mm => {
           const people = ayResidents.filter(r => rotationsInMonth(r.id, mm).some(x => x.serviceId === t.id));
-          const sen = people.filter(r => r.year >= 3).length, jun = people.length - sen;
+          /* รุ่นพี่/รุ่นน้อง ของเดือนนั้น ต้องดูชั้นปี ณ ปีการศึกษาที่กำลังดู ไม่ใช่ชั้นปีวันนี้ */
+          const sen = people.filter(r => yearOnAY(r, ayView) >= 3).length, jun = people.length - sen;
           /* สัญลักษณ์กำกับด้วย เพื่อให้อ่านออกตอนพิมพ์ขาวดำหรือเมื่อแยกสีไม่ได้ */
           const state = !people.length ? ["bad", "✕", "ไม่มีคนลงสาย"]
                       : sen === 0 ? ["warn", "!", "ไม่มีรุ่นพี่ในสาย"]
@@ -5530,7 +5545,7 @@ function renderMonthGrid() {
           const bg = state[0] === "bad" ? "var(--bad-soft)" : state[0] === "warn" ? "var(--warn-soft)" : "var(--ok-soft)";
           const ink = state[0] === "bad" ? "var(--bad)" : state[0] === "warn" ? "var(--warn)" : "var(--ok)";
           return `<td><div class="mcell" style="background:${bg};color:${ink};cursor:default"
-            title="${esc(state[2])} — ${esc(people.map(r => r.name + " (ปี " + r.year + ")").join(", ") || "ไม่มีแพทย์ประจำบ้านลงสาย")}">
+            title="${esc(state[2])} — ${esc(people.map(r => r.name + " (ปี " + (yearShownOn(r, ayView) || "—") + ")").join(", ") || "ไม่มีแพทย์ประจำบ้านลงสาย")}">
             <span aria-hidden="true">${state[1]}</span> ${people.length}<small>${sen}/${jun}</small>
             <span class="sr-only">${esc(state[2])} · ${people.length} คน รุ่นพี่ ${sen} รุ่นน้อง ${jun}</span></div></td>`;
         }).join("")}
@@ -5538,20 +5553,22 @@ function renderMonthGrid() {
 }
 
 function monthCsvRows() {
-  const months = ayMonths(ayView || currentAY());
-  const rs = residentsForAY(ayView || currentAY()).slice().sort((a, b) => b.year - a.year);
+  const ay = ayView || currentAY();
+  const months = ayMonths(ay);
+  const rs = residentsForAY(ay).slice().sort((a, b) => yearOnAY(b, ay) - yearOnAY(a, ay));
   const head = ["แพทย์ประจำบ้าน","ชั้นปี", ...months.map(monthLabel)];
-  return [head].concat(rs.map(r => [r.name, r.year, ...months.map(mm =>
+  return [head].concat(rs.map(r => [r.name, yearShownOn(r, ay), ...months.map(mm =>
     rotationsInMonth(r.id, mm).map(rot => serviceById(rot.serviceId)?.name || "").join(" / "))]));
 }
 
 function printMonthGrid() {
-  const months = ayMonths(ayView || currentAY());
-  const rs = residentsForAY(ayView || currentAY()).slice().sort((a, b) => b.year - a.year);
-  const html = reportHead("ตารางหมุนเวียนรายเดือน", "ปีการศึกษา " + (ayView || currentAY())) + `
+  const ay = ayView || currentAY();
+  const months = ayMonths(ay);
+  const rs = residentsForAY(ay).slice().sort((a, b) => yearOnAY(b, ay) - yearOnAY(a, ay));
+  const html = reportHead("ตารางหมุนเวียนรายเดือน", "ปีการศึกษา " + ay) + `
   <div class="card"><table>
     <thead><tr><th>แพทย์ประจำบ้าน</th>${months.map(mm => `<th>${monthLabel(mm)}</th>`).join("")}</tr></thead>
-    <tbody>${rs.map(r => `<tr><td>${esc(r.name)}<br /><span class="small muted">ปี ${r.year}</span></td>
+    <tbody>${rs.map(r => `<tr><td>${esc(r.name)}<br /><span class="small muted">ปี ${yearShownOn(r, ay) || "—"}</span></td>
       ${months.map(mm => `<td class="small">${rotationsInMonth(r.id, mm).map(rot =>
         esc(serviceById(rot.serviceId)?.name || "—")).join("<br />") || "—"}</td>`).join("")}</tr>`).join("")}</tbody></table>
     <p class="small muted">สาย = ทีมผู้ป่วยทั่วไป (ฟ้า / ขาว / แดง / เหลือง), ELE = elective, ที่เหลือคือการหมุนเวียนตามอนุสาขา</p>
@@ -6198,9 +6215,10 @@ function openSession(key) {
   const ses = sessionByKey(key);
   if (!ses) { toast("ไม่พบเซสชันนี้แล้ว (ตารางหรือช่วงหมุนเวียนอาจถูกแก้ไข)"); return; }
   const r = store.resident(ses.residentId), svc = serviceById(ses.serviceId);
+  const sesAY = academicYear(String(key).split("|")[1] || todayISO());
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
-      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${yearShownOn(r, sesAY) || "—"})</dd>
       <dt>เซสชัน</dt><dd>${esc(ses.name)} · ${esc(PART_BY_ID[ses.part]?.th || "")} ${esc(PART_BY_ID[ses.part]?.time || "")}</dd>
       <dt>วันที่</dt><dd>วัน${DAY_NAMES[new Date(ses.date + "T00:00:00").getDay()]}ที่ ${fmtDate(ses.date)}</dd>
       <dt>หน่วย</dt><dd>${esc(svc?.name || "—")} <span class="tag b">${esc(svc ? serviceSubLabel(svc) : "")}</span>
@@ -7122,7 +7140,7 @@ function renderActivityTable() {
       const r = store.resident(a.residentId);
       return `<tr>
         <td class="small" title="ปีการศึกษา ${esc(String(a.academicYear || ""))}">${fmtDate(a.date)}</td>
-        <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
+        <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${yearShownOn(r, a.academicYear) || "—"}</span></td>
         <td><span class="tag b">${esc(TYPE_BY_ID[a.type]?.th || a.type)}</span></td>
         <td class="small">${esc(SUB_BY_ID[a.subspecialty]?.en || a.subspecialty)}</td>
         <td>${esc(a.title)}</td>
@@ -7149,7 +7167,7 @@ function activityCsvRows(list) {
     ...cols.map(c => "ประเมิน: " + c.th), "คะแนนเฉลี่ย","ผลการประเมิน","ผู้ประเมิน","สิ่งที่ทำได้ดี","สิ่งที่ควรปรับปรุง","รับรองโดย","หัวข้อ WFME"];
   return [head].concat(list.map(a => {
     const r = store.resident(a.residentId), e = a.evidence || {};
-    return [a.date, a.academicYear, r?.name || "", r?.year || "", TYPE_BY_ID[a.type]?.en || a.type,
+    return [a.date, a.academicYear, r?.name || "", yearShownOn(r, a.academicYear), TYPE_BY_ID[a.type]?.en || a.type,
       SUB_BY_ID[a.subspecialty]?.en || "", a.title,
       a.source === "slides" ? "slides" : "manual", e.fileName || "", e.slideCount || "", e.hash || "",
       e.autoType || "", e.autoSub || "", e.correctedByUser ? "yes" : "no",
@@ -7269,7 +7287,8 @@ function rotationsToAssess(month) {
                    || rot.supervisorId === myStaffId() || !rot.supervisorId)
     .sort((a, b) => {
       const ra = store.resident(a.residentId), rb = store.resident(b.residentId);
-      return (rb?.year || 0) - (ra?.year || 0) || (ra?.name || "").localeCompare(rb?.name || "", "th");
+      const ay = academicYear(a.start);
+      return yearOnAY(rb, ay) - yearOnAY(ra, ay) || (ra?.name || "").localeCompare(rb?.name || "", "th");
     });
 }
 
@@ -7394,7 +7413,7 @@ function renderAssess() {
           const r = store.resident(rot.residentId), svc = serviceById(rot.serviceId);
           const ev = rotationEvalFor(rot.id);
           return `<tr>
-            <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${r?.year || "—"}</span></td>
+            <td class="small">${esc(r?.name || "—")}<br /><span class="muted">ปี ${yearShownOn(r, academicYear(rot.start)) || "—"}</span></td>
             <td class="small"><span class="tag b" style="border-color:${serviceColour(rot.serviceId)}">${esc(svc?.name || "—")}</span></td>
             <td class="small">${esc(svc ? serviceSubLabel(svc) : "—")}</td>
             <td class="small">${fmtDate(rot.start)} – ${fmtDate(rot.end)}</td>
@@ -7546,7 +7565,7 @@ function openRotationEval(rotationId, opts = {}) {
     : "— (ยังไม่มีรอบก่อนหน้าที่ประเมินไว้)";
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
-      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${yearShownOn(r, academicYear(rot.start)) || "—"})</dd>
       <dt>สาย / หน่วยที่วน</dt><dd>${esc(svc?.name || "—")} · ${esc(svc ? serviceSubLabel(svc) : "—")}</dd>
       <dt>ช่วง</dt><dd>${fmtDate(rot.start)} – ${fmtDate(rot.end)}</dd>
       <dt>รอบก่อนหน้า</dt><dd class="small">${prevLine}</dd>
@@ -7630,7 +7649,9 @@ function rotationEvalCsvRows() {
     .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
   return [head].concat(rows.map(ev => {
     const r = store.resident(ev.residentId), svc = serviceById(ev.serviceId);
-    return [ev.month, ev.start || "", ev.end || "", r?.name || "", r?.year || "",
+    /* ไฟล์นี้ส่งราชวิทยาลัยฯ — ชั้นปีต้องเป็นของเดือนที่ประเมิน ไม่ใช่ของวันที่กดส่งออก */
+    return [ev.month, ev.start || "", ev.end || "", r?.name || "",
+      yearShownOn(r, academicYear(ev.start || (ev.month ? ev.month + "-01" : ""))),
       svc?.name || "", svc ? serviceSubLabel(svc) : "", staffName(ev.staffId),
       ...cols.map(it => ev.scores?.[it.id] ?? ev.answers?.[it.id] ?? ""),
       evalMean(ev) ?? "", ev.scaleMax || 5, ev.entrust ?? "", ev.comment || "",
@@ -8513,25 +8534,51 @@ function editCaseParticipants(id) {
     <label class="f" style="margin-top:.6rem"><span>บันทึกเพิ่มเติม (เช่น ขั้นตอนที่ทำเอง)</span>
       <textarea name="note">${esc(c.note || "")}</textarea></label>`;
   const buttons = [
-    { label:"บันทึก", cls:"btn-primary", onClick: () => {
-        const list = [];
+    { label:"บันทึก", cls:"btn-primary", onClick: async () => {
+        const list = [], dropped = [], reset = [];
+        let blocked = null;
         caseResidents.forEach(r => {
           const old = (c.participants || []).find(x => x.residentId === r.id);
           /* แถวที่บัญชีนี้แก้ไม่ได้ ให้คงของเดิมไว้ทั้งแถว ไม่ให้เขียนทับกันข้ามคน */
           if (!rowEditable(r.id)) { if (old) list.push(old); return; }
           const role = $('#dlgBody [data-role="' + r.id + '"]')?.value;
-          if (!role) return;
+          if (!role) {
+            /* "— ไม่ได้ร่วม —" บนแถวที่มีอยู่เดิม = ถอดคนออกจากเคส ซึ่งลบการรับรองของอาจารย์และสถานะ RCOSTLog
+               ไปพร้อมกันทั้งแถว เดิมเกิดขึ้นเงียบ ๆ ไม่มีการยืนยัน ไม่มีเลิกทำ และ audit บอกแค่จำนวนคนที่เหลือ
+               การรับรองเป็นของอาจารย์ แพทย์ประจำบ้านจึงถอดแถวของตัวเองที่รับรองหรือ validated แล้วไม่ได้ */
+            if (old) {
+              if (!isStaff() && (old.verified || old.rcost?.validated)) { blocked ||= r; list.push(old); return; }
+              dropped.push({ r, old });
+            }
+            return;
+          }
           const rcostDone = !!$('#dlgBody [data-rcost="' + r.id + '"]')?.checked;
           /* validated ต้องลงก่อนถึงจะเป็นไปได้ — ติ๊ก validated โดยยังไม่ลง ถือว่าลงแล้วด้วย */
           const validated = canAssess() ? !!$('#dlgBody [data-rcostval="' + r.id + '"]')?.checked : !!old?.rcost?.validated;
           const done = rcostDone || validated;
-          const verified = canAssess() ? !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked : !!old?.verified;
+          /* การรับรองของอาจารย์รับรอง "บทบาทนี้" — แพทย์ประจำบ้านเปลี่ยนบทบาทหลังรับรองแล้ว (เช่น ผู้สังเกตการณ์
+             → ผู้ผ่าตัดหลัก) ต้องไม่พาการรับรองเดิมติดไปด้วย ไม่งั้นได้เคสผู้ผ่าตัดหลักที่ "รับรองแล้ว" โดยไม่มีใครรับรองจริง */
+          const roleChanged = !!old && old.role !== role;
+          if (!canAssess() && roleChanged && old.verified) reset.push(r);
+          const verified = canAssess() ? !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked : (!!old?.verified && !roleChanged);
           list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
                       verified,
                       verifiedBy: verified ? (old?.verifiedBy || currentUser()?.displayName || c.primarySurgeon || "") : "",
                       rcost: { done, at: done ? (old?.rcost?.at || todayISO()) : "",
                                validated, validatedAt: validated ? (old?.rcost?.validatedAt || todayISO()) : "" } });
         });
+        if (blocked) {
+          toast(blocked.name + " — อาจารย์รับรองหรือ validate แถวนี้แล้ว ถอดออกเองไม่ได้ ให้อาจารย์เป็นคนแก้", 7000);
+          return false;
+        }
+        const statusOf = (o) => [o.verified ? "อาจารย์รับรองแล้ว" : "", o.rcost?.validated ? "validated ใน RCOSTLog"
+                                   : o.rcost?.done ? "ลง RCOSTLog แล้ว" : ""].filter(Boolean).join(" · ");
+        if (dropped.length && !(await confirmAny("ถอดออกจากเคสนี้:\n" +
+              dropped.map(d => "• " + d.r.name + " (" + (CASE_ROLES.find(x => x.id === d.old.role)?.th || d.old.role) + ")" +
+                (statusOf(d.old) ? " — " + statusOf(d.old) : "")).join("\n") +
+              "\nการรับรองและสถานะ RCOSTLog ของแถวนั้นจะหายไปด้วย · เลิกทำได้ทันทีหลังบันทึก",
+              { okLabel: "ถอดออกแล้วบันทึก", danger: true }))) return false;
+        const prevParticipants = (c.participants || []).map(p => ({ ...p, rcost: { ...(p.rcost || {}) } }));
         c.participants = list;
         if (codeEditable) {
           const newIcd9 = ($('#dlgBody [name="icd9"]')?.value || "").trim();
@@ -8541,8 +8588,18 @@ function editCaseParticipants(id) {
           c.icd9 = newIcd9; c.icd10 = newIcd10;
         }
         c.note = ($('#dlgBody [name="note"]')?.value || "").trim();
-        audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน");
-        store.save(); renderAll(); toast("บันทึกผู้ร่วมผ่าตัดแล้ว");
+        /* audit ต้องบอกว่าใครถูกถอดและเสียสถานะอะไรไป — เดิมบอกแค่จำนวนคนที่เหลือ ย้อนดูทีหลังไม่รู้เลยว่าใครหาย */
+        audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน" +
+              (dropped.length ? " · ถอด " + dropped.map(d => d.r.name + (statusOf(d.old) ? " [" + statusOf(d.old) + "]" : "")).join(", ") : "") +
+              (reset.length ? " · เปลี่ยนบทบาทหลังรับรอง (ต้องรับรองใหม่) " + reset.map(r => r.name).join(", ") : ""));
+        store.save(); renderAll();
+        if (dropped.length) {
+          toastUndo("ถอด " + dropped.map(d => d.r.name).join(", ") + " ออกจากเคสแล้ว", () => {
+            const cc = (store.data.cases || []).find(x => x.id === c.id);
+            if (cc) cc.participants = prevParticipants;
+            store.save(); renderAll(); toast("เลิกทำแล้ว — ผู้ร่วมผ่าตัดกลับมาครบพร้อมสถานะเดิม");
+          });
+        } else toast(reset.length ? "บันทึกแล้ว — เปลี่ยนบทบาทหลังอาจารย์รับรอง ต้องให้อาจารย์รับรองใหม่" : "บันทึกผู้ร่วมผ่าตัดแล้ว");
       }},
     { label:"ลบเคสนี้", cls:"btn-danger", adminOnly: true, onClick: () => {
         audit("ลบเคสออกจาก logbook", (c.operation || "") + " · " + fmtDate(c.date));
@@ -9749,7 +9806,7 @@ function openActivity(id, opts = {}) {
     : metaHtml + `<hr />`;
   const body = `
     <div class="kv" style="margin-bottom:.8rem">
-      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${r?.year || "—"})</dd>
+      <dt>แพทย์ประจำบ้าน</dt><dd>${esc(r?.name || "—")} (ชั้นปีที่ ${yearShownOn(r, a.academicYear) || "—"})</dd>
       <dt>เรื่อง</dt><dd><b>${esc(a.title)}</b> · ${esc(TYPE_BY_ID[a.type]?.th || a.type)} · ${fmtDate(a.date)}</dd>
       <dt>บันทึกเมื่อ</dt><dd>${a.createdAt ? fmtDateTime(a.createdAt) : "—"} · ที่มา ${a.source === "slides" ? "อ่านจากไฟล์สไลด์" : "บันทึกด้วยมือ"}</dd>
       <dt>หลักฐาน WFME</dt><dd>${(a.wfme || []).map(w => `<span class="tag b">${w} ${esc(WFME_BY_ID[w]?.th || "")}</span>`).join(" ") || "—"}</dd>
