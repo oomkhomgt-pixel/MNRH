@@ -315,6 +315,31 @@ What follows from it:
 - CLINIC_0023's left femoral head sits 18 mm lower than its right (5-11 mm on
   the other three); injury or positioning is not yet known.
 
+## 7c. Reduction by congruence (slice 1b), decided 2026-09-27
+
+How a displaced hemipelvis is put back, for both projects (7a.5,
+corridor-finder 3.6): the mirror gives the starting pose, and the pose is
+then fitted by congruence of the fracture surfaces and the SI joint
+surfaces.
+
+| # | Decision | Rejected |
+| --- | --- | --- |
+| 7c.1 | **Order:** fracture surfaces first (both the reduction and the outcome number of 1.5 are measured across them), then the **reduction fit**, which Corridor Finder's virtual reduction is waiting on and which is the only route for bilateral cases. Then the local gap and step outcome. | The outcome number first; both at once. |
+| 7c.2 | **SI joint target width:** the reduced joint is closed to the **intact side's measured anterior gap, capped at 4 mm**; with both sides injured, **4 mm** (the definition of corridor-finder 2.2, shared). | Fitting the step only, leaving the width free (a joint left open would read as reduced); a fixed 3 mm. |
+| 7c.3 | **The surgeon's fracture marks** (corridor-finder 7.1) **seed** the fracture-surface search when present; fracture surfaces are still found automatically without them, and one found far from every mark is flagged. | Automatic only; marks required. |
+| 7c.4 | **Mirror and congruence disagreeing:** the congruence result is used, and flagged for the surgeon's review when it departs from the mirror start by more than the mirror's measured normal floor for that region (the table under section 1: about 5 mm at the SI joint, 10 mm at the symphysis). | Congruence always wins with no flag; limiting the move to the floor (it could then never correct the mirror beyond its own floor). |
+| 7c.5 | **The moving unit** is the hip bone plus the lateral sacral fragment when the sacrum is fractured: the sacral fracture surface is found and the **fragment split off automatically**, and the surgeon **confirms the split** on the review sheet (3.1, 3.3). This changes corridor-finder 3.2, where the fragment is split by hand. | Splitting by hand in Segment Editor; keeping the sacrum whole (wrong for every sacral fracture). |
+| 7c.6 | **Comminution:** the fit uses the **cortical rims** of each fracture, which survive comminution better than the cancellous face; a region whose rims do not agree is reported **unconstrained**, with an infinite error and the reason, never a small number. | Fitting the whole face with trimming (crushed bone pulls the fit); refusing every region with missing bone. |
+| 7c.7 | **Symphysis target gap:** the **median symphyseal gap measured on the 274 normal CTPelvic1K pelvises**, reported with its range. | A textbook 4 mm; fitting the step only. |
+| 7c.8 | **Acceptance:** nothing is planned on a reduction of a real CT until the surgeon **accepts that case** on a before/after sheet (bones as scanned, as reduced, the error per region), as corridor-finder 3.1 already requires. | Automatic acceptance under an error threshold (the errors are fit quality, not a proven bound); blocking real CTs until a bulk validation. |
+
+**What each region reports** (agreed with Corridor Finder): the larger of
+the 90th-percentile surface mismatch after the fit and the error measured
+on phantoms for that kind of region; `inf` when unconstrained. Corridor
+Finder shows a screw with an amber warning wherever that error exceeds the
+screw's spare clearance within 10 mm of the region, and never reads a
+missing region as safe.
+
 ## 8. Data
 
 | # | Decision |
