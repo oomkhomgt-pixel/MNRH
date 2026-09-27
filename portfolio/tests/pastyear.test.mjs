@@ -63,10 +63,15 @@ export default async function run() {
         [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "บันทึก").click();
         await new Promise(r => setTimeout(r, 300));
         const p = store.data.cases.find(x => x.id === caseId).participants.find(x => x.residentId === rid);
-        return { role: p.role, other, verified: p.verified };
+        return { role: p.role, other, verified: p.verified, validated: !!p.rcost?.validated,
+                 audit: (store.data.audit || []).slice(-1)[0]?.detail || "" };
       }, setup);
       t.check("เปลี่ยนบทบาทหลังอาจารย์รับรอง → ต้องรับรองใหม่ ไม่พาการรับรองเดิมติดไป",
               roleChange.role === roleChange.other && roleChange.verified === false, JSON.stringify(roleChange));
+      /* validated ใน RCOSTLog ก็เป็นของอาจารย์และรับรองบทบาทเดิมเช่นกัน — เดิมหลุดรอดไป ทำให้ CSV ที่ลอกลง
+         RCOSTLog ออกมาเป็นบทบาทใหม่ + validated ทั้งที่อาจารย์ validate ไว้แค่บทบาทเดิม */
+      t.check("เปลี่ยนบทบาทหลังอาจารย์ validate → สถานะ validated ไม่ติดไปกับบทบาทใหม่", roleChange.validated === false);
+      t.check("audit บันทึกว่ามีการเปลี่ยนบทบาทหลังรับรอง", roleChange.audit.includes("เปลี่ยนบทบาทหลังรับรอง"), roleChange.audit);
 
       /* อาจารย์ถอดได้ แต่ต้องถูกถามก่อน บอกว่าเสียสถานะอะไร ลง audit ด้วยชื่อ และเลิกทำได้ */
       const staffId = await page.evaluate(() => store.data.users.find(u => u.role === "admin").id);

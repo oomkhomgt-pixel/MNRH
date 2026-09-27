@@ -8552,14 +8552,17 @@ function editCaseParticipants(id) {
             }
             return;
           }
+          /* การรับรองและการ validate ของอาจารย์ รับรอง "บทบาทนี้" — แพทย์ประจำบ้านเปลี่ยนบทบาทหลังอาจารย์รับรอง
+             หรือ validate แล้ว (เช่น ผู้ช่วย → ผู้ผ่าตัดหลัก) ต้องไม่พาสองสถานะนั้นติดไปด้วย ไม่งั้นได้เคสผู้ผ่าตัดหลัก
+             ที่ "รับรองแล้ว / validated แล้ว" โดยที่อาจารย์รับรองไว้แค่ระดับผู้ช่วย — และ CSV ที่ลอกลง RCOSTLog
+             จะออกมาเป็น Performer + validated ทั้งที่ไม่มีใครรับรองจริง */
+          const roleChanged = !!old && old.role !== role;
+          if (!canAssess() && roleChanged && (old.verified || old.rcost?.validated)) reset.push(r);
           const rcostDone = !!$('#dlgBody [data-rcost="' + r.id + '"]')?.checked;
           /* validated ต้องลงก่อนถึงจะเป็นไปได้ — ติ๊ก validated โดยยังไม่ลง ถือว่าลงแล้วด้วย */
-          const validated = canAssess() ? !!$('#dlgBody [data-rcostval="' + r.id + '"]')?.checked : !!old?.rcost?.validated;
+          const validated = canAssess() ? !!$('#dlgBody [data-rcostval="' + r.id + '"]')?.checked
+                                        : (!!old?.rcost?.validated && !roleChanged);
           const done = rcostDone || validated;
-          /* การรับรองของอาจารย์รับรอง "บทบาทนี้" — แพทย์ประจำบ้านเปลี่ยนบทบาทหลังรับรองแล้ว (เช่น ผู้สังเกตการณ์
-             → ผู้ผ่าตัดหลัก) ต้องไม่พาการรับรองเดิมติดไปด้วย ไม่งั้นได้เคสผู้ผ่าตัดหลักที่ "รับรองแล้ว" โดยไม่มีใครรับรองจริง */
-          const roleChanged = !!old && old.role !== role;
-          if (!canAssess() && roleChanged && old.verified) reset.push(r);
           const verified = canAssess() ? !!$('#dlgBody [data-ver="' + r.id + '"]')?.checked : (!!old?.verified && !roleChanged);
           list.push({ residentId: r.id, role, why: old?.why || "ระบุด้วยมือ",
                       verified,
@@ -8591,7 +8594,7 @@ function editCaseParticipants(id) {
         /* audit ต้องบอกว่าใครถูกถอดและเสียสถานะอะไรไป — เดิมบอกแค่จำนวนคนที่เหลือ ย้อนดูทีหลังไม่รู้เลยว่าใครหาย */
         audit("แก้ไขผู้ร่วมผ่าตัด", (c.operation || c.sourceRef || c.id) + " · " + list.length + " คน" +
               (dropped.length ? " · ถอด " + dropped.map(d => d.r.name + (statusOf(d.old) ? " [" + statusOf(d.old) + "]" : "")).join(", ") : "") +
-              (reset.length ? " · เปลี่ยนบทบาทหลังรับรอง (ต้องรับรองใหม่) " + reset.map(r => r.name).join(", ") : ""));
+              (reset.length ? " · เปลี่ยนบทบาทหลังรับรอง/validate (ต้องรับรองและ validate ใหม่) " + reset.map(r => r.name).join(", ") : ""));
         store.save(); renderAll();
         if (dropped.length) {
           toastUndo("ถอด " + dropped.map(d => d.r.name).join(", ") + " ออกจากเคสแล้ว", () => {
@@ -8599,7 +8602,7 @@ function editCaseParticipants(id) {
             if (cc) cc.participants = prevParticipants;
             store.save(); renderAll(); toast("เลิกทำแล้ว — ผู้ร่วมผ่าตัดกลับมาครบพร้อมสถานะเดิม");
           });
-        } else toast(reset.length ? "บันทึกแล้ว — เปลี่ยนบทบาทหลังอาจารย์รับรอง ต้องให้อาจารย์รับรองใหม่" : "บันทึกผู้ร่วมผ่าตัดแล้ว");
+        } else toast(reset.length ? "บันทึกแล้ว — เปลี่ยนบทบาทหลังอาจารย์รับรอง ต้องให้อาจารย์รับรองและ validate ใน RCOSTLog ใหม่" : "บันทึกผู้ร่วมผ่าตัดแล้ว");
       }},
     { label:"ลบเคสนี้", cls:"btn-danger", adminOnly: true, onClick: () => {
         audit("ลบเคสออกจาก logbook", (c.operation || "") + " · " + fmtDate(c.date));
