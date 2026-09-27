@@ -38,6 +38,12 @@ def plate_with_hole(shape=(60, 60, 20), hole_radius_mm: float = 4.0) -> np.ndarr
     d = np.sqrt((zz - hole_center[0]) ** 2 + (yy - hole_center[1]) ** 2)
     mask = np.ones(shape, dtype=bool)
     mask &= d[:, :, 0:1].repeat(nx, axis=2) > hole_radius_mm
+    # A voxel of empty space all round: a distance transform does not treat
+    # the array's edge as a surface, so a slab filling the array has no outer
+    # cortex, and a search that looks everywhere finds axes running off it.
+    mask[0, :, :] = mask[-1, :, :] = False
+    mask[:, 0, :] = mask[:, -1, :] = False
+    mask[:, :, 0] = mask[:, :, -1] = False
     return mask
 
 

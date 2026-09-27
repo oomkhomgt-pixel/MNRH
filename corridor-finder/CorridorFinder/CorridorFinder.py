@@ -92,6 +92,7 @@ try:
         drr as drr_mod,
         edt as edt_mod,
         si_joint as si_joint_mod,
+        structures as structures_mod,
         views as views_mod,
         entry_zone as entry_zone_mod,
         guidance as guidance_mod,
@@ -315,6 +316,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # room around an entry takes seconds, and four exports in a row ask
         # for the same one.
         self._entry_area_cache: Dict[str, tuple] = {}
+        self._mask_cache: Dict[tuple, np.ndarray] = {}
+        self._joint_cache: Dict[tuple, np.ndarray] = {}
         self._labels_version = 0
         # The sacroiliac joints (DECISIONS.md section 2): what they measure,
         # which side the surgeon says is disrupted, and what is therefore
@@ -446,6 +449,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return False
         self.labels_volume = EngineVolume(array=new, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
         self._edt_cache = {}
+        self._mask_cache = {}
         self._labels_version += 1
         if self.landmarks:
             self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
@@ -645,6 +649,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         if key in self._edt_cache:
             return self._edt_cache[key]
         mask = np.isin(self.labels_volume.array, ids)
+        self._mask_cache[key] = mask
         hips = tuple(h for h in (seg_mod.HIP_R, seg_mod.HIP_L) if h in ids)
         if widths and seg_mod.SACRUM in ids and hips:
             mask |= seg_mod.sacroiliac_gap_fill(self.labels_volume.array, self.labels_volume.spacing, widths, hips=hips)
@@ -661,12 +666,65 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             ids.update(self._bone_labels_for(group, side))
         return tuple(sorted(ids))
 
-    def clearance_field(self, corridor_id: str, side: str) -> EngineVolume:
+    def clearance_field(self, corridor_id: str, side: str, margin_mm: Optional[float] = None) -> EngineVolume:
         """THE distance field a screw of this corridor and side is checked
         against: by the corridor search, by validate_screw and in the
-        exported viewer, so the three can never disagree about the bone."""
+        exported viewer, so the three can never disagree about the bone.
+
+        Where the corridor's hip bone meets its femoral head, the field lets
+        a screw touch the acetabular articular surface but not cross it,
+        while every other surface keeps the full margin (DECISIONS.md 7.9,
+        corridor_engine/structures.py). That depends on the margin, so it is
+        passed; the plain field is used where there is no femur label."""
         crosses = self.corridor_defs[corridor_id].get("crosses_si_joint")
-        return self._edt_for_bones(self._traverse_labels(corridor_id, side), self.si_bridge_by_label() if crosses else None)
+        ids = tuple(sorted(self._traverse_labels(corridor_id, side)))
+        widths = self.si_bridge_by_label() if crosses else None
+        plain = self._edt_for_bones(ids, widths)
+        joint = self._hip_joint_space(ids)
+        if joint is None:
+            return plain
+        margin = float(margin_mm if margin_mm is not None else self.screw_library["margin_default_mm"])
+        base_key = (ids, tuple(sorted({k: v for k, v in (widths or {}).items() if v > 0 and k in ids}.items())))
+        key = ("articular", base_key, margin)
+        if key not in self._edt_cache:
+            self._edt_cache[key] = structures_mod.articular_field(plain, self._mask_cache[base_key], joint, margin)
+        return self._edt_cache[key]
+
+    def _hip_joint_space(self, ids: tuple) -> Optional[np.ndarray]:
+        """The hip joint space beside each hip bone in ``ids`` whose femur is
+        labelled, or None when there is none (the full margin then applies
+        everywhere)."""
+        pairs = [(hip, femur) for hip, femur in ((seg_mod.HIP_R, seg_mod.FEMUR_R), (seg_mod.HIP_L, seg_mod.FEMUR_L))
+                 if hip in ids]
+        key = (tuple(pairs), self._labels_version)
+        if key not in self._joint_cache:
+            joint = np.zeros(self.labels_volume.array.shape, dtype=bool)
+            for hip, femur in pairs:
+                joint |= structures_mod.joint_space(self.labels_volume.array, self.labels_volume.spacing, hip, femur)
+            self._joint_cache[key] = joint if joint.any() else None
+        return self._joint_cache[key]
+
+    def articular_clearance(self, screw, start, tip) -> Optional[float]:
+        """How close a screw comes to crossing the acetabular articular
+        surface, in mm (it may touch, 0, but not cross, below 0); None when
+        this corridor has no hip joint beside it."""
+        ids = tuple(sorted(self._traverse_labels(screw.corridor_id, screw.side)))
+        joint = self._hip_joint_space(ids)
+        if joint is None:
+            return None
+        start, tip = np.asarray(start, dtype=float), np.asarray(tip, dtype=float)
+        n = max(2, int(np.linalg.norm(tip - start)) + 1)
+        points = start + np.linspace(0.0, 1.0, n)[:, None] * (tip - start)
+        # Only the part of the screw nearer the joint than any other surface
+        # tells how close it comes to the joint.
+        crosses = self.corridor_defs[screw.corridor_id].get("crosses_si_joint")
+        widths = self.si_bridge_by_label() if crosses else None
+        plain = self._edt_for_bones(ids, widths)
+        near = self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm).sample_trilinear(points, order=1) \
+            != plain.sample_trilinear(points, order=1)
+        if not near.any():
+            return None
+        return structures_mod.articular_clearance(plain, points[near], screw.diameter_mm / 2.0)
 
     def suggest_corridor(self, corridor_id: str, side: str, margin_mm: Optional[float] = None,
                          length_mm: Optional[float] = None) -> List["corridor_search.CorridorResult"]:
@@ -714,7 +772,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             )
 
         traverse_labels = self._traverse_labels(corridor_id, side)
-        edt_vol = self.clearance_field(corridor_id, side)
+        edt_vol = self.clearance_field(corridor_id, side, margin_mm)
+        plain_vol = self._edt_for_bones(tuple(sorted(self._traverse_labels(corridor_id, side))),
+                                        self.si_bridge_by_label() if spec.get("crosses_si_joint") else None)
 
         valid_vol = None
         gap_mm = max(self.si_bridge_mm.values(), default=0.0) if spec.get("crosses_si_joint") else 0.0
@@ -747,6 +807,15 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             tip_rule=self.tip_rule(corridor_id),
             catalog_lengths_mm={s["diameter_mm"]: s["lengths_mm"] for s in self.screw_library["screws"]},
         )
+        if plain_vol is not edt_vol:
+            results = self._with_plain_rule_results(results, corridor_id, side, margin_mm, dict(
+                entry_mask=entry_mask, exit_mask=exit_mask, entry_center_xyz=entry_center,
+                entry_radius_mm=spec["entry"]["radius_mm"], exit_center_xyz=exit_center,
+                exit_radius_mm=spec["exit"]["radius_mm"], edt_vol=plain_vol, valid_vol=valid_vol,
+                labels_vol=self.labels_volume, margin_mm=margin_mm, screw_diameters_mm=self.stocked_diameters(),
+                length_range_mm=self._length_range(spec, length_mm), textbook_direction=textbook,
+                tip_rule=self.tip_rule(corridor_id),
+                catalog_lengths_mm={s["diameter_mm"]: s["lengths_mm"] for s in self.screw_library["screws"]}))
         search_again = dict(
             entry_mask=entry_mask, exit_mask=exit_mask, entry_center_xyz=entry_center,
             entry_radius_mm=spec["entry"]["radius_mm"], exit_center_xyz=exit_center,
@@ -837,6 +906,34 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return longer
         return None
 
+    def _with_plain_rule_results(self, results, corridor_id: str, side: str, margin_mm: float, plain_search: dict):
+        """Where the acetabular rule is in force, what the full-margin rule
+        finds as well, re-checked under the acetabular rule. The acetabular
+        field is never below the plain one, so a screw that passes the full
+        margin always passes here too; but the search picks, for each entry,
+        the target that scores best, and a different target winning can
+        leave the full-margin screw unchecked. On CLINIC_0025 that lost a
+        7.3 x 85 mm posterior column screw. Merging keeps it."""
+        merged = list(results)
+        for r in corridor_search.search_corridor(**plain_search):
+            if not r.screw.fits:
+                continue
+            v = self.validate_screw(corridor_id, side, r.entry_xyz, r.target_xyz, r.screw.diameter_mm, margin_mm)
+            if v.breach:
+                continue  # cannot happen while the field is never lower; kept as a guard
+            r.validation = v
+            merged.append(r)
+        seen, out = [], []
+        for r in sorted(merged, key=lambda r: (r.screw.fits, r.screw.diameter_mm or 0.0,
+                                               (r.validation.min_clearance_mm if r.validation else -1e9),
+                                               r.length_mm), reverse=True):
+            key = tuple(np.round(np.r_[r.entry_xyz, r.target_xyz], 0))
+            if key in seen:
+                continue
+            seen.append(key)
+            out.append(r)
+        return out[:max(len(results), 3)]
+
     def _length_range(self, spec: dict, length_mm: Optional[float]) -> tuple:
         """The corridor's own length range, or, when the surgeon asks for a
         particular screw, just that length."""
@@ -872,7 +969,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         repeats it with the plan's tip_rule and screw_library."""
         return validate_mod.validate_screw(
             entry_xyz, target_xyz, diameter_mm, margin_mm,
-            edt_volume=self.clearance_field(corridor_id, side), labels_volume=self.labels_volume,
+            edt_volume=self.clearance_field(corridor_id, side, margin_mm), labels_volume=self.labels_volume,
             tip_rule=self.tip_rule(corridor_id), catalog_lengths_mm=self.catalog_lengths(diameter_mm),
         )
 
@@ -916,7 +1013,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             self._progress(f"Measuring the room around {screw.screw_id}'s entry...")
             area = entry_zone_mod.safe_entry_area(
                 screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm,
-                self.clearance_field(screw.corridor_id, screw.side), self.labels_volume,
+                self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm), self.labels_volume,
                 tip_rule=self.tip_rule(screw.corridor_id), catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
             )
             self._entry_area_cache[screw.screw_id] = (key, area)
@@ -1011,6 +1108,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return
         screw.validation = v.__dict__
         screw.length_mm = float(v.length_mm)
+        if v.start_xyz is not None and v.tip_xyz is not None:
+            articular = self.articular_clearance(screw, v.start_xyz, v.tip_xyz)
+            if articular is not None:
+                screw.validation = dict(screw.validation, articular_clearance_mm=articular)
         # Cheap guidance every time, so a dragged screw never shows the
         # direction it had before; the room around its entry costs seconds,
         # so it is dropped here and measured on request or at export.
@@ -1093,7 +1194,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # validate_screw used for it (with its tip_rule and the plan's
         # screw_library, as validate_screw does).
         self.refresh_derived()
-        screw_edts = {s.screw_id: self.clearance_field(s.corridor_id, s.side) for s in self.plan.screws}
+        screw_edts = {s.screw_id: self.clearance_field(s.corridor_id, s.side, s.margin_mm) for s in self.plan.screws}
         export_viewer_mod.export_viewer(self.plan, meshes, path, screw_edts=screw_edts)
 
 
@@ -1783,6 +1884,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         warnings = v.get("warnings") or []
         # Shows validate.py's verdict; the rule itself lives only there.
         text = f"{screw.screw_id}: clearance {v.get('min_clearance_mm', float('nan')):.1f} mm, margin {screw.margin_mm:.1f} mm"
+        if v.get("articular_clearance_mm") is not None:
+            text += (f"; {v['articular_clearance_mm']:.1f} mm from the acetabular articular surface "
+                     "(may touch it, not cross it)")
         if breach:
             text += " — BREACH"
         text += f"\n{screw.diameter_mm} x {screw.length_mm:.0f} mm from the entry cortex"

@@ -95,6 +95,13 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Per-structure margin (DECISIONS.md 7.9): a screw may touch the
+      acetabular articular surface but not cross it, while every other
+      surface -- cortex, sacral canal, foramina -- keeps the full margin.
+      Built into the distance field the one breach rule reads, so
+      validate.py, the viewer and the report stay the same rule. Needs a
+      femur label (TotalSegmentator); without one the full margin applies
+      everywhere.
 - [x] Alongside the widest suggestion, the longest screw that fits the same
       line, when there is one: a corridor is ranked by room, which favours
       the shortest screw that reaches the target (DECISIONS.md 7.2)
