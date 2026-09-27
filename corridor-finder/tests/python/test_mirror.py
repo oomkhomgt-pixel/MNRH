@@ -4,6 +4,7 @@ import pytest
 from corridor_engine import segmentation as seg
 from corridor_engine.mirror import (
     MAX_MIRROR_TILT_DEG,
+    SACRUM_FRACTURE_PENALTY_MM,
     MirrorPlane,
     MirrorRefused,
     ReferenceNotConfirmed,
@@ -123,3 +124,90 @@ def test_no_lumbar_spine_means_no_reference():
     labels[labels == seg.LUMBAR] = 0
     with pytest.raises(MirrorRefused, match="no lumbar spine"):
         fit_reference(Volume(labels, p.spacing, p.origin))
+
+
+def _hips_around_a_symmetric_l5(hip_axis_deg):
+    """An L5 whose only mirror plane is x = 0 (tapered front to back and
+    taller in front, so no other plane fits it), with the two hip bones
+    placed on a line ``hip_axis_deg`` off the x axis. Whatever plane is
+    fitted is x = 0, so its tilt off the hips is ``hip_axis_deg``."""
+    labels = np.zeros((60, 90, 160), dtype=np.uint8)
+    zz, yy, xx = np.mgrid[0:60, 0:90, 0:160].astype(float)
+    x, y, z = xx - 80.0, yy - 45.0, zz
+    labels[(np.abs(x) <= 14.0 - 0.2 * y) & (np.abs(y) < 15.0) & (z > 30.0) & (z < 50.0 + 0.3 * y)] = seg.LUMBAR
+    a = np.radians(hip_axis_deg)
+    for label, sign in ((seg.HIP_R, 1.0), (seg.HIP_L, -1.0)):
+        cx, cy = sign * 55.0 * np.cos(a), sign * 55.0 * np.sin(a)
+        labels[(np.abs(x - cx) < 10.0) & (np.abs(y - cy) < 10.0) & (z < 25.0)] = label
+    return Volume(labels, (1.0, 1.0, 1.0))
+
+
+@pytest.mark.parametrize("hip_axis_deg, refused", [(12.0, False), (18.0, True)])
+def test_the_tilt_gate_sits_at_15_degrees(hip_axis_deg, refused):
+    """The same good plane, judged against hips 12 and 18 degrees off it:
+    under the 15 degree gate it is used, over it it is refused. The cone
+    test above only shows a 45 degree plane is refused, which a gate at 30
+    or 40 degrees would also do."""
+    assert MAX_MIRROR_TILT_DEG == 15.0
+    vol = _hips_around_a_symmetric_l5(hip_axis_deg)
+    plane = fit_plane(vol, "l5")
+    off_x = np.degrees(np.arccos(abs(float(plane.normal[0]))))
+    # The hips' own axis, as voxelised (the blocks round onto the grid).
+    right = np.argwhere(vol.array == seg.HIP_R).mean(axis=0)
+    left = np.argwhere(vol.array == seg.HIP_L).mean(axis=0)
+    axis_deg = np.degrees(np.arctan2(right[1] - left[1], right[2] - left[2]))
+    print(f"\nhips {hip_axis_deg:.0f} degrees off: plane {off_x:.2f} degrees off x, tilt {plane.tilt_deg:.2f}, "
+          f"refused: {plane.refused or 'no'}")
+    assert off_x < 0.5  # the fit itself is right; only the gate decides
+    assert abs(axis_deg - hip_axis_deg) < 1.0
+    assert plane.tilt_deg == pytest.approx(axis_deg, abs=0.5)
+    assert bool(plane.refused) is refused
+    if refused:
+        assert f"{plane.tilt_deg:.1f} degrees off" in plane.refused and "15 degree gate" in plane.refused
+
+
+def test_when_the_gate_refuses_the_intact_sacrum_plane_l5_alone_is_preselected():
+    """The other direction of the fallback: the penalty says intact (so L5
+    + central sacrum), that plane was refused, and L5 alone is offered."""
+    ref = preselect({"l5": _plane("l5", 1.3, 4.0), "l5_and_central_sacrum": _plane("l5_and_central_sacrum", 1.5, 40.0)},
+                    disagreement_mm=1.5)
+    assert not ref.sacrum_fractured_preselected
+    assert ref.reference_preselected == "l5"
+    assert any("l5 pre-selected instead" in w for w in ref.warnings)
+    with pytest.raises(MirrorRefused, match="l5 passed the gate and can be chosen explicitly"):
+        confirm(ref, sacrum_fractured=False)
+    used = confirm(ref, sacrum_fractured=False, reference="l5")
+    assert used.reference == "l5" and used.choice == "pre-selection" and not used.sacrum_fractured
+
+
+def test_when_the_gate_refuses_both_planes_nothing_is_preselected_or_usable():
+    ref = preselect({"l5": _plane("l5", 1.3, 74.0), "l5_and_central_sacrum": _plane("l5_and_central_sacrum", 1.5, 40.0)},
+                    disagreement_mm=1.5)
+    assert ref.reference_preselected is None
+    assert "none, the gate refused both" in ref.preselection_sentence()
+    for fractured, reference in ((True, None), (False, None), (True, "l5_and_central_sacrum"), (False, "l5")):
+        with pytest.raises(MirrorRefused) as refused:
+            confirm(ref, sacrum_fractured=fractured, reference=reference)
+        assert "degrees off" in str(refused.value) and "can be chosen explicitly" not in str(refused.value)
+
+
+@pytest.mark.parametrize("reference", [None, "l5", "l5_and_central_sacrum"])
+def test_naming_a_reference_does_not_stand_in_for_confirming_the_sacrum(reference):
+    """Choosing a plane explicitly is not the surgeon's answer on the
+    sacrum; unconfirmed still refuses, whatever else is given."""
+    ref = preselect({"l5": _plane("l5", 1.3, 3.0), "l5_and_central_sacrum": _plane("l5_and_central_sacrum", 2.2, 3.0)},
+                    disagreement_mm=1.5)
+    with pytest.raises(ReferenceNotConfirmed, match="has not been confirmed"):
+        confirm(ref, sacrum_fractured=None, reference=reference)
+
+
+@pytest.mark.parametrize("penalty_mm, fractured", [(0.69, False), (0.70, True), (0.71, True)])
+def test_sacrum_fractured_is_preselected_from_a_penalty_of_0_70_mm(penalty_mm, fractured):
+    """DECISIONS 2.1a: 0.70 mm pre-selects all four surgeon-read fractures
+    (0.73-0.99) and 14% of normals. At the threshold it pre-selects."""
+    assert SACRUM_FRACTURE_PENALTY_MM == 0.70
+    ref = preselect({"l5": _plane("l5", 1.0, 3.0), "l5_and_central_sacrum": _plane("l5_and_central_sacrum", 1.0 + penalty_mm, 3.0)},
+                    disagreement_mm=1.5)
+    assert ref.penalty_mm == pytest.approx(penalty_mm)
+    assert ref.sacrum_fractured_preselected is fractured
+    assert ref.reference_preselected == ("l5" if fractured else "l5_and_central_sacrum")

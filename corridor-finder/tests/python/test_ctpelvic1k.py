@@ -126,3 +126,59 @@ def test_a_ct_off_the_label_grid_is_refused(tmp_path):
     with pytest.raises(CaseRefused, match="not on the label grid"):
         load_case(_save(tmp_path, "mask.nii.gz", source.array),
                   _save(tmp_path, "data.nii.gz", _ct_for(source.array)[:, :, :-2]))
+
+
+@pytest.mark.parametrize("id_on_patient_right", [3, 2], ids=["CLINIC convention", "ABDOMEN convention"])
+def test_every_voxel_of_each_bone_keeps_its_bone_under_either_convention(id_on_patient_right):
+    """Not only the centroids: each engine bone is exactly the voxels of
+    the file's bone it came from, and nothing else."""
+    source = _ctpelvic1k(id_on_patient_right)
+    labels, _, _ = remap_labels(source)
+    left_id = 5 - id_on_patient_right
+    for engine_id, file_id in ((seg.HIP_R, id_on_patient_right), (seg.HIP_L, left_id),
+                               (seg.SACRUM, 1), (seg.LUMBAR, 4)):
+        assert np.array_equal(labels.array == engine_id, source.array == file_id), (engine_id, file_id)
+    assert np.array_equal(labels.array == 0, source.array == 0)
+
+
+def _save_lps(tmp_path, name, array_zyx, spacing=SPACING, origin=ORIGIN):
+    """Saved the way many CT exports store it: the file's first two axes
+    run toward the patient's left and posterior (negative affine entries),
+    so a hip's column index says nothing about its side."""
+    x_end = origin[0] + (array_zyx.shape[2] - 1) * spacing[0]
+    y_end = origin[1] + (array_zyx.shape[1] - 1) * spacing[1]
+    affine = np.diag([-spacing[0], -spacing[1], spacing[2], 1.0])
+    affine[:3, 3] = (x_end, y_end, origin[2])
+    data = np.transpose(array_zyx, (2, 1, 0))[::-1, ::-1, :]
+    path = tmp_path / name
+    nib.save(nib.Nifti1Image(np.ascontiguousarray(data), affine), str(path))
+    return str(path)
+
+
+@pytest.mark.parametrize("id_on_patient_right", [3, 2], ids=["CLINIC convention", "ABDOMEN convention"])
+def test_sides_come_from_world_geometry_when_the_file_runs_right_to_left(tmp_path, id_on_patient_right):
+    """The same pelvis stored with its x axis reversed: the hip carrying
+    ``id_on_patient_right`` sits at the file's low column indices, but it is
+    still the patient's right, and must come out as HIP_R."""
+    source = _ctpelvic1k(id_on_patient_right)
+    case = load_case(_save_lps(tmp_path, "mask.nii.gz", source.array),
+                     _save_lps(tmp_path, "data.nii.gz", _ct_for(source.array)))
+    expected, _, _ = remap_labels(source)
+    assert case.source_hip_ids == {"right": id_on_patient_right, "left": 5 - id_on_patient_right}
+    assert np.allclose(case.labels.origin, ORIGIN) and np.allclose(case.labels.spacing, SPACING)
+    assert np.array_equal(case.labels.array, expected.array)
+    x = ORIGIN[0] + np.arange(100) * SPACING[0]
+    assert x[np.nonzero(case.labels.array == seg.HIP_R)[2]].mean() > 40.0
+
+
+def test_a_few_bright_voxels_are_noise_not_metal(tmp_path):
+    """Under METAL_MIN_CM3 (0.1 cm3) above 2500 HU is not an implant: five
+    2 mm voxels are 0.04 cm3, and the case loads."""
+    source = _ctpelvic1k()
+    case = load_case(_save(tmp_path, "mask.nii.gz", source.array),
+                     _save(tmp_path, "data.nii.gz", _ct_for(source.array, metal_voxels=5)))
+    assert case.ct is not None
+    # Thirteen of them are 0.104 cm3, over the line.
+    with pytest.raises(MetalInScan):
+        load_case(_save(tmp_path, "mask.nii.gz", source.array),
+                  _save(tmp_path, "metal.nii.gz", _ct_for(source.array, metal_voxels=13)))
