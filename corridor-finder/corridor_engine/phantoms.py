@@ -96,3 +96,177 @@ def pelvis_like(shape=(140, 160, 200)):
     labels[sacrum_mask & (labels == 0)] = seg.SACRUM
 
     return labels, (1.5, 1.5, 1.5)
+
+
+# --------------------------------------------------------------------------
+# A fractured pelvis with a known displacement (displacement-finder DECISIONS
+# 6.2): the only exact ground truth there is. Everything below is added for
+# the displacement finder; the phantoms above are unchanged.
+
+from dataclasses import dataclass as _dataclass  # noqa: E402
+
+
+def _segment_distance(p, a, b):
+    """Distance from each point (px, py, pz arrays) to the segment a-b."""
+    a = np.asarray(a, dtype=float)
+    ab = np.asarray(b, dtype=float) - a
+    t = ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / float(ab @ ab)
+    t = np.clip(t, 0.0, 1.0)
+    return np.sqrt((p[0] - a[0] - t * ab[0]) ** 2 + (p[1] - a[1] - t * ab[1]) ** 2 + (p[2] - a[2] - t * ab[2]) ** 2)
+
+
+def _ellipsoid(p, centre, radii):
+    return np.sqrt(sum(((p[i] - centre[i]) / radii[i]) ** 2 for i in range(3)))
+
+
+# The acetabular centre and the femoral head's (lateral, anterior, cephalad).
+_ACETABULUM = (78.0, 12.0, -12.0)
+_HEAD = (86.0, 16.0, -16.0)
+
+
+def _sacral_half_width(z):
+    return 22.0 + 0.25 * (z + 15.0)
+
+
+def _pelvis_parts(p):
+    """Each bone of the phantom, in its own patient frame (x = patient
+    right, y = anterior, z = cephalad, mm, midline at x = 0). Built from
+    shapes with no symmetry of their own beyond left-right, so a rigid fit
+    cannot slide along any of them. Returns boolean masks by name."""
+    x, y, z = p
+    u = np.abs(x)
+    q = (u, y, z)
+
+    # Sacrum: widening toward S1, curving back toward its tip, with a canal.
+    yc = np.where(z < 22.0, -42.0 - 0.15 * (22.0 - z), -42.0)
+    sacrum = ((u < _sacral_half_width(z)) & ((y - yc) ** 2 / 20.0 ** 2 + (z - 22.0) ** 2 / 38.0 ** 2 <= 1.0)
+              & ~((x ** 2 + (y - yc + 8.0) ** 2 < 6.0 ** 2) & (z > 0.0)))
+
+    # Hip bone: a curved iliac wing, the thick posterior ilium at the SI
+    # joint, the acetabulum as a cup, the columns and both rami.
+    r = _ellipsoid(q, (15.0, 5.0, 35.0), (80.0, 62.0, 68.0))
+    hip = (r > 0.87) & (r <= 1.0) & (u > 42.0) & (z > 5.0) & (y > -60.0) & (y < 45.0)
+    hip |= _ellipsoid(q, (42.0, -38.0, 35.0), (16.0, 22.0, 32.0)) <= 1.0
+    cup = _ellipsoid(q, _HEAD, (25.0, 25.0, 25.0)) <= 1.0
+    hip |= (_ellipsoid(q, _ACETABULUM, (30.0, 30.0, 30.0)) <= 1.0) & ~cup
+    for a, b, radius in (
+        ((80.0, 5.0, 0.0), (75.0, -5.0, 40.0), 14.0),  # the pillar above the acetabulum
+        ((45.0, -35.0, 20.0), (72.0, 0.0, -10.0), 11.0),  # posterior column
+        ((62.0, 32.0, -8.0), (4.0, 55.0, -28.0), 9.0),  # superior ramus
+        ((4.0, 52.0, -40.0), (50.0, -2.0, -62.0), 7.0),  # inferior ramus
+        ((72.0, -2.0, -25.0), (52.0, -6.0, -64.0), 12.0),  # ischium
+    ):
+        hip |= _segment_distance(q, a, b) <= radius
+    hip |= _ellipsoid(q, (10.0, 54.0, -33.0), (10.0, 10.0, 10.0)) <= 1.0  # symphyseal body
+    # A 6 mm symphysis, and a 3 mm SI joint along the sacrum's lateral face.
+    hip &= (u >= 3.0) & ~((u < _sacral_half_width(z) + 3.0) & (y < -15.0) & (z > -20.0) & (z < 65.0))
+    hip &= ~sacrum
+
+    head = (_ellipsoid(q, _HEAD, (22.0, 22.0, 22.0)) <= 1.0) & ~hip
+
+    # L5, wedged (taller in front) with its arch sloping down, and L4 above.
+    top = 96.0 + 0.2 * (y + 30.0)
+    lumbar = ((x / 24.0) ** 2 + ((y + 30.0) / 16.0) ** 2 <= 1.0) & (z >= 68.0) & (z <= top)
+    for a, b, radius in (
+        ((12.0, -44.0, 84.0), (12.0, -56.0, 84.0), 5.0),  # pedicle
+        ((12.0, -56.0, 84.0), (0.0, -62.0, 82.0), 4.0),  # lamina
+        ((12.0, -46.0, 88.0), (48.0, -42.0, 94.0), 5.0),  # transverse process
+    ):
+        lumbar |= _segment_distance(q, a, b) <= radius
+    lumbar |= _segment_distance(p, (0.0, -62.0, 82.0), (0.0, -82.0, 74.0)) <= 5.0  # spinous process
+    lumbar |= ((x / 23.0) ** 2 + ((y + 28.0) / 15.0) ** 2 <= 1.0) & (z >= 104.0) & (z <= 130.0)  # L4
+    lumbar |= _segment_distance(p, (0.0, -58.0, 117.0), (0.0, -80.0, 108.0)) <= 5.0
+
+    return {"sacrum": sacrum, "hip": hip, "head": head, "lumbar": lumbar}
+
+
+def _rotation(axis, angle_deg):
+    axis = np.asarray(axis, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    a = np.radians(angle_deg)
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + np.sin(a) * k + (1 - np.cos(a)) * (k @ k)
+
+
+@_dataclass
+class FracturedPelvis:
+    labels: np.ndarray  # ZYX, segmentation ids, the fragment moved
+    spacing: tuple
+    origin: tuple
+    intact_labels: np.ndarray  # the same pelvis before the fragment moved
+    fragment: np.ndarray  # where the fragment is now, in ``labels``
+    fragment_before: np.ndarray  # where it was, in ``intact_labels``
+    moved_by: np.ndarray  # 4x4 world transform that displaced it
+    side: str
+
+    @property
+    def to_reference(self) -> np.ndarray:
+        """The exact transform home. The phantom is symmetric, so home is
+        also where the mirrored other side puts it."""
+        return np.linalg.inv(self.moved_by)
+
+
+def fractured_pelvis(translate_mm=(0.0, 0.0, 0.0), rotate_deg: float = 0.0, rotate_axis=(0.0, 0.0, 1.0),
+                     side: str = "right", cut_point=(75.0, 0.0, 45.0), cut_normal=(0.2, 0.3, 1.0),
+                     yaw_deg: float = 0.0, spacing_mm: float = 1.5) -> FracturedPelvis:
+    """A symmetric pelvis with a lumbar spine, one hemipelvis cut along a
+    plane and the piece beyond it moved rigidly: rotated by ``rotate_deg``
+    about ``rotate_axis`` through its own centroid, then translated.
+
+    ``cut_point`` and ``cut_normal`` are in the patient frame with x
+    lateral toward ``side``; the default cuts off the upper iliac wing and
+    the top of the posterior ilium. ``yaw_deg`` turns the whole patient
+    about the scanner's z axis, so the mirror plane is not a grid plane.
+    With no motion the result is the intact pelvis, as the null test needs.
+    The motion is applied analytically, point by point, not by resampling
+    a voxel mask, so the truth is exact to the grid."""
+    if side not in ("right", "left"):
+        raise ValueError(f"side must be 'right' or 'left', got {side!r}")
+    sign = 1.0 if side == "right" else -1.0
+    s = float(spacing_mm)
+    half = np.array([135.0, 95.0, 110.0]) + 10.0 * abs(np.sin(np.radians(yaw_deg)))
+    n = np.ceil(2.0 * half / s).astype(int) // 2 * 2  # even, so voxel centres are symmetric about x = 0
+    origin = (-(n[0] - 1) * s / 2.0, -(n[1] - 1) * s / 2.0 - 5.0, -(n[2] - 1) * s / 2.0 + 25.0)
+    zz, yy, xx = np.meshgrid(*(o + np.arange(k) * s for o, k in zip(origin[::-1], n[::-1])), indexing="ij")
+    world = np.stack([xx, yy, zz])
+
+    yaw = _rotation((0.0, 0.0, 1.0), yaw_deg)  # patient frame -> world
+
+    def to_patient(w):
+        return np.einsum("ji,j...->i...", yaw, w)
+
+    def label(parts, px):
+        out = np.zeros(xx.shape, dtype=np.uint8)
+        out[parts["lumbar"]] = seg.LUMBAR
+        out[parts["sacrum"]] = seg.SACRUM
+        out[parts["hip"] & (px > 0)] = seg.HIP_R
+        out[parts["hip"] & (px < 0)] = seg.HIP_L
+        out[parts["head"] & (px > 0)] = seg.FEMUR_R
+        out[parts["head"] & (px < 0)] = seg.FEMUR_L
+        return out
+
+    def beyond_cut(pp):
+        c = np.array([sign * cut_point[0], cut_point[1], cut_point[2]])
+        nrm = np.array([sign * cut_normal[0], cut_normal[1], cut_normal[2]])
+        return sum((pp[i] - c[i]) * nrm[i] for i in range(3)) > 0.0
+
+    patient = to_patient(world)
+    intact = label(_pelvis_parts(patient), patient[0])
+    hip_id = seg.HIP_R if side == "right" else seg.HIP_L
+    before = (intact == hip_id) & beyond_cut(patient)
+
+    centroid = np.array([xx[before].mean(), yy[before].mean(), zz[before].mean()])
+    moved_by = np.eye(4)
+    moved_by[:3, :3] = _rotation(rotate_axis, rotate_deg)
+    moved_by[:3, 3] = centroid - moved_by[:3, :3] @ centroid + np.asarray(translate_mm, dtype=float)
+
+    # Where each voxel was before the move, and whether that was fragment.
+    inverse = np.linalg.inv(moved_by)
+    source = np.einsum("ij,j...->i...", inverse[:3, :3], world) + inverse[:3, 3][:, None, None, None]
+    source_patient = to_patient(source)
+    now = _pelvis_parts(source_patient)["hip"] & (source_patient[0] * sign > 0) & beyond_cut(source_patient)
+
+    labels = intact.copy()
+    labels[before] = 0
+    labels[now] = hip_id
+    return FracturedPelvis(labels, (s, s, s), tuple(float(v) for v in origin), intact, now, before, moved_by, side)

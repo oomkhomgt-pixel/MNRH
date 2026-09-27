@@ -200,3 +200,10 @@ def split_pelvis_labels(volume_hu: np.ndarray, spacing) -> np.ndarray:
         out[comp_mask] = FEMUR_R if cx >= mid_x else FEMUR_L
 
     return out
+
+
+# The lumbar spine, for the mirror plane of displacement-finder DECISIONS
+# 2.1 (L5 is what a pelvic injury has not displaced). CTPelvic1K labels it;
+# TotalSegmentator's vertebrae are not mapped onto it. 6, not 4: FEMUR_L and
+# FEMUR_R already hold 4 and 5.
+LUMBAR = 6

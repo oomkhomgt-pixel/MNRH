@@ -38,6 +38,10 @@ BRIM_BEHIND_EMINENCE_MM = 60.0
 EMINENCE_FROM_MIDLINE_MM = 20.0  # nearer the midline than this is still the pubic body
 BRIM_FOLLOW_MM = 15.0  # how far the traced edge may move back or forward per level
 PROMONTORY_BAND_MM = 15.0  # the promontory is the front of the sacrum's top
+BODY_HALF_WIDTH_MM = 20.0  # a sacral vertebral body lies this close to the midline
+BODY_DEPTH_MM = 30.0  # and this deep from its front
+SI_LEVEL_BAND_MM = 8.0  # the sacroiliac contact beside a sacral level
+SI_LEVEL_MIN_POINTS = 30
 
 
 @dataclass
@@ -65,7 +69,7 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
     "pubic_tubercle_right", "ischial_tuberosity_left", "greater_trochanter_right",
     "pelvic_brim_left", "iliopectineal_eminence_right", "sacral_promontory",
     "femoral_head_center_left", "si_joint_center_right", "s1_body_center",
-    "s2_body_center", "iliac_crest_apex_right"), each an auto-sourced Landmark.
+    "s2_body_center", "s3_body_center", "iliac_crest_apex_right"), each an auto-sourced Landmark.
     """
     arr = labels_vol.array
     out: Dict[str, Landmark] = {}
@@ -159,19 +163,38 @@ def detect_landmarks(labels_vol: Volume) -> Dict[str, Landmark]:
         z_lo, z_hi = z.min(), z.max()
         s1_band = sac_pts[(z > z_lo + 0.55 * (z_hi - z_lo)) & (z < z_lo + 0.75 * (z_hi - z_lo))]
         s2_band = sac_pts[(z > z_lo + 0.35 * (z_hi - z_lo)) & (z < z_lo + 0.55 * (z_hi - z_lo))]
-        top = sac_pts[z >= z_hi - PROMONTORY_BAND_MM]
-        if top.shape[0] > 0:
+        s3_band = sac_pts[(z > z_lo + 0.20 * (z_hi - z_lo)) & (z < z_lo + 0.35 * (z_hi - z_lo))]
+        midline_x = float(sac_pts[:, 0].mean())
+        # The promontory: the front of the top of the S1 body, at the midline.
+        # Taken from the sacrum's whole top it landed on an ala.
+        central = sac_pts[np.abs(sac_pts[:, 0] - midline_x) <= BODY_HALF_WIDTH_MM]
+        if central.shape[0] > 0:
+            top = central[central[:, 2] >= central[:, 2].max() - PROMONTORY_BAND_MM]
             out["sacral_promontory"] = Landmark(_extreme_point(top, np.array([0.0, 1.0, 0.0])))
-        if s1_band.shape[0] > 0:
-            out["s1_body_center"] = Landmark(s1_band.mean(axis=0))
-        if s2_band.shape[0] > 0:
-            out["s2_body_center"] = Landmark(s2_band.mean(axis=0))
+        for name, band in (("s1_body_center", s1_band), ("s2_body_center", s2_band), ("s3_body_center", s3_band)):
+            body = _vertebral_body(band, midline_x)
+            if body is not None:
+                out[name] = Landmark(body)
 
     for side, hip_mask in hip_masks.items():
         near_sacrum = hip_mask & _dilate_touch(sacrum_mask)
         pts = labels_vol.mask_voxel_centers_world(near_sacrum & hip_mask)
         if pts.shape[0] > 0:
             out[f"si_joint_center_{side}"] = Landmark(pts.mean(axis=0))
+            # The same contact, level by level: where the ilium meets the
+            # sacrum beside S1, S2 and S3. A transsacral screw crosses the
+            # joint there, where the ala overlaps the ilium; a line straight
+            # across the vertebral body instead leaves the sacrum in front of
+            # the joint and runs through the pelvis to the iliac wing. Where
+            # the ilium does not reach a level (often S3) there is no
+            # landmark, and that level is reported as not available.
+            for level in ("s1", "s2", "s3"):
+                body = out.get(f"{level}_body_center")
+                if body is None:
+                    continue
+                at_level = pts[np.abs(pts[:, 2] - float(body.xyz[2])) <= SI_LEVEL_BAND_MM]
+                if at_level.shape[0] >= SI_LEVEL_MIN_POINTS:
+                    out[f"si_contact_{level}_{side}"] = Landmark(at_level.mean(axis=0))
 
     return out
 
@@ -201,6 +224,21 @@ def _brim_curve(pts: np.ndarray, midline_x: float, side: str, z_lo: float, z_hi:
             break
         curve.append(inner)
     return np.asarray(curve)
+
+
+def _vertebral_body(band: np.ndarray, midline_x: float) -> Optional[np.ndarray]:
+    """The centre of the vertebral body at one sacral level: the bone near
+    the midline and within BODY_DEPTH_MM of the level's front. Taking the
+    whole level instead pulls the point back by the laminae, the lateral
+    masses and the spinous crest -- on four CTs about 15 mm, to the front of
+    the canal -- which is not where a screw aimed at the body should go."""
+    if band.shape[0] == 0:
+        return None
+    central = band[np.abs(band[:, 0] - midline_x) <= BODY_HALF_WIDTH_MM]
+    if central.shape[0] == 0:
+        return band.mean(axis=0)
+    body = central[central[:, 1] >= central[:, 1].max() - BODY_DEPTH_MM]
+    return body.mean(axis=0)
 
 
 def _dilate_touch(mask: np.ndarray, iterations: int = 3) -> np.ndarray:

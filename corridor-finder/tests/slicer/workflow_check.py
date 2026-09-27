@@ -303,6 +303,13 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         w.siRightSpin.value = original
         check(float(logic.clearance_field("iliosacral_s1", "right").array.sum()) == wide, "and putting it back restores it")
 
+    @step("Sacral levels: which level takes a transsacral screw")
+    def sacral_levels():
+        w.sacralLevelsButton.click()
+        text = w.sacralLevelsLabel.text
+        log(f"    {text!r}")
+        check(bool(text) and "S1" in text, "the panel says which sacral level takes a transsacral screw")
+
     @step("Suggest every corridor and side")
     def suggest_all():
         found = {}
@@ -338,6 +345,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         segment()
         landmarks()
         sacroiliac()
+        sacral_levels()
         found = suggest_all()
     except Exception:
         return

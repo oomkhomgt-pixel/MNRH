@@ -579,6 +579,54 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             keep &= ((x - site[0]) * toward_midline) >= clear_mm
         return mask & keep[None, None, :]
 
+    def anchor_center(self, anchor: dict, side: str, mirror: float) -> np.ndarray:
+        """Where a corridor end's region is centred: its landmark plus its
+        offset, with x mirrored for the left."""
+        offset = np.array(anchor["offset_mm"], dtype=float) * np.array([mirror, 1.0, 1.0])
+        return self._resolve_landmark_xyz(anchor["landmark"], side) + offset
+
+    def sacral_levels(self, margin_mm: Optional[float] = None, side: str = "right") -> dict:
+        """Which sacral level takes a transsacral screw (DECISIONS.md 7.8). A
+        dysmorphic sacrum has no S1 transsacral corridor, and the answer there
+        is S2 or S3, not a thinner S1 screw. Each level is searched as the
+        plan would search it; the verdict names the level to use."""
+        levels = {}
+        for level in ("s1", "s2", "s3"):
+            cid = f"transiliac_transsacral_{level}"
+            if cid not in self.corridor_defs:
+                continue
+            if not (f"si_contact_{level}_right" in self.landmarks and f"si_contact_{level}_left" in self.landmarks) \
+                    and level != "s1":
+                levels[level] = {"fits": False, "why": f"the ilium does not reach {level.upper()} on both sides"}
+                continue
+            try:
+                results = self.suggest_corridor(cid, side, margin_mm)
+            except Exception as exc:
+                levels[level] = {"fits": False, "why": str(exc)}
+                continue
+            fitting = [r for r in results if r.screw.fits]
+            best = fitting[0] if fitting else (results[0] if results else None)
+            levels[level] = {
+                "fits": bool(fitting),
+                "diameter_mm": best.screw.diameter_mm if fitting else None,
+                "length_mm": best.screw.length_mm if fitting else None,
+                "widest_mm": None if best is None else max(0.0, 2.0 * float(best.r_safe_mm)),
+                "corridor_mm": None if best is None else float(best.length_mm),
+            }
+        s1 = levels.get("s1", {}).get("fits", False)
+        lower = [lv for lv in ("s2", "s3") if levels.get(lv, {}).get("fits")]
+        if s1:
+            verdict = "S1 takes a transsacral screw."
+        elif lower:
+            verdict = (f"No S1 transsacral corridor, as in a dysmorphic sacrum: use {lower[0].upper()}"
+                       + (f" (or {lower[1].upper()})" if len(lower) > 1 else "") + ".")
+        else:
+            verdict = "No transsacral corridor at S1, S2 or S3."
+        if not s1:
+            verdict += (" On a CT taken before reduction a fracture reads as a gap and narrows these corridors, "
+                        "so check this again on the reduced pelvis.")
+        return {"levels": levels, "verdict": verdict, "dysmorphic_pattern": (not s1) and bool(lower)}
+
     def _bone_labels_for(self, group: str, side: str) -> tuple:
         if group == "sacrum":
             return (seg_mod.SACRUM,)
@@ -647,12 +695,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         exit_side = resolve_side(spec["exit"].get("reference_side", side), side)
         mirror = -1.0 if (spec["side"] == "per_side" and side == "left") else 1.0
 
-        entry_landmark = self._resolve_landmark_xyz(spec["entry"]["landmark"], entry_side)
-        exit_landmark = self._resolve_landmark_xyz(spec["exit"]["landmark"], exit_side)
-        entry_offset = np.array(spec["entry"]["offset_mm"], dtype=float) * np.array([mirror, 1.0, 1.0])
-        exit_offset = np.array(spec["exit"]["offset_mm"], dtype=float) * np.array([mirror, 1.0, 1.0])
-        entry_center = entry_landmark + entry_offset
-        exit_center = exit_landmark + exit_offset
+        entry_center = self.anchor_center(spec["entry"], entry_side, mirror)
+        exit_center = self.anchor_center(spec["exit"], exit_side, mirror)
 
         entry_bone_group = spec["entry"]["restrict_to_label"]
         exit_bone_group = spec["exit"]["restrict_to_label"]
@@ -1173,6 +1217,19 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             widthsLayout.addWidget(spin)
         corridorForm.addRow(_("Counted as bone:"), widthsRow)
 
+        levelsRow = qt.QWidget()
+        levelsLayout = qt.QHBoxLayout(levelsRow)
+        levelsLayout.setContentsMargins(0, 0, 0, 0)
+        self.sacralLevelsButton = qt.QPushButton(_("Check sacral levels"))
+        self.sacralLevelsButton.setToolTip(
+            _("Search the transiliac-transsacral corridor at S1, S2 and S3. A dysmorphic sacrum has no S1 "
+              "corridor; the answer there is S2 or S3, not a thinner S1 screw."))
+        self.sacralLevelsLabel = qt.QLabel("")
+        self.sacralLevelsLabel.setWordWrap(True)
+        levelsLayout.addWidget(self.sacralLevelsButton)
+        levelsLayout.addWidget(self.sacralLevelsLabel, 1)
+        corridorForm.addRow(_("Transsacral:"), levelsRow)
+
         self.corridorCombo = qt.QComboBox()
         for cid, spec in self.logic.corridor_defs.items():
             self.corridorCombo.addItem(spec["label"], cid)
@@ -1263,6 +1320,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
         self.lengthSpin.valueChanged.connect(self._clearSuggestions)
         self.fractureButton.clicked.connect(self.onMarkFracture)
+        self.sacralLevelsButton.clicked.connect(self.onCheckSacralLevels)
         self.fractureClearButton.clicked.connect(self.onClearFractures)
         self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
         self.siRightSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("right", value))
@@ -1498,6 +1556,23 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if name in self.logic.landmarks and np.allclose(self.logic.landmarks[name].xyz, engine_xyz, atol=1e-6):
                 continue
             self.logic.set_landmark_manual(name, engine_xyz)
+
+    def onCheckSacralLevels(self):
+        try:
+            out = self.logic.sacral_levels(self.marginSpin.value)
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+            return
+        lines = []
+        for level, info in out["levels"].items():
+            if info.get("fits"):
+                lines.append(f"{level.upper()}: {info['diameter_mm']} x {info['length_mm']:.0f} mm")
+            elif info.get("why"):
+                lines.append(f"{level.upper()}: {info['why']}")
+            else:
+                lines.append(f"{level.upper()}: no screw (room for {info.get('widest_mm') or 0:.1f} mm)")
+        self.sacralLevelsLabel.setText(out["verdict"] + "\n" + "; ".join(lines))
 
     # ---- Fracture sites -------------------------------------------------
 
