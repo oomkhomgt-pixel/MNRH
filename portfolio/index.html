@@ -7848,7 +7848,7 @@ function setupSync() {
    ข้อมูลในเครื่องเหมือนเดิม — ไม่ปล่อยให้ทะเบียนค้างปีเก่า แต่บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์ */
 async function bootReconcile() {
   const cfg = syncCfg();
-  let merged = false;
+  let merged = false, preRolled = false;
   if (canManage() && navigator.onLine && cfg.cloudUrl) {
     try {
       const res = await fetchWithTimeout(cfg.cloudUrl, {
@@ -7858,6 +7858,13 @@ async function bootReconcile() {
       const body = await res.json().catch(() => ({}));
       if (body.data && (body.rev ?? 0) !== (cfg.rev ?? 0)) {
         const base = readBaseline();
+        /* ไม่มีฐานเปรียบเทียบ (นำเข้าไฟล์/ล้างข้อมูลแล้วไม่ได้ส่งขึ้น หรือตั้งค่าครั้งแรกตอนออฟไลน์) — การรวมแบบไม่มีฐาน
+           ให้ของเครื่องนี้ชนะทุกช่องที่ต่าง รวมถึงตัวชี้ปี ถ้าคลาวด์เลื่อนชั้นปีไปแล้ว ตัวชี้จะย้อนกลับเป็นของเครื่องนี้
+           แล้วถูกเลื่อนซ้ำ — คนที่เครื่องอื่นเพิ่มหลังเลื่อน (เช่น ปี 1 รุ่นใหม่) จะกลายเป็นปี 2 เงียบ ๆ
+           เลื่อนทะเบียนของเครื่องนี้ให้ทันคลาวด์ก่อนรวม ตัวชี้และชั้นปีสองฝั่งจึงตรงกัน
+           (มีฐานแล้วห้ามทำ — จะทำให้ทุกคนดูเหมือนเครื่องนี้แก้ แล้วทับสิ่งที่เครื่องอื่นแก้หลังเลื่อน) */
+        const cloudAY = +(body.data.programme?.yearRolledAY || 0);
+        if (!base && cloudAY > +(store.data.meta?.yearRolledAY || 0)) preRolled = !!store.rollAcademicYear(String(cloudAY), "auto");
         const { merged: m, conflicts } = mergeDatasets(base?.data || null, fullPayload(), body.data);
         applyMerged(m);
         recordConflicts(conflicts);
@@ -7871,10 +7878,12 @@ async function bootReconcile() {
     }
   }
   store.deferRoll = false;
-  const rolled = store.rollAcademicYearOnce();
+  const rolled = store.rollAcademicYearOnce() || preRolled;
   if (merged || rolled) {
     if (rolled) cfg.pending = true;
-    store.save(); renderAll(); applyPermissions();
+    /* ผู้เรียก (setupSync) ส่งขึ้นต่อทันทีอยู่แล้ว — บันทึกแบบไม่ตั้งเวลาส่งซ้ำ ไม่งั้นได้ PUT เกินมาอีกหนึ่งรอบ */
+    suppressDirty = true; store.save(); suppressDirty = false;
+    renderAll(); applyPermissions();
     if (store.pendingNotice) { const msg = store.pendingNotice; store.pendingNotice = ""; toast(msg, 9000); }
   }
   paintSyncState();

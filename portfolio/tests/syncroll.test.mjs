@@ -11,23 +11,28 @@ const CLOUD = "https://cloud.test.invalid/api/portfolio";
 /* จำลองคลาวด์ในหน้าเว็บ: GET คืนชุดของเครื่องอื่น · PUT ที่ baseRev ไม่ตรงได้ 409 พร้อมชุดของคลาวด์
    ต้องติดตั้งก่อนสคริปต์ของแอปทำงาน (addInitScript) เพราะการรวมข้อมูลตอนเปิดแอปเกิดเองอัตโนมัติ */
 function fakeCloud({ url, getStatus }) {
-  const remote = JSON.parse(localStorage.getItem("__test_remote") || "null");
-  if (!remote) return;
+  if (!localStorage.getItem("__test_remote")) return;
+  /* คลาวด์มีสถานะเหมือนเซิร์ฟเวอร์จริง: PUT ที่สำเร็จกลายเป็นชุดใหม่บนคลาวด์และขึ้นรุ่นใหม่ — ถ้าไม่เก็บ
+     PUT รอบถัดไปจะได้ 409 กับชุดเก่า แล้วการรวมข้อมูลจะเอาค่าเก่ากลับมาบังบั๊กที่กำลังทดสอบ */
+  const state = () => ({ rev: +(localStorage.getItem("__test_rev") || 10), data: JSON.parse(localStorage.getItem("__test_remote")) });
   const real = window.fetch;
   window.fetch = async (u, opts = {}) => {
     if (String(u) !== url) return real(u, opts);
     const log = JSON.parse(localStorage.getItem("__test_calls") || "[]");
     const method = (opts.method || "GET").toUpperCase();
+    const cur = state();
     if (method === "GET") {
       log.push("GET"); localStorage.setItem("__test_calls", JSON.stringify(log));
       if (getStatus !== 200) return new Response("down", { status: getStatus });
-      return new Response(JSON.stringify({ rev: 10, updatedAt: new Date().toISOString(), device: "เครื่องอื่น", data: remote }), { status: 200 });
+      return new Response(JSON.stringify({ rev: cur.rev, updatedAt: new Date().toISOString(), device: "เครื่องอื่น", data: cur.data }), { status: 200 });
     }
     const body = JSON.parse(opts.body || "{}");
     log.push("PUT@" + body.baseRev); localStorage.setItem("__test_calls", JSON.stringify(log));
-    if (body.baseRev !== 10) return new Response(JSON.stringify({ rev: 10, data: remote }), { status: 409 });
+    if (body.baseRev !== cur.rev) return new Response(JSON.stringify({ rev: cur.rev, data: cur.data }), { status: 409 });
     localStorage.setItem("__test_put", JSON.stringify(body.data));
-    return new Response(JSON.stringify({ rev: 11, updatedAt: new Date().toISOString(), bytes: 10 }), { status: 200 });
+    localStorage.setItem("__test_remote", JSON.stringify(body.data));
+    localStorage.setItem("__test_rev", String(cur.rev + 1));
+    return new Response(JSON.stringify({ rev: cur.rev + 1, updatedAt: new Date().toISOString(), bytes: 10 }), { status: 200 });
   };
 }
 
@@ -50,7 +55,7 @@ async function staleDevice(page) {
     const stale = JSON.parse(JSON.stringify(fullPayload()));
     writeBaseline(5, stale);                        /* ซิงก์กับคลาวด์ครั้งล่าสุดตอนก่อนขึ้นปีใหม่ */
     localStorage.setItem("__test_remote", JSON.stringify(remote));
-    localStorage.removeItem("__test_put"); localStorage.removeItem("__test_calls");
+    localStorage.removeItem("__test_put"); localStorage.removeItem("__test_calls"); localStorage.removeItem("__test_rev");
     return { ay, targetId: target.id, remoteYears: Object.fromEntries(remote.residents.map(r => [r.id, r.year])),
              localCursor: store.data.meta.yearRolledAY };
   }, { url: CLOUD });
@@ -141,6 +146,40 @@ export default async function run() {
       t.check("ดึงไม่ได้ก็ยังเลื่อนชั้นปีจากข้อมูลในเครื่อง (ครั้งเดียว)", r.cursor === s.ay && onceOk, JSON.stringify(r.calls));
       t.check("บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์", /ก่อนเลื่อนชั้นปีไม่สำเร็จ/.test(r.status), r.status);
       t.check("ดึงไม่ได้: ไม่มี error หลุดในคอนโซล", errors.filter(e => !/503|Failed to load resource/.test(e)).length === 0, errors.join(" | "));
+      await page.close();
+    }
+
+    /* ---------- 2b) เครื่องที่ไม่มีฐานเปรียบเทียบ — ตัวชี้ปีต้องไม่ย้อน และไม่เลื่อนซ้ำคนที่เครื่องอื่นเพิ่ม ----------
+       ไม่มีฐาน = ของเครื่องนี้ชนะทุกช่องที่ต่าง เดิมตัวชี้ปีจึงย้อนเป็นของเครื่องนี้ (ปีก่อน) แล้วถูกเลื่อนซ้ำ
+       ปี 1 รุ่นใหม่ที่เครื่องอื่นเพิ่มหลังเลื่อนกลายเป็นปี 2 และค่าที่ผิดถูกส่งทับคลาวด์ถาวร */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const s = await staleDevice(page);
+      const newbie = await page.evaluate(() => {
+        const remote = JSON.parse(localStorage.getItem("__test_remote"));
+        const nr = { id: "res_newbie", name: "นพ. รุ่นใหม่ทดสอบ", nick: "", year: 1, cohort: String(currentAY()),
+                     advisor: "", email: "", active: true };
+        remote.residents.push(nr);
+        localStorage.setItem("__test_remote", JSON.stringify(remote));
+        localStorage.removeItem(BASELINE_KEY);            /* เครื่องนี้ไม่มีฐานเปรียบเทียบ */
+        return nr.id;
+      });
+      await page.addInitScript(fakeCloud, { url: CLOUD, getStatus: 200 });
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("__test_put"), null, { timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(6500);                     /* เผื่อเวลาให้ตัวตั้งเวลาส่งซ้ำ (5 วิ) ถ้ามี */
+      const r = await page.evaluate((id) => {
+        const put = JSON.parse(localStorage.getItem("__test_put") || "null");
+        return {
+          year: store.resident(id)?.year, putYear: put?.residents?.find(x => x.id === id)?.year,
+          cursor: store.data.meta.yearRolledAY, putCursor: put?.programme?.yearRolledAY,
+          puts: JSON.parse(localStorage.getItem("__test_calls") || "[]").filter(c => c.startsWith("PUT"))
+        };
+      }, newbie);
+      t.eq("ปี 1 ที่เครื่องอื่นเพิ่มหลังเลื่อนชั้นปี ยังเป็นปี 1 — ไม่ถูกเลื่อนซ้ำ", [r.year, r.putYear], [1, 1]);
+      t.eq("ตัวชี้ปีไม่ย้อนกลับ ทั้งในเครื่องและในชุดที่ส่งขึ้นคลาวด์", [r.cursor, r.putCursor], [s.ay, s.ay]);
+      t.eq("ส่งขึ้นคลาวด์ครั้งเดียวหลังรวมข้อมูล ไม่มี PUT ซ้ำจากตัวตั้งเวลา", r.puts, ["PUT@10"]);
+      t.check("ไม่มีฐานเปรียบเทียบ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
 
