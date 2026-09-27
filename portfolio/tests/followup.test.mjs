@@ -170,6 +170,9 @@ export default async function run() {
       const r = await page.evaluate(async () => {
         const u = store.data.users.find(x => x.role === "resident" && x.residentId);
         const rid = u.residentId;
+        /* ให้แน่ใจว่ามีผลประเมินลงกองของคนนี้อยู่จริงก่อนลบ — ไม่งั้นข้อที่ตรวจว่าไม่เหลือค้างจะผ่านโดยไม่ได้ตรวจอะไร */
+        (store.data.rotationEvals ||= []).push({ id: "rev_test_del", rotationId: "", residentId: rid, serviceId: "", month: "2026-08",
+                                               answers: { outcome: "watch" }, scores: {}, scaleMax: 5 });
         /* confirmAny เป็น const — สตับที่ตัวจริงที่มันเรียกแทน (กล่องเปิดอยู่ จึงไปทาง confirmInline) */
         const realCI = confirmInline, realCD = confirmDialog;
         let asked = false;
@@ -189,6 +192,8 @@ export default async function run() {
           rotationsLeft: (store.data.rotations || []).filter(x => x.residentId === rid).length,
           epaLeft: (store.data.epaAssessments || []).filter(x => x.residentId === rid).length,
           visitsLeft: (store.data.visits || []).filter(x => x.residentId === rid).length,
+          evalsLeft: (store.data.rotationEvals || []).filter(x => x.residentId === rid).length,
+          followLeft: rotationsWatched().filter(x => x.residentId === rid).length,
           audited: (store.data.audit || []).slice(-3).some(x => x.action === "ลบแพทย์ประจำบ้าน")
         };
       });
@@ -197,6 +202,8 @@ export default async function run() {
       t.check("บัญชีที่ผูกไว้ถูกลบไปด้วย จึงไม่มีบัญชีผีที่ยังล็อกอินได้", r.userGone, r.username);
       t.eq("ไม่เหลือช่วงหมุนเวียน / EPA / คำขอเข้าคาบ ที่ไม่มีเจ้าของ",
            [r.rotationsLeft, r.epaLeft, r.visitsLeft], [0, 0, 0]);
+      t.eq("ผลประเมินลงกองของคนนั้นถูกลบด้วย ไม่ค้างเป็นแถวไม่มีชื่อใน CSV หรือค้างในหน้า 'ต้องตามต่อ'",
+           [r.evalsLeft, r.followLeft], [0, 0]);
       t.check("ลงบันทึกร่องรอยการใช้งาน", r.audited);
 
       /* เลิกทำต้องคืนทั้งชุด รวมบัญชีด้วย */

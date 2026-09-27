@@ -8031,6 +8031,12 @@ function mergeDatasets(base, mine, theirs) {
     m.forEach((rec, id) => {
       const bRec = b.get(id), tRec = t.get(id);
       if (bRec && sameJson(rec, bRec)) return;                    /* เครื่องนี้ไม่ได้แก้ ปล่อยของคลาวด์ไว้ */
+      /* ทะเบียนแพทย์ประจำบ้านและบัญชีผู้ใช้รวมรายช่อง ไม่ใช่ทั้งเรคคอร์ด — การเลื่อนชั้นปีบนเครื่องอื่นแก้ year / active /
+         graduatedAY / name (และ displayName ของบัญชี) ของทุกคนพร้อมกัน ถ้าเครื่องนี้แก้ช่องอื่นของคนนั้นไว้ (เช่น อาจารย์ที่ปรึกษา)
+         ทั้งเรคคอร์ดของเครื่องนี้เคยชนะ ชั้นปีจึงถอยกลับเป็นของปีก่อนทั้งที่ตัวชี้ปีบอกว่าเลื่อนแล้ว — คนนั้นค้างชั้นปีเดิมถาวร
+         ใช้เกณฑ์ผิดปี และปี 4 ไม่จบการศึกษา · ช่องที่เครื่องนี้ไม่ได้แตะจึงต้องรับค่าจากคลาวด์
+         บันทึกว่าชนเฉพาะช่องที่แก้ทั้งสองฝั่งจริง (mergeFields) ไม่ใช่ทั้งเรคคอร์ด */
+      if (bRec && tRec && (key === "residents" || key === "users")) { out.set(id, mergeFields(bRec, rec, tRec, key, id, conflicts)); return; }
       if (tRec && bRec && !sameJson(tRec, bRec) && !sameJson(tRec, rec))
         conflicts.push({ key, id, note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
       /* ไม่มีฐานเปรียบเทียบเลย (เช่น เครื่องนี้เพิ่งดึงข้อมูลมาครั้งแรก) — เทียบไม่ได้ว่าของเราแก้จริง
@@ -10217,6 +10223,9 @@ function editResident(id) {
         const accs = (store.data.users || []).filter(u => u.residentId === r.id && u.id !== meId);
         const rots = (store.data.rotations || []).filter(x => x.residentId === r.id).length;
         const epas = (store.data.epaAssessments || []).filter(x => x.residentId === r.id).length;
+        /* ผลประเมินลงกองเป็นของคนนั้นคนเดียวเหมือน EPA — ถ้าค้างไว้ CSV ที่ส่งราชวิทยาลัยฯ จะมีแถวไม่มีชื่อแต่มีคะแนน
+           และผลที่ "ต้องติดตามเป็นพิเศษ" ของคนที่ไม่มีตัวตนแล้วจะค้างในหน้า "ต้องตามต่อ" แบบที่ไม่มีใครปิดได้ */
+        const revs = (store.data.rotationEvals || []).filter(x => x.residentId === r.id).length;
         const visits = (store.data.visits || []).filter(x => x.residentId === r.id).length;
         /* เคสผ่าตัดกับตารางนำเสนอเป็นระเบียนร่วมกับคนอื่น ลบข้างเดียวไม่ได้ — แต่ต้องบอกว่าจะเหลืออะไรไว้
            ไม่ใช่ปล่อยให้ผู้ใช้เข้าใจว่าลบแล้วหมดทุกอย่าง */
@@ -10224,7 +10233,7 @@ function editResident(id) {
         const inTalks = (store.data.schedule || []).filter(t => t.residentId === r.id
           || t.chiefId === r.id || (t.coResidentIds || []).includes(r.id)).length;
         if (!(await confirmAny("ลบ " + r.name + " ออกจากทะเบียน?\n" +
-              "จะถูกลบไปด้วย: กิจกรรม " + n + " · ช่วงหมุนเวียน " + rots + " · ผลประเมิน EPA " + epas +
+              "จะถูกลบไปด้วย: กิจกรรม " + n + " · ช่วงหมุนเวียน " + rots + " · ผลประเมินลงกอง " + revs + " · ผลประเมิน EPA " + epas +
               " · คำขอเข้าคาบ " + visits + (accs.length ? " · บัญชีผู้ใช้ " + accs.map(u => u.username).join(", ") : "") +
               (inCases || inTalks ? "\nยังมีชื่ออยู่ในระเบียนร่วมกับคนอื่น (เคสผ่าตัด " + inCases + " · ตารางนำเสนอ " + inTalks +
                 ") — ไม่ถูกลบให้ ต้องแก้ที่รายการนั้นเอง" : "") +
@@ -10241,7 +10250,8 @@ function editResident(id) {
           { list:"users", keep: u => u.residentId !== r.id || u.id === meId },
           { list:"rotations", keep: x => x.residentId !== r.id },
           { list:"epaAssessments", keep: x => x.residentId !== r.id },
-          { list:"visits", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; });
+          { list:"visits", keep: x => x.residentId !== r.id },
+          { list:"rotationEvals", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; });
       }}] : [])
   ]);
   previewBatch();
@@ -11329,7 +11339,12 @@ function importJson(file) {
         if (me) {
           const users = (store.data.users ||= []);
           const again = users.find(u => u.id === me.id) || users.find(u => u.username === me.username);
-          if (again) { session = { ...session, userId: again.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
+          if (again) {
+            /* คงรหัสผ่านที่ใช้อยู่ของคนที่กดนำเข้า — ไฟล์อาจเก่ากว่าการเปลี่ยนรหัส หรือถูกตัดรหัสออกไปแล้ว (pin ว่าง = ล็อกอินไม่ได้เลย)
+               ถ้ารับรหัสจากไฟล์ ออกจากระบบแล้วจะเข้าด้วยรหัสปัจจุบันไม่ได้ และอาจไม่มีผู้จัดหลักสูตรคนอื่นตั้งรหัสให้ */
+            if (me.pin) again.pin = me.pin;
+            session = { ...session, userId: again.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+          }
           else { users.push(me); session = { ...session, userId: me.id }; localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
         }
         /* ฐานเปรียบเทียบเดิมอ้างถึงข้อมูลชุดก่อนนำเข้า ต้องล้างเช่นเดียวกับ wipe()/reset()

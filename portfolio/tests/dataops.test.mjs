@@ -140,18 +140,21 @@ export default async function run() {
         /* ไฟล์สำรองจากอีกเครื่อง: uid() สุ่มคนละชุด บัญชีเดียวกันจึงคนละ id — ต้องผูกเซสชันกลับ
            ด้วยชื่อผู้ใช้ ไม่ใช่ปล่อยให้ currentUser() หลุดเป็น undefined กลางเซสชัน */
         const mine = currentUser();
+        /* ไฟล์เก่ากว่าการเปลี่ยนรหัสผ่าน — รหัสในไฟล์ไม่ใช่รหัสที่ใช้อยู่ตอนนี้ */
         const good = { residents:[{ id:"r_y", name:"นพ. ไฟล์ดี", year:3, cohort:"2567", active:true }],
                        activities:[], services:[],
-                       users:[{ ...mine, id:"usr_from_other_device" }], meta:{} };
+                       users:[{ ...mine, id:"usr_from_other_device", pin:"0000" }], meta:{} };
         const realCD = confirmDialog; confirmDialog = async () => true;
         try {
           importJson(new File([JSON.stringify(good)], "good.json", { type:"application/json" }));
           await new Promise(r => setTimeout(r, 600));
         } finally { confirmDialog = realCD; }
         return { residents: store.data.residents.length, name: store.data.residents[0]?.name || "",
-                 me: currentUser()?.username || "", manage: canManage(), users: store.data.users.length };
+                 me: currentUser()?.username || "", manage: canManage(), users: store.data.users.length,
+                 pinKept: currentUser()?.pin === mine.pin, pinWas: mine.pin, pinNow: currentUser()?.pin };
       });
       t.eq("ไฟล์ที่ถูกต้องยังนำเข้าได้", [ok.residents, ok.name], [1, "นพ. ไฟล์ดี"]);
+      t.check("คนที่กดนำเข้ายังใช้รหัสผ่านปัจจุบันได้ ไม่ถูกแทนด้วยรหัสเก่าในไฟล์", ok.pinKept, ok.pinWas + " → " + ok.pinNow);
       t.eq("ไฟล์จากอีกเครื่อง (id บัญชีคนละชุด) ผูกเซสชันกลับด้วยชื่อผู้ใช้ ไม่สร้างบัญชีซ้ำ",
            [ok.me, ok.manage, ok.users], [before.me, true, 1]);
       t.check("นำเข้าไฟล์: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));

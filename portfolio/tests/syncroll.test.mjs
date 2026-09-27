@@ -149,6 +149,33 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- 2c) มีฐานเปรียบเทียบ และเครื่องนี้แก้ช่องอื่นของคนเดียวกันค้างไว้ ----------
+       ทะเบียนเคยรวมทั้งเรคคอร์ด — เรคคอร์ดของเครื่องนี้ (ยังไม่เลื่อน) ชนะทั้งก้อน ชั้นปีถอยกลับเป็นปีก่อน
+       ทั้งที่ตัวชี้ปีมาจากคลาวด์ว่าเลื่อนแล้ว คนนั้นจึงค้างชั้นปีเดิมถาวร */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const s = await staleDevice(page);
+      await page.evaluate(({ targetId }) => {
+        /* เครื่องนี้แก้ชื่อย่อของคนเดียวกันไว้ก่อนขึ้นปีใหม่ แต่ยังไม่ได้ส่งขึ้น */
+        store.resident(targetId).nick = "ชื่อย่อที่เครื่องนี้แก้";
+        suppressDirty = true; store.save(); suppressDirty = false;
+      }, s);
+      await page.addInitScript(fakeCloud, { url: CLOUD, getStatus: 200 });
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("__test_put"), null, { timeout: 20000 }).catch(() => {});
+      const r = await page.evaluate(({ targetId }) => {
+        const me = store.resident(targetId);
+        return { year: me?.year, nick: me?.nick, advisor: me?.advisor, cursor: store.data.meta.yearRolledAY,
+                 conflictsOnTarget: (store.data.syncConflicts || []).filter(c => String(c.id).startsWith(targetId)).map(c => c.id) };
+      }, s);
+      t.eq("ชั้นปีเป็นของคลาวด์ที่เลื่อนแล้ว ไม่ถอยกลับเป็นของปีก่อน", [r.year, r.cursor], [s.remoteYears[s.targetId], s.ay]);
+      t.eq("ช่องที่เครื่องนี้แก้ (ชื่อย่อ) และช่องที่เครื่องอื่นแก้ (อาจารย์ที่ปรึกษา) อยู่ครบทั้งคู่",
+           [r.nick, r.advisor], ["ชื่อย่อที่เครื่องนี้แก้", "อ.ที่แก้จากเครื่องอื่นหลังเลื่อนชั้นปี"]);
+      t.eq("ต่างช่องกันไม่ถูกบันทึกว่าชน", r.conflictsOnTarget, []);
+      t.check("แก้ค้างก่อนขึ้นปี: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- 2b) เครื่องที่ไม่มีฐานเปรียบเทียบ — ตัวชี้ปีต้องไม่ย้อน และไม่เลื่อนซ้ำคนที่เครื่องอื่นเพิ่ม ----------
        ไม่มีฐาน = ของเครื่องนี้ชนะทุกช่องที่ต่าง เดิมตัวชี้ปีจึงย้อนเป็นของเครื่องนี้ (ปีก่อน) แล้วถูกเลื่อนซ้ำ
        ปี 1 รุ่นใหม่ที่เครื่องอื่นเพิ่มหลังเลื่อนกลายเป็นปี 2 และค่าที่ผิดถูกส่งทับคลาวด์ถาวร */
