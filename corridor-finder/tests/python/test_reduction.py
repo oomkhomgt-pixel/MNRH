@@ -99,6 +99,7 @@ def test_the_record_keeps_what_redoes_the_reduction():
     rec = r.record()
     assert rec["units"][0]["transform"][0][3] == -6.0 and rec["units"][0]["voxels"] == 20 * 20 * 20
     assert rec["residual_mm"] == {"si_right": 1.2}
+    assert rec["accepted_by"] is None, "not accepted unless someone accepted it"
 
 
 def test_an_unconstrained_region_always_warns():

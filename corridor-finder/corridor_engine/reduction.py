@@ -68,6 +68,10 @@ class Reduction:
     region_xyz: Dict[str, Sequence]
     source: str = "unspecified"  # who proposed it, for the plan and report
     notes: List[str] = field(default_factory=list)
+    # Who accepted this case's reduction on the before/after sheet, and
+    # when (DECISIONS.md 3.1; displacement-finder 7c.8). None: not accepted,
+    # and nothing may be planned on it.
+    accepted_by: Optional[str] = None
 
     def __post_init__(self):
         # A region with an error but no place, or a place but no error, would
@@ -84,6 +88,7 @@ class Reduction:
         reliable it is, without the voxel masks."""
         return {
             "source": self.source,
+            "accepted_by": self.accepted_by,
             "units": [{"name": m.name, "transform": m.transform.tolist(),
                        "voxels": int(m.mask.sum())} for m in self.moves],
             # JSON has no infinity: an unconstrained region is kept as null

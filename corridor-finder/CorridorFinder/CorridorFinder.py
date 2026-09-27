@@ -400,6 +400,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         they were planned on."""
         if self.labels_volume is None or not self.landmarks:
             raise RuntimeError("segment() and detect_landmarks() must both succeed first")
+        if not reduction.accepted_by:
+            raise RuntimeError(
+                "This reduction has not been accepted. Nothing is planned on a virtual reduction until the "
+                "surgeon has accepted that case on the before/after sheet (DECISIONS.md 3.1).")
         self.set_anatomy("as scanned")
         self._anatomies.pop("reduced", None)
         scanned = self._anatomy_bundle()

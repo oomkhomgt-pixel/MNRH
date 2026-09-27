@@ -266,6 +266,7 @@ def _render_reduction(data: dict) -> str:
              f"<tbody>{rows}</tbody></table>") if rows else "<p><em>No regional error was given.</em></p>"
     return (f'<div class="reduction-banner"><strong>{_esc(REDUCED_BANNER)}</strong> '
             f"Screws on it: {_esc(', '.join(reduced))}. Proposed by: {_esc(reduction.get('source', 'unknown'))}. "
+            f"Accepted by: {_esc(reduction.get('accepted_by') or 'NOT RECORDED')}. "
             f"Skin entries on the moved side are approximate.</div>{table}")
 
 

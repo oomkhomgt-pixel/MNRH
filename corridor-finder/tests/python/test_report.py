@@ -242,6 +242,7 @@ def test_a_plan_on_reduced_anatomy_says_so_and_shows_the_scanned_status():
     assert "bones as scanned: clearance -1.4 mm (BREACH)" in html_str
     assert html_str.count("Anatomy: virtually reduced") == 1
     assert "symphysis</td><td>UNCONSTRAINED" in html_str, "an unconstrained region never reads as a number"
+    assert "Accepted by: NOT RECORDED" in html_str
 
 
 def test_a_plan_without_a_reduction_has_no_banner():

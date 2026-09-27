@@ -601,6 +601,14 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         reduction = reduction_mod.Reduction(
             moves=[reduction_mod.Move("hip_right", hip, shift)], residual_mm={"si_right": 50.0},
             region_xyz={"si_right": facing}, source="workflow check")
+        try:
+            logic.apply_reduction(reduction)
+            refused = False
+        except RuntimeError:
+            refused = True
+        check(refused and logic.anatomy_state == "as scanned",
+              "a reduction the surgeon has not accepted is refused (3.1)")
+        reduction.accepted_by = "workflow check (phantom test, not a surgeon)"
         overlaps = logic.apply_reduction(reduction)
         moved = logic.labels_volume.array == seg.HIP_R
         check(logic.anatomy_state == "reduced" and not np.array_equal(moved, hip),
