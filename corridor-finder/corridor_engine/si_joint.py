@@ -55,6 +55,8 @@ ANTERIOR_EDGE_MM = 3.0  # the front of a joint margin, as deep as this
 PLANE_FIT_MM = 12.0  # the joint's own plane is fitted within this of a level
 MAX_SHIFT_MM = 20.0  # how far up or down a hemipelvis is looked for
 PROFILE_RELIEF_MM = 2.0  # a joint margin flatter than this cannot show a shift
+SHIFT_MIN_OVERLAP = 0.6  # a shift is only judged where this much of the trace still overlaps
+SHIFT_TIE_MM = 0.05  # fits this close to the best count as equally good
 DISRUPTED_CHOICES = ("none", "right", "left", "both")
 
 
@@ -181,12 +183,30 @@ def _cephalad_offset(z_mm: np.ndarray, sacral_y: np.ndarray, iliac_y: np.ndarray
     value); that is a fact about the anatomy, not a measurement of zero."""
     if z_mm.size < 5 or float(np.ptp(sacral_y)) < PROFILE_RELIEF_MM:
         return 0.0, False
-    residual = iliac_y - np.median(iliac_y - sacral_y)  # the step across the joint comes off first
-    shifts = np.arange(-MAX_SHIFT_MM, MAX_SHIFT_MM + step_mm, step_mm)
-    cost = np.array([np.mean(np.abs(np.interp(z_mm - shift, z_mm, sacral_y) - residual)) for shift in shifts])
-    if float(cost.max() - cost.min()) < 0.5:  # every shift fits about as well
-        return 0.0, False
-    return float(shifts[int(np.argmin(cost))]), True
+    order = np.argsort(z_mm)
+    z, sac, ili = z_mm[order], sacral_y[order], iliac_y[order]
+    residual = ili - np.median(ili - sac)  # the step across the joint comes off first
+    # A shift is costed only where the shifted level still lies on the
+    # sacral trace. Costing it off the ends, where interpolation holds the
+    # end value flat, made every shift that ran off the bottom look better
+    # than it was: on eight intact joints the answer was always "below",
+    # and always a whole number of slices.
+    fine = step_mm / 4.0
+    shifts = np.arange(-MAX_SHIFT_MM, MAX_SHIFT_MM + fine, fine)
+    need = max(5, int(np.ceil(SHIFT_MIN_OVERLAP * z.size)))
+    cost = np.full(shifts.size, np.inf)
+    for n, shift in enumerate(shifts):
+        at = z - shift
+        on = (at >= z[0]) & (at <= z[-1])
+        if int(on.sum()) >= need:
+            cost[n] = float(np.mean(np.abs(np.interp(at[on], z, sac) - residual[on])))
+    finite = np.isfinite(cost)
+    if not finite.any() or float(cost[finite].max() - cost[finite].min()) < 0.5:
+        return 0.0, False  # every shift fits about as well
+    # Of the shifts that fit as well as the best, the smallest: a match that
+    # is no better further away is not evidence of a displacement.
+    near = finite & (cost <= float(cost[finite].min()) + SHIFT_TIE_MM)
+    return float(shifts[near][int(np.argmin(np.abs(shifts[near])))]), True
 
 
 def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: str, band) -> JointWidth:

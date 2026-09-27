@@ -127,3 +127,47 @@ def test_missing_sacral_landmarks_are_reported_not_guessed():
     # With nothing measured, both sides fall back to the cap rather than to
     # a number nobody checked.
     assert bridging_widths(widths, "none") == {"right": MAX_BRIDGE_MM, "left": MAX_BRIDGE_MM}
+
+
+def _profiled(up=0.0):
+    """Sacrum and right hip whose anterior margins have relief along z: the
+    front of each bone waves by 4 mm, in step, so a hemipelvis moved up
+    carries its wave up with it. That is the only kind of joint on which an
+    up-or-down shift can be measured at all."""
+    labels = np.zeros((70, 80, 120), dtype=np.uint8)
+    zz, yy, xx = np.mgrid[0:70, 0:80, 0:120]
+    front_sacrum = 55 + 4.0 * np.sin(zz / 4.0)
+    labels[(xx >= 50) & (xx <= 70) & (yy >= 20) & (yy <= front_sacrum) & (zz >= 10) & (zz <= 60)] = seg.SACRUM
+    front_hip = 55 + 4.0 * np.sin((zz - up) / 4.0)
+    labels[(xx >= 73) & (xx <= 100) & (yy >= 20) & (yy <= front_hip) & (zz >= 10 + up) & (zz <= 60 + up)] = seg.HIP_R
+    labels[(xx >= 20) & (xx <= 47) & (yy >= 20) & (yy <= front_sacrum) & (zz >= 10) & (zz <= 60)] = seg.HIP_L
+    landmarks = {"s1_body_center": Landmark(np.array([60.0, 40.0, 50.0])),
+                 "s2_body_center": Landmark(np.array([60.0, 40.0, 25.0]))}
+    return Volume(labels, SPACING), landmarks
+
+
+def test_an_undisplaced_joint_is_not_read_as_shifted_down():
+    """On eight joints the surgeon reads as intact, the old matching always
+    answered "below", by a whole number of slices: it costed shifts on the
+    ends of the trace, where interpolation holds the end value flat."""
+    volume, landmarks = _profiled(up=0.0)
+    right = measure_joint_widths(volume, landmarks)["right"]
+    assert right.cephalad_known
+    assert right.step_cephalad_mm == pytest.approx(0.0, abs=0.6)
+
+
+def test_a_hemipelvis_moved_up_is_read_as_up():
+    volume, landmarks = _profiled(up=5.0)
+    right = measure_joint_widths(volume, landmarks)["right"]
+    assert right.cephalad_known
+    # The direction is right; the size reads short. On this phantom a true
+    # 3, 5 or 8 mm shift comes back as about 2, 3.8 and 6.8 mm, the same
+    # either way up, because each bone's anterior margin is read within a
+    # few millimetres of the joint's front end, which blunts the profile
+    # being matched. Recorded here so a change that makes it worse, or
+    # better, is seen.
+    assert 3.0 <= right.step_cephalad_mm <= 5.5
+    assert "above" in right.step_sentence()
+    down = measure_joint_widths(*_profiled(up=-5.0))["right"]
+    assert -5.5 <= down.step_cephalad_mm <= -3.0 and "below" in down.step_sentence()
+
