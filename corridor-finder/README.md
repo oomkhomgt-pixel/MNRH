@@ -95,6 +95,14 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Corridors on a virtual reduction, corridor side (DECISIONS.md 3.4,
+      3.6): bones and CT moved by each unit's rigid transform, screws
+      tagged and checked on the anatomy they were planned on, their
+      as-scanned status shown, an amber warning where the reduction's
+      regional error exceeds the screw's spare clearance, and a banner
+      in the report and viewer. Checked in Slicer on the phantom with a
+      known 3 mm move. Not yet: the reduction itself (displacement
+      engine), a panel control to apply it, any real case.
 - [x] An LC-2 that cannot reach the far cortex within 130 mm (or the
       length asked for) may stop in bone with 32 mm past the fracture,
       marked as 3 or more points (DECISIONS.md 7.12). Checked on

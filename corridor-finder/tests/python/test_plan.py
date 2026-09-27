@@ -162,3 +162,22 @@ def test_plan_declares_its_coordinate_system():
     data["coordinate_system"] = "LPS"
     with pytest.raises(jsonschema.ValidationError):
         validate_plan(data)
+
+
+def test_a_reduced_screw_and_its_reduction_survive_saving(tmp_path):
+    """DECISIONS 3.4: each screw keeps the anatomy it was planned on, and the
+    plan keeps the reduction (transforms and regional error) it refers to."""
+    plan = _build_plan()
+    plan.screws[0].anatomy = "reduced"
+    plan.reduction = {"source": "test", "units": [{"name": "hip_right", "transform": np.eye(4).tolist(), "voxels": 10}],
+                      "residual_mm": {"si_right": 4.7}, "region_xyz": {"si_right": [1.0, 2.0, 3.0]}}
+    validate_plan(plan)
+    path = tmp_path / "plan.json"
+    save_plan(plan, path)
+    loaded = load_plan(path)
+    assert loaded.screws[0].anatomy == "reduced" and loaded.screws[1].anatomy == "as scanned"
+    assert loaded.reduction["residual_mm"] == {"si_right": 4.7}
+    bad = plan.to_dict()
+    bad["screws"][0]["anatomy"] = "mirrored"
+    with pytest.raises(jsonschema.ValidationError):
+        validate_plan(bad)

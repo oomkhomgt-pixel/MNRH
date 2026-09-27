@@ -42,6 +42,7 @@ supporting them is future work.
 # (observed in Slicer 5.12.4 before jsonschema was pip-installed).
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import logging
@@ -101,6 +102,7 @@ try:
         mesh as mesh_mod,
         phi as phi_mod,
         plan as plan_mod,
+        reduction as reduction_mod,
         report as report_mod,
         segmentation as seg_mod,
         skin as skin_mod,
@@ -334,10 +336,135 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
         self.si_disrupted: Optional[str] = None
         self.si_bridge_mm: Dict[str, float] = {}
+        # Virtual reduction (DECISIONS.md 3.4, 3.6). The anatomy in use is
+        # held in the attributes above; the other one, when there is a
+        # reduction, waits in _anatomies under its name.
+        self.anatomy_state: str = "as scanned"
+        self._anatomies: Dict[str, dict] = {}
+        self.reduction: Optional["reduction_mod.Reduction"] = None
+        self.reduction_overlaps: Dict[str, int] = {}
+
+    # ---- Anatomy: as scanned, or virtually reduced ---------------------
+
+    # What differs between the scanned and the reduced anatomy: the bones,
+    # the CT, everything measured on them, and every cache built from them.
+    _ANATOMY_ATTRS = ("labels_volume", "hu_volume", "landmarks", "frame", "si_widths", "si_bridge_mm",
+                      "patient_views", "_edt_cache", "_mask_cache", "_joint_cache", "_body_mask",
+                      "_entry_area_cache", "_labels_version")
+    # Where bone moves away in a virtual reduction, the CT reads soft tissue.
+    VACATED_HU = 40
+
+    def _anatomy_bundle(self) -> dict:
+        return {a: getattr(self, a) for a in self._ANATOMY_ATTRS}
+
+    def _load_anatomy(self, bundle: dict) -> None:
+        for a, v in bundle.items():
+            setattr(self, a, v)
+
+    @contextlib.contextmanager
+    def anatomy(self, state: str):
+        """Work on the named anatomy for the duration, then come back."""
+        if state == self.anatomy_state:
+            yield
+            return
+        if state not in self._anatomies:
+            raise RuntimeError(f"there is no {state!r} anatomy (no virtual reduction applied)")
+        previous = self.anatomy_state
+        self._anatomies[previous] = self._anatomy_bundle()
+        self._load_anatomy(self._anatomies.pop(state))
+        self.anatomy_state = state
+        try:
+            yield
+        finally:
+            self._anatomies[state] = self._anatomy_bundle()
+            self._load_anatomy(self._anatomies.pop(previous))
+            self.anatomy_state = previous
+
+    def set_anatomy(self, state: str) -> None:
+        """Switch what is shown, searched and planned on."""
+        if state == self.anatomy_state:
+            return
+        if state not in self._anatomies:
+            raise RuntimeError(f"there is no {state!r} anatomy (no virtual reduction applied)")
+        self._anatomies[self.anatomy_state] = self._anatomy_bundle()
+        self._load_anatomy(self._anatomies.pop(state))
+        self.anatomy_state = state
+
+    def apply_reduction(self, reduction: "reduction_mod.Reduction") -> Dict[str, int]:
+        """Build the reduced anatomy from the scanned one and switch to it.
+        Every moving unit's bone and CT move by its rigid transform; the
+        landmarks, frame, sacroiliac joints and views are measured again on
+        the reduced bones, and the surgeon's declaration of which joint is
+        disrupted is kept. Returns, per unit, how many voxels landed on
+        bone that was not moving. Screws already planned keep the anatomy
+        they were planned on."""
+        if self.labels_volume is None or not self.landmarks:
+            raise RuntimeError("segment() and detect_landmarks() must both succeed first")
+        self.set_anatomy("as scanned")
+        self._anatomies.pop("reduced", None)
+        scanned = self._anatomy_bundle()
+        labels, overlaps = reduction_mod.apply_moves(self.labels_volume, reduction.moves, fill=0)
+        hu, _ = reduction_mod.apply_moves(self.hu_volume, reduction.moves, fill=self.VACATED_HU)
+        self._anatomies["as scanned"] = scanned
+        self.labels_volume, self.hu_volume = labels, hu
+        self._edt_cache, self._mask_cache, self._joint_cache, self._entry_area_cache = {}, {}, {}, {}
+        self._body_mask = None
+        self._labels_version = scanned["_labels_version"] + 1
+        self.anatomy_state = "reduced"
+        declared = self.si_disrupted
+        self.landmarks = landmarks_mod.detect_landmarks(self.labels_volume)
+        self._build_frame()
+        self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        self._compute_views()
+        self.si_disrupted = declared
+        self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, declared) if declared else {}
+        self.reduction = reduction
+        self.reduction_overlaps = dict(overlaps)
+        if self.plan is not None:
+            self.plan.reduction = dict(reduction.record(), overlap_voxels=dict(overlaps))
+            self.plan.log("apply_reduction", after={"source": reduction.source,
+                                                    "residual_mm": dict(reduction.residual_mm)})
+        return overlaps
+
+    def clear_reduction(self) -> None:
+        """Back to the scanned anatomy, and forget the reduction. Screws
+        planned on it can no longer be checked and say so."""
+        if "as scanned" in self._anatomies or self.anatomy_state == "reduced":
+            self.set_anatomy("as scanned")
+        self._anatomies.pop("reduced", None)
+        self.reduction = None
+        self.reduction_overlaps = {}
+        if self.plan is not None:
+            self.plan.log("clear_reduction")
+
+    def _reduction_checks(self, screw, start, tip) -> dict:
+        """For a screw on the reduced anatomy: where its fit depends on the
+        reduction (DECISIONS.md 3.6) and how the same screw fares on the
+        bones as scanned (3.4)."""
+        out = {}
+        start, tip = np.asarray(start, dtype=float), np.asarray(tip, dtype=float)
+        n = max(2, int(np.linalg.norm(tip - start)) + 1)
+        points = start + np.linspace(0.0, 1.0, n)[:, None] * (tip - start)
+        field = self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm)
+        spare = field.sample_trilinear(points, order=1) - screw.diameter_mm / 2.0 - screw.margin_mm
+        found = reduction_mod.reduction_warnings(points, spare, self.reduction) if self.reduction else []
+        out["reduction_warnings"] = found
+        with self.anatomy("as scanned"):
+            try:
+                v0 = self.validate_screw(screw.corridor_id, screw.side, screw.entry_xyz, screw.target_xyz,
+                                         screw.diameter_mm, screw.margin_mm, tip_rule=screw.tip_rule)
+                out["as_scanned"] = {"breach": bool(v0.breach), "min_clearance_mm": float(v0.min_clearance_mm)}
+            except ValueError as exc:
+                out["as_scanned"] = {"breach": True, "min_clearance_mm": None, "note": str(exc)}
+        return out
 
     # ---- Segmentation --------------------------------------------------
 
     def load_volume(self, volume_node) -> None:
+        self._anatomies = {}
+        self.anatomy_state = "as scanned"
+        self.reduction = None
+        self.reduction_overlaps = {}
         self.hu_volume = volume_node_to_engine_volume(volume_node)
         self.volume_node = volume_node
         self.labels_volume = None
@@ -446,6 +573,13 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         read back from a segmentation the user corrected). Returns True if
         anything changed; distance fields are then recomputed on next use."""
         new = node_array_to_engine_array(self.volume_node, labels_kji).astype(np.uint8)
+        if self.anatomy_state != "as scanned" or self._anatomies:
+            # The segmentation node holds the scanned bones: compare with
+            # those, and drop a reduction built from the old ones.
+            self.set_anatomy("as scanned")
+            if np.array_equal(new, self.labels_volume.array):
+                return False
+            self.clear_reduction()
         if self.labels_volume is not None and np.array_equal(new, self.labels_volume.array):
             return False
         self.labels_volume = EngineVolume(array=new, spacing=self.hu_volume.spacing, origin=self.hu_volume.origin)
@@ -504,6 +638,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, disrupted) if disrupted else {}
         self._edt_cache = {}
         self._entry_area_cache = {}
+        for other in self._anatomies.values():  # the same joints, on the other anatomy
+            other["si_bridge_mm"] = si_joint_mod.bridging_widths(other["si_widths"], disrupted) if disrupted else {}
+            other["_edt_cache"], other["_entry_area_cache"] = {}, {}
 
     def set_si_bridge_mm(self, side: str, width_mm: float) -> None:
         """Override what is counted as bone in one joint, after the surgeon
@@ -511,6 +648,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.si_bridge_mm[side] = float(width_mm)
         self._edt_cache = {}
         self._entry_area_cache = {}
+        for other in self._anatomies.values():
+            other["si_bridge_mm"] = dict(other["si_bridge_mm"], **{side: float(width_mm)})
+            other["_edt_cache"], other["_entry_area_cache"] = {}, {}
 
     def si_bridge_by_label(self) -> Dict[int, float]:
         return {seg_mod.HIP_R: self.si_bridge_mm.get("right", 0.0), seg_mod.HIP_L: self.si_bridge_mm.get("left", 0.0)}
@@ -1109,19 +1249,21 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
 
     def entry_area(self, screw) -> "entry_zone_mod.EntryArea":
         """Where this screw's entry may sit and still pass the same check the
-        plan applies. Recomputed whenever the screw or the bones change."""
-        key = (tuple(screw.entry_xyz), tuple(screw.target_xyz), screw.diameter_mm, screw.margin_mm, screw.tip_rule, self._labels_version)
-        cached = self._entry_area_cache.get(screw.screw_id)
-        if cached is None or cached[0] != key:
-            self._progress(f"Measuring the room around {screw.screw_id}'s entry...")
-            area = entry_zone_mod.safe_entry_area(
-                screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm,
-                self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm), self.labels_volume,
-                tip_rule=self.screw_tip_rule(screw.corridor_id, screw.tip_rule),
-                catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
-            )
-            self._entry_area_cache[screw.screw_id] = (key, area)
-        return self._entry_area_cache[screw.screw_id][1]
+        plan applies, on the anatomy it was planned on. Recomputed whenever
+        the screw or the bones change."""
+        with self.anatomy(getattr(screw, "anatomy", "as scanned")):
+            key = (tuple(screw.entry_xyz), tuple(screw.target_xyz), screw.diameter_mm, screw.margin_mm, screw.tip_rule, self._labels_version)
+            cached = self._entry_area_cache.get(screw.screw_id)
+            if cached is None or cached[0] != key:
+                self._progress(f"Measuring the room around {screw.screw_id}'s entry...")
+                area = entry_zone_mod.safe_entry_area(
+                    screw.entry_xyz, screw.target_xyz, screw.diameter_mm, screw.margin_mm,
+                    self.clearance_field(screw.corridor_id, screw.side, screw.margin_mm), self.labels_volume,
+                    tip_rule=self.screw_tip_rule(screw.corridor_id, screw.tip_rule),
+                    catalog_lengths_mm=self.catalog_lengths(screw.diameter_mm),
+                )
+                self._entry_area_cache[screw.screw_id] = (key, area)
+            return self._entry_area_cache[screw.screw_id][1]
 
     # ---- Skin entry -----------------------------------------------------
 
@@ -1182,6 +1324,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             drr_views=[self._resolve_view(v, side) for v in (drr_views or self.corridor_defs[corridor_id].get("drr_views", []))],
         )
         screw.tip_rule = self.screw_tip_rule(corridor_id, getattr(result, "tip_rule", None))
+        screw.anatomy = self.anatomy_state
         self._validate_plan_screw(screw)
         self.plan.screws.append(screw)
         self.plan.log("add_screw", screw_id=screw_id, after=screw.__dict__)
@@ -1198,6 +1341,30 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         raise KeyError(f"view {view!r} (side {side!r}) is not defined in corridors.json views_deg")
 
     def _validate_plan_screw(self, screw, derived: bool = True) -> None:
+        """Validate a plan screw on the anatomy it was planned on (DECISIONS.md
+        3.4); on the reduced one, also say where its fit depends on the
+        reduction and how it fares on the bones as scanned. A screw whose
+        reduction is no longer loaded cannot be checked, and reads as a
+        breach rather than a stale "safe"."""
+        state = getattr(screw, "anatomy", "as scanned")
+        if state != self.anatomy_state and state not in self._anatomies:
+            screw.validation = {
+                "breach": True, "min_clearance_mm": -screw.diameter_mm / 2.0,
+                "warnings": ["planned on a virtual reduction that is not loaded: apply it again, or plan again"],
+                "warning_codes": ["invalid"]}
+            return
+        with self.anatomy(state):
+            self._validate_plan_screw_here(screw, derived)
+            v = screw.validation
+            if state == "reduced" and v.get("start_xyz") is not None and v.get("tip_xyz") is not None:
+                extra = self._reduction_checks(screw, v["start_xyz"], v["tip_xyz"])
+                found = extra["reduction_warnings"]
+                if found:
+                    extra["warnings"] = list(v.get("warnings") or []) + [reduction_mod.warning_text(w) for w in found]
+                    extra["warning_codes"] = list(v.get("warning_codes") or []) + ["reduction_uncertain"] * len(found)
+                screw.validation = dict(v, **extra)
+
+    def _validate_plan_screw_here(self, screw, derived: bool = True) -> None:
         """Validate a plan screw from its handles and take what validate.py
         decides: its validation and implant length (entry cortex to tip).
         With ``derived``, also the trajectory angles and skin entry, which
@@ -1314,7 +1481,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # validate_screw used for it (with its tip_rule and the plan's
         # screw_library, as validate_screw does).
         self.refresh_derived()
-        screw_edts = {s.screw_id: self.clearance_field(s.corridor_id, s.side, s.margin_mm) for s in self.plan.screws}
+        screw_edts = {}
+        for s in self.plan.screws:
+            with self.anatomy(getattr(s, "anatomy", "as scanned")):
+                screw_edts[s.screw_id] = self.clearance_field(s.corridor_id, s.side, s.margin_mm)
         export_viewer_mod.export_viewer(self.plan, meshes, path, screw_edts=screw_edts)
 
 
@@ -2175,10 +2345,20 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             Image.fromarray(overlay).save(buf, format="PNG")
             return buf.getvalue()
 
-        all_views = sorted({v for s in self.logic.plan.screws for v in s.drr_views})
-        rendered = self.logic.render_views(all_views) if all_views else {}
+        # Each screw is shown on the CT of the anatomy it was planned on: the
+        # reduced one for a screw planned after a virtual reduction.
+        rendered_by_state = {}
+        for state in sorted({getattr(s, "anatomy", "as scanned") for s in self.logic.plan.screws}):
+            views = sorted({v for s in self.logic.plan.screws if getattr(s, "anatomy", "as scanned") == state
+                            for v in s.drr_views})
+            try:
+                with self.logic.anatomy(state):
+                    rendered_by_state[state] = self.logic.render_views(views) if views else {}
+            except RuntimeError:  # its reduction is no longer loaded
+                rendered_by_state[state] = {}
         images = {}
         for screw in self.logic.plan.screws:
+            rendered = rendered_by_state.get(getattr(screw, "anatomy", "as scanned"), {})
             per_screw = {}
             # The screw as validated: entry cortex to tip.
             v = screw.validation or {}
@@ -2191,8 +2371,11 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # One more view per screw: straight down it, where the screw is a
             # dot inside the area its entry may move in.
             barrel = (screw.guidance or {}).get("barrel_view")
-            if barrel is not None:
-                view = drr_mod.render_view(self.logic.hu_volume, barrel["rotate_x_deg"], barrel["rotate_z_deg"], name="down the screw")
+            if barrel is not None and (getattr(screw, "anatomy", "as scanned") == self.logic.anatomy_state
+                                       or getattr(screw, "anatomy", "as scanned") in self.logic._anatomies):
+                with self.logic.anatomy(getattr(screw, "anatomy", "as scanned")):
+                    view = drr_mod.render_view(self.logic.hu_volume, barrel["rotate_x_deg"], barrel["rotate_z_deg"],
+                                               name="down the screw")
                 overlay = drr_mod.draw_points(view, self.logic.entry_area(screw).entry_points_xyz)
                 overlay = drr_mod.draw_screw(view, start, tip, rgb=overlay)
                 per_screw["down the screw"] = png(drr_mod.crop_around(view, overlay, start))

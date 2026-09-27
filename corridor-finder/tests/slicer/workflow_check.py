@@ -53,6 +53,7 @@ if REPO_ROOT not in sys.path:
 
 from corridor_engine import drr as drr_mod  # noqa: E402
 from corridor_engine import plan as plan_mod  # noqa: E402
+from corridor_engine import reduction as reduction_mod  # noqa: E402
 from corridor_engine import segmentation as seg  # noqa: E402
 from corridor_engine import si_joint as si_joint_mod  # noqa: E402
 from corridor_engine.phantoms import pelvis_like  # noqa: E402
@@ -582,12 +583,72 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         w.exportPlanButton.click()
         check(screw.validation["breach"] is False, "restoring the bone restores the screw's clearance")
 
+    @step("Virtual reduction: screws planned on it, checked on it, and tagged")
+    def virtual_reduction():
+        # A known move (the right hip 3 mm laterally) stands in for the
+        # displacement engine's reduction, with a large error at the right
+        # sacroiliac joint so that any screw there must be warned about.
+        before = dict(screw.validation)
+        hip = logic.labels_volume.array == seg.HIP_R
+        shift = np.eye(4)
+        shift[0, 3] = 3.0
+        # The right sacroiliac joint as the reduction reports it: the hip
+        # bone's surface facing the sacrum, where it lands once moved.
+        from scipy import ndimage as ndi
+        to_sacrum = ndi.distance_transform_edt(logic.labels_volume.array != seg.SACRUM,
+                                               sampling=logic.labels_volume.spacing[::-1])
+        facing = logic.labels_volume.mask_voxel_centers_world(hip & (to_sacrum <= 3.0)) + [3.0, 0.0, 0.0]
+        reduction = reduction_mod.Reduction(
+            moves=[reduction_mod.Move("hip_right", hip, shift)], residual_mm={"si_right": 50.0},
+            region_xyz={"si_right": facing}, source="workflow check")
+        overlaps = logic.apply_reduction(reduction)
+        moved = logic.labels_volume.array == seg.HIP_R
+        check(logic.anatomy_state == "reduced" and not np.array_equal(moved, hip),
+              "applying the reduction moves the hip bone and switches to the reduced anatomy")
+        check(abs(int(moved.sum()) - int(hip.sum())) <= 0.02 * hip.sum(), "a rigid move keeps the hip bone's size")
+        log(f"    overlap with bone that did not move: {overlaps}; plan records {sorted(logic.plan.reduction)}")
+        logic._validate_plan_screw(screw, derived=False)
+        check(screw.anatomy == "as scanned" and screw.validation["min_clearance_mm"] == before["min_clearance_mm"],
+              "a screw planned before the reduction is still checked on the bones as scanned")
+        results = logic.suggest_corridor(cid, side, w.marginSpin.value)
+        fits = [r for r in results if r.screw.fits]
+        if check(bool(fits), f"{cid}/{side} is suggested on the reduced anatomy"):
+            reduced = logic.add_screw_to_plan(fits[0], cid, side, "reduced_1", w.marginSpin.value)
+            v = reduced.validation
+            log(f"    on the reduced anatomy: clearance {v['min_clearance_mm']:.2f} mm; as scanned {v.get('as_scanned')}; "
+                f"warnings {v.get('warnings')}")
+            st, tp = np.asarray(v["start_xyz"]), np.asarray(v["tip_xyz"])
+            pts = st + np.linspace(0, 1, 50)[:, None] * (tp - st)
+            log(f"    {len(facing)} joint-surface points; closest approach "
+                f"{min(np.linalg.norm(facing - p, axis=1).min() for p in pts):.1f} mm; found {v.get('reduction_warnings')}")
+            check(reduced.anatomy == "reduced" and "as_scanned" in v,
+                  "a screw planned on it is tagged reduced and says how it fares on the bones as scanned")
+            check(v["breach"] is False, "and it passes the breach rule on the reduced anatomy")
+            crosses = min(np.linalg.norm(facing - p, axis=1).min() for p in pts) <= reduction_mod.REGION_RADIUS_MM
+            check(("reduction_uncertain" in (v.get("warning_codes") or [])) == crosses,
+                  f"its fit is flagged exactly when it passes the joint, whose reduction error (50 mm) is larger "
+                  f"than any spare clearance (3.6; passes the joint: {crosses})")
+            logic.set_anatomy("as scanned")
+            logic._validate_plan_screw(reduced, derived=False)
+            check(reduced.validation["breach"] == v["breach"]
+                  and reduced.validation["min_clearance_mm"] == v["min_clearance_mm"],
+                  "switching the view to the scanned anatomy still checks the reduced screw on its own anatomy")
+            logic.clear_reduction()
+            logic._validate_plan_screw(reduced, derived=False)
+            check(reduced.validation["breach"] is True and "invalid" in reduced.validation["warning_codes"],
+                  "once the reduction is cleared, the screw planned on it cannot pass")
+            logic.plan.screws.remove(reduced)
+        logic.clear_reduction()
+        logic._validate_plan_screw(screw, derived=False)
+        check(logic.anatomy_state == "as scanned" and screw.validation["min_clearance_mm"] == before["min_clearance_mm"],
+              "back on the scanned anatomy, nothing about the first screw changed")
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

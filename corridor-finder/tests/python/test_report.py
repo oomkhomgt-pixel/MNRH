@@ -227,3 +227,21 @@ def test_report_states_how_much_screw_is_past_the_fracture():
     plan = _plan_with_screws([3.0])
     plan.screws[0].validation["past_fracture_mm"] = 36.4
     assert "Screw beyond the marked fracture: 36 mm" in render_report_html(plan)
+
+
+def test_a_plan_on_reduced_anatomy_says_so_and_shows_the_scanned_status():
+    """DECISIONS 3.4 and 3.6: a banner at the top, the reduction's error per
+    region, and for each reduced screw how it fares on the bones as scanned."""
+    plan = _plan_with_screws([3.0, 3.0])
+    plan.screws[0].anatomy = "reduced"
+    plan.screws[0].validation["as_scanned"] = {"breach": True, "min_clearance_mm": -1.4}
+    plan.reduction = {"source": "phantom", "residual_mm": {"si_right": 4.7}}
+    html_str = render_report_html(plan)
+    assert "Planned on virtually reduced anatomy: valid only after this reduction." in html_str
+    assert "si_right" in html_str and "4.7 mm" in html_str
+    assert "bones as scanned: clearance -1.4 mm (BREACH)" in html_str
+    assert html_str.count("Anatomy: virtually reduced") == 1
+
+
+def test_a_plan_without_a_reduction_has_no_banner():
+    assert "virtually reduced" not in render_report_html(_plan_with_screws([3.0]))

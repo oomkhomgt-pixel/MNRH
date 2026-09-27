@@ -38,6 +38,7 @@ window.CF = {
     diameter_mm: s.diameter_mm,
     margin_mm: s.margin_mm,
     tip_rule: s.tip_rule || "inside",
+    anatomy: s.anatomy || "as scanned",
     // Slicer's distance to the acetabular articular surface (may touch, 0,
     // not cross), measured at the planned handles only: shown while the
     // handles stay there, since the viewer does not measure it itself.
@@ -196,6 +197,10 @@ function updateHud(meshCount) {
   const breaches = window.CF.screws.filter((s) => s.breach === true).length;
   const unchecked = window.CF.screws.filter((s) => s.breach === null).length;
   let text = `${meshCount} bone mesh(es), ${window.CF.screws.length} screw(s)`;
+  // DECISIONS.md 3.4: a plan with screws on a virtual reduction says so.
+  if ((plan.screws || []).some((s) => s.anatomy === "reduced")) {
+    text += " — PLANNED ON VIRTUALLY REDUCED ANATOMY: valid only after this reduction";
+  }
   if (breaches > 0) text += ` — ${breaches} BREACH`;
   if (unchecked > 0) text += ` — ${unchecked} not checked`;
   statusEl.textContent = text;
@@ -215,6 +220,7 @@ function updateHud(meshCount) {
         let text = `${s.screw_id}: clearance ${r.min_clearance_mm.toFixed(1)} mm, margin ${s.margin_mm.toFixed(1)} mm${s.breach ? " — BREACH" : ""}`;
         text += `; ${s.diameter_mm} x ${r.length_mm.toFixed(0)} mm from the entry cortex`;
         if (r.protrusion_mm !== null) text += `, tip ${r.protrusion_mm.toFixed(1)} mm past the far cortex`;
+        if (s.anatomy === "reduced") text += "; on the virtually reduced anatomy";
         if (s.articular_mm !== null) {
           text += atPlannedHandles(s)
             ? `; ${s.articular_mm.toFixed(1)} mm from the acetabular articular surface (may touch it, not cross it)`

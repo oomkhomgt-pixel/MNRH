@@ -63,6 +63,9 @@ class ScrewPlan:
     # "inside" or "through" (corridors.json "tip", DECISIONS.md 1.5); the
     # exported viewer validates the screw with it.
     tip_rule: str = "inside"
+    # The anatomy the screw was planned on (DECISIONS.md 3.4): "as scanned",
+    # or "reduced" -- the virtual reduction recorded in Plan.reduction.
+    anatomy: str = "as scanned"
 
 
 @dataclass
@@ -85,6 +88,10 @@ class Plan:
     # What each sacroiliac joint measured, which side the surgeon declared
     # disrupted, and what was counted as bone there (DECISIONS.md section 2).
     si_joint: dict = field(default_factory=dict)
+    # The virtual reduction screws tagged "reduced" were planned on: each
+    # moving unit's transform, the remaining error per region, and who
+    # proposed it (DECISIONS.md 3.4, 3.6). Empty when there is none.
+    reduction: dict = field(default_factory=dict)
     audit: list = field(default_factory=list)  # list[AuditEntry]
     software: dict = field(default_factory=dict)
     disclaimer: str = DISCLAIMER
@@ -120,6 +127,7 @@ class Plan:
             "screws": screws,
             "screw_library": _to_jsonable(self.screw_library),
             "si_joint": _to_jsonable(self.si_joint),
+            "reduction": _to_jsonable(self.reduction),
             "audit": audit,
             "software": _to_jsonable(self.software),
             "disclaimer": self.disclaimer,
@@ -146,6 +154,7 @@ class Plan:
             screws=screws,
             screw_library=data.get("screw_library", {}),
             si_joint=data.get("si_joint", {}),
+            reduction=data.get("reduction", {}),
             audit=audit,
             software=data.get("software", {}),
             disclaimer=data.get("disclaimer", DISCLAIMER),

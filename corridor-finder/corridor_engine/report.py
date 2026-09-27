@@ -25,6 +25,13 @@ body {
 }
 h1 { font-size: 20px; margin-bottom: 4px; }
 h2 { font-size: 16px; margin-top: 28px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+.reduction-banner {
+  background: #fde2c8;
+  border: 2px solid #c8641e;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
 .disclaimer {
   background: #fff3cd;
   border: 1px solid #d6a828;
@@ -238,6 +245,38 @@ def _render_articular(validation) -> str:
             "(may touch it, not cross it)</p>")
 
 
+REDUCED_BANNER = "Planned on virtually reduced anatomy: valid only after this reduction."
+
+
+def _render_reduction(data: dict) -> str:
+    """DECISIONS.md 3.4 and 3.6: when any screw was planned on a virtual
+    reduction, say so at the top, with how reliable the reduction is in
+    each region."""
+    screws = [s if isinstance(s, dict) else s.__dict__ for s in data.get("screws", [])]
+    reduced = [s.get("screw_id", "") for s in screws if s.get("anatomy") == "reduced"]
+    if not reduced:
+        return ""
+    reduction = data.get("reduction") or {}
+    rows = "".join(f"<tr><td>{_esc(k)}</td><td>{_fmt_mm(v)} mm</td></tr>"
+                   for k, v in sorted((reduction.get("residual_mm") or {}).items()))
+    table = (f"<table><thead><tr><th>Region</th><th>Remaining error of the reduction</th></tr></thead>"
+             f"<tbody>{rows}</tbody></table>") if rows else "<p><em>No regional error was given.</em></p>"
+    return (f'<div class="reduction-banner"><strong>{_esc(REDUCED_BANNER)}</strong> '
+            f"Screws on it: {_esc(', '.join(reduced))}. Proposed by: {_esc(reduction.get('source', 'unknown'))}. "
+            f"Skin entries on the moved side are approximate.</div>{table}")
+
+
+def _render_anatomy(screw: dict, validation: dict) -> str:
+    if screw.get("anatomy") != "reduced":
+        return ""
+    before = validation.get("as_scanned") or {}
+    if before.get("min_clearance_mm") is None:
+        was = "could not be checked"
+    else:
+        was = f"clearance {_fmt_mm(before['min_clearance_mm'])} mm" + (" (BREACH)" if before.get("breach") else "")
+    return f"<p>Anatomy: virtually reduced. The same screw on the bones as scanned: {_esc(was)}.</p>"
+
+
 def _render_screw_section(screw, drr_images=None) -> str:
     if not isinstance(screw, dict):
         screw = screw.__dict__
@@ -256,6 +295,7 @@ def _render_screw_section(screw, drr_images=None) -> str:
      Source: {_esc(screw.get('source', ''))}</p>
   <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
   {_render_articular(validation)}
+  {_render_anatomy(screw, validation)}
   {_render_geometry(screw, validation)}
   <h3>How to aim it</h3>
   {_render_guidance(screw.get('guidance'))}
@@ -319,6 +359,7 @@ def render_report_html(plan, *, drr_images: dict = None, title: str = "Corridor 
 <h1>{_esc(title)}</h1>
 <p>Case: {_esc(case_alias)}</p>
 {_render_si_joint(data.get("si_joint"))}
+{_render_reduction(data)}
 <div class="disclaimer">{_esc(disclaimer)}</div>
 {body_sections}
 <div class="audit-appendix">
