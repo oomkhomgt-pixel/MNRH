@@ -19,6 +19,16 @@ function catalogFor(diameterMm) {
   return entry ? entry.lengths_mm : null;
 }
 
+function articularFrom(s) {
+  const v = s.validation && s.validation.articular_clearance_mm;
+  return typeof v === "number" ? v : null;
+}
+
+function atPlannedHandles(s) {
+  const same = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 1e-6);
+  return same(s.entry_xyz, s.planned_entry_xyz) && same(s.target_xyz, s.planned_target_xyz);
+}
+
 window.CF = {
   ready: false,
   screws: (plan.screws || []).map((s) => ({
@@ -28,6 +38,12 @@ window.CF = {
     diameter_mm: s.diameter_mm,
     margin_mm: s.margin_mm,
     tip_rule: s.tip_rule || "inside",
+    // Slicer's distance to the acetabular articular surface (may touch, 0,
+    // not cross), measured at the planned handles only: shown while the
+    // handles stay there, since the viewer does not measure it itself.
+    articular_mm: articularFrom(s),
+    planned_entry_xyz: s.entry_xyz.slice(),
+    planned_target_xyz: s.target_xyz.slice(),
     result: null, // the latest clearance.js result; null = not checked
     clearance_mm: null,
     breach: null,
@@ -199,6 +215,11 @@ function updateHud(meshCount) {
         let text = `${s.screw_id}: clearance ${r.min_clearance_mm.toFixed(1)} mm, margin ${s.margin_mm.toFixed(1)} mm${s.breach ? " — BREACH" : ""}`;
         text += `; ${s.diameter_mm} x ${r.length_mm.toFixed(0)} mm from the entry cortex`;
         if (r.protrusion_mm !== null) text += `, tip ${r.protrusion_mm.toFixed(1)} mm past the far cortex`;
+        if (s.articular_mm !== null) {
+          text += atPlannedHandles(s)
+            ? `; ${s.articular_mm.toFixed(1)} mm from the acetabular articular surface (may touch it, not cross it)`
+            : "; distance to the acetabular articular surface: re-check in Slicer after moving the screw";
+        }
         for (const w of r.warnings) text += ` — ${w}`;
         row.textContent = text;
       }

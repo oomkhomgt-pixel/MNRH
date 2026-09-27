@@ -209,3 +209,13 @@ def test_report_says_how_to_aim_the_screw():
 
 def test_report_without_guidance_says_so():
     assert "No aiming guidance recorded" in render_report_html(_plan_with_screws([3.0]))
+
+
+def test_report_states_the_distance_to_the_acetabular_surface():
+    """DECISIONS 7.11: beside a screw under the acetabulum, its distance to
+    the articular surface (0 = touching, allowed); nothing for other screws."""
+    plan = _plan_with_screws([3.0, 3.0])
+    plan.screws[0].validation["articular_clearance_mm"] = 0.4
+    html_str = render_report_html(plan)
+    assert html_str.count("Distance to the acetabular articular surface") == 1
+    assert "0.4 mm (may touch it, not cross it)" in html_str

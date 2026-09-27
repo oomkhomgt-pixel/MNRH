@@ -223,6 +223,18 @@ def _render_geometry(screw: dict, validation: dict) -> str:
     return f"<ul>{items}</ul>{warn_html}"
 
 
+def _render_articular(validation) -> str:
+    """The distance to the acetabular articular surface (DECISIONS 7.9, 7.11):
+    0 is touching, which is allowed; below 0 is inside the joint. Informative
+    only: the breach decision above already reads the field that allows the
+    touch and forbids the crossing."""
+    value = validation.get("articular_clearance_mm")
+    if not isinstance(value, (int, float)):
+        return ""
+    return (f"<p>Distance to the acetabular articular surface: {_fmt_mm(value)} mm "
+            "(may touch it, not cross it)</p>")
+
+
 def _render_screw_section(screw, drr_images=None) -> str:
     if not isinstance(screw, dict):
         screw = screw.__dict__
@@ -240,6 +252,7 @@ def _render_screw_section(screw, drr_images=None) -> str:
      Margin: {_esc(screw.get('margin_mm', ''))} mm &nbsp;|&nbsp;
      Source: {_esc(screw.get('source', ''))}</p>
   <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
+  {_render_articular(validation)}
   {_render_geometry(screw, validation)}
   <h3>How to aim it</h3>
   {_render_guidance(screw.get('guidance'))}
