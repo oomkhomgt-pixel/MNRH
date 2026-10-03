@@ -215,6 +215,22 @@ def _cephalad_offset(z_mm: np.ndarray, sacral_y: np.ndarray, iliac_y: np.ndarray
     return float(shifts[near][int(np.argmin(np.abs(shifts[near])))]), True
 
 
+FACING_COS = -0.5  # _measure_one's threshold: the two nearest bones at least 120 degrees apart
+
+
+def facing(to_a_vec: np.ndarray, to_b_vec: np.ndarray, to_a: np.ndarray, to_b: np.ndarray) -> np.ndarray:
+    """The facing test _measure_one locates the joint with, as a helper for
+    other callers (fracture_surface.py runs it with one bone against
+    itself). Seen from a point of empty space, the nearest bit of one bone
+    lies along ``to_a_vec`` (length ``to_a``) and the nearest bit of the
+    other along ``to_b_vec`` (length ``to_b``); the point lies between two
+    faces that face each other when those two directions are at least 120
+    degrees apart. Vectors have their three components first, so this
+    works on whole volumes and on lists of points alike. _measure_one
+    keeps its own copy of the expression, unchanged."""
+    return (to_a_vec * to_b_vec).sum(axis=0) <= FACING_COS * np.maximum(to_a * to_b, 1e-9)
+
+
 def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: str, band) -> JointWidth:
     if band is None:
         return JointWidth(side, float("nan"), 0, (float("nan"), float("nan")), "S1 and S2 body centres were not detected")

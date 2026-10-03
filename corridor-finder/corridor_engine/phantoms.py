@@ -276,3 +276,166 @@ def fractured_pelvis(translate_mm=(0.0, 0.0, 0.0), rotate_deg: float = 0.0, rota
     labels[before] = 0
     labels[now] = hip_id
     return FracturedPelvis(labels, (s, s, s), tuple(float(v) for v in origin), intact, now, before, moved_by, side)
+
+
+# --------------------------------------------------------------------------
+# A sacral fracture (displacement-finder DECISIONS 7c.5): added for the
+# sacral split; everything above is unchanged.
+
+
+@_dataclass
+class SacralFracturedPelvis:
+    labels: np.ndarray  # ZYX, segmentation ids, the unit moved
+    spacing: tuple
+    origin: tuple
+    intact_labels: np.ndarray  # before the move
+    lateral_fragment: np.ndarray  # the lateral sacral fragment, where it is now in ``labels``
+    lateral_fragment_before: np.ndarray  # where it was, in ``intact_labels``
+    moved_by: np.ndarray  # 4x4 world transform of the whole unit (hip, femoral head, lateral fragment)
+    side: str
+    cut_point: np.ndarray  # world mm, a point of the fracture plane before the move
+    cut_normal: np.ndarray  # world, unit, pointing lateral
+
+
+def sacral_fractured_pelvis(side: str = "right", cut_x_mm: float = 14.0, hinge_deg: float = 3.0,
+                            translate_mm=(0.0, 0.0, 0.0), spacing_mm: float = 1.5) -> SacralFracturedPelvis:
+    """fractured_pelvis's symmetric pelvis with a vertical fracture through
+    one sacral ala, ``cut_x_mm`` lateral of the midline (outside the canal),
+    and the hemipelvis moved with its lateral sacral fragment as one unit
+    (the hip, its femoral head and the fragment, so the SI joint is intact).
+
+    The unit turns by ``hinge_deg`` about an anteroposterior axis at the
+    fracture's lowest point, opening the fracture upward as a wedge while
+    its lower end stays in contact, then translates. In contact the label
+    stays one connected sacrum, which is what a real fracture whose faces
+    still touch looks like, so the split has to cut through bone it cannot
+    see a gap in. The motion is applied analytically, as in
+    fractured_pelvis."""
+    if side not in ("right", "left"):
+        raise ValueError(f"side must be 'right' or 'left', got {side!r}")
+    sign = 1.0 if side == "right" else -1.0
+    s = float(spacing_mm)
+    half = np.array([135.0, 95.0, 110.0])
+    n = np.ceil(2.0 * half / s).astype(int) // 2 * 2
+    origin = (-(n[0] - 1) * s / 2.0, -(n[1] - 1) * s / 2.0 - 5.0, -(n[2] - 1) * s / 2.0 + 25.0)
+    zz, yy, xx = np.meshgrid(*(o + np.arange(k) * s for o, k in zip(origin[::-1], n[::-1])), indexing="ij")
+    world = np.stack([xx, yy, zz])
+
+    def label(parts, px):
+        out = np.zeros(xx.shape, dtype=np.uint8)
+        out[parts["lumbar"]] = seg.LUMBAR
+        out[parts["sacrum"]] = seg.SACRUM
+        out[parts["hip"] & (px > 0)] = seg.HIP_R
+        out[parts["hip"] & (px < 0)] = seg.HIP_L
+        out[parts["head"] & (px > 0)] = seg.FEMUR_R
+        out[parts["head"] & (px < 0)] = seg.FEMUR_L
+        return out
+
+    def unit_of(parts, px):
+        """The moving unit's labels, by id, in the given frame."""
+        own = px * sign > 0
+        fragment = parts["sacrum"] & (px * sign > cut_x_mm)
+        return parts["hip"] & own, parts["head"] & own, fragment
+
+    parts = _pelvis_parts(world)
+    intact = label(parts, world[0])
+    hip_now_id = seg.HIP_R if side == "right" else seg.HIP_L
+    head_id = seg.FEMUR_R if side == "right" else seg.FEMUR_L
+    hip_before, head_before, fragment_before = unit_of(parts, world[0])
+
+    # The hinge: the fracture's lowest point, at the front-back middle of the sacrum there.
+    lowest = np.argwhere(fragment_before.any(axis=(1, 2)))[0, 0]
+    at_low = fragment_before[lowest]
+    hinge = np.array([sign * cut_x_mm, float(yy[lowest][at_low].mean()), float(zz[lowest, 0, 0])])
+    moved_by = np.eye(4)
+    moved_by[:3, :3] = _rotation((0.0, 1.0, 0.0), sign * hinge_deg)  # the top swings laterally
+    moved_by[:3, 3] = hinge - moved_by[:3, :3] @ hinge + np.asarray(translate_mm, dtype=float)
+
+    inverse = np.linalg.inv(moved_by)
+    source = np.einsum("ij,j...->i...", inverse[:3, :3], world) + inverse[:3, 3][:, None, None, None]
+    hip_now, head_now, fragment_now = unit_of(_pelvis_parts(source), source[0])
+
+    labels = intact.copy()
+    labels[hip_before | head_before | fragment_before] = 0
+    labels[head_now] = head_id
+    labels[hip_now] = hip_now_id
+    labels[fragment_now] = seg.SACRUM
+    return SacralFracturedPelvis(labels, (s, s, s), tuple(float(v) for v in origin), intact, fragment_now,
+                                 fragment_before, moved_by, side, np.array([sign * cut_x_mm, 0.0, 0.0]),
+                                 np.array([sign, 0.0, 0.0]))
+
+
+# --------------------------------------------------------------------------
+# Both sacral alae fractured (CLINIC_0060's pattern, displacement-finder
+# DECISIONS 7b and 2.5): added for the bilateral congruence fit; everything
+# above is unchanged.
+
+
+@_dataclass
+class BilateralSacralFracturedPelvis:
+    labels: np.ndarray  # ZYX, segmentation ids, both units moved
+    spacing: tuple
+    origin: tuple
+    intact_labels: np.ndarray  # before either moved
+    lateral_fragments: dict  # side -> the lateral sacral fragment, where it is now in ``labels``
+    lateral_fragments_before: dict  # side -> where it was, in ``intact_labels``
+    moved_by: dict  # side -> 4x4 world transform of that side's unit (hip, femoral head, lateral fragment)
+    cut_x_mm: float  # each fracture's distance from the midline, before the move
+
+
+def bilateral_sacral_fractured_pelvis(cut_x_mm: float = 14.0, hinge_deg=(3.0, 2.0),
+                                      translate_mm=((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+                                      spacing_mm: float = 1.5) -> BilateralSacralFracturedPelvis:
+    """sacral_fractured_pelvis on both sides at once: a vertical fracture
+    through each sacral ala, ``cut_x_mm`` either side of the midline, and
+    each hemipelvis moved with its own lateral sacral fragment as one unit.
+    ``hinge_deg`` and ``translate_mm`` are (right, left): each unit turns
+    about an anteroposterior axis at its fracture's lowest point, opening
+    the fracture upward, then translates. With no translation both
+    fractures stay in contact at their lower ends, so the sacrum stays one
+    label. Nothing is left intact on either side to mirror, which is the
+    point: the reduction has to come from fitting the fractures together."""
+    s = float(spacing_mm)
+    half = np.array([135.0, 95.0, 110.0])
+    n = np.ceil(2.0 * half / s).astype(int) // 2 * 2
+    origin = (-(n[0] - 1) * s / 2.0, -(n[1] - 1) * s / 2.0 - 5.0, -(n[2] - 1) * s / 2.0 + 25.0)
+    zz, yy, xx = np.meshgrid(*(o + np.arange(k) * s for o, k in zip(origin[::-1], n[::-1])), indexing="ij")
+    world = np.stack([xx, yy, zz])
+
+    def unit_of(parts, px, sign):
+        own = px * sign > 0
+        return parts["hip"] & own, parts["head"] & own, parts["sacrum"] & (px * sign > cut_x_mm)
+
+    parts = _pelvis_parts(world)
+    intact = np.zeros(xx.shape, dtype=np.uint8)
+    intact[parts["lumbar"]] = seg.LUMBAR
+    intact[parts["sacrum"]] = seg.SACRUM
+    intact[parts["hip"] & (world[0] > 0)] = seg.HIP_R
+    intact[parts["hip"] & (world[0] < 0)] = seg.HIP_L
+    intact[parts["head"] & (world[0] > 0)] = seg.FEMUR_R
+    intact[parts["head"] & (world[0] < 0)] = seg.FEMUR_L
+
+    labels = intact.copy()
+    now, before, moved = {}, {}, {}
+    for side, sign, hinge_angle, shift in (("right", 1.0, hinge_deg[0], translate_mm[0]),
+                                           ("left", -1.0, hinge_deg[1], translate_mm[1])):
+        hip_before, head_before, fragment_before = unit_of(parts, world[0], sign)
+        lowest = np.argwhere(fragment_before.any(axis=(1, 2)))[0, 0]
+        at_low = fragment_before[lowest]
+        hinge = np.array([sign * cut_x_mm, float(yy[lowest][at_low].mean()), float(zz[lowest, 0, 0])])
+        moved_by = np.eye(4)
+        moved_by[:3, :3] = _rotation((0.0, 1.0, 0.0), sign * hinge_angle)  # the top swings laterally
+        moved_by[:3, 3] = hinge - moved_by[:3, :3] @ hinge + np.asarray(shift, dtype=float)
+        inverse = np.linalg.inv(moved_by)
+        source = np.einsum("ij,j...->i...", inverse[:3, :3], world) + inverse[:3, 3][:, None, None, None]
+        now[side] = unit_of(_pelvis_parts(source), source[0], sign)
+        before[side] = fragment_before
+        moved[side] = moved_by
+        labels[hip_before | head_before | fragment_before] = 0
+    for side, hip_id, head_id in (("right", seg.HIP_R, seg.FEMUR_R), ("left", seg.HIP_L, seg.FEMUR_L)):
+        hip_now, head_now, fragment_now = now[side]
+        labels[head_now] = head_id
+        labels[hip_now] = hip_id
+        labels[fragment_now] = seg.SACRUM
+    return BilateralSacralFracturedPelvis(labels, (s, s, s), tuple(float(v) for v in origin), intact,
+                                          {k: v[2] for k, v in now.items()}, before, moved, float(cut_x_mm))
