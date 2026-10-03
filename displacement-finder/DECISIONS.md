@@ -340,6 +340,31 @@ Finder shows a screw with an amber warning wherever that error exceeds the
 screw's spare clearance within 10 mm of the region, and never reads a
 missing region as safe.
 
+## 7d. Finding fractures on real CTs (decided 2026-10-03)
+
+After slice 1b, on the four CLINIC cases the sacral fractures were not
+found, so every reduction region was unconstrained. The surgeon read
+close-ups of each sacrum with the expert label outlined over the CT:
+
+> "It doesn't detect an impact fracture which bone will be dense instead of
+> creating a radiolucent area" — and on CLINIC_0060 the label runs solid
+> across a fracture line visible on the CT.
+
+So slice 1b failed for two reasons. An **impacted fracture** (bone driven
+into itself, the usual lateral-compression sacral fracture) shows as a
+**dense band**, not a lucent line: there is no gap to find, in the label or
+in the CT. And where there is a visible line, the expert label may paint
+over it.
+
+| # | Decision | Rejected |
+| --- | --- | --- |
+| 7d.1 | **Fractures are found from the CT first**, inside the bone label: both the **lucent line and broken cortex** of a fracture that gapes, and the **dense band** of an impacted one. **The surgeon's marks are the backup**: where the CT finds nothing, the plane through his marks (corridor-finder fracture.py) is used as the fracture surface. | CT only (a faint line stays unfound); marks as the only source (every case needs marking); re-segmenting the bones and hoping the new labels leave a gap. |
+| 7d.2 | **The phantoms behind each region's error bound go to 30 mm** of displacement, and the bound is **measured per displacement**, so a 15 mm case is given the bound measured at 15 mm. Previously they reached only 8-9.5 mm, and every real region (11-17 mm) read "displaced further than the phantoms". | 20 mm; 50 mm. |
+| 7d.3 | **Next: fracture finding**, together with the wider phantom range. It unblocks Corridor Finder's reduction and three of the five outcome points (sacrum, rami, acetabulum). The outcome number at the SI joint and symphysis, which needs no fracture finding, follows. | The SI and symphysis outcome first; both together. |
+| 7d.4 | **Impaction in the outcome number (1.5)** is a **negative gap**, in mm: -4 mm means 4 mm of bone driven into itself. One continuous variable runs from impacted through anatomical (0) to gaping, for regression against function (7.2); the step is reported as usual. | A separate impaction depth (two variables where one does); flagging impaction and reporting only the step. |
+| 7d.5 | **A band is dense (impacted)** when it is denser than **the same place on the mirrored intact side of the same patient** by a measured margin: self-calibrating to each patient's bone and scanner. With both sides injured, against the patient's own cancellous bone nearby, and it says so. | The patient's own nearby cancellous bone always (normal sclerosis, as at the SI joint, could read as impaction); a fixed HU threshold (slice 1 found 44-65% of cancellous bone under 150 HU). |
+| 7d.6 | **Reducing an impacted fracture**: the cortical rims beyond the impacted zone are fitted together, and the length lost to impaction comes from the mirrored side. Where the reduction rests on the mirror, it says so and carries the mirror's floor (the table under section 1); where the rims cannot pin it, the region is unconstrained (inf). | The mirror alone there; leaving it unreduced. |
+
 ## 8. Data
 
 | # | Decision |
