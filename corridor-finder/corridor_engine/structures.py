@@ -30,6 +30,7 @@ import numpy as np
 from scipy import ndimage as ndi
 
 from .edt import bone_edt_mm
+from .si_joint import facing as _facing
 from .volume import Volume
 
 JOINT_MAX_MM = 6.0  # a hip joint space wider than this is not a joint space
@@ -59,7 +60,7 @@ def joint_space(labels: np.ndarray, spacing, bone_label: int, other_label: int,
     here = np.indices(to_bone.shape)
     to_bone_vec = (at_bone - here) * sampling[:, None, None, None]
     to_other_vec = (at_other - here) * sampling[:, None, None, None]
-    facing = (to_bone_vec * to_other_vec).sum(axis=0) <= -0.5 * np.maximum(to_bone * to_other, 1e-9)
+    facing = _facing(to_bone_vec, to_other_vec, to_bone, to_other)
     near_both = (labels[box] == 0) & (to_bone <= max_mm) & (to_other <= max_mm)
     space = near_both & facing
     # The empty voxel right against a curved surface often has its nearest

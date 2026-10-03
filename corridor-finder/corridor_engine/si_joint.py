@@ -215,19 +215,19 @@ def _cephalad_offset(z_mm: np.ndarray, sacral_y: np.ndarray, iliac_y: np.ndarray
     return float(shifts[near][int(np.argmin(np.abs(shifts[near])))]), True
 
 
-FACING_COS = -0.5  # _measure_one's threshold: the two nearest bones at least 120 degrees apart
+FACING_COS = -0.5  # the two nearest bones at least 120 degrees apart
 
 
 def facing(to_a_vec: np.ndarray, to_b_vec: np.ndarray, to_a: np.ndarray, to_b: np.ndarray) -> np.ndarray:
-    """The facing test _measure_one locates the joint with, as a helper for
-    other callers (fracture_surface.py runs it with one bone against
-    itself). Seen from a point of empty space, the nearest bit of one bone
+    """The facing test: the one rule for where two bone surfaces face each
+    other across a gap. _measure_one locates the sacroiliac joint with it,
+    structures.joint_space the hip joint, and fracture_surface.py runs it
+    with one bone against itself. Seen from a point of empty space, the nearest bit of one bone
     lies along ``to_a_vec`` (length ``to_a``) and the nearest bit of the
     other along ``to_b_vec`` (length ``to_b``); the point lies between two
     faces that face each other when those two directions are at least 120
     degrees apart. Vectors have their three components first, so this
-    works on whole volumes and on lists of points alike. _measure_one
-    keeps its own copy of the expression, unchanged."""
+    works on whole volumes and on lists of points alike."""
     return (to_a_vec * to_b_vec).sum(axis=0) <= FACING_COS * np.maximum(to_a * to_b, 1e-9)
 
 
@@ -260,14 +260,14 @@ def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: 
     here = np.indices(to_sacrum.shape)
     to_sacrum_vec = (at_sacrum - here) * sampling[:, None, None, None]
     to_hip_vec = (at_hip - here) * sampling[:, None, None, None]
-    facing = (to_sacrum_vec * to_hip_vec).sum(axis=0) <= -0.5 * np.maximum(to_sacrum * to_hip, 1e-9)
+    faces = facing(to_sacrum_vec, to_hip_vec, to_sacrum, to_hip)
 
     z_index = np.arange(lo[0], hi[0]) * sz + oz
     in_band = (z_index >= band[0]) & (z_index <= band[1])
     joint = (
         (labels_vol.array[box] == 0)
         & in_band[:, None, None]
-        & facing
+        & faces
         & (to_hip <= AURICULAR_MAX_MM)
         & (to_sacrum <= AURICULAR_MAX_MM)
     )
