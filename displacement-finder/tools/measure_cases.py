@@ -1,4 +1,4 @@
-"""Run slice 1 over the real CTPelvic1K cases on this workstation.
+"""Run slices 1 and 1b over the real CTPelvic1K cases on this workstation.
 
     python displacement-finder/tools/measure_cases.py            # the four CLINIC cases
     python displacement-finder/tools/measure_cases.py --normals 5  # and the null test on normal pelvises
@@ -11,7 +11,15 @@ pre-selection with the surgeon's reading (displacement-finder DECISIONS
 confirmed *with his reading*, since that is what the confirmation is, and
 the fragments of the injured hemipelvis are found against the mirrored
 intact one (corridor_engine.fragments). CLINIC_0060 is bilateral, so it is
-refused a transform home (DECISIONS 2.4).
+refused a transform home (DECISIONS 2.4). Then the fracture surfaces of the
+sacrum and both hips are found (corridor_engine.fracture_surface, slice 1b)
+with the mirror-twin and cortex vetoes and slice 1's fragments, and set
+against the surgeon's reading, and the lateral sacral fragment is split off
+on each side. Last, the reduction is fitted by congruence
+(corridor_engine.congruence, DECISIONS 7c) with the targets of 7c.2 and
+7c.7: from the mirror start on the three unilateral cases, from where the
+bones lie on CLINIC_0060. Each moving unit, each region's error and every
+flag the Reduction would carry are printed.
 
 **The null test on real anatomy** (``--normals N``). The first N label
 files of each normal-anatomy subset (ABDOMEN, MSD Task 10, KITS19, CERVIX),
@@ -37,7 +45,10 @@ try:
 except ImportError:  # run from a checkout without the engine installed
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "corridor-finder"))
 
-from corridor_engine import ctpelvic1k, fragments, mirror  # noqa: E402
+import numpy as np  # noqa: E402
+
+from corridor_engine import congruence, ctpelvic1k, fracture_surface, fragments, mirror  # noqa: E402
+from corridor_engine import segmentation as seg  # noqa: E402
 from corridor_engine.register import rotation_deg  # noqa: E402
 
 DATA = r"C:\Users\oom\CorridorFinderData\ctpelvic1k"
@@ -60,6 +71,13 @@ EXPECTED = {
     "0023": {"sacral_fracture": "right", "acetabulum": None, "intact_side": "left", "mirror_intact": False},
     "0025": {"sacral_fracture": "left", "acetabulum": "right", "intact_side": "right", "mirror_intact": False},
     "0060": {"sacral_fracture": "both", "acetabulum": None, "intact_side": None, "mirror_intact": False},
+}
+# Every fracture he read (DECISIONS 7b), to set the surfaces found against.
+READ_FRACTURES = {
+    "0012": "sacrum right; right pubic body and rami",
+    "0023": "sacrum right; both pubic bodies",
+    "0025": "sacrum left; left superior ramus; right acetabulum",
+    "0060": "sacrum both sides; anterior ring (sides not recorded)",
 }
 
 
@@ -94,6 +112,91 @@ def _fragment_lines(found: fragments.FragmentSet) -> str:
     return "\n".join(lines)
 
 
+def _where(labels_vol, label, centre, axis, offset) -> str:
+    """Where a point lies in its bone, as fractions of the bone's extent
+    (medial 0 .. lateral 1, posterior 0 .. anterior 1, caudad 0 .. cephalad
+    1), with a rough name: for reading against the surgeon's reading, not a
+    measurement."""
+    bone = labels_vol.mask_voxel_centers_world(labels_vol.array == label)
+    side = 1.0 if centre @ axis - offset >= 0 else -1.0
+    coords = np.stack([side * (bone @ axis - offset), bone[:, 1], bone[:, 2]], axis=1)
+    point = np.array([side * (centre @ axis - offset), centre[1], centre[2]])
+    lo, hi = coords.min(axis=0), coords.max(axis=0)
+    lateral, anterior, cephalad = (point - lo) / np.maximum(hi - lo, 1e-9)
+    if label == seg.SACRUM:
+        name = f"{'right' if side > 0 else 'left'} sacrum, " + ("ala or body" if lateral > 0.25 else "near the midline")
+    else:
+        name = ("roughly pubic body / rami" if anterior > 0.6 and cephalad < 0.45 else
+                "roughly acetabulum" if cephalad < 0.6 and lateral > 0.45 else "roughly ilium / posterior")
+    return f"{name} (lateral {lateral:.2f}, anterior {anterior:.2f}, cephalad {cephalad:.2f})"
+
+
+def _surface_lines(loaded, confirmed, found):
+    """What the fracture surfaces and sacral splits are, in lines, and the
+    surfaces and splits themselves for the fit."""
+    sets = [found] if found is not None and not found.refused else []
+    surfaces = fracture_surface.find_fracture_surfaces(loaded.labels, confirmed, loaded.ct, fragment_sets=sets)
+    axis, offset = confirmed.plane.normal, confirmed.plane.offset_mm
+    cortex = ", ".join(f"{k} {v:.0f}" for k, v in surfaces.cortex_hu.items())
+    lines = [f"    fracture surfaces (this patient's cortex, median HU of each bone's rind: {cortex}):"]
+    for key, points in surfaces.candidate_points.items():
+        rejected = [p for p in surfaces.rejected if fracture_surface.BONE_KEYS[p.label] == key]
+        tally = {}
+        for p in rejected:
+            for reason in p.reasons:
+                kind = reason.split(":")[-1].strip()
+                tally[kind] = tally.get(kind, 0) + 1
+        lines.append(f"      {key}: {len(points)} slot voxels; {surfaces.small_patches[key]} patches under "
+                     f"{fracture_surface.MIN_PATCH_AREA_MM2:.0f} mm2; {len(rejected)} larger ones vetoed "
+                     f"({', '.join(f'{n} {k}' for k, n in tally.items()) or 'none'})")
+        for p in sorted(rejected, key=lambda p: -p.area_mm2)[:6]:
+            twin = "-" if p.twin_share is None else f"{100 * p.twin_share:.0f}%"
+            ratio = "-" if p.cortex_ratio is None else f"{p.cortex_ratio:.2f}"
+            lines.append(f"        vetoed {p.area_mm2:.0f} mm2, gap {p.width_mm:.1f} mm, extents "
+                         f"{'/'.join(f'{e:.1f}' for e in p.extents_mm)} mm, twin {twin}, cortex ratio {ratio}; "
+                         f"{_where(loaded.labels, p.label, p.centre, axis, offset)}")
+    for surface in surfaces.surfaces:
+        lines.append(f"      {surface.sentence()}")
+        centre = np.vstack([f.points for f in surface.faces]).mean(axis=0)
+        lines.append(f"        where: {_where(loaded.labels, surface.label, centre, axis, offset)}")
+    lines += [f"      note: {n}" for n in surfaces.notes]
+    splits = fracture_surface.split_sacrum(loaded.labels, surfaces, confirmed)
+    for split in splits.values():
+        lines.append(f"      {split.sentence()}")
+        lines += [f"        note: {n}" for n in split.notes
+                  if n != fracture_surface.SPLIT_UNCONFIRMED and not n.endswith(f"({split.refused})")]
+    return "\n".join(lines), surfaces, splits
+
+
+def _congruence_lines(loaded, injured, surfaces, found, splits) -> str:
+    """The congruence fit (slice 1b): each unit's move, each region's error
+    (inf when unconstrained) and every flag the Reduction carries that the
+    surfaces have not already said."""
+    if injured != "both" and (found is None or found.refused):
+        return ("    congruence fit: not made; a unilateral injury starts from the mirror, and slice 1 gave no "
+                "transform home for the " + injured + " side")
+    try:
+        fit = congruence.fit_reduction(loaded.labels, injured, surfaces, found if injured != "both" else None, splits)
+    except ValueError as failed:
+        return f"    congruence fit: refused ({failed})"
+    lines = [f"    congruence fit ({injured}, {fit.rounds} rounds; SI target "
+             + ", ".join(f"{k} {v:.2f} mm" for k, v in fit.si_target_mm.items())
+             + f"; symphysis target {fit.symphysis_target_mm:.2f} mm):"]
+    for unit in fit.units:
+        centre = loaded.labels.mask_voxel_centers_world(unit.mask)[::50]
+        moved = float(np.max(np.linalg.norm(
+            centre @ unit.transform[:3, :3].T + unit.transform[:3, 3] - centre, axis=1)))
+        from_start = float(np.max(np.linalg.norm(centre @ (unit.transform[:3, :3] - unit.start[:3, :3]).T
+                                                 + (unit.transform[:3, 3] - unit.start[:3, 3]), axis=1)))
+        lines.append(f"      unit {unit.name} ({', '.join(unit.parts)}): moved up to {moved:.1f} mm "
+                     f"(rotation {rotation_deg(unit.transform):.1f} deg), {from_start:.1f} mm from its start")
+    for region in fit.regions.values():
+        lines.append(f"      {region.sentence()}")
+    said = set(surfaces.flags())
+    lines += [f"      flag: {n}" for n in fit.flags() if n not in said]
+    return "\n".join(lines)
+
+
 def clinic(case: str) -> str:
     start = time.time()
     expected = EXPECTED[case]
@@ -117,6 +220,7 @@ def clinic(case: str) -> str:
         out.append(f"    confirmation refused: {refused}")
         return "\n".join(out)
     out.append(f"    confirmed with the surgeon's reading: {confirmed.sentence()}")
+    out.append(f"    surgeon read fractures: {READ_FRACTURES[case]}")
     injured = _injured(expected["intact_side"])
     # The CTPelvic1K labels have no femur. The CT heuristic femur is not
     # validated, so it is not used: the ring minimum applies everywhere and
@@ -126,6 +230,10 @@ def clinic(case: str) -> str:
         found = fragments.find_fragments(loaded.labels, confirmed, injured, articular)
     except ValueError as failed:
         out.append(f"    {injured} hemipelvis: fragments not measured ({failed})")
+        text, surfaces, splits = _surface_lines(loaded, confirmed, None)
+        out.append(text)
+        out.append(_congruence_lines(loaded, injured, surfaces, None, splits))
+        out.append(f"    ({time.time() - start:.0f} s)")
         return "\n".join(out)
     out.append(f"    {injured} hemipelvis against the mirrored {expected['intact_side'] or '(none)'} side "
                f"(surgeon: acetabulum {expected['acetabulum'] or 'no'}; articular surface "
@@ -134,6 +242,9 @@ def clinic(case: str) -> str:
         out.append(f"    note: the surgeon read a fracture in the mirrored {expected['intact_side']} side as well, so the "
                    "reference is not an intact hemipelvis here")
     out.append(_fragment_lines(found))
+    text, surfaces, splits = _surface_lines(loaded, confirmed, found)
+    out.append(text)
+    out.append(_congruence_lines(loaded, injured, surfaces, found, splits))
     out.append(f"    ({time.time() - start:.0f} s)")
     return "\n".join(out)
 
