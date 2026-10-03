@@ -7860,10 +7860,12 @@ async function bootReconcile() {
   if (canManage() && navigator.onLine && cfg.cloudUrl) {
     try {
       const body = await fetchCloudSnapshot();
-      pulled = true;
       /* ธงเลื่อนชั่วคราวจากการเปิดครั้งก่อน (ตอนนั้นออฟไลน์) ต้องเคลียร์ที่นี่ด้วย — ถ้าปล่อยไว้ให้ cloudPush เคลียร์ทีหลัง
          ตอนนั้นรุ่นของคลาวด์เท่ากับที่เพิ่งรวมไปแล้ว ขั้นรวมจะถูกข้าม แล้วทะเบียนถูกเลื่อนซ้ำทั้งชุด */
       ({ merged, cloudRolled } = reconcileWithCloud(body));
+      /* นับว่า "ได้เห็นของคลาวด์แล้ว" ก็ต่อเมื่อรวมสำเร็จ — ดึงได้แต่รวมพัง (ข้อมูลคลาวด์ผิดรูป) แล้วเลื่อนจากของในเครื่อง
+         ต้องติดธงเลื่อนชั่วคราว ไม่งั้นทะเบียนที่เลื่อนจากของเก่าถูกส่งขึ้นตรง ๆ ทันทีที่คลาวด์กลับมาเป็นข้อมูลที่ถูก */
+      pulled = true;
     } catch (e) {
       cfg.lastStatus = "ดึงข้อมูลจากคลาวด์ก่อนเลื่อนชั้นปีไม่สำเร็จ: " + e.message + " — ใช้ข้อมูลในเครื่อง";
     }
@@ -7916,7 +7918,12 @@ function mergeCloudSnapshot(body) {
      (มีฐานแล้วห้ามทำ — จะทำให้ทุกคนดูเหมือนเครื่องนี้แก้ แล้วทับสิ่งที่เครื่องอื่นแก้หลังเลื่อน) */
   let preRolled = false;
   const cloudAY = +(body.data.programme?.yearRolledAY || 0);
-  if (!base && cloudAY > +(store.data.meta?.yearRolledAY || 0)) preRolled = !!store.rollAcademicYear(String(cloudAY), "auto");
+  if (!base && cloudAY > +(store.data.meta?.yearRolledAY || 0)) {
+    preRolled = !!store.rollAcademicYear(String(cloudAY), "auto");
+    /* ถ้ามาจากการเคลียร์การเลื่อนชั่วคราว ต้องคืนสิ่งที่ผู้ใช้แก้/เพิ่มหลังเลื่อนตรงนี้ ก่อนรวม — การรวมแบบไม่มีฐานให้ของเครื่องนี้ชนะ
+       ทุกช่องที่ต่าง ถ้าคืนทีหลัง ค่าที่ถูกบวกปีซ้ำ (ปี 1 ใหม่ → ปี 2 · คนซ้ำชั้น → ถูกเลื่อน) จะชนะและถูกส่งขึ้นคลาวด์ไปแล้ว */
+    if (preRolled) reapplyAfterRoll();
+  }
   const { merged: m, conflicts } = mergeDatasets(base?.data || null, fullPayload(), body.data);
   applyMerged(m);
   recordConflicts(conflicts);
@@ -7941,6 +7948,10 @@ function reconcileWithCloud(body) {
     const { merged, preRolled } = mergeCloudSnapshot(body);
     return { merged, cloudRolled: preRolled };
   } catch (e) {
+    /* คงวัตถุ sync ตัวเดิมไว้ — ผู้เรียก (และตัวตั้งเวลา/ตัวฟัง online ของ setupSync) ถือ reference ตัวนี้อยู่ ถ้าสลับเป็นสำเนา
+       สถานะที่เขียนต่อจะลงวัตถุที่ไม่มีใครอ่าน และ pending ที่ค้างในวัตถุเก่าจะสั่งส่งทุก 10 นาทีไปตลอด session
+       (sync ไม่อยู่ใน SYNCED_KEYS ระหว่างรวมจึงเปลี่ยนแค่ rev ซึ่งคืนค่าแยกไว้แล้ว) */
+    snap.sync = store.data.sync;
     store.data = snap; syncCfg().rev = prevRev; pendingUserEdits = null;
     throw e;
   } finally { store.deferRoll = prevDefer; }
