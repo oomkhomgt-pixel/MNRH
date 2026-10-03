@@ -7999,12 +7999,10 @@ async function e2eOpenData(env, dk) {
 const e2eMe = () => currentUser()?.username || "";
 const e2eSavePriv = (slotId, key, staged = false, tag = "") =>
   idb("readwrite", st => st.put({ slotId, key, tag }, (staged ? "e2ePrivNext:" : "e2ePriv:") + slotId));
-const e2eReadPriv = (staged = false) => {
-  const me = e2eMe();
-  if (!me) return Promise.resolve(null);
-  return idb("readonly", st => st.get((staged ? "e2ePrivNext:" : "e2ePriv:") + me))
-    .then(v => (v && v.slotId === me && v.key ? v : null)).catch(() => null);
-};
+const e2eReadPrivOf = (id, staged = false) => !id ? Promise.resolve(null)
+  : idb("readonly", st => st.get((staged ? "e2ePrivNext:" : "e2ePriv:") + id))
+      .then(v => (v && v.slotId === id && v.key ? v : null)).catch(() => null);
+const e2eReadPriv = (staged = false) => e2eReadPrivOf(e2eMe(), staged);
 /* all=true (ล้างข้อมูลในเครื่อง) ลบกุญแจของทุกบัญชี · all=false (ปุ่ม "ล็อกเครื่องนี้") ลบเฉพาะของบัญชีที่ล็อกอิน */
 function e2eForgetDevice(all = true) {
   const me = e2eMe();
@@ -8014,7 +8012,8 @@ function e2eForgetDevice(all = true) {
     cur.onsuccess = () => {
       const c = cur.result; if (!c) return;
       const k = String(c.key);
-      if (k.startsWith("e2ePriv") && (all || k.endsWith(":" + me))) c.delete();
+      /* "e2ePriv" (ไม่มี ":") = รูปแบบรุ่นแรก ก่อนแยกตามบัญชี — ลบทิ้งทุกครั้ง · เทียบชื่อคีย์ทั้งสตริง (ชื่อบัญชีมี ":" ได้) */
+      if (all ? k.startsWith("e2ePriv") : (k === "e2ePriv" || k === "e2ePriv:" + me || k === "e2ePrivNext:" + me)) c.delete();
       c.continue();
     };
     return null;
@@ -8076,6 +8075,9 @@ async function e2eIncoming(body) {
   }
   const env = body.data;
   const e = (cfg.e2e ||= { on: true, epoch: 0, slots: [], pending: [] });
+  /* เครื่องนี้เคย "เปิดใช้" ไว้แต่ยังส่งไม่สำเร็จ ขณะที่คลาวด์เข้ารหัสอยู่แล้ว — ชุดกุญแจที่เตรียมไว้เป็นโมฆะ
+     ต้องทิ้ง ไม่งั้นพอปลดล็อกแล้วจะส่งทับช่องจริง (รวมช่องกุญแจกู้คืนของหัวหน้าภาควิชา) */
+  if (!e.published) { e.pending = []; await e2eForgetDevice(false); }   /* กุญแจของชุดที่เป็นโมฆะก็ทิ้งด้วย → ขึ้นว่า "ยังไม่ได้ปลดล็อก" */
   e.on = true; e.published = true;
   if (+env.epoch < +(e.epoch || 0))
     throw new Error("ข้อมูลบนคลาวด์ใช้กุญแจรุ่นเก่ากว่าที่เครื่องนี้เคยเห็น — อาจเป็นการนำสำเนาเก่ามาวางทับ ไม่รวม ไม่ส่ง");
@@ -8097,21 +8099,29 @@ async function e2eOutgoing(payload) {
   const taken = (e.pending || []).slice();
   let { kid, epoch } = e;
   let dk = e2eMemDk(kid) || await e2eDkFor({ kid, slots: e.published ? e.slots : e2eEffectiveSlots(e) });
-  const slots = e2eEffectiveSlots({ slots: e.slots, pending: taken });
-  if (taken.some(p => p.op === "remove")) { dk = await e2eNewDk(); kid = e2eNewKid(); epoch = (+epoch || 0) + 1; }
+  let slots = e2eEffectiveSlots({ slots: e.slots, pending: taken });
+  if (taken.some(p => p.op === "remove")) {
+    dk = await e2eNewDk(); kid = e2eNewKid(); epoch = (+epoch || 0) + 1;
+    /* ออกกุญแจใหม่เพราะถอดคน — ช่องที่ยังเป็นรหัสชั่วคราวที่ตั้งไว้ก่อนชุดนี้ ต้องไม่ได้กุญแจรุ่นใหม่ (คนที่ตั้งรหัสให้อาจเป็นคนที่ถูกถอด
+       และยังแกะช่องนั้นได้) — ยกเลิกช่องนั้นไป ผู้ดูแลที่เหลือตั้งรหัสชั่วคราวใหม่ให้ */
+    const fresh = new Set(taken.filter(p => p.op === "set").map(p => p.slot.id));
+    slots = slots.filter(s => !(s.temp && !fresh.has(s.id)));
+  }
   for (const s of slots) if (s.dk?.kid !== kid) s.dk = await e2eWrapDk(s, dk, kid);
   const data = await e2eSeal(payload, { dk, kid, epoch, slots });
   return { data, async commit() {
     Object.assign(e, { kid, epoch, slots, published: true, pending: (e.pending || []).filter(p => !taken.includes(p)) });
     e2eMem = { kid, epoch, dk, user: e2eMe() };
     /* เปลี่ยนรหัสผ่านของฉันขึ้นคลาวด์แล้ว → สลับมาใช้กุญแจใหม่ที่พักไว้ (เฉพาะถ้าตรงกับช่องที่ส่งขึ้นไปจริง) */
-    const mine = taken.find(p => p.rotate && p.slot.id === e2eMe());
-    if (mine) {
-      const next = await e2eReadPriv(true);
-      if (next && next.tag === mine.slot.pub.x) {
-        await e2eSavePriv(next.slotId, next.key);
-        await idb("readwrite", st => { st.delete("e2ePrivNext:" + next.slotId); return null; }).catch(() => {});
-      }
+    /* ตามช่องที่ส่งขึ้นจริง ไม่ใช่ตามคนที่ล็อกอินตอนนี้ (อาจสลับบัญชีระหว่างรอ) · พังที่ IndexedDB ห้ามลามไปถึงการบันทึกรุ่น */
+    for (const p of taken.filter(x => x.rotate)) {
+      try {
+        const next = await e2eReadPrivOf(p.slot.id, true);
+        if (next && next.tag === p.slot.pub.x) {
+          await e2eSavePriv(next.slotId, next.key);
+          await idb("readwrite", st => { st.delete("e2ePrivNext:" + next.slotId); return null; });
+        }
+      } catch (err) { console.warn("สลับกุญแจใหม่ไม่สำเร็จ — ปลดล็อกด้วยรหัสใหม่อีกครั้ง", err); }
     }
   } };
 }
@@ -8141,14 +8151,15 @@ async function e2eEnable(pass, recoveryKey = e2eNewRecoveryKey()) {
   return recoveryKey;
 }
 /* เครื่องที่ยังไม่เคยเห็นข้อมูลเข้ารหัส (เครื่องใหม่ / ผู้ดูแลคนใหม่): ถามคลาวด์ก่อนว่าภาควิชาเปิดการเข้ารหัสแล้วหรือยัง
-   — ถ้าเปิดแล้ว ต้องพาไป "ปลดล็อก" ไม่ใช่ "เปิดใช้" ซ้ำ และต้องถือว่าล็อกอยู่ (ไม่ส่งอะไร) จนกว่าจะปลดล็อก */
+   — ถ้าเปิดแล้ว ต้องพาไป "ปลดล็อก" ไม่ใช่ "เปิดใช้" ซ้ำ และต้องถือว่าล็อกอยู่ (ไม่ส่งอะไร) จนกว่าจะปลดล็อก
+   ดึงไม่ได้ (ออฟไลน์ / โทเคนผิด) → โยน error — ห้ามเดาว่า "ยังไม่เข้ารหัส" แล้วพาไปเปิดใช้ใหม่ทับ (กุญแจกู้คืนจริงจะถูกแทนเงียบ ๆ) */
 async function e2eProbeCloud() {
   if (e2eCfg()?.on) return true;
   if (!syncCfg().cloudUrl) return false;
-  try {
-    const raw = await fetchCloudRaw();
-    if (isEnvelope(raw.data)) { syncCfg().e2e = { on: true, published: true, epoch: 0, slots: [], pending: [] }; store.save(); return true; }
-  } catch {}
+  let raw;
+  try { raw = await fetchCloudRaw(); }
+  catch (err) { throw new Error("ตรวจไม่ได้ว่าคลาวด์เข้ารหัสแล้วหรือยัง (" + err.message + ") — ตรวจที่อยู่ โทเคน และอินเทอร์เน็ต แล้วลองใหม่"); }
+  if (isEnvelope(raw.data)) { syncCfg().e2e = { on: true, published: true, epoch: 0, slots: [], pending: [] }; store.save(); return true; }
   return false;
 }
 async function fetchCloudEnvelope() {
@@ -8169,6 +8180,7 @@ async function e2eUnlock(pass) {
   await e2eOpenData(env, dk);                                   /* ตรวจว่าถอดได้จริงก่อนเชื่อและเก็บ */
   await e2eSavePriv(me.username, key);
   const e = (syncCfg().e2e ||= { pending: [] });
+  if (!e.published) e.pending = [];                             /* ชุดกุญแจที่ "เปิดใช้" ไว้แต่ไม่เคยส่งสำเร็จ เป็นโมฆะ */
   Object.assign(e, { on: true, published: true, kid: env.kid, epoch: +env.epoch, slots: env.slots });
   e2eMem = { kid: env.kid, epoch: +env.epoch, dk, user: me.username };
   store.save();
@@ -8202,6 +8214,21 @@ async function e2eRemoveAdmin(username) {
   if (!slots.some(s => s.id === username && s.kind !== "recovery")) throw new Error("ไม่พบช่องกุญแจของบัญชีนี้");
   if (slots.filter(s => s.kind !== "recovery" && s.id !== username).length < 1) throw new Error("ต้องเหลือผู้ดูแลอย่างน้อยหนึ่งคน");
   e2eQueue({ op: "remove", id: username });
+}
+/* บัญชีที่ถือกุญแจถูกลดบทบาท / ปิด / ลบ / เปลี่ยนชื่อ — ถอดออกจากผู้ถือกุญแจด้วย ไม่งั้นทุกกุญแจรุ่นใหม่ยังถูกห่อให้เขา
+   (ป้ายเตือนในหน้าการเข้ารหัสเห็นเฉพาะคนที่เปิดหน้านั้น) */
+async function e2eRevokeIfNotAdmin(username) {
+  const e = e2eCfg();
+  if (!e?.on || !username || !e2eEffectiveSlots(e).some(s => s.id === username && s.kind !== "recovery")) return;
+  const u = (store.data.users || []).find(x => x.username === username);
+  if (u && u.role === "admin" && u.active !== false) return;
+  if (!(await confirmAny("บัญชี " + username + " ยังถือกุญแจข้อมูลบนคลาวด์ แต่ไม่ได้เป็นผู้ดูแลที่ใช้งานอยู่แล้ว\n" +
+      "ถอดออกจากผู้ถือกุญแจ (ออกกุญแจข้อมูลใหม่) เลยไหม? — อย่าลืมถอนโทเคนในสคริปต์ด้วย", { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) {
+    toast("ยังไม่ได้ถอด — " + username + " ยังเปิดข้อมูลรุ่นใหม่ได้ (ถอดได้ที่ ตั้งค่า › ซิงก์ › การเข้ารหัส…)");
+    return;
+  }
+  try { await e2eRemoveAdmin(username); await cloudPush(false); }
+  catch (err) { toast("ถอดไม่ได้: " + err.message + " — ปลดล็อกเครื่องนี้แล้วถอดที่หน้าการเข้ารหัส"); }
 }
 /* เปลี่ยนรหัสผ่าน = ออกคู่กุญแจใหม่ ไม่ใช่แค่ห่อกุญแจเดิมด้วยรหัสใหม่ — คนที่รู้รหัสชั่วคราว (ผู้ดูแลที่ตั้งให้) แกะกุญแจเดิมได้
    ถ้าใช้คู่เดิมต่อ เขาจะยังเปิดข้อมูลรุ่นใหม่ได้แม้ถูกถอดไปแล้ว · กุญแจใหม่พักไว้ในเครื่อง สลับมาใช้เมื่อคลาวด์รับแล้ว */
@@ -8406,7 +8433,10 @@ async function e2eRun(fn, okMsg) {
 }
 async function e2eDialog() {
   if (!canManage()) { toast("เฉพาะผู้ดูแลระบบ"); return; }
-  if (!(await e2eProbeCloud())) return e2eEnableDialog();
+  let enc;
+  try { enc = await e2eProbeCloud(); }
+  catch (err) { showDialog("การเข้ารหัสข้อมูลบนคลาวด์", `<p class="notice small">${esc(err.message)}</p>`, []); return; }
+  if (!enc) return e2eEnableDialog();
   const e = e2eCfg();
   const me = currentUser()?.username || "";
   const saved = await e2eReadPriv();
@@ -8468,7 +8498,10 @@ async function e2eDialog() {
   showDialog("การเข้ารหัสข้อมูลบนคลาวด์", body, buttons.map(b => ({ ...b, onClick: async () => { const ok = await b.onClick(); return ok === false ? false : undefined; } })));
   $("#dlgBody").querySelectorAll("[data-e2e-remove]").forEach(btn => btn.addEventListener("click", async () => {
     const id = btn.dataset.e2eRemove;
-    if (!(await confirmAny("ถอด " + id + " ออกจากผู้ถือกุญแจ? จะออกกุญแจข้อมูลใหม่และส่งขึ้นคลาวด์ทันที", { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) return;
+    const temps = slots.filter(s => s.temp && s.id !== id).map(s => s.label || s.id);
+    if (!(await confirmAny("ถอด " + id + " ออกจากผู้ถือกุญแจ? จะออกกุญแจข้อมูลใหม่และส่งขึ้นคลาวด์ทันที" +
+        (temps.length ? "\nช่องที่ยังเป็นรหัสชั่วคราว (" + temps.join(", ") + ") จะถูกยกเลิกด้วย — ตั้งรหัสชั่วคราวใหม่ให้ภายหลัง" : ""),
+        { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) return;
     if (await e2eRun(() => e2eRemoveAdmin(id))) { await cloudPush(false); $("#dlg").close(); setTimeout(e2eDialog, 0); }
   }));
 }
@@ -8846,7 +8879,7 @@ async function cloudPush(quiet, isRetry) {
       writeBaseline(cfg.rev, sent);
       const now = fullPayload(), noStamp = (d) => ({ ...d, meta: { ...(d.meta || {}), pushedAt: "" } });
       again = !sameJson(noStamp(sent), noStamp(now));         /* แก้ระหว่างส่ง → ยังมีของรอส่ง */
-      cfg.pending = again;
+      cfg.pending = again || keysLeft;
       audit("ส่งข้อมูลทั้งชุดขึ้นคลาวด์", cfg.cloudUrl + " · รุ่นที่ " + (body.rev ?? "—"));
       if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
     }
@@ -12518,14 +12551,17 @@ function editUser(id, preset = {}) {
         const rec = { username, displayName: dlgVal("displayName") || username, role: dlgVal("role"),
                       pin: dlgVal("pin"), residentId: dlgVal("residentId"), staffId: dlgVal("staffId"),
                       active: !!$('#dlgBody [name="active"]')?.checked };
+        const prevName = u?.username;
         if (u) Object.assign(u, rec); else store.data.users.push({ id: uid("usr"), ...rec });
         audit(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", username);
         store.save(); renderAll(); applyPermissions(); toast("บันทึกแล้ว");
+        if (prevName) setTimeout(() => e2eRevokeIfNotAdmin(prevName), 0);
       }},
     ...(u ? [{ label:"ลบบัญชี", cls:"btn-danger", onClick: () => {
         if (u.id === session?.userId) { toast("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้"); return false; }
         audit("ลบบัญชีผู้ใช้", u.username);
         removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }]);
+        setTimeout(() => e2eRevokeIfNotAdmin(u.username), 0);
       }}] : [])
   ]);
 }

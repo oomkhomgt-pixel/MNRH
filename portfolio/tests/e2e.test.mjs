@@ -196,6 +196,25 @@ export default async function run() {
     const bAfter = await B.page.evaluate(async () => { try { await fetchCloudSnapshot(); return "อ่านได้"; } catch (e) { return e.message; } });
     t.check("B ที่ถูกถอดอ่านข้อมูลรุ่นใหม่ไม่ได้", /ไม่อยู่ในรายชื่อผู้ถือกุญแจ/.test(bAfter), bAfter);
 
+    /* ---------- 4b) ลดบทบาทผู้ถือกุญแจในหน้าบัญชีผู้ใช้ → ถามแล้วถอดทันที · ช่องรหัสชั่วคราวที่ค้างไม่ได้กุญแจรุ่นใหม่ ----------
+       ช่องรหัสชั่วคราวคนที่ตั้งให้รู้รหัส — ถ้าคนตั้งคือคนที่ถูกถอด แล้วกุญแจรุ่นใหม่ยังถูกห่อให้ช่องนั้น การถอดก็ไม่มีผล */
+    await A.page.evaluate(async () => {
+      ["admin3", "admin4"].forEach(n => store.data.users.push({ id: "u_" + n, username: n, displayName: n, role: "admin", pin: "1234" }));
+      await e2eSetAdmin("admin3", "admin3", "รหัสชั่วคราวของสาม-1"); await e2eSetAdmin("admin4", "admin4", "รหัสชั่วคราวของสี่-1");
+      await cloudPush(true);
+    });
+    const ep0 = cloudDoc(gas).data.epoch;
+    t.check("ตั้งต้น: admin3 และ admin4 มีช่องรหัสชั่วคราวบนคลาวด์", ["admin3", "admin4"].every(n => cloudDoc(gas).data.slots.some(s => s.id === n && s.temp)));
+    await A.page.evaluate(() => { window.__realCD = confirmDialog; confirmDialog = async () => true; editUser("u_admin3"); $('#dlgBody [name="role"]').value = "staff"; });
+    await click(A.page, "บันทึก");
+    await until(() => !cloudDoc(gas).data.slots.some(s => s.id === "admin3"));
+    await A.page.evaluate(() => { confirmDialog = window.__realCD; });
+    const d4b = cloudDoc(gas).data;
+    t.check("ลดบทบาท admin3 ในหน้าบัญชีผู้ใช้: ถามแล้วถอดออกจากผู้ถือกุญแจ ออกกุญแจใหม่ทันที", !d4b.slots.some(s => s.id === "admin3") && d4b.epoch === ep0 + 1,
+      JSON.stringify({ epoch: d4b.epoch, slots: d4b.slots.map(s => s.id + (s.temp ? "*" : "")) }));
+    t.check("ออกกุญแจใหม่แล้ว: ช่องรหัสชั่วคราวที่ค้าง (admin4) ถูกยกเลิก ไม่ได้กุญแจรุ่นใหม่", !d4b.slots.some(s => s.id === "admin4"),
+      JSON.stringify(d4b.slots.map(s => s.id)));
+
     /* ---------- 5) การโจมตีด้วยการแก้ไฟล์บน Drive (คนที่มีโทเคนหรือสิทธิ์ในโฟลเดอร์) ---------- */
     const good = gas.files.get("dataset.json").text;
     const tamper = async (mut) => { const d = JSON.parse(good); mut(d); gas.files.get("dataset.json").text = JSON.stringify(d);
@@ -205,7 +224,7 @@ export default async function run() {
     t.check("เติมช่องกุญแจของคนนอกเข้าไป → ไม่รับ", /ถูกแก้โดยไม่มีกุญแจ/.test(inj), inj);
     const old = JSON.parse(gas.files.get("dataset-r" + (cloudDoc(gas).rev - 1) + ".json")?.text || "null");
     const rb = await tamper(d => { d.data = old.data; });
-    t.check("เอาสำเนาเก่า (กุญแจรุ่นก่อน ยังมี admin2) มาวางทับ → ไม่รับ", old?.data?.epoch === 1 && /รุ่นเก่ากว่า/.test(rb), rb);
+    t.check("เอาสำเนาเก่า (กุญแจรุ่นก่อน ยังมีคนที่ถูกถอด) มาวางทับ → ไม่รับ", old?.data?.epoch < cloudDoc(gas).data.epoch && /รุ่นเก่ากว่า/.test(rb), rb);
     const plain = await tamper(d => { d.data = { residents: [], activities: [] }; });
     t.check("วางข้อมูลไม่เข้ารหัสแทน → ไม่รับ", /ไม่ได้เข้ารหัส/.test(plain), plain);
     const flip = await tamper(d => { d.data.ct = d.data.ct.slice(0, -8) + "AAAAAAA="; });
@@ -216,6 +235,16 @@ export default async function run() {
     /* ---------- 6) กุญแจกู้คืน: เครื่อง C ตั้งรหัสชั่วคราวใหม่ให้ admin ที่ลืมรหัส ---------- */
     const C = await openAs(browser, srv.url, "admin");
     await attachGas(C.page, gas, tokC, null);
+    /* เครื่องใหม่ที่โทเคนผิด: ตรวจคลาวด์ไม่ได้ → ต้องไม่พาไป "เปิดการเข้ารหัส" ใหม่ (จะแทนกุญแจกู้คืนจริงทิ้ง) */
+    const probe = await C.page.evaluate(async () => { const good = syncCfg().token; syncCfg().token = "x".repeat(40);
+      await e2eDialog(); const r = { title: $("#dlgTitle").textContent, body: $("#dlgBody").textContent }; $("#dlg").close(); syncCfg().token = good; return r; });
+    t.check("ตรวจคลาวด์ไม่ได้ (โทเคนผิด): ไม่พาไปเปิดการเข้ารหัสใหม่ บอกให้ตรวจที่อยู่/โทเคน", probe.title !== "เปิดการเข้ารหัสข้อมูลบนคลาวด์" && /ตรวจไม่ได้/.test(probe.body), JSON.stringify(probe));
+    /* เครื่องที่เคยกด "เปิดใช้" ค้างไว้ (ยังไม่เคยส่งสำเร็จ) ทั้งที่คลาวด์เข้ารหัสอยู่แล้ว → ชุดกุญแจที่เตรียมไว้ต้องถูกทิ้ง ไม่ทับกุญแจกู้คืนจริง */
+    const recPub = cloudDoc(gas).data.slots.find(s => s.kind === "recovery").pub.x;
+    const stray = await C.page.evaluate(async () => { await e2eEnable("เปิดซ้ำโดยไม่ตั้งใจ-1234", e2eNewRecoveryKey()); await cloudPush(true);
+      return { pending: syncCfg().e2e.pending.length, status: syncCfg().lastStatus }; });
+    t.check("เปิดใช้ซ้ำบนเครื่องที่ไม่รู้ว่าคลาวด์เข้ารหัสแล้ว: ไม่ส่ง ทิ้งชุดกุญแจที่เตรียมไว้ และกุญแจกู้คืนบนคลาวด์ไม่เปลี่ยน",
+      stray.pending === 0 && cloudDoc(gas).data.slots.find(s => s.kind === "recovery").pub.x === recPub, JSON.stringify(stray));
     const c1 = await C.page.evaluate(async (rk) => {
       try { await e2eRecover("AAAA-" + rk.slice(5)); } catch (e) { var wrong = e.message; }
       await e2eRecover(rk.toLowerCase());
@@ -226,6 +255,16 @@ export default async function run() {
     t.check("กุญแจกู้คืนผิด → ปฏิเสธ", /กุญแจกู้คืนไม่ถูกต้อง/.test(c1.wrong || ""), c1.wrong);
     t.check("ใช้กุญแจกู้คืน (ไม่สนตัวเล็ก/ใหญ่) ตั้งรหัสชั่วคราวให้ admin แล้วส่งขึ้น · ไม่เก็บกุญแจกู้คืนลงเครื่อง",
       /ส่งขึ้นคลาวด์แล้ว/.test(c1.status) && cloudDoc(gas).data.slots.find(s => s.id === "admin")?.temp === true && !c1.persisted, JSON.stringify(c1));
+
+    /* ---------- 6b) ล็อกเครื่องนี้: ลบเฉพาะกุญแจของบัญชีตัวเอง (เทียบชื่อคีย์ทั้งสตริง) และกุญแจรูปแบบรุ่นแรก ---------- */
+    const lk = await A.page.evaluate(async () => {
+      const k = (await e2eReadPriv()).key;
+      await idb("readwrite", st => { st.put({ slotId: "x", key: k }, "e2ePriv"); st.put({ slotId: "x:admin", key: k }, "e2ePriv:x:admin"); return null; });
+      await e2eForgetDevice(false);
+      const has = (name) => idb("readonly", st => st.get(name)).then(v => !!v);
+      return { mine: await has("e2ePriv:" + currentUser().username), legacy: await has("e2ePriv"), other: await has("e2ePriv:x:admin") };
+    });
+    t.eq("ล็อกเครื่องนี้: ลบกุญแจของตัวเองและรูปแบบรุ่นแรก ไม่แตะบัญชีอื่นที่ชื่อลงท้ายคล้ายกัน", lk, { mine: false, legacy: false, other: true });
 
     /* ---------- 7) ล้างข้อมูลในเครื่อง → กุญแจของเครื่องหายไปด้วย ---------- */
     const w = await A.page.evaluate(async () => { store.wipe(); await new Promise(r => setTimeout(r, 200)); return !!(await e2eReadPriv()); });
