@@ -11,6 +11,12 @@ const REC_OF = `(b) => {
   const i = b.dataset.pres.indexOf(":");
   const kind = b.dataset.pres.slice(0, i), id = b.dataset.pres.slice(i + 1);
   /* id ของ slot/info = "type:วันที่" (ช่อง T ที่สองของพฤหัสฯ ต่อท้าย "#2" · การประชุมภายนอกเป็น "external:<id>") */
+  /* งานเต็มเช้าของกลุ่มงาน id = "thev:<id ของ thursdayEvents>" — ชนิดของ chip คือ workshop/interdept ตาม kind ของงาน
+     (เดิมอ่านเป็นชนิด "thev" จึงตกข้อตัวย่อเฉพาะเดือนที่มีงานเหล่านี้ เช่น ต.ค. — ข้อสอบผ่าน/ไม่ผ่านตามวันที่รัน) */
+  if (kind === "info" && id.startsWith("thev:")) {
+    const ev = (store.data.thursdayEvents || []).find(x => x.id === id.slice(5));
+    return ev ? { kind, type: ev.kind === "workshop" ? "workshop" : "interdept", date: ev.date, residentId: "" } : null;
+  }
   if (kind === "slot" || kind === "info") return { kind, type: id.slice(0, id.indexOf(":")), date: id.slice(id.indexOf(":") + 1, id.indexOf(":") + 11), residentId: "" };
   const rec = (kind === "schedule" ? store.data.schedule : store.data.activities).find(x => x.id === id);
   return rec ? { kind, ...rec } : null;

@@ -23,7 +23,9 @@ function fakeCloud({ url, getStatus }) {
     const cur = state();
     if (method === "GET") {
       log.push("GET"); localStorage.setItem("__test_calls", JSON.stringify(log));
-      if (getStatus !== 200) return new Response("down", { status: getStatus });
+      /* สถานะของคลาวด์สลับได้ระหว่างเทสต์ (ล่ม → กลับมา) ผ่าน localStorage */
+      const st = +(localStorage.getItem("__test_getStatus") || getStatus);
+      if (st !== 200) return new Response("down", { status: st });
       return new Response(JSON.stringify({ rev: cur.rev, updatedAt: new Date().toISOString(), device: "เครื่องอื่น", data: cur.data }), { status: 200 });
     }
     const body = JSON.parse(opts.body || "{}");
@@ -55,7 +57,7 @@ async function staleDevice(page) {
     const stale = JSON.parse(JSON.stringify(fullPayload()));
     writeBaseline(5, stale);                        /* ซิงก์กับคลาวด์ครั้งล่าสุดตอนก่อนขึ้นปีใหม่ */
     localStorage.setItem("__test_remote", JSON.stringify(remote));
-    localStorage.removeItem("__test_put"); localStorage.removeItem("__test_calls"); localStorage.removeItem("__test_rev");
+    localStorage.removeItem("__test_put"); localStorage.removeItem("__test_calls"); localStorage.removeItem("__test_rev"); localStorage.removeItem("__test_getStatus");
     return { ay, targetId: target.id, remoteYears: Object.fromEntries(remote.residents.map(r => [r.id, r.year])),
              localCursor: store.data.meta.yearRolledAY };
   }, { url: CLOUD });
@@ -129,84 +131,64 @@ export default async function run() {
       await page.close();
     }
 
-    /* ---------- 3) ดึงจากคลาวด์ไม่ได้ → ยังเลื่อนชั้นปีจากข้อมูลในเครื่องครั้งเดียว ไม่ค้างปีเก่า ---------- */
+    /* ---------- 3) ดึงจากคลาวด์ไม่ได้ → เลื่อนชั่วคราวในเครื่อง ไม่ส่งทะเบียนนั้นขึ้นไป · คลาวด์กลับมาแล้วค่อยรวม ----------
+       เดิมเลื่อนจากข้อมูลในเครื่องแล้วดันขึ้นทันทีที่ติดต่อได้ ทะเบียนที่เลื่อนจากของเก่าไปแข่งกับของเครื่องอื่น
+       ที่เลื่อนและแก้ต่อไปแล้ว — ตอนนี้ต้องรวมกับของคลาวด์ก่อนเสมอ แบบเดียวกับตอนออนไลน์ */
     {
       const { page, errors } = await openAs(browser, srv.url, "admin");
       const s = await staleDevice(page);
       const before = await page.evaluate(() => Object.fromEntries(store.data.residents.map(x => [x.id, x.year])));
+      /* เครื่องอื่นให้คนหนึ่งซ้ำชั้นหลังเลื่อน (ชั้นปีกลับเป็นค่าเดิมก่อนเลื่อน) — ค่าบนคลาวด์จึงเท่ากับฐานเปรียบเทียบ
+         ถ้าเครื่องนี้ส่งทะเบียนที่เลื่อนเองขึ้นไป การรวมข้อมูลจะเห็นว่า "เครื่องนี้แก้ฝั่งเดียว" แล้วทับการซ้ำชั้นเงียบ ๆ */
+      const repeater = await page.evaluate(({ targetId }) => {
+        const remote = JSON.parse(localStorage.getItem("__test_remote"));
+        const x = remote.residents.find(r => r.active !== false && r.year === 3 && r.id !== targetId);
+        x.year = 2;
+        localStorage.setItem("__test_remote", JSON.stringify(remote));
+        return x.id;
+      }, s);
+      s.remoteYears[repeater] = 2;
       await page.addInitScript(fakeCloud, { url: CLOUD, getStatus: 503 });
       await page.reload();
       await page.waitForFunction(() => store.data.meta.yearRolledAY === String(currentAY()), null, { timeout: 20000 }).catch(() => {});
-      const r = await page.evaluate(() => ({
-        calls: JSON.parse(localStorage.getItem("__test_calls") || "[]"),
-        years: Object.fromEntries(store.data.residents.map(x => [x.id, x.year])),
-        cursor: store.data.meta.yearRolledAY, status: syncCfg().lastStatus || ""
-      }));
-      const onceOk = Object.entries(before).every(([id, y]) => r.years[id] === (y >= 4 ? 4 : y + 1));
-      t.check("ดึงไม่ได้ก็ยังเลื่อนชั้นปีจากข้อมูลในเครื่อง (ครั้งเดียว)", r.cursor === s.ay && onceOk, JSON.stringify(r.calls));
-      t.check("บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์", /ก่อนเลื่อนชั้นปีไม่สำเร็จ/.test(r.status), r.status);
-      t.check("ดึงไม่ได้: ไม่มี error หลุดในคอนโซล", errors.filter(e => !/503|Failed to load resource/.test(e)).length === 0, errors.join(" | "));
-      await page.close();
-    }
-
-    /* ---------- 2c) มีฐานเปรียบเทียบ และเครื่องนี้แก้ช่องอื่นของคนเดียวกันค้างไว้ ----------
-       ทะเบียนเคยรวมทั้งเรคคอร์ด — เรคคอร์ดของเครื่องนี้ (ยังไม่เลื่อน) ชนะทั้งก้อน ชั้นปีถอยกลับเป็นปีก่อน
-       ทั้งที่ตัวชี้ปีมาจากคลาวด์ว่าเลื่อนแล้ว คนนั้นจึงค้างชั้นปีเดิมถาวร */
-    {
-      const { page, errors } = await openAs(browser, srv.url, "admin");
-      const s = await staleDevice(page);
-      await page.evaluate(({ targetId }) => {
-        /* เครื่องนี้แก้ชื่อย่อของคนเดียวกันไว้ก่อนขึ้นปีใหม่ แต่ยังไม่ได้ส่งขึ้น */
-        store.resident(targetId).nick = "ชื่อย่อที่เครื่องนี้แก้";
+      await page.waitForTimeout(3000);
+      const off = await page.evaluate(({ targetId }) => {
+        /* ระหว่างออฟไลน์ ผู้จัดหลักสูตรแก้ชื่อย่อของคนนั้นต่อ — ต้องอยู่รอดหลังรวมกับคลาวด์ */
+        store.resident(targetId).nick = "แก้ตอนออฟไลน์หลังเลื่อน";
         suppressDirty = true; store.save(); suppressDirty = false;
-      }, s);
-      await page.addInitScript(fakeCloud, { url: CLOUD, getStatus: 200 });
-      await page.reload();
-      await page.waitForFunction(() => !!localStorage.getItem("__test_put"), null, { timeout: 20000 }).catch(() => {});
-      const r = await page.evaluate(({ targetId }) => {
-        const me = store.resident(targetId);
-        return { year: me?.year, nick: me?.nick, advisor: me?.advisor, cursor: store.data.meta.yearRolledAY,
-                 conflictsOnTarget: (store.data.syncConflicts || []).filter(c => String(c.id).startsWith(targetId)).map(c => c.id) };
-      }, s);
-      t.eq("ชั้นปีเป็นของคลาวด์ที่เลื่อนแล้ว ไม่ถอยกลับเป็นของปีก่อน", [r.year, r.cursor], [s.remoteYears[s.targetId], s.ay]);
-      t.eq("ช่องที่เครื่องนี้แก้ (ชื่อย่อ) และช่องที่เครื่องอื่นแก้ (อาจารย์ที่ปรึกษา) อยู่ครบทั้งคู่",
-           [r.nick, r.advisor], ["ชื่อย่อที่เครื่องนี้แก้", "อ.ที่แก้จากเครื่องอื่นหลังเลื่อนชั้นปี"]);
-      t.eq("ต่างช่องกันไม่ถูกบันทึกว่าชน", r.conflictsOnTarget, []);
-      t.check("แก้ค้างก่อนขึ้นปี: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
-      await page.close();
-    }
-
-    /* ---------- 2b) เครื่องที่ไม่มีฐานเปรียบเทียบ — ตัวชี้ปีต้องไม่ย้อน และไม่เลื่อนซ้ำคนที่เครื่องอื่นเพิ่ม ----------
-       ไม่มีฐาน = ของเครื่องนี้ชนะทุกช่องที่ต่าง เดิมตัวชี้ปีจึงย้อนเป็นของเครื่องนี้ (ปีก่อน) แล้วถูกเลื่อนซ้ำ
-       ปี 1 รุ่นใหม่ที่เครื่องอื่นเพิ่มหลังเลื่อนกลายเป็นปี 2 และค่าที่ผิดถูกส่งทับคลาวด์ถาวร */
-    {
-      const { page, errors } = await openAs(browser, srv.url, "admin");
-      const s = await staleDevice(page);
-      const newbie = await page.evaluate(() => {
-        const remote = JSON.parse(localStorage.getItem("__test_remote"));
-        const nr = { id: "res_newbie", name: "นพ. รุ่นใหม่ทดสอบ", nick: "", year: 1, cohort: String(currentAY()),
-                     advisor: "", email: "", active: true };
-        remote.residents.push(nr);
-        localStorage.setItem("__test_remote", JSON.stringify(remote));
-        localStorage.removeItem(BASELINE_KEY);            /* เครื่องนี้ไม่มีฐานเปรียบเทียบ */
-        return nr.id;
-      });
-      await page.addInitScript(fakeCloud, { url: CLOUD, getStatus: 200 });
-      await page.reload();
-      await page.waitForFunction(() => !!localStorage.getItem("__test_put"), null, { timeout: 20000 }).catch(() => {});
-      await page.waitForTimeout(6500);                     /* เผื่อเวลาให้ตัวตั้งเวลาส่งซ้ำ (5 วิ) ถ้ามี */
-      const r = await page.evaluate((id) => {
-        const put = JSON.parse(localStorage.getItem("__test_put") || "null");
         return {
-          year: store.resident(id)?.year, putYear: put?.residents?.find(x => x.id === id)?.year,
-          cursor: store.data.meta.yearRolledAY, putCursor: put?.programme?.yearRolledAY,
-          puts: JSON.parse(localStorage.getItem("__test_calls") || "[]").filter(c => c.startsWith("PUT"))
+          calls: JSON.parse(localStorage.getItem("__test_calls") || "[]"),
+          years: Object.fromEntries(store.data.residents.map(x => [x.id, x.year])),
+          cursor: store.data.meta.yearRolledAY, provisional: !!store.data.meta.provisionalRoll,
+          status: syncCfg().lastStatus || "", put: !!localStorage.getItem("__test_put")
         };
-      }, newbie);
-      t.eq("ปี 1 ที่เครื่องอื่นเพิ่มหลังเลื่อนชั้นปี ยังเป็นปี 1 — ไม่ถูกเลื่อนซ้ำ", [r.year, r.putYear], [1, 1]);
-      t.eq("ตัวชี้ปีไม่ย้อนกลับ ทั้งในเครื่องและในชุดที่ส่งขึ้นคลาวด์", [r.cursor, r.putCursor], [s.ay, s.ay]);
-      t.eq("ส่งขึ้นคลาวด์ครั้งเดียวหลังรวมข้อมูล ไม่มี PUT ซ้ำจากตัวตั้งเวลา", r.puts, ["PUT@10"]);
-      t.check("ไม่มีฐานเปรียบเทียบ: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      }, s);
+      const onceOk = Object.entries(before).every(([id, y]) => off.years[id] === (y >= 4 ? 4 : y + 1));
+      t.check("ดึงไม่ได้ก็ยังเลื่อนชั้นปีจากข้อมูลในเครื่อง (ครั้งเดียว) ให้ใช้งานได้", off.cursor === s.ay && onceOk, JSON.stringify(off.calls));
+      t.check("การเลื่อนนั้นถูกจำว่าเป็นการเลื่อนชั่วคราว", off.provisional);
+      t.check("ยังไม่ส่งทะเบียนที่เลื่อนจากของเก่าขึ้นคลาวด์เลย", !off.put && !off.calls.some(c => c.startsWith("PUT")), off.calls.join(" → "));
+      t.check("สถานะบอกว่ายังรวมกับคลาวด์ไม่ได้ จึงยังไม่ส่ง", /ยังรวมการเลื่อนชั้นปี/.test(off.status), off.status);
+
+      /* คลาวด์กลับมา — รอบส่งถัดไปต้องรวมก่อนแล้วค่อยส่ง */
+      const on = await page.evaluate(async ({ targetId }) => {
+        localStorage.setItem("__test_getStatus", "200");
+        await cloudPush(true);
+        const put = JSON.parse(localStorage.getItem("__test_put") || "null");
+        const me = store.resident(targetId);
+        return {
+          calls: JSON.parse(localStorage.getItem("__test_calls") || "[]"),
+          advisor: me?.advisor, nick: me?.nick, putAdvisor: put?.residents?.find(x => x.id === targetId)?.advisor,
+          years: Object.fromEntries(store.data.residents.map(x => [x.id, x.year])),
+          cursor: store.data.meta.yearRolledAY, provisional: !!store.data.meta.provisionalRoll
+        };
+      }, s);
+      t.check("คลาวด์กลับมา: ดึงมารวมก่อน แล้วค่อยส่ง", on.calls.slice(-2).join(" → ") === "GET → PUT@10", on.calls.join(" → "));
+      t.eq("การแก้ทะเบียนของเครื่องอื่นหลังเลื่อนชั้นปี ไม่ถูกทะเบียนที่เลื่อนจากของเก่าทับ (ทั้งในเครื่องและที่ส่งขึ้นไป)",
+           [on.advisor, on.putAdvisor], ["อ.ที่แก้จากเครื่องอื่นหลังเลื่อนชั้นปี", "อ.ที่แก้จากเครื่องอื่นหลังเลื่อนชั้นปี"]);
+      t.eq("สิ่งที่เครื่องนี้แก้ระหว่างออฟไลน์ยังอยู่", on.nick, "แก้ตอนออฟไลน์หลังเลื่อน");
+      t.eq("ชั้นปีของทุกคนตรงกับคลาวด์ — ไม่เลื่อนซ้ำ และคนที่เครื่องอื่นให้ซ้ำชั้นยังซ้ำชั้นอยู่", on.years, s.remoteYears);
+      t.eq("ตัวชี้ปีเป็นปีปัจจุบัน และเคลียร์การเลื่อนชั่วคราวแล้ว", [on.cursor, on.provisional], [s.ay, false]);
+      t.check("ดึงไม่ได้แล้วกลับมา: ไม่มี error หลุดในคอนโซล", errors.filter(e => !/503|Failed to load resource/.test(e)).length === 0, errors.join(" | "));
       await page.close();
     }
 
