@@ -192,6 +192,126 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- 3b) การเลื่อนชั่วคราว: เปิดเครื่องซ้ำ · คลาวด์ยังไม่เลื่อน · คลาวด์ตอบหน้าเว็บแทนข้อมูล ----------
+       สามทางที่ผู้ตรวจรันพิสูจน์ได้ว่าทำให้เลื่อนซ้ำ/ทับข้อมูล — จำลองคลาวด์ในหน้า แล้วเรียก bootReconcile/cloudPush ตรง ๆ
+       ให้ครบจังหวะ "วันแรกออฟไลน์ → วันถัดมาเปิดใหม่" โดยไม่ต้องรีโหลด */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      /* (ก) วันแรกออฟไลน์ → วันถัดมาเปิดเครื่องตอนออนไลน์ แล้วจึงส่ง: คนที่คลาวด์เพิ่มหลังเลื่อนต้องยังเป็นปี 1 */
+      const a = await page.evaluate(async ({ url }) => {
+        const ay = String(currentAY()); const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: true, cloudUrl: url, rev: 5, token: "" });
+        store.setRolledAY(+ay - 1);
+        writeBaseline(5, JSON.parse(JSON.stringify(fullPayload())));
+        store.rollAcademicYear(ay, "auto");
+        const remote = JSON.parse(JSON.stringify(fullPayload()));
+        remote.residents.push({ ...remote.residents.find(r => r.active !== false && r.year === 2), id: "NEWCLOUD", name: "ใหม่จากคลาวด์", year: 1 });
+        store.undoYearRoll();
+        window.__cloud = { st: 503, rev: 10, data: remote, puts: [] };
+        const real = window.fetch;
+        window.fetch = async (u, o = {}) => {
+          if (String(u) !== url) return real(u, o);
+          const c = window.__cloud;
+          if ((o.method || "GET") === "GET") return c.st !== 200 ? new Response("down", { status: c.st })
+            : new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 200 });
+          const bd = JSON.parse(o.body); c.puts.push(bd);
+          if (bd.baseRev !== c.rev) return new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 409 });
+          c.data = bd.data; c.rev++; return new Response(JSON.stringify({ rev: c.rev }), { status: 200 });
+        };
+        await bootReconcile();
+        const p1 = !!store.data.meta.provisionalRoll;
+        window.__cloud.st = 200;
+        await bootReconcile();
+        const p2 = !!store.data.meta.provisionalRoll;
+        await cloudPush(true);
+        return { p1, p2, local: store.resident("NEWCLOUD")?.year,
+                 put: window.__cloud.puts.at(-1)?.data?.residents?.find(x => x.id === "NEWCLOUD")?.year };
+      }, { url: CLOUD }).catch(e => ({ err: e.message }));
+      t.check("(ก) วันแรกออฟไลน์ตั้งธงเลื่อนชั่วคราว และเปิดเครื่องครั้งถัดไปตอนออนไลน์เคลียร์ธงให้", a.p1 && a.p2 === false, JSON.stringify(a));
+      t.eq("(ก) คนที่คลาวด์เพิ่มหลังเลื่อนยังเป็นปี 1 ทั้งในเครื่องและที่ส่งขึ้นไป — ไม่เลื่อนซ้ำ", [a.local, a.put], [1, 1]);
+      await page.close();
+    }
+    {
+      const { page } = await openAs(browser, srv.url, "admin");
+      /* (ข) คลาวด์ยังไม่เลื่อน (ภาควิชาที่มีผู้จัดหลักสูตรคนเดียว): ระหว่างออฟไลน์ เพิ่มปี 1 รุ่นใหม่ และตั้งให้คนหนึ่งซ้ำชั้น
+         พอกลับมาออนไลน์ การเลื่อนที่ตามมาต้องไม่บวกสิ่งที่ผู้ใช้ตั้งไว้แล้วซ้ำอีก */
+      const b = await page.evaluate(async ({ url }) => {
+        const ay = String(currentAY()); const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: true, cloudUrl: url, rev: 5, token: "" });
+        store.setRolledAY(+ay - 1);
+        const stale = JSON.parse(JSON.stringify(fullPayload()));
+        writeBaseline(5, stale);
+        window.__cloud = { st: 503, rev: 5, data: stale, puts: [] };
+        const real = window.fetch;
+        window.fetch = async (u, o = {}) => {
+          if (String(u) !== url) return real(u, o);
+          const c = window.__cloud;
+          if ((o.method || "GET") === "GET") return c.st !== 200 ? new Response("down", { status: c.st })
+            : new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 200 });
+          const bd = JSON.parse(o.body); c.puts.push(bd);
+          if (bd.baseRev !== c.rev) return new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 409 });
+          c.data = bd.data; c.rev++; return new Response(JSON.stringify({ rev: c.rev }), { status: 200 });
+        };
+        await bootReconcile();                               /* ออฟไลน์ → เลื่อนชั่วคราว */
+        const tmpl = store.data.residents.find(x => x.active !== false && x.year === 2);
+        store.data.residents.push({ ...tmpl, id: "NEWLOCAL", name: "R1 ใหม่ของเครื่องนี้", year: 1, cohort: ay });
+        const rep = store.data.residents.find(x => x.active !== false && x.year === 3);
+        rep.year = 2;                                        /* ให้ซ้ำชั้น */
+        window.__cloud.st = 200;
+        await cloudPush(true);
+        const put = window.__cloud.puts.at(-1)?.data;
+        return { local: store.resident("NEWLOCAL")?.year, put: put?.residents?.find(x => x.id === "NEWLOCAL")?.year,
+                 rep: store.resident(rep.id)?.year, repPut: put?.residents?.find(x => x.id === rep.id)?.year,
+                 cursor: store.data.meta.yearRolledAY, ay, flag: !!store.data.meta.provisionalRoll };
+      }, { url: CLOUD }).catch(e => ({ err: e.message }));
+      t.eq("(ข) ปี 1 ที่เพิ่มระหว่างออฟไลน์ยังเป็นปี 1 หลังรวมกับคลาวด์", [b.local, b.put], [1, 1]);
+      t.eq("(ข) คนที่ตั้งให้ซ้ำชั้นระหว่างออฟไลน์ยังซ้ำชั้น ไม่ถูกบวกอีก", [b.rep, b.repPut], [2, 2]);
+      t.eq("(ข) ตัวชี้ปีเป็นปีปัจจุบัน และเคลียร์ธงแล้ว", [b.cursor, b.flag], [b.ay, false]);
+      await page.close();
+    }
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      /* (ค) คลาวด์ตอบหน้าเว็บ (HTML) ด้วยสถานะ 200 — ต้องถือว่าดึงไม่สำเร็จ ไม่ส่ง และคงธงไว้ */
+      const c = await page.evaluate(async ({ url }) => {
+        const ay = String(currentAY()); const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: true, cloudUrl: url, rev: 5, token: "" });
+        store.setRolledAY(+ay - 1);
+        const stale = JSON.parse(JSON.stringify(fullPayload()));
+        writeBaseline(5, stale);
+        store.rollAcademicYear(ay, "auto");
+        const remote = JSON.parse(JSON.stringify(fullPayload()));
+        const id = remote.residents.find(x => x.active !== false && x.year === 3).id;
+        remote.residents.find(x => x.id === id).year = 2;     /* เครื่องอื่นให้ซ้ำชั้นหลังเลื่อน */
+        store.undoYearRoll();
+        window.__cloud = { st: 503, html: false, rev: 10, data: remote, puts: [] };
+        const real = window.fetch;
+        window.fetch = async (u, o = {}) => {
+          if (String(u) !== url) return real(u, o);
+          const cl = window.__cloud;
+          if ((o.method || "GET") === "GET") {
+            if (cl.st !== 200) return new Response("down", { status: cl.st });
+            if (cl.html) { cl.html = false; return new Response("<html>ปิดปรับปรุงระบบ</html>", { status: 200 }); }
+            return new Response(JSON.stringify({ rev: cl.rev, data: cl.data }), { status: 200 });
+          }
+          const bd = JSON.parse(o.body); cl.puts.push(bd);
+          if (bd.baseRev !== cl.rev) return new Response(JSON.stringify({ rev: cl.rev, data: cl.data }), { status: 409 });
+          cl.data = bd.data; cl.rev++; return new Response(JSON.stringify({ rev: cl.rev }), { status: 200 });
+        };
+        await bootReconcile();
+        window.__cloud.st = 200; window.__cloud.html = true;
+        await cloudPush(true);
+        const afterHtml = { flag: !!store.data.meta.provisionalRoll, puts: window.__cloud.puts.length, status: syncCfg().lastStatus };
+        await cloudPush(true);
+        return { afterHtml, local: store.resident(id).year, cloud: window.__cloud.data.residents.find(x => x.id === id).year,
+                 flag: !!store.data.meta.provisionalRoll };
+      }, { url: CLOUD }).catch(e => ({ err: e.message }));
+      t.check("(ค) คลาวด์ตอบหน้าเว็บแทนข้อมูล → ไม่ส่ง คงธงไว้ และบอกในสถานะ",
+              c.afterHtml?.flag && c.afterHtml?.puts === 0 && /ไม่ใช่ข้อมูล/.test(c.afterHtml?.status || ""), JSON.stringify(c.afterHtml || c));
+      t.eq("(ค) รอบถัดไปที่ได้ข้อมูลจริง: คนที่เครื่องอื่นให้ซ้ำชั้นยังซ้ำชั้น ทั้งในเครื่องและบนคลาวด์", [c.local, c.cloud, c.flag], [2, 2, false]);
+      t.check("การเลื่อนชั่วคราวสามทาง: ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
        เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ
        พอซิงก์ก็ถูกนับว่า "เครื่องนี้แก้ทุกคน" แล้วชนะการรวมข้อมูลทับสิ่งที่เครื่องอื่นแก้ — ต้องรันบนข้อมูลสดที่ยังไม่เคยถูกเลื่อน */

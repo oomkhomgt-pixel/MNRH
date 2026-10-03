@@ -7856,12 +7856,14 @@ function setupSync() {
    ข้อมูลในเครื่องเหมือนเดิม — ไม่ปล่อยให้ทะเบียนค้างปีเก่า แต่บันทึกสถานะไว้ให้เห็นว่ายังไม่ได้รวมกับคลาวด์ */
 async function bootReconcile() {
   const cfg = syncCfg();
-  let merged = false, preRolled = false, pulled = false;
+  let merged = false, cloudRolled = false, pulled = false;
   if (canManage() && navigator.onLine && cfg.cloudUrl) {
     try {
       const body = await fetchCloudSnapshot();
       pulled = true;
-      ({ merged, preRolled } = mergeCloudSnapshot(body));
+      /* ธงเลื่อนชั่วคราวจากการเปิดครั้งก่อน (ตอนนั้นออฟไลน์) ต้องเคลียร์ที่นี่ด้วย — ถ้าปล่อยไว้ให้ cloudPush เคลียร์ทีหลัง
+         ตอนนั้นรุ่นของคลาวด์เท่ากับที่เพิ่งรวมไปแล้ว ขั้นรวมจะถูกข้าม แล้วทะเบียนถูกเลื่อนซ้ำทั้งชุด */
+      ({ merged, cloudRolled } = reconcileWithCloud(body));
     } catch (e) {
       cfg.lastStatus = "ดึงข้อมูลจากคลาวด์ก่อนเลื่อนชั้นปีไม่สำเร็จ: " + e.message + " — ใช้ข้อมูลในเครื่อง";
     }
@@ -7872,7 +7874,9 @@ async function bootReconcile() {
      ขึ้นคลาวด์ครั้งแรก cloudPush ต้องดึงของคลาวด์มาก่อน ย้อนเฉพาะช่องที่การเลื่อนนี้แก้ แล้วรวมและเลื่อนใหม่แบบเดียวกับ
      ตอนออนไลน์ (settleProvisionalRoll) — ไม่งั้นทะเบียนที่เลื่อนจากของเก่าจะไปแข่งกับของเครื่องอื่นที่เลื่อนและแก้ต่อไปแล้ว */
   if (localRoll && !pulled) markProvisionalRoll();
-  const rolled = localRoll || preRolled;
+  else if (localRoll) reapplyAfterRoll();
+  else pendingUserEdits = null;
+  const rolled = !!localRoll || cloudRolled;
   if (merged || rolled) {
     if (rolled) cfg.pending = true;
     /* ผู้เรียก (setupSync) ส่งขึ้นต่อทันทีอยู่แล้ว — บันทึกแบบไม่ตั้งเวลาส่งซ้ำ ไม่งั้นได้ PUT เกินมาอีกหนึ่งรอบ */
@@ -7884,16 +7888,23 @@ async function bootReconcile() {
   return { merged, rolled };
 }
 
+/* ดึงชุดของคลาวด์ — ต้องเป็น JSON ที่เป็น object จริง ไม่งั้นโยน error
+   (proxy/หน้าปิดปรับปรุงที่ตอบ HTML ด้วยสถานะ 200 เคยถูกอ่านเป็น {} แล้วถือว่า "ดึงสำเร็จแต่คลาวด์ว่าง"
+   การกันทั้งหมดของการเลื่อนชั่วคราวจึงหลุด — ย้อนแล้วเลื่อนจากของในเครื่อง ลบธง แล้วส่งทับคลาวด์) */
 async function fetchCloudSnapshot() {
   const cfg = syncCfg();
   const res = await fetchWithTimeout(cfg.cloudUrl, {
     credentials: "include", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
   }, 20000);
   if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json().catch(() => ({}));
+  let body;
+  try { body = await res.json(); } catch { throw new Error("คลาวด์ตอบกลับมาไม่ใช่ข้อมูล (อาจเป็นหน้าเว็บของ proxy หรือหน้าปิดปรับปรุง)"); }
+  if (!body || typeof body !== "object" || Array.isArray(body) || (body.data != null && (typeof body.data !== "object" || Array.isArray(body.data))))
+    throw new Error("รูปแบบข้อมูลจากคลาวด์ไม่ถูกต้อง");
+  return body;
 }
 
-/* รวมชุดของคลาวด์เข้ากับของเครื่องนี้ (สามทาง ฐาน = baseline) — ใช้ทั้งตอนเปิดเครื่องและตอนเคลียร์การเลื่อนชั่วคราว */
+/* รวมชุดของคลาวด์เข้ากับของเครื่องนี้ (สามทาง ฐาน = baseline) */
 function mergeCloudSnapshot(body) {
   const cfg = syncCfg();
   if (!body?.data || (body.rev ?? 0) === (cfg.rev ?? 0)) return { merged: false, preRolled: false };
@@ -7915,14 +7926,61 @@ function mergeCloudSnapshot(body) {
   return { merged: true, preRolled };
 }
 
+/* รวมกับคลาวด์ — ใช้ทั้งตอนเปิดเครื่องและก่อนส่งขึ้น ถ้ามีการเลื่อนชั่วคราวค้างอยู่ จะเคลียร์ในจังหวะนี้เสมอ:
+   เก็บสิ่งที่ผู้ใช้แก้/เพิ่มหลังการเลื่อนชั่วคราว → ย้อนเฉพาะช่องที่การเลื่อนตั้งไว้ → รวมสามทาง
+   ระหว่างรวม ห้าม migrate() เลื่อนเองข้างใน (deferRoll) — ผู้เรียกเป็นคนเลื่อนแล้วคืนสิ่งที่ผู้ใช้แก้ (reapplyAfterRoll)
+   พังกลางทาง (ข้อมูลคลาวด์ผิดรูป ฯลฯ) → คืนข้อมูลในเครื่องทั้งก้อนเป็นของเดิมแล้วโยนต่อ ไม่เหลือสภาพครึ่ง ๆ กลาง ๆ */
+let pendingUserEdits = null;
+function reconcileWithCloud(body) {
+  const snap = structuredClone(store.data);
+  const prevDefer = store.deferRoll, prevRev = syncCfg().rev;
+  store.deferRoll = true;
+  try {
+    pendingUserEdits = store.data.meta?.provisionalRoll ? provisionalUserEdits() : null;
+    if (store.data.meta?.provisionalRoll) revertProvisionalRoll();
+    const { merged, preRolled } = mergeCloudSnapshot(body);
+    return { merged, cloudRolled: preRolled };
+  } catch (e) {
+    store.data = snap; syncCfg().rev = prevRev; pendingUserEdits = null;
+    throw e;
+  } finally { store.deferRoll = prevDefer; }
+}
+/* หลังเลื่อนชั้นปีที่ตามมาจากการเคลียร์ — คืนสิ่งที่ผู้ใช้แก้หรือเพิ่มไว้หลังการเลื่อนชั่วคราว (คนปี 1 ที่เพิ่มใหม่ไม่ถูกบวกเป็นปี 2
+   คนที่ตั้งให้ซ้ำชั้นไม่ถูกบวกอีก คนปี 4 ที่เปิดกลับมาไม่ถูกปิดจบซ้ำ) · ถ้าไม่ได้เลื่อน (คลาวด์เลื่อนไปแล้ว) การรวมสามทางจัดการให้แล้ว */
+function reapplyAfterRoll() {
+  const keep = pendingUserEdits; pendingUserEdits = null;
+  (keep || []).forEach(({ id, fields }) => {
+    const r = (store.data.residents || []).find(x => x.id === id); if (!r) return;
+    Object.entries(fields).forEach(([k, v]) => { if (v === undefined) delete r[k]; else r[k] = v; });
+  });
+}
+
 /* --- การเลื่อนชั้นปีชั่วคราว (เลื่อนจากข้อมูลในเครื่องตอนติดต่อคลาวด์ไม่ได้) --- */
 const ROLL_FIELDS = ["year", "name", "active", "graduatedAY"];
+const rollFieldOf = (o, k) => (o.has && (k === "active" || k === "graduatedAY") && !o.has[k]) ? undefined : o[k];
 function markProvisionalRoll() {
   const d = store.data, lr = d.meta?.lastYearRoll; if (!lr) return;
   /* จำค่าหลังเลื่อนไว้ด้วย — ตอนย้อน จะย้อนเฉพาะช่องที่ยังเป็นค่าที่การเลื่อนนี้ตั้งไว้ ช่องที่ผู้ใช้แก้ต่อหลังจากนั้นไม่แตะ */
   d.meta.provisionalRoll = { fromAY: lr.fromAY, toAY: lr.toAY,
     after: (d.residents || []).map(r => ({ id: r.id, year: r.year, name: r.name, active: r.active, graduatedAY: r.graduatedAY,
                                            has: { active: "active" in r, graduatedAY: "graduatedAY" in r } })) };
+}
+/* สิ่งที่ผู้ใช้แก้หรือเพิ่มหลังการเลื่อนชั่วคราว: คนที่ไม่อยู่ในชุดก่อนเลื่อน (เพิ่มใหม่) ทุกช่อง + ช่องที่ค่าตอนนี้ไม่ใช่ค่าที่การเลื่อนตั้งไว้ */
+function provisionalUserEdits() {
+  const d = store.data, pr = d.meta?.provisionalRoll, lr = d.meta?.lastYearRoll;
+  if (!pr) return null;
+  const inBefore = new Set((lr?.before || []).map(b => b.id));
+  const after = new Map(pr.after.map(a => [a.id, a]));
+  const out = [];
+  (d.residents || []).forEach(r => {
+    const a = after.get(r.id), fresh = !inBefore.has(r.id) || !a, fields = {};
+    ROLL_FIELDS.forEach(k => {
+      const now = (k in r) ? r[k] : undefined;
+      if (fresh || !sameJson(now, rollFieldOf(a, k))) fields[k] = now;
+    });
+    if (Object.keys(fields).length) out.push({ id: r.id, fields });
+  });
+  return out;
 }
 function revertProvisionalRoll() {
   const d = store.data, pr = d.meta?.provisionalRoll, lr = d.meta?.lastYearRoll;
@@ -7931,12 +7989,11 @@ function revertProvisionalRoll() {
   (lr?.before || []).forEach(b => {
     const r = (d.residents || []).find(x => x.id === b.id), a = after.get(b.id);
     if (!r || !a) return;
-    const was = (o, k) => (o.has && (k === "active" || k === "graduatedAY") && !o.has[k]) ? undefined : o[k];
     const now = (k) => (k in r) ? r[k] : undefined;
     (d.users || []).forEach(u => { if (u.residentId === r.id && u.displayName === a.name && r.name === a.name) u.displayName = b.name; });
     ROLL_FIELDS.forEach(k => {
-      if (!sameJson(now(k), was(a, k))) return;            /* ผู้ใช้แก้ช่องนี้ต่อหลังเลื่อน — คงของผู้ใช้ไว้ */
-      const v = was(b, k);
+      if (!sameJson(now(k), rollFieldOf(a, k))) return;    /* ผู้ใช้แก้ช่องนี้ต่อหลังเลื่อน — คงของผู้ใช้ไว้ */
+      const v = rollFieldOf(b, k);
       if (v === undefined) delete r[k]; else r[k] = v;
     });
   });
@@ -7948,9 +8005,8 @@ function revertProvisionalRoll() {
 async function settleProvisionalRoll() {
   if (!store.data.meta?.provisionalRoll) return false;
   const body = await fetchCloudSnapshot();
-  revertProvisionalRoll();
-  mergeCloudSnapshot(body);
-  store.rollAcademicYearOnce();
+  reconcileWithCloud(body);
+  if (store.rollAcademicYearOnce()) reapplyAfterRoll(); else pendingUserEdits = null;
   audit("เคลียร์การเลื่อนชั้นปีชั่วคราว", "รวมกับข้อมูลบนคลาวด์ก่อนส่งขึ้น · ทะเบียนตอนนี้เป็นของปีการศึกษา " + (store.data.meta.yearRolledAY || "—"));
   suppressDirty = true; store.save(); suppressDirty = false;
   renderAll(); applyPermissions();
@@ -11629,16 +11685,16 @@ function renderYearRollPanel() {
   });
   $("#btnRollYear")?.addEventListener("click", async () => {
     if (!canManage()) return;
+    /* การเลื่อนชั่วคราวที่ยังไม่ได้รวมกับคลาวด์ต้องเคลียร์ก่อน (ตรวจก่อนถามยืนยัน ไม่ใช่ให้กดยืนยันแล้วค่อยปฏิเสธ) — เลื่อนซ้อนลงไปจะทำให้ย้อนเฉพาะส่วนของการเลื่อนชั่วคราวไม่ได้ */
+    if (store.data.meta?.provisionalRoll) {
+      toast("เครื่องนี้เลื่อนชั้นปีจากข้อมูลในเครื่องไว้ชั่วคราว และยังไม่ได้รวมกับคลาวด์ — ส่งข้อมูลขึ้นคลาวด์ให้สำเร็จก่อน แล้วค่อยเลื่อนต่อ", 9000);
+      return;
+    }
     const to = String(+rolled + 1);
     const ok = await confirmDialog("เลื่อนชั้นปีขึ้นปีการศึกษา " + to + " ตอนนี้?\n" +
       "ทุกคนที่ฝึกอบรมอยู่จะเลื่อน +1 ชั้นปี · ปี 4 จำนวน " + y4.length + " คน" + (y4.length ? " (" + y4.map(r => r.name).join(", ") + ")" : "") +
       " จะจบการศึกษาและกลายเป็น inactive · ย้อนกลับได้จากปุ่มในหน้านี้", { okLabel: "เลื่อนชั้นปี", danger: true });
     if (!ok) return;
-    /* การเลื่อนชั่วคราวที่ยังไม่ได้รวมกับคลาวด์ต้องเคลียร์ก่อน — เลื่อนซ้อนลงไปจะทำให้ย้อนเฉพาะส่วนของการเลื่อนชั่วคราวไม่ได้ */
-    if (store.data.meta?.provisionalRoll) {
-      toast("เครื่องนี้เลื่อนชั้นปีจากข้อมูลในเครื่องไว้ชั่วคราว และยังไม่ได้รวมกับคลาวด์ — ส่งข้อมูลขึ้นคลาวด์ให้สำเร็จก่อน แล้วค่อยเลื่อนต่อ", 9000);
-      return;
-    }
     const out = store.rollAcademicYear(to, "manual");
     store.save(); renderAll();
     toast(out ? "เลื่อนแล้ว " + out.promoted + " คน · จบการศึกษา " + out.graduated.length + " คน" : "ไม่มีอะไรต้องเลื่อน", 7000);
