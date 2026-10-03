@@ -11,11 +11,13 @@ import { loadGas } from "./gas.mjs";
 const GAS_URL = "https://script.google.com/macros/s/TESTDEPLOY/exec";
 const PII = /DEMO-\d|นพ\.|พญ\./;                                   /* HN สาธิตและชื่อแพทย์ในข้อมูลสาธิต */
 
-async function attachGas(page, gas, token, reqLog) {
+/* hold.p: ถ้าตั้งไว้ คำขอ put จะค้างจนกว่าจะปล่อย — จำลองคลาวด์ตอบช้า (ระหว่างนั้นผู้ใช้ยังกดอย่างอื่นได้) */
+async function attachGas(page, gas, token, reqLog, hold = {}) {
   await page.route(GAS_URL, async (route) => {
     const r = route.request();
     const body = r.postData() || "";
     reqLog?.push({ method: r.method(), ct: r.headers()["content-type"] || "", auth: r.headers()["authorization"] || "", body });
+    if (hold.p && /"action":"put"/.test(body)) { hold.arrived = true; await hold.p; }
     const out = r.method() === "POST" ? gas.post(body) : { status: 405 };
     await route.fulfill({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(out) });
   });
@@ -34,7 +36,7 @@ export default async function run() {
 
   /* ---------- 1) Code.gs ล้วน ---------- */
   {
-    const gas = loadGas({ KEEP_VERSIONS: "2" });
+    const gas = loadGas({ KEEP_VERSIONS: "2", ALLOW_PLAINTEXT: "1" });
     const tok = gas.ctx.createToken("admin");
     t.check("createToken: เก็บแค่ค่าแฮช ไม่เก็บโทเคนจริง", tok.length >= 40 && !gas.props.get("TOKENS").includes(tok) && /admin/.test(gas.props.get("TOKENS")));
     t.eq("ไม่มีโทเคน / โทเคนผิด → 401", [gas.post({ action: "get" }).status, gas.post({ action: "get", token: "x".repeat(40) }).status], [401, 401]);
@@ -52,8 +54,9 @@ export default async function run() {
     t.check("เขียนภายใต้ล็อกทุกครั้ง และปล่อยล็อกครบ", gas.locks.max === 1 && gas.locks.held === 0, JSON.stringify(gas.locks));
     gas.ctx.revokeToken("admin");
     t.eq("ถอนโทเคนแล้ว → 401", gas.post({ action: "get", token: tok }).status, 401);
-    const g2 = loadGas({ REQUIRE_ENCRYPTION: "1" }); const t2 = g2.ctx.createToken("a");
-    t.eq("REQUIRE_ENCRYPTION=1: ไม่รับข้อมูลที่ไม่ได้เข้ารหัสตั้งแต่แรก", g2.post({ action: "put", token: t2, baseRev: 0, data: { residents: [] } }).status, 422);
+    const g2 = loadGas(); const t2 = g2.ctx.createToken("a");
+    t.check("ค่าเริ่มต้น: ไม่รับข้อมูลที่ไม่ได้เข้ารหัสเลยตั้งแต่ครั้งแรก (ไม่มีไฟล์ถูกเขียน)",
+      g2.post({ action: "put", token: t2, baseRev: 0, data: { residents: [] } }).status === 422 && g2.files.size === 0);
     t.eq("คำขอไม่ใช่ JSON → 400", g2.post("<html>").status, 400);
   }
 
@@ -66,10 +69,15 @@ export default async function run() {
 
     /* ---------- 2) เครื่อง A: เปิดการเข้ารหัสผ่านหน้าจอ แล้วส่งขึ้น ---------- */
     const A = await openAs(browser, srv.url, "admin");
-    await attachGas(A.page, gas, tokA, reqLog);
+    const holdA = {};
+    await attachGas(A.page, gas, tokA, reqLog, holdA);
+    /* ตั้งที่อยู่ Apps Script แล้วกด "บันทึกและซิงก์เลย" ทั้งที่ยังไม่เปิดการเข้ารหัส → ต้องไม่ส่งอะไรขึ้นไป แล้วพาไปตั้งการเข้ารหัส */
     await A.page.evaluate(() => syncSettingsDialog());
-    await click(A.page, "การเข้ารหัสข้อมูลบนคลาวด์…");
+    await click(A.page, "บันทึกและซิงก์เลย");
     await dlgOpen(A.page, "เปิดการเข้ารหัสข้อมูลบนคลาวด์");
+    const plainTry = await A.page.evaluate(async () => { await cloudPush(true); return syncCfg().lastStatus; });
+    t.check("ยังไม่เปิดการเข้ารหัส: กดบันทึกและซิงก์ หรือสั่งส่ง ไม่มีข้อมูลขึ้น Drive เลย และพาไปตั้งการเข้ารหัส",
+      !gas.files.has("dataset.json") && !reqLog.some(x => /"action":"put"/.test(x.body)) && /ต้องเปิดการเข้ารหัส/.test(plainTry), plainTry);
     await fill(A.page, "pass", "สั้น"); await fill(A.page, "pass2", "สั้น");
     await click(A.page, "ต่อไป — ออกกุญแจกู้คืน");
     const shortErr = await A.page.evaluate(() => $("#dlgBody .err").textContent);
@@ -113,7 +121,7 @@ export default async function run() {
     const revBefore = cloudDoc(gas).rev;
     const bLocked = await B.page.evaluate(async () => { await cloudPush(true); const first = syncCfg().lastStatus; await cloudPush(true); return { first, second: syncCfg().lastStatus, pending: syncCfg().pending }; });
     t.check("เครื่องที่ยังไม่ปลดล็อก: ไม่ส่งข้อมูลเปิดทับ (รุ่นบนคลาวด์ไม่ขยับ) และบอกให้ปลดล็อก",
-      cloudDoc(gas).rev === revBefore && /ปลดล็อกเครื่องนี้/.test(bLocked.second) && bLocked.pending === true, JSON.stringify(bLocked));
+      cloudDoc(gas).rev === revBefore && /ยังไม่ได้ปลดล็อก/.test(bLocked.second) && bLocked.pending === true, JSON.stringify(bLocked));
     await B.page.evaluate(() => e2eDialog()); await dlgOpen(B.page, "การเข้ารหัสข้อมูลบนคลาวด์");
     await fill(B.page, "pass", "ผิดรหัส-ผิดรหัส"); await click(B.page, "ปลดล็อกเครื่องนี้");
     await B.page.waitForFunction(() => /ไม่ถูกต้อง/.test($("#dlgBody .err")?.textContent || ""), null, { timeout: 30000 });
@@ -121,11 +129,23 @@ export default async function run() {
     await fill(B.page, "pass", temp); await click(B.page, "ปลดล็อกเครื่องนี้");
     await dlgOpen(B.page, "เปลี่ยนรหัสผ่านการเข้ารหัส");
     t.check("ปลดล็อกด้วยรหัสชั่วคราว → บังคับเปลี่ยนรหัสผ่าน", await B.page.evaluate(() => /รหัสผ่านชั่วคราว/.test($("#dlgBody").textContent)));
+    /* ยังไม่เปลี่ยน → ส่งข้อมูลไม่ได้ (คนที่ตั้งรหัสชั่วคราวให้ยังแกะกุญแจของ B ได้) */
+    const tempSlot = cloudDoc(gas).data.slots.find(s => s.id === "admin2");
+    const revT = cloudDoc(gas).rev;
+    const bTemp = await B.page.evaluate(async () => { await cloudPush(true); return syncCfg().lastStatus; });
+    t.check("ยังใช้รหัสชั่วคราว: ส่งข้อมูลไม่ได้ และบอกให้ตั้งรหัสของตัวเอง", cloudDoc(gas).rev === revT && /รหัสผ่านชั่วคราว/.test(bTemp), bTemp);
     await fill(B.page, "old", temp); await fill(B.page, "pass", "รหัสของแอดมินสอง-ยาวพอ"); await fill(B.page, "pass2", "รหัสของแอดมินสอง-ยาวพอ");
     await click(B.page, "บันทึกรหัสผ่านใหม่");
     await B.page.waitForFunction(() => !$("#dlg").open, null, { timeout: 30000 });
-    t.check("เปลี่ยนรหัสแล้ว ช่องของ admin2 ไม่ใช่รหัสชั่วคราวอีก (ส่งขึ้นคลาวด์แล้ว)", cloudDoc(gas).data.slots.find(s => s.id === "admin2" && !s.temp),
+    await until(() => cloudDoc(gas).data.slots.some(s => s.id === "admin2" && !s.temp));
+    const newSlot = cloudDoc(gas).data.slots.find(s => s.id === "admin2");
+    t.check("เปลี่ยนรหัสแล้ว ช่องของ admin2 ไม่ใช่รหัสชั่วคราวอีก (ส่งขึ้นคลาวด์แล้ว)", newSlot && !newSlot.temp,
       JSON.stringify(cloudDoc(gas).data.slots.map(s => s.id + (s.temp ? "*" : ""))));
+    const oldKeyOpens = await A.page.evaluate(async ({ slot, temp }) => e2eOpenPriv(slot, temp).then(() => "เปิดได้", e => e.message), { slot: newSlot, temp });
+    t.check("เปลี่ยนรหัส = ออกคู่กุญแจใหม่: กุญแจสาธารณะเปลี่ยน และรหัสชั่วคราวเปิดช่องใหม่ไม่ได้ (คนที่ตั้งรหัสให้หมดสิทธิ์จริง)",
+      newSlot.pub.x !== tempSlot.pub.x && /ไม่ถูกต้อง/.test(oldKeyOpens), oldKeyOpens);
+    const bStill = await B.page.evaluate(async () => { const s = await fetchCloudSnapshot(); return s.data.residents.length > 0 && !!(await e2eReadPriv()) && !(await e2eReadPriv(true)); });
+    t.check("B สลับมาใช้กุญแจใหม่หลังคลาวด์รับแล้ว ยังถอดข้อมูลได้ และไม่มีกุญแจค้างรอสลับ", bStill);
     /* ข้อมูลไปถึงกันจริง: A แก้ → B ดึงมาเห็น */
     await A.page.evaluate(async () => { store.data.residents[0].advisor = "แก้จาก A หลังเข้ารหัส"; await cloudPush(true); });
     const bSees = await B.page.evaluate(async () => { const s = await fetchCloudSnapshot(); return s.data.residents[0].advisor; });
@@ -143,10 +163,34 @@ export default async function run() {
       /ส่งขึ้นคลาวด์แล้ว/.test(nohn.status) && aView.total > 0 && aView.withHn === aView.total && aView.note === "แก้จาก B ที่ไม่เก็บ HN" && nohn.localHn === 0,
       JSON.stringify({ nohn, aView }));
 
-    /* ---------- 4) ถอด admin2 → ออกกุญแจใหม่ · B อ่านรุ่นใหม่ไม่ได้ ---------- */
+    /* ---------- 3b) เครื่องเดียวกัน คนละบัญชี: กุญแจผูกกับบัญชีที่ล็อกอิน ---------- */
+    const asUser = async (page, uid) => { await page.evaluate(id => localStorage.setItem("mnrh_ortho_portfolio_session_v1", JSON.stringify({ userId: id, at: new Date().toISOString() })), uid);
+      await page.reload(); await page.waitForFunction(id => typeof currentUser === "function" && currentUser()?.id === id, uid); };
+    const adminId = await A.page.evaluate(() => currentUser().id);
+    await asUser(A.page, "u_admin2");
+    const revS = cloudDoc(gas).rev;
+    const other = await A.page.evaluate(async () => { const can = await e2eEnsureMem(); await cloudPush(true);
+      let add; try { await e2eSetAdmin("x9", "x", "รหัสชั่วคราวยาวพอแล้ว"); add = "เพิ่มได้"; } catch (e) { add = e.message; }
+      return { can, status: syncCfg().lastStatus, add }; });
+    t.check("อีกบัญชีล็อกอินเครื่องที่ admin ปลดล็อกไว้: ใช้กุญแจของ admin ไม่ได้ ส่งไม่ได้ จัดการผู้ถือกุญแจไม่ได้",
+      other.can === false && cloudDoc(gas).rev === revS && /admin2 ยังไม่ได้ปลดล็อก/.test(other.status) && /ต้องปลดล็อก/.test(other.add), JSON.stringify(other));
+    await asUser(A.page, adminId);
+    t.check("กลับมาเป็น admin บนเครื่องเดิม: ใช้กุญแจของตัวเองได้ทันทีโดยไม่ต้องใส่รหัสใหม่ (แม้ยังไม่ได้ซิงก์)", await A.page.evaluate(() => e2eEnsureMem()));
+    /* ลดบทบาท admin2 ในทะเบียน → หน้าการเข้ารหัสต้องเตือนว่ายังถือกุญแจอยู่ */
+    const warn = await A.page.evaluate(async () => { store.data.users.find(u => u.username === "admin2").role = "staff"; await e2eDialog();
+      const txt = $("#dlgBody").textContent; $("#dlg").close(); return txt; });
+    t.check("ผู้ถือกุญแจที่ไม่ได้เป็นผู้ดูแลแล้ว: หน้าการเข้ารหัสเตือนให้ถอด", /ไม่ได้เป็นผู้ดูแลที่ใช้งานอยู่แล้ว: Admin 2/.test(warn) && /ไม่ใช่ผู้ดูแลแล้ว/.test(warn), warn.slice(0, 200));
+
+    /* ---------- 4) ถอด admin2 ระหว่างที่การส่งอีกรอบค้างอยู่ → ต้องไม่หาย และออกกุญแจใหม่ · B อ่านรุ่นใหม่ไม่ได้ ---------- */
     const kid0 = cloudDoc(gas).data.kid;
-    await A.page.evaluate(async () => { await e2eRemoveAdmin("admin2"); await cloudPush(true); });
+    let release; holdA.p = new Promise(r => { release = r; }); holdA.arrived = false;
+    const inflight = A.page.evaluate(async () => { store.data.residents[1].advisor = "แก้ระหว่างรอ"; await cloudPush(true); });
+    await until(() => holdA.arrived);
+    await A.page.evaluate(() => e2eRemoveAdmin("admin2"));      /* สั่งถอดขณะคลาวด์ยังไม่ตอบรอบแรก */
+    holdA.p = null; release(); await inflight;
+    await until(() => cloudDoc(gas).data.epoch === 2);
     const d4 = cloudDoc(gas).data;
+    t.check("สั่งถอดระหว่างการส่งค้าง: ไม่ถูกล้างทิ้ง ส่งต่อเองทันที (ซิงก์อัตโนมัติปิดอยู่)", d4.epoch === 2, "epoch=" + d4.epoch);
     t.check("ถอด admin2 แล้ว: กุญแจข้อมูลใหม่ (kid เปลี่ยน epoch +1) และไม่มีช่องของ admin2", d4.kid !== kid0 && d4.epoch === 2 && !d4.slots.some(s => s.id === "admin2"),
       JSON.stringify({ kid0, kid: d4.kid, epoch: d4.epoch }));
     const bAfter = await B.page.evaluate(async () => { try { await fetchCloudSnapshot(); return "อ่านได้"; } catch (e) { return e.message; } });

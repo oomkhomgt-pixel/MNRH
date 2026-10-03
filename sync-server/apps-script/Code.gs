@@ -12,13 +12,14 @@
  * - ต้องตั้งการเข้าถึงเป็น "Anyone" (เบราว์เซอร์เรียกข้ามโดเมนพร้อมการล็อกอิน Google ไม่ได้) จึงใช้โทเคนต่อผู้ดูแล
  *   เก็บเป็นค่าแฮช SHA-256 ใน Script Properties (ไม่เก็บโทเคนจริง) · ถอนสิทธิ์รายคนได้ด้วย revokeToken()
  * - เมื่อเปิดการเข้ารหัสในแอปแล้ว ไฟล์บน Drive เป็นข้อมูลที่อ่านไม่ออก สคริปต์นี้ไม่มีกุญแจและไม่ต้องมี
- * - เมื่อชุดบนคลาวด์เข้ารหัสแล้ว จะไม่ยอมให้เขียนทับด้วยข้อมูลที่ไม่ได้เข้ารหัส (กันแอปรุ่นเก่า/การตั้งค่าผิด)
- *   ตั้ง REQUIRE_ENCRYPTION = "1" เพื่อไม่รับข้อมูลที่ไม่ได้เข้ารหัสเลยตั้งแต่แรก
+ * - รับเฉพาะข้อมูลที่เข้ารหัสแล้วเป็นค่าเริ่มต้น — ข้อมูลทั้งชุดมี HN ห้ามขึ้น Drive แบบอ่านได้แม้แต่ครั้งเดียว
+ *   (สำเนารุ่นก่อนและประวัติรุ่นของไฟล์บน Drive จะเก็บมันไว้ต่อ) · ALLOW_PLAINTEXT = "1" เฉพาะการทดสอบที่ไม่มีข้อมูลจริง
+ * - เมื่อชุดบนคลาวด์เข้ารหัสแล้ว ไม่ยอมให้เขียนทับด้วยข้อมูลที่ไม่ได้เข้ารหัสเสมอ (กันแอปรุ่นเก่า/การตั้งค่าผิด)
  *
  * ตั้งค่า (Project Settings › Script Properties)
  *   FOLDER_ID           รหัสโฟลเดอร์บน Drive ของภาควิชา (จาก URL ของโฟลเดอร์)
  *   KEEP_VERSIONS       จำนวนสำเนารุ่นก่อนหน้าที่เก็บไว้ (ค่าเริ่มต้น 20)
- *   REQUIRE_ENCRYPTION  "1" = รับเฉพาะข้อมูลที่เข้ารหัสแล้ว
+ *   ALLOW_PLAINTEXT     "1" = ยอมรับข้อมูลที่ไม่ได้เข้ารหัส (อย่าตั้งเมื่อมีข้อมูลจริง)
  *   TOKENS              (สร้างเองด้วย createToken — อย่าแก้ด้วยมือ)
  */
 const ENC_VER = "mnrh-e2e-v1";
@@ -49,7 +50,7 @@ function handle_(req) {
 
   if (req.action === "put") {
     if (!req.data || typeof req.data !== "object" || Array.isArray(req.data)) return { status: 400, error: "missing data" };
-    if (prop_("REQUIRE_ENCRYPTION") === "1" && !isEnc_(req.data)) return { status: 422, error: "encryption required" };
+    if (prop_("ALLOW_PLAINTEXT") !== "1" && !isEnc_(req.data)) return { status: 422, error: "encryption required — turn on encryption in the app first" };
     const text0 = JSON.stringify(req.data);
     if (text0.length > MAX_BYTES) return { status: 413, error: "payload too large" };
     const lock = LockService.getScriptLock();
