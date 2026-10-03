@@ -8077,7 +8077,8 @@ async function e2eIncoming(body) {
   const e = (cfg.e2e ||= { on: true, epoch: 0, slots: [], pending: [] });
   /* เครื่องนี้เคย "เปิดใช้" ไว้แต่ยังส่งไม่สำเร็จ ขณะที่คลาวด์เข้ารหัสอยู่แล้ว — ชุดกุญแจที่เตรียมไว้เป็นโมฆะ
      ต้องทิ้ง ไม่งั้นพอปลดล็อกแล้วจะส่งทับช่องจริง (รวมช่องกุญแจกู้คืนของหัวหน้าภาควิชา) */
-  if (!e.published) { e.pending = []; await e2eForgetDevice(false); }   /* กุญแจของชุดที่เป็นโมฆะก็ทิ้งด้วย → ขึ้นว่า "ยังไม่ได้ปลดล็อก" */
+  /* (kid เดียวกัน = ชุดของเครื่องนี้เองที่ส่งสำเร็จแต่ไม่ได้รับคำตอบ — ใช้ต่อได้ ห้ามทิ้ง) */
+  if (!e.published && env.kid !== e.kid) { e.pending = []; await e2eForgetDevice(false); }   /* กุญแจของชุดที่เป็นโมฆะก็ทิ้งด้วย → ขึ้นว่า "ยังไม่ได้ปลดล็อก" */
   e.on = true; e.published = true;
   if (+env.epoch < +(e.epoch || 0))
     throw new Error("ข้อมูลบนคลาวด์ใช้กุญแจรุ่นเก่ากว่าที่เครื่องนี้เคยเห็น — อาจเป็นการนำสำเนาเก่ามาวางทับ ไม่รวม ไม่ส่ง");
@@ -8215,15 +8216,37 @@ async function e2eRemoveAdmin(username) {
   if (slots.filter(s => s.kind !== "recovery" && s.id !== username).length < 1) throw new Error("ต้องเหลือผู้ดูแลอย่างน้อยหนึ่งคน");
   e2eQueue({ op: "remove", id: username });
 }
+/* ช่องรหัสชั่วคราวที่จะถูกยกเลิกเมื่อออกกุญแจใหม่ — เงื่อนไขเดียวกับ e2eOutgoing (ช่องที่สั่งตั้งรออยู่ในชุดนี้ไม่ถูกยกเลิก) */
+function e2eTempsDropped(exceptId) {
+  const e = e2eCfg();
+  const fresh = new Set((e?.pending || []).filter(p => p.op === "set").map(p => p.slot.id));
+  return e2eEffectiveSlots(e).filter(s => s.temp && !fresh.has(s.id) && s.id !== exceptId).map(s => s.label || s.id);
+}
+const e2eTempsNote = (temps) => temps.length ? "\nช่องที่ยังเป็นรหัสชั่วคราว (" + temps.join(", ") + ") จะถูกยกเลิกด้วย — ตั้งรหัสชั่วคราวใหม่ให้ภายหลัง" : "";
 /* บัญชีที่ถือกุญแจถูกลดบทบาท / ปิด / ลบ / เปลี่ยนชื่อ — ถอดออกจากผู้ถือกุญแจด้วย ไม่งั้นทุกกุญแจรุ่นใหม่ยังถูกห่อให้เขา
    (ป้ายเตือนในหน้าการเข้ารหัสเห็นเฉพาะคนที่เปิดหน้านั้น) */
+/* เลิกทำการลบบัญชี: บัญชีกลับมา แต่ถ้าถูกถอดกุญแจไปแล้ว ต้องบอก (ไม่งั้นนึกว่ากลับมาครบ) */
+function e2eWarnRestored(usernames) {
+  const e = e2eCfg(); if (!e?.on) return;
+  const held = new Set(e2eEffectiveSlots(e).map(s => s.id));
+  const lost = usernames.filter(n => (store.data.users || []).some(u => u.username === n && u.role === "admin") && !held.has(n));
+  if (lost.length) toast("บัญชี " + lost.join(", ") + " กลับมาแล้ว แต่ถูกถอดกุญแจไปแล้ว — ตั้งรหัสชั่วคราวใหม่ที่หน้าการเข้ารหัส");
+}
 async function e2eRevokeIfNotAdmin(username) {
   const e = e2eCfg();
   if (!e?.on || !username || !e2eEffectiveSlots(e).some(s => s.id === username && s.kind !== "recovery")) return;
   const u = (store.data.users || []).find(x => x.username === username);
   if (u && u.role === "admin" && u.active !== false) return;
+  /* เครื่องยังล็อกอยู่ = ถอดไม่ได้ — บอกก่อน ไม่ถามให้กดยืนยันแล้วค่อยบอกว่าทำไม่ได้ */
+  if (!(await e2eEnsureMem())) {
+    await confirmAny("บัญชี " + username + " ยังถือกุญแจข้อมูลบนคลาวด์ แต่ไม่ได้เป็นผู้ดูแลที่ใช้งานอยู่แล้ว\n" +
+      "เครื่องนี้ยังไม่ได้ปลดล็อกการเข้ารหัส จึงถอดให้ไม่ได้ — ให้ผู้ดูแลที่ปลดล็อกแล้วถอดที่ ตั้งค่า › ซิงก์ › การเข้ารหัส… และถอนโทเคนในสคริปต์",
+      { okLabel: "รับทราบ" });
+    return;
+  }
   if (!(await confirmAny("บัญชี " + username + " ยังถือกุญแจข้อมูลบนคลาวด์ แต่ไม่ได้เป็นผู้ดูแลที่ใช้งานอยู่แล้ว\n" +
-      "ถอดออกจากผู้ถือกุญแจ (ออกกุญแจข้อมูลใหม่) เลยไหม? — อย่าลืมถอนโทเคนในสคริปต์ด้วย", { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) {
+      "ถอดออกจากผู้ถือกุญแจ (ออกกุญแจข้อมูลใหม่) เลยไหม? — อย่าลืมถอนโทเคนในสคริปต์ด้วย" + e2eTempsNote(e2eTempsDropped(username)),
+      { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) {
     toast("ยังไม่ได้ถอด — " + username + " ยังเปิดข้อมูลรุ่นใหม่ได้ (ถอดได้ที่ ตั้งค่า › ซิงก์ › การเข้ารหัส…)");
     return;
   }
@@ -8498,9 +8521,7 @@ async function e2eDialog() {
   showDialog("การเข้ารหัสข้อมูลบนคลาวด์", body, buttons.map(b => ({ ...b, onClick: async () => { const ok = await b.onClick(); return ok === false ? false : undefined; } })));
   $("#dlgBody").querySelectorAll("[data-e2e-remove]").forEach(btn => btn.addEventListener("click", async () => {
     const id = btn.dataset.e2eRemove;
-    const temps = slots.filter(s => s.temp && s.id !== id).map(s => s.label || s.id);
-    if (!(await confirmAny("ถอด " + id + " ออกจากผู้ถือกุญแจ? จะออกกุญแจข้อมูลใหม่และส่งขึ้นคลาวด์ทันที" +
-        (temps.length ? "\nช่องที่ยังเป็นรหัสชั่วคราว (" + temps.join(", ") + ") จะถูกยกเลิกด้วย — ตั้งรหัสชั่วคราวใหม่ให้ภายหลัง" : ""),
+    if (!(await confirmAny("ถอด " + id + " ออกจากผู้ถือกุญแจ? จะออกกุญแจข้อมูลใหม่และส่งขึ้นคลาวด์ทันที" + e2eTempsNote(e2eTempsDropped(id)),
         { okLabel: "ถอดและออกกุญแจใหม่", danger: true }))) return;
     if (await e2eRun(() => e2eRemoveAdmin(id))) { await cloudPush(false); $("#dlg").close(); setTimeout(e2eDialog, 0); }
   }));
@@ -10972,7 +10993,9 @@ function editResident(id) {
           { list:"rotations", keep: x => x.residentId !== r.id },
           { list:"epaAssessments", keep: x => x.residentId !== r.id },
           { list:"visits", keep: x => x.residentId !== r.id },
-          { list:"rotationEvals", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; });
+          { list:"rotationEvals", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; e2eWarnRestored(accs.filter(x => x.id !== meId).map(x => x.username)); });
+        /* บัญชีที่ลบไปพร้อมทะเบียนอาจถือกุญแจข้อมูลบนคลาวด์ — ถามถอดทีละคน (ใช้กล่องโต้ตอบใบเดียวกัน ห้ามยิงพร้อมกัน) */
+        setTimeout(async () => { for (const a of accs.filter(x => x.id !== meId)) await e2eRevokeIfNotAdmin(a.username); }, 0);
       }}] : [])
   ]);
   previewBatch();
@@ -12555,12 +12578,13 @@ function editUser(id, preset = {}) {
         if (u) Object.assign(u, rec); else store.data.users.push({ id: uid("usr"), ...rec });
         audit(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", username);
         store.save(); renderAll(); applyPermissions(); toast("บันทึกแล้ว");
-        if (prevName) setTimeout(() => e2eRevokeIfNotAdmin(prevName), 0);
+        /* บัญชีของตัวเอง: ลดบทบาทตัวเองไม่ได้อยู่แล้ว และเปลี่ยนชื่อตัวเองไม่ต้องถาม (กุญแจในเครื่องยังอยู่ใต้ชื่อเดิม — ปลดล็อกใหม่) */
+        if (prevName && u.id !== session?.userId) setTimeout(() => e2eRevokeIfNotAdmin(prevName), 0);
       }},
     ...(u ? [{ label:"ลบบัญชี", cls:"btn-danger", onClick: () => {
         if (u.id === session?.userId) { toast("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้"); return false; }
         audit("ลบบัญชีผู้ใช้", u.username);
-        removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }]);
+        removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }], () => e2eWarnRestored([u.username]));
         setTimeout(() => e2eRevokeIfNotAdmin(u.username), 0);
       }}] : [])
   ]);

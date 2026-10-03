@@ -174,6 +174,15 @@ export default async function run() {
       return { can, status: syncCfg().lastStatus, add }; });
     t.check("อีกบัญชีล็อกอินเครื่องที่ admin ปลดล็อกไว้: ใช้กุญแจของ admin ไม่ได้ ส่งไม่ได้ จัดการผู้ถือกุญแจไม่ได้",
       other.can === false && cloudDoc(gas).rev === revS && /admin2 ยังไม่ได้ปลดล็อก/.test(other.status) && /ต้องปลดล็อก/.test(other.add), JSON.stringify(other));
+    /* เครื่องที่ยังล็อก: ลดบทบาทผู้ถือกุญแจ → บอกว่าถอดไม่ได้ก่อน ไม่ถามให้ยืนยันการถอด */
+    const lockedAsk = await A.page.evaluate(async () => {
+      const msgs = []; const real = confirmDialog; confirmDialog = async (m, o) => { msgs.push((o?.okLabel || "") + "|" + m); return true; };
+      const u = store.data.users.find(x => x.username === "admin"); u.role = "staff";
+      try { await e2eRevokeIfNotAdmin("admin"); } finally { confirmDialog = real; u.role = "admin"; }
+      return msgs;
+    });
+    t.check("เครื่องที่ยังล็อก: บอกว่าถอดไม่ได้ก่อน ไม่ถามยืนยันการถอด", lockedAsk.length === 1 && /ถอดให้ไม่ได้/.test(lockedAsk[0]) && !/^ถอดและออกกุญแจใหม่/.test(lockedAsk[0]), JSON.stringify(lockedAsk));
+
     await asUser(A.page, adminId);
     t.check("กลับมาเป็น admin บนเครื่องเดิม: ใช้กุญแจของตัวเองได้ทันทีโดยไม่ต้องใส่รหัสใหม่ (แม้ยังไม่ได้ซิงก์)", await A.page.evaluate(() => e2eEnsureMem()));
     /* ลดบทบาท admin2 ในทะเบียน → หน้าการเข้ารหัสต้องเตือนว่ายังถือกุญแจอยู่ */
@@ -215,6 +224,24 @@ export default async function run() {
     t.check("ออกกุญแจใหม่แล้ว: ช่องรหัสชั่วคราวที่ค้าง (admin4) ถูกยกเลิก ไม่ได้กุญแจรุ่นใหม่", !d4b.slots.some(s => s.id === "admin4"),
       JSON.stringify(d4b.slots.map(s => s.id)));
 
+    /* ---------- 6a) ลบแพทย์ประจำบ้าน → บัญชีผู้ดูแลที่ผูกอยู่ถูกลบตาม → ต้องถามถอดกุญแจด้วย ---------- */
+    const rid = await A.page.evaluate(async () => {
+      const r = store.data.residents.find(x => x.active !== false);
+      store.data.users.push({ id: "u_chief", username: "chief", displayName: "หัวหน้าแพทย์ประจำบ้าน", role: "admin", pin: "4321", residentId: r.id });
+      await e2eSetAdmin("chief", "chief", "รหัสชั่วคราวหัวหน้า-1"); await cloudPush(true);
+      window.__realCD = confirmDialog; window.__realCI = confirmInline; confirmDialog = async () => true; confirmInline = async () => true;
+      editResident(r.id); return r.id;
+    });
+    const ep6 = cloudDoc(gas).data.epoch;
+    await click(A.page, "ลบรายชื่อนี้");
+    await until(() => cloudDoc(gas).data.epoch > ep6);
+    await A.page.evaluate(() => { confirmDialog = window.__realCD; confirmInline = window.__realCI; });
+    t.check("ลบแพทย์ประจำบ้านที่มีบัญชีผู้ดูแลผูกอยู่: ถอดกุญแจของบัญชีนั้นและออกกุญแจใหม่", !cloudDoc(gas).data.slots.some(s => s.id === "chief") && cloudDoc(gas).data.epoch === ep6 + 1,
+      JSON.stringify({ rid, epoch: cloudDoc(gas).data.epoch, slots: cloudDoc(gas).data.slots.map(s => s.id) }));
+    /* ส่งเปิดใช้/ส่งสำเร็จแต่ไม่ได้รับคำตอบ (published ยังเป็น false) แล้วคลาวด์ส่งชุดของเครื่องนี้เองกลับมา → ต้องไม่ทิ้งกุญแจของตัวเอง */
+    const own = await A.page.evaluate(async () => { const raw = await fetchCloudRaw(); syncCfg().e2e.published = false; e2eMem = null;
+      try { await e2eIncoming(raw); } catch (e) { return { err: e.message }; } return { priv: !!(await e2eReadPriv()), published: syncCfg().e2e.published }; });
+    t.check("ชุดกุญแจของเครื่องนี้เองที่ส่งสำเร็จแต่ไม่ได้รับคำตอบ: ใช้ต่อได้ ไม่ทิ้งกุญแจในเครื่อง", own.priv === true && own.published === true, JSON.stringify(own));
     /* ---------- 5) การโจมตีด้วยการแก้ไฟล์บน Drive (คนที่มีโทเคนหรือสิทธิ์ในโฟลเดอร์) ---------- */
     const good = gas.files.get("dataset.json").text;
     const tamper = async (mut) => { const d = JSON.parse(good); mut(d); gas.files.get("dataset.json").text = JSON.stringify(d);
