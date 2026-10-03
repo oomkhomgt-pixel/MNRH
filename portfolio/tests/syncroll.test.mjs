@@ -558,6 +558,54 @@ export default async function run() {
       t.check(`(ญ ${lv}) ไม่มี error หลุดในคอนโซล`, errors.length === 0, errors.join(" | "));
       await page.close();
     }
+    /* (ฎ) แก้ระหว่างกำลังส่ง: เดิมหลังส่งสำเร็จเขียนฐานจากข้อมูลปัจจุบัน (มีของที่เพิ่งแก้แต่ไม่ได้ส่ง) และล้างสถานะรอส่ง
+           ของนั้นจึงไม่ถูกส่งเลย แล้วการรวมครั้งถัดไปย้อนกลับเงียบ ๆ
+       (ฏ) ดึงข้อมูลทั้งชุดจากคลาวด์ต้องสั่งห้ามแคช HTTP · (ฐ) ระดับที่ไม่รู้จักต้องลบ HN ไว้ก่อน */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const r = await page.evaluate(async ({ url }) => {
+        const c = window.__cloud = { rev: 10, data: null, puts: [], getCache: [] };
+        const real = window.fetch;
+        window.fetch = async (u, o = {}) => {
+          if (String(u) !== url) return real(u, o);
+          if ((o.method || "GET") === "GET") { c.getCache.push(o.cache || "(none)");
+            return new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 200 }); }
+          const bd = JSON.parse(o.body); c.puts.push(bd);
+          if (c.gate) await c.gate;                          /* PUT ค้างไว้จนกว่าเทสต์จะปล่อย */
+          if (bd.baseRev !== c.rev) return new Response(JSON.stringify({ rev: c.rev, data: c.data }), { status: 409 });
+          c.data = bd.data; c.rev++; return new Response(JSON.stringify({ rev: c.rev }), { status: 200 });
+        };
+        const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: false, cloudUrl: url, rev: 10, token: "", pending: true });
+        c.data = JSON.parse(JSON.stringify(fullPayload()));
+        writeBaseline(10, c.data);
+        const id = store.data.cases[0].id;
+        let release; c.gate = new Promise(res => { release = res; });
+        const p = cloudPush(true);
+        while (!c.puts.length) await new Promise(res => setTimeout(res, 10));
+        store.data.cases.find(x => x.id === id).note = "แก้ระหว่างส่ง";  /* ผู้ใช้แก้ขณะ PUT ยังไม่ตอบ */
+        release(); await p; c.gate = null;
+        const first = { sentNote: c.puts[0].data.cases.find(x => x.id === id).note, pending: cfg.pending,
+                        baseNote: readBaseline()?.data?.cases?.find(x => x.id === id)?.note };
+        await cloudPush(true);
+        const second = { puts: c.puts.length, note: c.puts.at(-1).data.cases.find(x => x.id === id).note, pending: cfg.pending };
+        /* (ฏ) */
+        store.data.orQueue ||= {}; store.data.orQueue.patientData = "nohn"; applyPatientLevel();
+        c.getCache = []; await cloudPush(true); await fetchCloudSnapshot();
+        /* (ฐ) */
+        const bogus = { id: "x", hn: "HN1", age: 5, sex: "M" }; scrubCaseForLevel(bogus, "แปลก");
+        return { first, second, getCache: c.getCache, bogus: [bogus.hn, bogus.age] };
+      }, { url: CLOUD }).catch(e => ({ err: e.message }));
+      t.check("(ฎ) แก้ระหว่างส่ง: ก้อนแรกไม่มีค่าที่แก้ ฐานก็ไม่มี และยังมีสถานะรอส่ง",
+        r.first && r.first.sentNote !== "แก้ระหว่างส่ง" && r.first.baseNote !== "แก้ระหว่างส่ง" && r.first.pending === true, JSON.stringify(r.first || r));
+      t.check("(ฎ) รอบถัดไปส่งค่าที่แก้ระหว่างส่งขึ้นไป แล้วสถานะรอส่งหายไป",
+        r.second?.puts === 2 && r.second.note === "แก้ระหว่างส่ง" && r.second.pending === false, JSON.stringify(r.second));
+      t.check("(ฏ) ดึงข้อมูลทั้งชุดจากคลาวด์สั่ง cache: no-store ทุกครั้ง",
+        r.getCache?.length >= 2 && r.getCache.every(x => x === "no-store"), JSON.stringify(r.getCache));
+      t.eq("(ฐ) ระดับข้อมูลผู้ป่วยที่ไม่รู้จัก: ลบ HN ไว้ก่อน (เหมือน nohn)", r.bogus, ["", 5]);
+      t.check("(ฎ–ฐ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
 
     /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
        เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ

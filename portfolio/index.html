@@ -4010,7 +4010,8 @@ function classify(parsed) {
 /* ระดับข้อมูลผู้ป่วยที่ยอมให้เก็บลงเครื่องนี้: full = HN+อายุ/เพศ, nohn = ไม่เก็บ HN, minimal = ไม่เก็บข้อมูลผู้ป่วยเลย */
 const patientLevel = () => store.data.orQueue?.patientData || (store.data.orQueue?.dropHn ? "nohn" : "full");
 /* ช่องของเคสที่ระดับนั้นห้ามเก็บลงเครื่อง — ใช้ทั้งตอนลบออกจากเครื่องและตอนเติมของคลาวด์กลับก่อนส่ง (keepCloudPatientFields) */
-const restrictedCaseFields = (lv) => lv === "minimal" ? ["hn", "age", "sex"] : lv === "nohn" ? ["hn"] : [];
+/* ค่าที่ไม่รู้จัก (เช่น ไฟล์สำรองที่แก้ด้วยมือ) ถือเป็น nohn เหมือนจุดอื่นของแอป — ไม่รู้ก็ลบไว้ก่อน */
+const restrictedCaseFields = (lv) => lv === "full" ? [] : lv === "minimal" ? ["hn", "age", "sex"] : ["hn"];
 function scrubCaseForLevel(c, lv = patientLevel()) {
   if (!c) return;
   restrictedCaseFields(lv).forEach(f => { c[f] = ""; });
@@ -7898,8 +7899,9 @@ async function bootReconcile() {
    การกันทั้งหมดของการเลื่อนชั่วคราวจึงหลุด — ย้อนแล้วเลื่อนจากของในเครื่อง ลบธง แล้วส่งทับคลาวด์) */
 async function fetchCloudSnapshot() {
   const cfg = syncCfg();
+  /* no-store: คำตอบคือข้อมูลทั้งชุดที่มี HN — ห้ามลงแคช HTTP บนดิสก์ของเครื่องที่ตั้งไม่เก็บ HN (คลาวด์บางแบบไม่ส่ง Cache-Control มา) */
   const res = await fetchWithTimeout(cfg.cloudUrl, {
-    credentials: "include", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
+    credentials: "include", cache: "no-store", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
   }, 20000);
   if (!res.ok) throw new Error("HTTP " + res.status);
   let body;
@@ -8310,7 +8312,7 @@ async function cloudPush(quiet, isRetry) {
      finally ของรอบแรกจึงทำงานทันทีที่รอบใหม่ไปหยุดรอ fetch แล้วตั้ง syncing = false ทับรอบใหม่ที่ยังส่งอยู่
      ตลอดช่วงนั้น (นานได้ถึง 20 วิ) ตัวตั้งเวลาของ markDirty ยิงซ้อนเข้ามาได้ → PUT สองก้อนด้วย baseRev เดียวกัน
      ก้อนที่แพ้ได้ 409 อีกรอบ แล้วบันทึกรายการ "ชนกัน" ปลอมซ้ำ และป้ายสถานะขึ้นว่าซิงก์เสร็จทั้งที่ยังส่งอยู่ */
-  let retry = false;
+  let retry = false, again = false;
   try {
     /* เครื่องนี้เลื่อนชั้นปีจากข้อมูลในเครื่องตอนติดต่อคลาวด์ไม่ได้ — ห้ามส่งทะเบียนนั้นขึ้นไปตรง ๆ ต้องรวมกับของคลาวด์ก่อน
        ดึงไม่ได้ก็โยน error ออกไปที่ catch (ไม่ส่ง คงสถานะรอส่ง) แล้วรอบถัดไป (ทุก 10 นาที / กลับมาออนไลน์) ลองใหม่เอง */
@@ -8318,7 +8320,11 @@ async function cloudPush(quiet, isRetry) {
       try { await settleProvisionalRoll(); }
       catch (e) { throw new Error("ยังรวมการเลื่อนชั้นปีของเครื่องนี้กับคลาวด์ไม่ได้ (" + e.message + ") — ยังไม่ส่ง"); }
     }
-    let payload = fullPayload();
+    /* สำเนาของสิ่งที่ส่งจริง ถ่ายไว้ตอนนี้ — ระหว่างรอ GET/PUT (รวมได้ถึง 40 วิ) ผู้ใช้ยังแก้ต่อได้ และตัวตั้งเวลาของ markDirty
+       ที่ยิงตอนนั้นออกทันทีเพราะ syncing · เดิมหลังส่งสำเร็จเขียนฐานจากข้อมูลปัจจุบัน (มีของที่แก้ระหว่างรอ แต่ไม่ได้ส่ง) และล้าง pending
+       ของนั้นจึงไม่ถูกส่ง แล้วการรวมครั้งถัดไปเห็นว่า "คลาวด์เปลี่ยน" ย้อนกลับเงียบ ๆ */
+    const sent = JSON.parse(JSON.stringify(fullPayload()));
+    let payload = sent;
     /* เครื่องที่ตั้งไม่เก็บ HN/ข้อมูลผู้ป่วย มีเคสที่ช่องเหล่านั้นว่าง — คลาวด์เขียนทับทั้งชุดตามที่ส่ง ถ้าส่งตรง ๆ HN ของทุกเคสบนคลาวด์
        หายหมดทุกครั้งที่เครื่องนี้ส่ง · ดึงของคลาวด์มาเติมเฉพาะช่องที่ระดับนี้ห้ามเก็บ ลงในก้อนที่จะส่งเท่านั้น (ไม่ลงเครื่อง)
        ดึงไม่ได้ก็ไม่ส่ง คงสถานะรอส่ง — ดีกว่าส่งแล้วข้อมูลผู้ป่วยบนคลาวด์หาย */
@@ -8326,7 +8332,7 @@ async function cloudPush(quiet, isRetry) {
       let snap;
       try { snap = await fetchCloudSnapshot(); }
       catch (e) { throw new Error("ดึงข้อมูลผู้ป่วยที่คลาวด์เก็บไว้มาเติมไม่ได้ (" + e.message + ") — ยังไม่ส่ง เพื่อไม่ให้ HN บนคลาวด์หาย"); }
-      payload = keepCloudPatientFields(payload, snap.data);
+      payload = keepCloudPatientFields(sent, snap.data);
     }
     const res = await fetchWithTimeout(cfg.cloudUrl, {
       method: "PUT", credentials: "include", headers,
@@ -8338,7 +8344,8 @@ async function cloudPush(quiet, isRetry) {
       const remote = await res.json().catch(() => ({}));
       if (isRetry) throw new Error("ยังชนกันอยู่หลังรวมข้อมูลแล้ว — ลองใหม่อีกครั้ง");
       const base = readBaseline();
-      const { merged, conflicts } = mergeDatasets(base?.data || null, payload, remote.data || {});
+      /* ของเครื่องนี้ = ข้อมูลปัจจุบัน (รวมสิ่งที่แก้ระหว่างรอ) ไม่ใช่สำเนาที่ส่งไป — ไม่งั้นการรวมจะทับสิ่งที่เพิ่งแก้ทิ้ง */
+      const { merged, conflicts } = mergeDatasets(base?.data || null, fullPayload(), remote.data || {});
       applyMerged(merged);
       recordConflicts(conflicts);
       cfg.rev = remote.rev || 0;
@@ -8356,8 +8363,10 @@ async function cloudPush(quiet, isRetry) {
       cfg.lastAt = new Date().toISOString();
       cfg.remoteAt = body.updatedAt || cfg.lastAt;
       cfg.lastStatus = "ส่งขึ้นคลาวด์แล้ว รุ่นที่ " + (body.rev ?? "—") + " · " + Math.round((body.bytes || 0) / 1024) + " KB";
-      cfg.pending = false;
-      writeBaseline(cfg.rev, fullPayload());
+      writeBaseline(cfg.rev, sent);
+      const now = fullPayload(), noStamp = (d) => ({ ...d, meta: { ...(d.meta || {}), pushedAt: "" } });
+      again = !sameJson(noStamp(sent), noStamp(now));         /* แก้ระหว่างส่ง → ยังมีของรอส่ง */
+      cfg.pending = again;
       audit("ส่งข้อมูลทั้งชุดขึ้นคลาวด์", cfg.cloudUrl + " · รุ่นที่ " + (body.rev ?? "—"));
       if (!quiet) toast("ส่งข้อมูลขึ้นคลาวด์ของภาควิชาแล้ว (รุ่นที่ " + (body.rev ?? "—") + ")");
     }
@@ -8370,6 +8379,7 @@ async function cloudPush(quiet, isRetry) {
   }
   /* ไม่มี await คั่นระหว่าง finally กับบรรทัดนี้ รอบใหม่จึงตั้ง syncing = true ต่อทันทีโดยไม่มีช่องให้อะไรแทรก */
   if (retry) return cloudPush(quiet, true);
+  if (again) markDirty();
 }
 
 async function cloudPull() {
@@ -8378,7 +8388,7 @@ async function cloudPull() {
   if (!cfg.cloudUrl) { toast("ยังไม่ได้ตั้งที่อยู่คลาวด์"); return; }
   try {
     const res = await fetchWithTimeout(cfg.cloudUrl, {
-      credentials: "include", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
+      credentials: "include", cache: "no-store", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
     }, 20000);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const body = await res.json();
