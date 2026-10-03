@@ -50,6 +50,25 @@ def fit_plane(points: Sequence[Sequence[float]]) -> Optional[FracturePlane]:
     return FracturePlane(point=centroid, normal=normal, marks=marks, rms_mm=rms)
 
 
+def marks_near(points, a, b, within_mm: float) -> np.ndarray:
+    """The marks within ``within_mm`` of the segment a-b: the fracture this
+    screw is about, not another one marked elsewhere on the same bone."""
+    marks = np.asarray(points, dtype=float).reshape(-1, 3)
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    ab = b - a
+    t = np.clip(((marks - a) @ ab) / max(float(ab @ ab), 1e-9), 0.0, 1.0)
+    d = np.linalg.norm(marks - (a + t[:, None] * ab), axis=1)
+    return marks[d <= within_mm]
+
+
+def off_square_deg(plane: FracturePlane, direction) -> float:
+    """How far a screw along ``direction`` is from square to the fracture:
+    0 when it runs along the plane's normal, 90 when it lies in the plane."""
+    u = np.asarray(direction, dtype=float)
+    u = u / np.linalg.norm(u)
+    return float(np.degrees(np.arccos(min(1.0, abs(float(u @ plane.normal))))))
+
+
 def past_fracture_mm(plane: FracturePlane, start, tip) -> Optional[float]:
     """How much of the screw, from its entry cortex ``start`` to its ``tip``,
     lies beyond the fracture: the distance along the screw from where it

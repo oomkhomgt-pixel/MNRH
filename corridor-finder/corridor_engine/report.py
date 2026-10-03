@@ -222,6 +222,10 @@ def _render_geometry(screw: dict, validation: dict) -> str:
             lines.append(f"Tip: through the far cortex, protruding {_fmt_mm(protrusion)} mm")
     else:
         lines.append("Tip: inside bone, with the full margin")
+    off = validation.get("fracture_off_square_deg")
+    if isinstance(off, (int, float)):
+        lines.append(f"Angle to the marked fracture: {_fmt_mm(off, 0)} degrees off square"
+                     + ("" if validation.get("crosses_fracture") else "; it does NOT cross the fracture"))
     past = validation.get("past_fracture_mm")
     if isinstance(past, (int, float)):
         lines.append(f"Screw beyond the marked fracture: {_fmt_mm(past, 0)} mm")

@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Antegrade posterior column screw put first when most square to
+      the marked fracture (DECISIONS.md 7.3d); angle shown on every
+      suggestion, the panel and the report. Checked on CLINIC_0025
+      with a synthetic fracture plane; not on a real marked fracture.
 - [x] Corridors on a virtual reduction, corridor side (DECISIONS.md 3.4,
       3.6): bones and CT moved by each unit's rigid transform, screws
       tagged and checked on the anatomy they were planned on, their

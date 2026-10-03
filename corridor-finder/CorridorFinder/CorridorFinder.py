@@ -707,10 +707,17 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """Record the fracture sites the surgeon has marked (world xyz)."""
         self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
 
-    def fracture_plane(self, side: str) -> Optional["fracture_mod.FracturePlane"]:
+    # A mark belongs to the fracture a screw is about when it is this close
+    # to the screw's line: marks on another fracture of the same bone (the
+    # ramus, say) must not tilt the plane.
+    FRACTURE_MARKS_NEAR_MM = 40.0
+
+    def fracture_plane(self, side: str, near=None) -> Optional["fracture_mod.FracturePlane"]:
         """The fracture of this side's hip bone as a plane through the marks
         on it (three or more, not on one line; DECISIONS.md 7.12), or None.
-        A mark counts for the hip bone that is within 5 mm of it."""
+        A mark counts for the hip bone that is within 5 mm of it, and, given
+        ``near`` = (a, b), only if it is within FRACTURE_MARKS_NEAR_MM of the
+        segment a-b."""
         if not self.fracture_sites or self.labels_volume is None:
             return None
         hip = seg_mod.HIP_R if side == "right" else seg_mod.HIP_L
@@ -723,6 +730,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
             if (hi > lo).all() and (vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] == hip).any():
                 marks.append(site)
+        if near is not None and marks:
+            marks = list(fracture_mod.marks_near(marks, near[0], near[1], self.FRACTURE_MARKS_NEAR_MM))
         return fracture_mod.fit_plane(marks)
 
     def _is_clear_of_fracture(self, point, side: str, clear_mm: float) -> bool:
@@ -997,6 +1006,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             if (self._is_clear_of_fracture(start, entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))
                     and self._is_clear_of_fracture(tip, exit_side, spec["exit"].get("clear_of_fracture_mm", 0.0))):
                 kept.append(r)
+        if spec.get("square_to_fracture") and kept:
+            kept = self._square_to_fracture_first(kept, corridor_id, side, entry_center, exit_center,
+                                                  dict(search_again, length_range_mm=self._length_range(spec, length_mm)),
+                                                  entry_side, exit_side)
         longest = self._longest_on_axis(kept[0], corridor_id, side, margin_mm) if (kept and length_mm is None) else None
         if longest is not None:
             kept.append(longest)
@@ -1077,6 +1090,77 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return longer
         return None
 
+    def _square_to_fracture_first(self, kept, corridor_id: str, side: str, entry_center, exit_center,
+                                  search: dict, entry_side: str, exit_side: str):
+        """The surgeon aims the antegrade posterior column screw mostly square
+        to the fracture. With the fracture marked near this corridor, search
+        again for screws aimed within the corridor's cone of the fracture's
+        normal, and put first the safe screw, of the widest diameter found,
+        that crosses the fracture most nearly square to it. Every suggestion
+        says how far it is from square. The breach rule is not touched: all
+        of these passed it."""
+        spec = self.corridor_defs[corridor_id]
+        plane = self.fracture_plane(side, near=(entry_center, exit_center))
+        if plane is None:
+            if self.fracture_sites:
+                self.suggestion_notes.append(
+                    "The fracture marks near this corridor do not define a plane (3 or more, spread out, within "
+                    f"{self.FRACTURE_MARKS_NEAR_MM:.0f} mm of it), so the widest corridor comes first rather than "
+                    "the one most square to the fracture.")
+            else:
+                self.suggestion_notes.append(
+                    "Mark the fracture (3 or more points along it) to have the screw most square to it put first.")
+            return kept
+        normal = np.asarray(plane.normal, dtype=float)
+        if float(normal @ (np.asarray(exit_center) - np.asarray(entry_center))) < 0:
+            normal = -normal
+        # Exit voxels within the cone around the normal, seen from the entry.
+        exit_mask = search["exit_mask"]
+        vol = self.labels_volume
+        radius = float(spec["exit"]["radius_mm"])
+        corners = np.array([vol.world_to_zyx_index(np.asarray(exit_center) - radius),
+                            vol.world_to_zyx_index(np.asarray(exit_center) + radius)])
+        lo = np.maximum(np.floor(corners.min(axis=0)).astype(int), 0)
+        hi = np.minimum(np.ceil(corners.max(axis=0)).astype(int) + 1, exit_mask.shape)
+        cone = np.zeros_like(exit_mask)
+        box = tuple(slice(a, b) for a, b in zip(lo, hi))
+        if (hi > lo).all():
+            idx = np.argwhere(exit_mask[box]) + lo
+            if len(idx):
+                v = vol.zyx_indices_to_world(idx) - np.asarray(entry_center)
+                cos = (v @ normal) / np.maximum(np.linalg.norm(v, axis=1), 1e-9)
+                keep = idx[cos >= np.cos(np.radians(float(spec["square_to_fracture"]["cone_deg"])))]
+                cone[keep[:, 0], keep[:, 1], keep[:, 2]] = True
+        pool = list(kept)
+        if cone.any():
+            for r in corridor_search.search_corridor(**dict(search, exit_mask=cone)):
+                v = r.validation
+                if (r.screw.fits and v is not None and v.start_xyz is not None
+                        and self._is_clear_of_fracture(v.start_xyz, entry_side, spec["entry"].get("clear_of_fracture_mm", 0.0))
+                        and self._is_clear_of_fracture(v.tip_xyz, exit_side, spec["exit"].get("clear_of_fracture_mm", 0.0))):
+                    pool.append(r)
+
+        def crosses(r):
+            v = r.validation
+            return (v is not None and v.start_xyz is not None and v.tip_xyz is not None
+                    and fracture_mod.past_fracture_mm(plane, v.start_xyz, v.tip_xyz) is not None)
+
+        for r in pool:
+            if not r.screw.fits:
+                continue
+            angle = fracture_mod.off_square_deg(plane, r.direction)
+            words = f"{angle:.0f} degrees off square to the fracture" + ("" if crosses(r) else ", does not cross it")
+            r.note = f"{r.note}; {words}" if r.note else words
+        candidates = [r for r in pool if r.screw.fits and crosses(r)]
+        if not candidates:
+            self.suggestion_notes.append("No safe screw here crosses the marked fracture.")
+            return kept
+        widest = max(r.screw.diameter_mm for r in candidates)
+        best = min((r for r in candidates if r.screw.diameter_mm == widest),
+                   key=lambda r: fracture_mod.off_square_deg(plane, r.direction))
+        best.note = "most square to the fracture: " + best.note
+        return [best] + [r for r in kept if r is not best]
+
     def _short_of_far_cortex(self, candidates, corridor_id: str, side: str, margin_mm: float,
                              limit_mm: float, exact: bool, search_again: Optional[dict] = None):
         """DECISIONS.md 7.12: when the screw cannot reach the far cortex within
@@ -1119,7 +1203,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                     if (check.breach or check.tip_xyz is None or check.start_xyz is None
                             or corridor_search._BLOCKING_WARNINGS & set(check.warning_codes)):
                         continue
-                    past = fracture_mod.past_fracture_mm(plane, check.start_xyz, check.tip_xyz)
+                    near_plane = self.fracture_plane(side, near=(check.start_xyz, check.tip_xyz))
+                    past = (fracture_mod.past_fracture_mm(near_plane, check.start_xyz, check.tip_xyz)
+                            if near_plane is not None else None)
                     if past is None or past < need:
                         continue
                     key = (d, float(check.min_clearance_mm), float(check.length_mm))
@@ -1388,11 +1474,19 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             articular = self.articular_clearance(screw, v.start_xyz, v.tip_xyz)
             if articular is not None:
                 screw.validation = dict(screw.validation, articular_clearance_mm=articular)
+            if self.corridor_defs[screw.corridor_id].get("square_to_fracture"):
+                plane = self.fracture_plane(screw.side, near=(v.start_xyz, v.tip_xyz))
+                if plane is not None:
+                    direction = np.asarray(v.tip_xyz, dtype=float) - np.asarray(v.start_xyz, dtype=float)
+                    screw.validation = dict(screw.validation,
+                                            fracture_off_square_deg=fracture_mod.off_square_deg(plane, direction),
+                                            crosses_fracture=fracture_mod.past_fracture_mm(
+                                                plane, v.start_xyz, v.tip_xyz) is not None)
             short = self.corridor_defs[screw.corridor_id].get("short_tip")
             if short and self.screw_tip_rule(screw.corridor_id, screw.tip_rule) == "inside":
                 # A screw that stops short of the far cortex has to be far
                 # enough past the fracture, however it was moved.
-                plane = self.fracture_plane(screw.side)
+                plane = self.fracture_plane(screw.side, near=(v.start_xyz, v.tip_xyz))
                 past = fracture_mod.past_fracture_mm(plane, v.start_xyz, v.tip_xyz) if plane is not None else None
                 need = float(short["past_fracture_mm"])
                 extra = {"past_fracture_mm": past}
@@ -2195,6 +2289,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             text += f", tip {v['protrusion_mm']:.1f} mm past the far cortex"
         if v.get("past_fracture_mm") is not None:
             text += f", tip in bone {v['past_fracture_mm']:.0f} mm past the marked fracture"
+        if v.get("fracture_off_square_deg") is not None:
+            text += (f"; {v['fracture_off_square_deg']:.0f} degrees off square to the fracture"
+                     + ("" if v.get("crosses_fracture") else ", NOT crossing it"))
         guidance = screw.guidance or {}
         if guidance.get("direction_app") or guidance.get("direction_scanner"):
             text += f"\nAim: {guidance.get('direction_app') or guidance['direction_scanner']}"

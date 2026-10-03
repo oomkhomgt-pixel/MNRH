@@ -247,3 +247,12 @@ def test_a_plan_on_reduced_anatomy_says_so_and_shows_the_scanned_status():
 
 def test_a_plan_without_a_reduction_has_no_banner():
     assert "virtually reduced" not in render_report_html(_plan_with_screws([3.0]))
+
+
+def test_report_states_the_angle_to_the_fracture():
+    plan = _plan_with_screws([3.0, 3.0])
+    plan.screws[0].validation.update(fracture_off_square_deg=12.4, crosses_fracture=True)
+    plan.screws[1].validation.update(fracture_off_square_deg=70.0, crosses_fracture=False)
+    html_str = render_report_html(plan)
+    assert "Angle to the marked fracture: 12 degrees off square</li>" in html_str
+    assert "70 degrees off square; it does NOT cross the fracture" in html_str

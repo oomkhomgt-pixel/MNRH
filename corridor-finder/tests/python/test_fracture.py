@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from corridor_engine.fracture import fit_plane, past_fracture_mm
+from corridor_engine.fracture import fit_plane, marks_near, off_square_deg, past_fracture_mm
 
 # A crescent-like fracture: the plane x = 10, marked at four points.
 MARKS = [(10.0, 0.0, 0.0), (10.0, 20.0, 0.0), (10.0, 0.0, 20.0), (10.2, 15.0, 15.0)]
@@ -34,3 +34,17 @@ def test_a_screw_that_stops_short_of_the_fracture_does_not_cross_it():
 def test_crossing_the_plane_far_from_the_marked_fracture_does_not_count():
     plane = fit_plane(MARKS)
     assert past_fracture_mm(plane, (-30.0, 80.0, 80.0), (50.0, 80.0, 80.0)) is None
+
+
+def test_only_the_marks_near_the_screw_count():
+    ramus = [(60.0, 0.0, 0.0), (60.0, 10.0, 0.0), (60.0, 0.0, 10.0)]
+    near = marks_near(MARKS + ramus, (-30.0, 5.0, 5.0), (30.0, 5.0, 5.0), 25.0)
+    assert len(near) == len(MARKS)
+
+
+def test_square_to_the_fracture_is_zero_and_along_it_ninety():
+    plane = fit_plane(MARKS)
+    assert off_square_deg(plane, (1.0, 0.0, 0.0)) == pytest.approx(0.0, abs=1.0)
+    assert off_square_deg(plane, (-1.0, 0.0, 0.0)) == pytest.approx(0.0, abs=1.0)
+    assert off_square_deg(plane, (0.0, 1.0, 0.0)) == pytest.approx(90.0, abs=1.0)
+    assert off_square_deg(plane, (1.0, 1.0, 0.0)) == pytest.approx(45.0, abs=1.0)

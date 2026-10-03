@@ -155,6 +155,10 @@
       "label": "Posterior column (antegrade, lateral to the brim)",
       "side": "per_side",
       "tip": "inside",
+      "square_to_fracture": {
+        "cone_deg": 20,
+        "note": "The surgeon: mostly aim for perpendicularity with the fracture site. With the fracture marked, the safe screw most nearly square to it comes first."
+      },
       "bones": [
         "hip"
       ],
