@@ -508,6 +508,56 @@ export default async function run() {
       t.check("(ฌ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+    /* (ญ) เครื่องที่ไม่เก็บ HN ส่งขึ้นคลาวด์: คลาวด์ต้องเก็บ HN (และอายุ/เพศ ในระดับ minimal) ไว้ตามเดิม
+           เดิมคลาวด์เขียนทับทั้งชุดตามที่ส่ง เคสทุกเคสที่ช่องเหล่านี้ว่างในเครื่องจึงทำให้ HN บนคลาวด์หายหมด
+           ดึงคลาวด์ไม่ได้ต้องไม่ส่ง · ทางชนกัน (409) แล้วส่งใหม่ก็ต้องเก็บไว้เหมือนกัน · ในเครื่องต้องไม่มี HN ค้าง */
+    for (const lv of ["nohn", "minimal"]) {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const p = await page.evaluate(async ({ url, mockSrc, lv }) => {
+        (new Function("return " + mockSrc)())(url);
+        store.data.orQueue ||= {}; store.data.orQueue.patientData = lv; applyPatientLevel(); store.save();
+        const cloud = JSON.parse(JSON.stringify(fullPayload()));
+        cloud.cases.forEach((c, i) => Object.assign(c, { hn: "HNKEEP" + i, age: 40 + (i % 30), sex: i % 2 ? "M" : "F" }));
+        const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: false, cloudUrl: url, rev: 10, token: "" });
+        writeBaseline(10, cloud);
+        window.__cloud = { st: 200, rev: 10, data: cloud, puts: [] };
+        const edited = store.data.cases[0].id;
+        store.data.cases[0].note = "แก้จากเครื่องที่ไม่เก็บ HN";
+        const count = (d) => (d?.cases || []).filter(c => /^HNKEEP/.test(c.hn)).length;
+        const ages = (d) => (d?.cases || []).filter(c => c.age !== "" && c.age != null).length;
+        /* 1) ดึงคลาวด์ไม่ได้ → ไม่ส่ง */
+        window.__cloud.st = 503;
+        await cloudPush(true);
+        const blocked = { puts: window.__cloud.puts.length, pending: cfg.pending, status: cfg.lastStatus };
+        /* 2) ส่งปกติ */
+        window.__cloud.st = 200;
+        await cloudPush(true);
+        const put1 = window.__cloud.puts.at(-1)?.data;
+        const r1 = { hn: count(put1), ages: ages(put1), n: put1?.cases?.length,
+                     note: put1?.cases?.find(c => c.id === edited)?.note, editedHn: put1?.cases?.find(c => c.id === edited)?.hn };
+        /* 3) เครื่องอื่นส่งขึ้นก่อน (rev ขยับ) → 409 → รวม → ส่งใหม่ */
+        window.__cloud.rev += 1;
+        store.data.cases[1].note = "แก้อีกเคส";
+        await cloudPush(true);
+        const put2 = window.__cloud.puts.at(-1)?.data;
+        const r2 = { hn: count(put2), ages: ages(put2), n: put2?.cases?.length, puts: window.__cloud.puts.length };
+        const leak = Object.keys(localStorage).filter(k => k !== "__cloud" && /HNKEEP/.test(localStorage.getItem(k) || ""));
+        return { blocked, r1, r2, leak, localHn: store.data.cases.filter(c => c.hn).length,
+                 localAge: store.data.cases.filter(c => c.age !== "" && c.age != null).length, total: cloud.cases.length };
+      }, { url: CLOUD, mockSrc, lv }).catch(e => ({ err: e.message }));
+      t.check(`(ญ ${lv}) ดึงคลาวด์ไม่ได้: ไม่ส่ง คงสถานะรอส่ง และบอกเหตุผล`,
+        p.blocked?.puts === 0 && p.blocked.pending === true && /ยังไม่ส่ง เพื่อไม่ให้ HN บนคลาวด์หาย/.test(p.blocked.status || ""), JSON.stringify(p.blocked));
+      t.check(`(ญ ${lv}) ส่งขึ้นแล้ว HN ของทุกเคสบนคลาวด์ยังอยู่ (รวมเคสที่เครื่องนี้แก้) และค่าที่แก้ขึ้นไปด้วย`,
+        p.r1?.hn === p.total && p.r1.n === p.total && p.r1.note === "แก้จากเครื่องที่ไม่เก็บ HN" && /^HNKEEP/.test(p.r1.editedHn || ""), JSON.stringify(p.r1));
+      t.eq(`(ญ ${lv}) อายุของทุกเคสบนคลาวด์ยังอยู่`, p.r1?.ages, p.total);
+      t.check(`(ญ ${lv}) ชนกัน (409) แล้วส่งใหม่: HN และอายุบนคลาวด์ยังอยู่ครบ`,
+        p.r2?.hn === p.total && p.r2.ages === p.total && p.r2.puts === 3, JSON.stringify(p.r2));
+      t.check(`(ญ ${lv}) ในเครื่องไม่มี HN ค้างทั้งในเคสและใน localStorage`,
+        p.localHn === 0 && p.leak?.length === 0 && (lv === "nohn" || p.localAge === 0), JSON.stringify({ leak: p.leak, localHn: p.localHn, localAge: p.localAge }));
+      t.check(`(ญ ${lv}) ไม่มี error หลุดในคอนโซล`, errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
 
     /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
        เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ

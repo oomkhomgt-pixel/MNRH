@@ -4009,10 +4009,11 @@ function classify(parsed) {
    ===================================================================== */
 /* ระดับข้อมูลผู้ป่วยที่ยอมให้เก็บลงเครื่องนี้: full = HN+อายุ/เพศ, nohn = ไม่เก็บ HN, minimal = ไม่เก็บข้อมูลผู้ป่วยเลย */
 const patientLevel = () => store.data.orQueue?.patientData || (store.data.orQueue?.dropHn ? "nohn" : "full");
+/* ช่องของเคสที่ระดับนั้นห้ามเก็บลงเครื่อง — ใช้ทั้งตอนลบออกจากเครื่องและตอนเติมของคลาวด์กลับก่อนส่ง (keepCloudPatientFields) */
+const restrictedCaseFields = (lv) => lv === "minimal" ? ["hn", "age", "sex"] : lv === "nohn" ? ["hn"] : [];
 function scrubCaseForLevel(c, lv = patientLevel()) {
-  if (lv === "full" || !c) return;
-  c.hn = "";
-  if (lv === "minimal") { c.age = ""; c.sex = ""; }
+  if (!c) return;
+  restrictedCaseFields(lv).forEach(f => { c[f] = ""; });
 }
 function applyPatientLevel() {
   const lv = patientLevel();
@@ -8282,6 +8283,20 @@ function recordConflicts(list) {
   audit("รวมข้อมูลที่ชนกัน", list.length + " รายการ");
 }
 
+/* เติมช่องที่ระดับของเครื่องนี้ห้ามเก็บ (ว่างในเครื่อง) ด้วยค่าที่คลาวด์มีอยู่ ในสำเนาที่จะส่งขึ้นเท่านั้น
+   เครื่องนี้แก้ช่องเหล่านี้ไม่ได้อยู่แล้ว (ไม่มีค่าให้แก้) ค่าว่างจึงหมายถึง "ไม่รู้" ไม่ใช่ "ลบออก" */
+function keepCloudPatientFields(payload, cloudData, lv = patientLevel()) {
+  const fields = restrictedCaseFields(lv);
+  if (!fields.length || !Array.isArray(cloudData?.cases)) return payload;
+  const t = indexById(cloudData.cases);
+  return { ...payload, cases: (payload.cases || []).map(c => {
+    const r = c && t.get(c.id); if (!r) return c;
+    const x = { ...c };
+    fields.forEach(f => { if ((x[f] == null || x[f] === "") && r[f] != null && r[f] !== "") x[f] = r[f]; });
+    return x;
+  }) };
+}
+
 async function cloudPush(quiet, isRetry) {
   const cfg = syncCfg();
   /* ข้อมูลทั้งชุดคือข้อมูลของทุกคนในภาควิชา — ส่งขึ้นคลาวด์ได้เฉพาะผู้ดูแลระบบ */
@@ -8303,7 +8318,16 @@ async function cloudPush(quiet, isRetry) {
       try { await settleProvisionalRoll(); }
       catch (e) { throw new Error("ยังรวมการเลื่อนชั้นปีของเครื่องนี้กับคลาวด์ไม่ได้ (" + e.message + ") — ยังไม่ส่ง"); }
     }
-    const payload = fullPayload();
+    let payload = fullPayload();
+    /* เครื่องที่ตั้งไม่เก็บ HN/ข้อมูลผู้ป่วย มีเคสที่ช่องเหล่านั้นว่าง — คลาวด์เขียนทับทั้งชุดตามที่ส่ง ถ้าส่งตรง ๆ HN ของทุกเคสบนคลาวด์
+       หายหมดทุกครั้งที่เครื่องนี้ส่ง · ดึงของคลาวด์มาเติมเฉพาะช่องที่ระดับนี้ห้ามเก็บ ลงในก้อนที่จะส่งเท่านั้น (ไม่ลงเครื่อง)
+       ดึงไม่ได้ก็ไม่ส่ง คงสถานะรอส่ง — ดีกว่าส่งแล้วข้อมูลผู้ป่วยบนคลาวด์หาย */
+    if (restrictedCaseFields(patientLevel()).length) {
+      let snap;
+      try { snap = await fetchCloudSnapshot(); }
+      catch (e) { throw new Error("ดึงข้อมูลผู้ป่วยที่คลาวด์เก็บไว้มาเติมไม่ได้ (" + e.message + ") — ยังไม่ส่ง เพื่อไม่ให้ HN บนคลาวด์หาย"); }
+      payload = keepCloudPatientFields(payload, snap.data);
+    }
     const res = await fetchWithTimeout(cfg.cloudUrl, {
       method: "PUT", credentials: "include", headers,
       body: JSON.stringify({ device: deviceName(), baseRev: cfg.rev ?? 0, updatedAt: new Date().toISOString(), data: payload })
