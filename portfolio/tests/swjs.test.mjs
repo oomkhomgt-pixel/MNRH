@@ -87,5 +87,19 @@ export default async function run() {
     t.check("ไฟล์ของแอปเองยังถูกรับและเก็บลง cache ตามเดิม", inside !== null && puts.length === 1, JSON.stringify(puts));
   }
 
+  /* ---------- อัปเดตจากรุ่นที่เคยเก็บหน้าระบบคิวไว้แล้ว: activate ต้องลบของนอกโฟลเดอร์ออกจาก cache เดิม ----------
+     ชื่อ cache ไม่เปลี่ยน ขั้นลบ cache ชื่ออื่นจึงไม่แตะมัน — หน้าที่มี HN จะค้างบนดิสก์ตลอดไป */
+  {
+    const store = new Map([["http://localhost/index.html", "queue page with HN"], ["http://localhost/portfolio/index.html", "app"],
+                           ["http://localhost/portfolio/manifest.webmanifest", "m"]]);
+    const cache = { keys: async () => [...store.keys()].map(u => new Request(u)), delete: async (r) => store.delete(r.url),
+                    put: async () => {}, match: async () => undefined };
+    const caches = { keys: async () => ["ortho-portfolio-v1"], delete: async () => true, open: async () => cache, match: async () => undefined };
+    const listeners = loadSW(async () => new Response("x"), caches);
+    let p; listeners.activate[0]({ waitUntil: (x) => { p = x; } }); await p;
+    t.eq("activate: ลบหน้าระบบคิวที่รุ่นเก่าเก็บไว้ คงไฟล์ของแอปไว้", [...store.keys()],
+      ["http://localhost/portfolio/index.html", "http://localhost/portfolio/manifest.webmanifest"]);
+  }
+
   return t;
 }

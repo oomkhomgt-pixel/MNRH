@@ -10,9 +10,14 @@ self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
+/* ลบของที่อยู่นอกโฟลเดอร์ของแอปออกจาก cache ปัจจุบันด้วย — รุ่นก่อนเทียบแค่ชื่อไฟล์ หน้าระบบคิวที่ /index.html
+   (ฝังข้อมูลเคสดิบ มี HN) จึงถูกเก็บไว้ใน cache ชื่อเดียวกันนี้ และจะค้างบนดิสก์ตลอดไปถ้าไม่ลบตรงนี้ */
+const inAppFolder = (u) => new URL(u).pathname.startsWith(new URL("./", self.location.href).pathname);
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys()
     .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => caches.open(CACHE))
+    .then(c => c.keys().then(reqs => Promise.all(reqs.filter(r => !inAppFolder(r.url)).map(r => c.delete(r)))))
     .then(() => self.clients.claim()));
 });
 
@@ -25,7 +30,7 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== self.location.origin) return;          /* ปล่อยให้ API ของระบบคิววิ่งตรงเสมอ */
   /* เฉพาะไฟล์ในโฟลเดอร์ของแอปเอง — เดิมเทียบแค่ชื่อไฟล์ หน้าระบบคิวที่ /index.html (โดเมนเดียวกัน ที่แอปอ่านข้อมูลเคสจากมัน)
      จึงตรงกับ "./index.html" แล้วถูกเก็บลง cache ของเครื่องด้วย */
-  if (!url.pathname.startsWith(new URL("./", self.location.href).pathname)) return;
+  if (!inAppFolder(req.url)) return;
 
   /* เปิดหน้าเว็บ: เอาของใหม่ก่อน ถ้าออฟไลน์ค่อยใช้ของที่เก็บไว้
      เก็บลง cache เฉพาะตอบกลับที่ปกติดี (res.ok) — คำตอบพัง (captive portal, 5xx) ไม่ควรทับของเดิมที่ใช้งานได้ */
