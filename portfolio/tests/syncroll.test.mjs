@@ -376,6 +376,80 @@ export default async function run() {
       await page.close();
     }
 
+    /* ---------- 3d) คลาวด์ตามหลังเกินหนึ่งปี · ฐานเปรียบเทียบต้องเคารพระดับข้อมูลผู้ป่วย ----------
+       (ฉ) เครื่องนี้ค้างที่ปี ay-2 คลาวด์อยู่ ay-1 ไม่มีฐาน — เลื่อนให้ทันคลาวด์หนึ่งรอบแล้วเลื่อนต่ออีกรอบถึงปีปัจจุบัน
+           เดิมคืนสิ่งที่ผู้ใช้แก้แล้วทิ้งไปตั้งแต่รอบแรก รอบที่สองจึงบวกปีให้ R1 ใหม่เป็นปี 2 และเลื่อนคนซ้ำชั้นไปปี 3
+       (ช) เครื่องที่ตั้งไม่เก็บ HN/ข้อมูลผู้ป่วย เดิมเขียนชุดของคลาวด์ลงฐานเปรียบเทียบตรง ๆ HN อายุ เพศ จึงค้างอยู่ใน localStorage */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const d = await page.evaluate(async ({ url, mockSrc }) => {
+        (new Function("return " + mockSrc)())(url);
+        const ay = +currentAY(); const cfg = syncCfg();
+        Object.assign(cfg, { mode: "full", auto: true, cloudUrl: url, rev: 5, token: "" });
+        store.setRolledAY(ay - 2);
+        store.rollAcademicYear(String(ay - 1), "auto");      /* คลาวด์เลื่อนไปแค่ปีก่อน */
+        const remote = JSON.parse(JSON.stringify(fullPayload()));
+        store.undoYearRoll();
+        localStorage.removeItem(BASELINE_KEY);
+        window.__cloud = { st: 503, rev: 10, data: remote, puts: [] };
+        await bootReconcile();                               /* ออฟไลน์ → เลื่อนชั่วคราวสองปี */
+        const tmpl = store.data.residents.find(x => x.active !== false && x.year === 2);
+        store.data.residents.push({ ...tmpl, id: "NEWLOCAL", name: "R1 ใหม่ของเครื่องนี้", year: 1, cohort: String(ay) });
+        const rep = store.data.residents.find(x => x.active !== false && x.year === 3);
+        rep.year = 2;
+        window.__cloud.st = 200;
+        await cloudPush(true);
+        const put = window.__cloud.puts.at(-1)?.data;
+        return { cloudAY: remote.programme?.yearRolledAY, ay: String(ay),
+                 local: store.resident("NEWLOCAL")?.year, put: put?.residents?.find(x => x.id === "NEWLOCAL")?.year,
+                 rep: store.resident(rep.id)?.year, repPut: put?.residents?.find(x => x.id === rep.id)?.year,
+                 flag: !!store.data.meta.provisionalRoll, cursor: store.data.meta.yearRolledAY };
+      }, { url: CLOUD, mockSrc }).catch(e => ({ err: e.message }));
+      t.check("(ฉ) ตั้งต้น: คลาวด์ตามหลังปีปัจจุบันหนึ่งปี และสุดท้ายเลื่อนถึงปีปัจจุบัน",
+        d.cloudAY === String(+d.ay - 1) && d.cursor === d.ay && d.flag === false, JSON.stringify(d));
+      t.eq("(ฉ) คลาวด์ตามหลังเกินปี: R1 ที่เพิ่มระหว่างออฟไลน์ยังเป็นปี 1 ทั้งในเครื่องและที่ส่งขึ้นไป", [d.local, d.put], [1, 1]);
+      t.eq("(ฉ) คลาวด์ตามหลังเกินปี: คนที่ตั้งให้ซ้ำชั้นยังซ้ำชั้น ทั้งในเครื่องและที่ส่งขึ้นไป", [d.rep, d.repPut], [2, 2]);
+      t.check("(ฉ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const h = await page.evaluate(() => {
+        const leaks = () => Object.keys(localStorage).filter(k => /HNLEAK/.test(localStorage.getItem(k) || ""));
+        /* ใช้เคสที่มีอยู่แล้วทั้งสองฝั่ง — เคสที่มีแต่บนคลาวด์ถูกรวมเข้ามาเป็นวัตถุตัวเดียวกับในชุดของคลาวด์ การลบตามระดับในเครื่อง
+           จึงลบในชุดนั้นไปด้วยโดยบังเอิญ ไม่ได้ทดสอบการเขียนฐานจริง */
+        const leakId = store.data.cases[0].id;
+        const remoteWith = () => {
+          const r = JSON.parse(JSON.stringify(fullPayload()));
+          r.cases.forEach((c, i) => Object.assign(c, { hn: "HNLEAK" + i, age: 61, sex: "F" }));
+          return r;
+        };
+        /* ระดับ minimal: รวมกับคลาวด์แล้วฐานต้องไม่มี HN อายุ เพศ */
+        store.data.orQueue ||= {}; store.data.orQueue.patientData = "minimal"; applyPatientLevel(); store.save();
+        syncCfg().rev = 5;
+        reconcileWithCloud({ rev: 9, data: remoteWith() }); store.save();
+        const b1 = readBaseline()?.data?.cases?.find(c => c.id === leakId);
+        const afterMerge = { keys: leaks(), base: b1 && [b1.hn, b1.age, b1.sex], local: store.data.cases.find(c => c.id === leakId)?.hn };
+        /* ระดับ full → เขียนฐานพร้อม HN → เปลี่ยนเป็น nohn ผ่านหน้าตั้งค่า ฐานเดิมต้องถูกเขียนใหม่ */
+        store.data.orQueue.patientData = "full";
+        writeBaseline(9, remoteWith());
+        const before = leaks().length > 0;
+        caseSettingsDialog();
+        document.querySelector('#dlgBody [name="patientData"]').value = "nohn";
+        [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "บันทึก").click();
+        const b2 = readBaseline();
+        const c2 = b2?.data?.cases?.find(c => c.id === leakId);
+        return { afterMerge, before, afterLevel: leaks(), rev: b2?.rev, kept: c2 && [c2.hn, c2.age, c2.sex] };
+      }).catch(e => ({ err: e.message }));
+      t.check("(ช) ระดับไม่เก็บข้อมูลผู้ป่วย: รวมกับคลาวด์แล้วไม่มี HN ค้างในคีย์ใดของ localStorage",
+        h.afterMerge?.keys?.length === 0 && h.afterMerge.local === "", JSON.stringify(h.afterMerge));
+      t.eq("(ช) ฐานเปรียบเทียบของเคสจากคลาวด์ถูกลบ HN อายุ เพศ ตามระดับ", h.afterMerge?.base, ["", "", ""]);
+      t.check("(ช) เปลี่ยนระดับเป็นไม่เก็บ HN: ฐานที่มี HN อยู่ก่อนถูกเขียนใหม่ (รุ่นเดิม) ไม่เหลือ HN แต่ยังเก็บอายุ/เพศ",
+        h.before && h.afterLevel?.length === 0 && h.rev === 9 && JSON.stringify(h.kept) === JSON.stringify(["", 61, "F"]), JSON.stringify(h));
+      t.check("(ช) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+
     /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
        เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ
        พอซิงก์ก็ถูกนับว่า "เครื่องนี้แก้ทุกคน" แล้วชนะการรวมข้อมูลทับสิ่งที่เครื่องอื่นแก้ — ต้องรันบนข้อมูลสดที่ยังไม่เคยถูกเลื่อน */
