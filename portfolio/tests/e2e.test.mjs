@@ -224,6 +224,23 @@ export default async function run() {
     t.check("ออกกุญแจใหม่แล้ว: ช่องรหัสชั่วคราวที่ค้าง (admin4) ถูกยกเลิก ไม่ได้กุญแจรุ่นใหม่", !d4b.slots.some(s => s.id === "admin4"),
       JSON.stringify(d4b.slots.map(s => s.id)));
 
+    /* ---------- 5x) ผู้ดูแลที่ถือกุญแจแก้บัญชีตัวเอง: เปลี่ยนชื่อ/ลดบทบาทไม่ได้ · เตือนตอนเลิกทำเฉพาะคนที่เคยถือกุญแจ ---------- */
+    const self = await A.page.evaluate(() => {
+      const me = currentUser(); const out = {};
+      for (const [k, f] of [["rename", () => { $('#dlgBody [name="username"]').value = me.username + "_new"; }],
+                            ["demote", () => { $('#dlgBody [name="role"]').value = "staff"; }]]) {
+        editUser(me.id); f(); [...document.querySelectorAll("#dlgFoot button")].find(b => b.textContent === "บันทึก").click();
+        out[k] = { open: $("#dlg").open, err: $("#dlgBody .err")?.textContent || $("#dlgBody").textContent.match(/ถือกุญแจข้อมูลบนคลาวด์[^—]*/)?.[0] || "" };
+        $("#dlg").close();
+      }
+      const toasts = []; const realT = toast; toast = (m) => toasts.push(m);
+      store.data.users.push({ id: "u_nokey", username: "nokey", displayName: "nokey", role: "admin", pin: "1" });
+      e2eWarnRestored([]); toast = realT;
+      return { ...out, same: currentUser().username === me.username && currentUser().role === "admin", toasts };
+    });
+    t.check("ผู้ดูแลที่ถือกุญแจ: เปลี่ยนชื่อหรือลดบทบาทตัวเองไม่ได้ บอกเหตุผล และบัญชีไม่เปลี่ยน",
+      self.rename.open && self.demote.open && /ถือกุญแจ/.test(self.rename.err + self.demote.err) && self.same, JSON.stringify(self));
+
     /* ---------- 6a) ลบแพทย์ประจำบ้าน → บัญชีผู้ดูแลที่ผูกอยู่ถูกลบตาม → ต้องถามถอดกุญแจด้วย ---------- */
     const rid = await A.page.evaluate(async () => {
       const r = store.data.residents.find(x => x.active !== false);

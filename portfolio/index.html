@@ -8225,7 +8225,9 @@ function e2eTempsDropped(exceptId) {
 const e2eTempsNote = (temps) => temps.length ? "\nช่องที่ยังเป็นรหัสชั่วคราว (" + temps.join(", ") + ") จะถูกยกเลิกด้วย — ตั้งรหัสชั่วคราวใหม่ให้ภายหลัง" : "";
 /* บัญชีที่ถือกุญแจถูกลดบทบาท / ปิด / ลบ / เปลี่ยนชื่อ — ถอดออกจากผู้ถือกุญแจด้วย ไม่งั้นทุกกุญแจรุ่นใหม่ยังถูกห่อให้เขา
    (ป้ายเตือนในหน้าการเข้ารหัสเห็นเฉพาะคนที่เปิดหน้านั้น) */
-/* เลิกทำการลบบัญชี: บัญชีกลับมา แต่ถ้าถูกถอดกุญแจไปแล้ว ต้องบอก (ไม่งั้นนึกว่ากลับมาครบ) */
+const e2eHolds = (username) => !!e2eCfg()?.on && e2eEffectiveSlots().some(s => s.id === username && s.kind !== "recovery");
+/* เลิกทำการลบบัญชี: บัญชีกลับมา แต่ถ้าถูกถอดกุญแจไปแล้ว ต้องบอก (ไม่งั้นนึกว่ากลับมาครบ)
+   usernames = เฉพาะบัญชีที่ถือกุญแจอยู่ตอนลบ — ผู้ดูแลที่ไม่เคยมีกุญแจไม่ต้องเตือน */
 function e2eWarnRestored(usernames) {
   const e = e2eCfg(); if (!e?.on) return;
   const held = new Set(e2eEffectiveSlots(e).map(s => s.id));
@@ -10984,6 +10986,7 @@ function editResident(id) {
         audit("ลบแพทย์ประจำบ้าน", r.name + " · กิจกรรม " + n + " · ช่วงหมุนเวียน " + rots +
               " · บัญชี " + (accs.map(u => u.username).join(", ") || "—"));
         selectedResident = null;
+        const keyHolders = accs.filter(x => x.id !== meId && e2eHolds(x.username)).map(x => x.username);
         removeWithUndo("ลบ " + r.name + " และกิจกรรม " + n + " รายการแล้ว", [
           { list:"residents", keep: x => x.id !== r.id },
           { list:"activities", keep: a => a.residentId !== r.id },
@@ -10993,7 +10996,7 @@ function editResident(id) {
           { list:"rotations", keep: x => x.residentId !== r.id },
           { list:"epaAssessments", keep: x => x.residentId !== r.id },
           { list:"visits", keep: x => x.residentId !== r.id },
-          { list:"rotationEvals", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; e2eWarnRestored(accs.filter(x => x.id !== meId).map(x => x.username)); });
+          { list:"rotationEvals", keep: x => x.residentId !== r.id }], () => { selectedResident = r.id; e2eWarnRestored(keyHolders); });
         /* บัญชีที่ลบไปพร้อมทะเบียนอาจถือกุญแจข้อมูลบนคลาวด์ — ถามถอดทีละคน (ใช้กล่องโต้ตอบใบเดียวกัน ห้ามยิงพร้อมกัน) */
         setTimeout(async () => { for (const a of accs.filter(x => x.id !== meId)) await e2eRevokeIfNotAdmin(a.username); }, 0);
       }}] : [])
@@ -12574,17 +12577,22 @@ function editUser(id, preset = {}) {
         const rec = { username, displayName: dlgVal("displayName") || username, role: dlgVal("role"),
                       pin: dlgVal("pin"), residentId: dlgVal("residentId"), staffId: dlgVal("staffId"),
                       active: !!$('#dlgBody [name="active"]')?.checked };
+        /* ถือกุญแจข้อมูลบนคลาวด์อยู่: เปลี่ยนชื่อ/ลดบทบาท/ปิดบัญชีตัวเองไม่ได้ — ถอดตัวเองไม่ได้ (ต้องให้ผู้ดูแลคนอื่นถอด)
+           และเปลี่ยนชื่อแล้วกุญแจในเครื่อง/ช่องบนคลาวด์ยังผูกกับชื่อเดิม จะล็อกตัวเองออก */
+        if (u && u.id === session?.userId && e2eHolds(u.username) && (username !== u.username || rec.role !== "admin" || !rec.active))
+          return fieldError("username", "บัญชีนี้ถือกุญแจข้อมูลบนคลาวด์ — เปลี่ยนชื่อ ลดบทบาท หรือปิดบัญชีของตัวเองไม่ได้ ให้ผู้ดูแลคนอื่นทำ (เขาจะถอดกุญแจให้ด้วย)");
         const prevName = u?.username;
         if (u) Object.assign(u, rec); else store.data.users.push({ id: uid("usr"), ...rec });
         audit(u ? "แก้ไขบัญชีผู้ใช้" : "เพิ่มบัญชีผู้ใช้", username);
         store.save(); renderAll(); applyPermissions(); toast("บันทึกแล้ว");
-        /* บัญชีของตัวเอง: ลดบทบาทตัวเองไม่ได้อยู่แล้ว และเปลี่ยนชื่อตัวเองไม่ต้องถาม (กุญแจในเครื่องยังอยู่ใต้ชื่อเดิม — ปลดล็อกใหม่) */
+        /* บัญชีของตัวเองที่ถือกุญแจถูกกันไว้ข้างบนแล้ว · บัญชีของตัวเองที่ไม่ถือกุญแจไม่มีอะไรต้องถอด */
         if (prevName && u.id !== session?.userId) setTimeout(() => e2eRevokeIfNotAdmin(prevName), 0);
       }},
     ...(u ? [{ label:"ลบบัญชี", cls:"btn-danger", onClick: () => {
         if (u.id === session?.userId) { toast("ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้"); return false; }
         audit("ลบบัญชีผู้ใช้", u.username);
-        removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }], () => e2eWarnRestored([u.username]));
+        const hadKey = e2eHolds(u.username);
+        removeWithUndo("ลบบัญชี " + u.username + " แล้ว", [{ list:"users", keep: x => x.id !== u.id }], () => { if (hadKey) e2eWarnRestored([u.username]); });
         setTimeout(() => e2eRevokeIfNotAdmin(u.username), 0);
       }}] : [])
   ]);
