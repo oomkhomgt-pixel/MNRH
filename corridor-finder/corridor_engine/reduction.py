@@ -85,7 +85,11 @@ class Reduction:
 
     def record(self) -> dict:
         """What the plan keeps: enough to redo the reduction and to say how
-        reliable it is, without the voxel masks."""
+        reliable it is, without the voxel masks. Region surfaces are thinned
+        to RECORD_POINTS, so the record SAYS where each region is but is
+        never used to recompute warnings: a screw on reduced anatomy is only
+        checked while its live Reduction is applied, and a plan read back
+        without it marks such screws as unable to pass."""
         return {
             "source": self.source,
             "accepted_by": self.accepted_by,
@@ -96,6 +100,7 @@ class Reduction:
             "residual_mm": {k: (float(v) if np.isfinite(float(v)) else None) for k, v in self.residual_mm.items()},
             "unconstrained": sorted(k for k, v in self.residual_mm.items() if not np.isfinite(float(v))),
             "region_xyz": {k: _thinned(v).tolist() for k, v in self.region_xyz.items()},
+            "region_points": {k: int(len(_points(v))) for k, v in self.region_xyz.items()},
             "notes": list(self.notes),
         }
 
@@ -198,8 +203,20 @@ def reduction_warnings(points_xyz: np.ndarray, spare_mm: np.ndarray, reduction: 
     return out
 
 
+def _region_words(key: str) -> str:
+    """A region key in words. The displacement engine's keys: si_right,
+    si_left, symphysis, fracture_<id>, fracture_mark_<k> (a fracture the
+    surgeon marked where no surface was found), unit_<name>_unpinned (a
+    whole moving unit no trustworthy surface pins)."""
+    if key.startswith("unit_") and key.endswith("_unpinned"):
+        return "the " + key[len("unit_"):-len("_unpinned")].replace("_", " ") + " (nothing pins where it goes)"
+    if key.startswith("fracture_mark_"):
+        return "marked fracture " + key[len("fracture_mark_"):] + " (no fracture surface found there)"
+    return key.replace("si_", "sacroiliac joint, ").replace("_", " ")
+
+
 def warning_text(w: dict) -> str:
-    region = w["region"].replace("si_", "sacroiliac joint, ").replace("_", " ")
+    region = _region_words(w["region"])
     if not np.isfinite(w["residual_mm"]):
         return (f"fit depends on the reduction: at the {region} the reduction is not pinned down (too little "
                 f"facing surface), so this screw's {max(w['spare_mm'], 0.0):.1f} mm to spare cannot be relied on")

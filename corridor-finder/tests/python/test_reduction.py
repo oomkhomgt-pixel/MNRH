@@ -123,3 +123,16 @@ def test_a_region_missing_its_error_or_its_surface_is_refused():
     for bad in (float("nan"), -1.0, None):
         with pytest.raises(ValueError):
             Reduction(moves=[], residual_mm={"si_right": bad}, region_xyz={"si_right": (0, 0, 0)})
+
+
+def test_the_displacement_engines_region_kinds_read_plainly():
+    inf = float("inf")
+    r = Reduction(moves=[], residual_mm={"unit_hip_right_unpinned": inf, "fracture_mark_2": inf},
+                  region_xyz={"unit_hip_right_unpinned": np.zeros((3000, 3)), "fracture_mark_2": (0.0, 0.0, 0.0)})
+    found = reduction_warnings(np.zeros((3, 3)), np.full(3, 9.0), r)
+    texts = {w["region"]: warning_text(w) for w in found}
+    assert "the hip right (nothing pins where it goes)" in texts["unit_hip_right_unpinned"]
+    assert "marked fracture 2 (no fracture surface found there)" in texts["fracture_mark_2"]
+    assert all("not pinned down" in t for t in texts.values())
+    rec = r.record()
+    assert rec["region_points"]["unit_hip_right_unpinned"] == 3000 and len(rec["region_xyz"]["unit_hip_right_unpinned"]) == 200
