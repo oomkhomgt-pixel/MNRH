@@ -19,8 +19,9 @@ import followup from "./followup.test.mjs";
 import pastyear from "./pastyear.test.mjs";
 import dutysync from "./dutysync.test.mjs";
 import syncroll from "./syncroll.test.mjs";
+import e2e from "./e2e.test.mjs";
 
-const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle, dataops, followup, pastyear, dutysync, syncroll };
+const ALL = { parse, smoke, permissions, schedule, orqueue, sync, swjs, topicconf, calendar, dialogs, feedback, logbook, lifecycle, dataops, followup, pastyear, dutysync, syncroll, e2e };
 const only = process.argv.slice(2);
 const picked = Object.entries(ALL).filter(([k]) => !only.length || only.some(o => k.startsWith(o)));
 

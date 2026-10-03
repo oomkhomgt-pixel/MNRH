@@ -25,6 +25,8 @@ PORT=9000 ALLOW_ORIGIN='https://portfolio.hospital.local' \
 
 ## ชุดข้อมูลทั้งก้อน (ฐานข้อมูลกลางของภาควิชา)
 
+> ปลายทางที่ใช้งานจริงบน Google Drive ของภาควิชา (Apps Script) พร้อมการเข้ารหัสข้อมูลบนเครื่องก่อนส่ง: ดู [`apps-script/`](apps-script/README.md)
+
 | วิธี | เส้นทาง | เนื้อหา |
 |---|---|---|
 | `PUT` | `/api/portfolio/dataset` | `{ device, updatedAt, data }` → `{ ok, updatedAt, bytes, versions }` |
