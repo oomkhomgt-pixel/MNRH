@@ -23,6 +23,9 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;          /* ปล่อยให้ API ของระบบคิววิ่งตรงเสมอ */
+  /* เฉพาะไฟล์ในโฟลเดอร์ของแอปเอง — เดิมเทียบแค่ชื่อไฟล์ หน้าระบบคิวที่ /index.html (โดเมนเดียวกัน ที่แอปอ่านข้อมูลเคสจากมัน)
+     จึงตรงกับ "./index.html" แล้วถูกเก็บลง cache ของเครื่องด้วย */
+  if (!url.pathname.startsWith(new URL("./", self.location.href).pathname)) return;
 
   /* เปิดหน้าเว็บ: เอาของใหม่ก่อน ถ้าออฟไลน์ค่อยใช้ของที่เก็บไว้
      เก็บลง cache เฉพาะตอบกลับที่ปกติดี (res.ok) — คำตอบพัง (captive portal, 5xx) ไม่ควรทับของเดิมที่ใช้งานได้ */

@@ -11,7 +11,7 @@ function loadSW(fetchImpl, caches) {
   const listeners = {};
   const self = {
     addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); },
-    location: { origin: "http://localhost" },
+    location: { origin: "http://localhost", href: "http://localhost/portfolio/sw.js" },  /* ตามของจริง: sw.js อยู่ใน /portfolio/ */
     clients: { claim: async () => {} },
     skipWaiting: () => {}
   };
@@ -70,6 +70,21 @@ export default async function run() {
     t.eq("ออฟไลน์ + ไม่มี cache เดิม: respondWith ไม่โยน error", threw, "");
     t.check("ออฟไลน์ + ไม่มี cache เดิม: ได้ Response จริง ไม่ใช่ undefined", result instanceof Response,
             String(result));
+  }
+
+  /* ---------- หน้าระบบคิวที่ /index.html (โดเมนเดียวกัน นอกโฟลเดอร์ของแอป) ต้องไม่ถูกแตะหรือเก็บลง cache ----------
+     เดิมเทียบแค่ชื่อไฟล์ จึงตรงกับ "./index.html" ของแอป แล้วหน้าที่ฝังข้อมูลเคสถูกเก็บลงเครื่อง */
+  {
+    const puts = [];
+    const cache = { put: async (req) => puts.push(String(req.url || req)), match: async () => undefined };
+    const caches = { open: async () => cache, match: async () => undefined };
+    const listeners = loadSW(async () => new Response("queue page", { status: 200 }), caches);
+    const outside = fireFetch(listeners, new Request("http://localhost/index.html"));
+    const inside = fireFetch(listeners, new Request("http://localhost/portfolio/index.html"));
+    await inside; await new Promise(r => setTimeout(r, 20));
+    t.check("หน้าระบบคิวนอกโฟลเดอร์ของแอป: service worker ไม่รับ (ปล่อยวิ่งตรง) และไม่เก็บลง cache",
+      outside === null && !puts.some(u => u === "http://localhost/index.html"), JSON.stringify({ handled: outside !== null, puts }));
+    t.check("ไฟล์ของแอปเองยังถูกรับและเก็บลง cache ตามเดิม", inside !== null && puts.length === 1, JSON.stringify(puts));
   }
 
   return t;

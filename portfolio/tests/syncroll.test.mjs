@@ -592,16 +592,29 @@ export default async function run() {
         /* (ฏ) */
         store.data.orQueue ||= {}; store.data.orQueue.patientData = "nohn"; applyPatientLevel();
         c.getCache = []; await cloudPush(true); await fetchCloudSnapshot();
+        const realCD = confirmDialog; confirmDialog = async () => false;  /* ดึงทั้งชุดแล้วยกเลิกตอนถามยืนยัน */
+        try { await cloudPull(); } finally { confirmDialog = realCD; }
+        /* ระบบคิว: นำเข้าจาก API และปุ่มตรวจการเชื่อมต่อ — คำตอบคือข้อมูลผู้ป่วยดิบ */
+        const qurl = "https://orq.test.invalid";
+        store.data.orQueue.apiBase = qurl;
+        const qCache = [];
+        const prevFetch = window.fetch;
+        window.fetch = async (u, o = {}) => String(u).startsWith(qurl)
+          ? (qCache.push(o.cache || "(none)"), new Response(JSON.stringify({ cases: [] }), { status: 200 })) : prevFetch(u, o);
+        await importFromApi().catch(() => {}); await diagnoseQueueLink().catch(() => {});
+        window.fetch = prevFetch;
         /* (ฐ) */
         const bogus = { id: "x", hn: "HN1", age: 5, sex: "M" }; scrubCaseForLevel(bogus, "แปลก");
-        return { first, second, getCache: c.getCache, bogus: [bogus.hn, bogus.age] };
+        return { first, second, getCache: c.getCache, qCache, bogus: [bogus.hn, bogus.age] };
       }, { url: CLOUD }).catch(e => ({ err: e.message }));
       t.check("(ฎ) แก้ระหว่างส่ง: ก้อนแรกไม่มีค่าที่แก้ ฐานก็ไม่มี และยังมีสถานะรอส่ง",
         r.first && r.first.sentNote !== "แก้ระหว่างส่ง" && r.first.baseNote !== "แก้ระหว่างส่ง" && r.first.pending === true, JSON.stringify(r.first || r));
       t.check("(ฎ) รอบถัดไปส่งค่าที่แก้ระหว่างส่งขึ้นไป แล้วสถานะรอส่งหายไป",
         r.second?.puts === 2 && r.second.note === "แก้ระหว่างส่ง" && r.second.pending === false, JSON.stringify(r.second));
-      t.check("(ฏ) ดึงข้อมูลทั้งชุดจากคลาวด์สั่ง cache: no-store ทุกครั้ง",
-        r.getCache?.length >= 2 && r.getCache.every(x => x === "no-store"), JSON.stringify(r.getCache));
+      t.check("(ฏ) ดึงข้อมูลทั้งชุดจากคลาวด์สั่ง cache: no-store ทุกครั้ง (รวมรวมก่อนส่ง · ดึงทั้งชุดด้วยมือ)",
+        r.getCache?.length >= 3 && r.getCache.every(x => x === "no-store"), JSON.stringify(r.getCache));
+      t.check("(ฏ) ดึงจากระบบคิว (นำเข้าจาก API · ตรวจการเชื่อมต่อ) สั่ง cache: no-store",
+        r.qCache?.length >= 2 && r.qCache.every(x => x === "no-store"), JSON.stringify(r.qCache));
       t.eq("(ฐ) ระดับข้อมูลผู้ป่วยที่ไม่รู้จัก: ลบ HN ไว้ก่อน (เหมือน nohn)", r.bogus, ["", 5]);
       t.check("(ฎ–ฐ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();

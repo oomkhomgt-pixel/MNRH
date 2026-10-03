@@ -4216,7 +4216,8 @@ async function importFromApi() {
   const q = store.data.orQueue || {};
   if (!q.apiBase) throw new Error("ยังไม่ได้ตั้งค่าที่อยู่ของระบบคิว");
   const url = q.apiBase.replace(/\/$/, "") + (q.apiPath || OR_QUEUE_DEFAULT.apiPath);
-  const res = await fetchWithTimeout(url, { credentials: "include", headers: { Accept: "application/json" } }, 15000);
+  /* no-store: คำตอบของระบบคิวคือข้อมูลผู้ป่วยดิบ (HN ชื่อ อายุ เพศ) — ระดับข้อมูลผู้ป่วยลบได้แค่ในแอป ลบในแคช HTTP ของเบราว์เซอร์ไม่ได้ */
+  const res = await fetchWithTimeout(url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } }, 15000);
   if (!res.ok) throw new Error("ระบบคิวตอบกลับ HTTP " + res.status);
   const data = await res.json();
   const cases = collectCasesDeep(data);
@@ -8387,11 +8388,8 @@ async function cloudPull() {
   if (!canManage()) { toast("เฉพาะผู้จัดหลักสูตรเท่านั้นที่ดึงข้อมูลทั้งชุดจากคลาวด์ได้"); return; }
   if (!cfg.cloudUrl) { toast("ยังไม่ได้ตั้งที่อยู่คลาวด์"); return; }
   try {
-    const res = await fetchWithTimeout(cfg.cloudUrl, {
-      credentials: "include", cache: "no-store", headers: cfg.token ? { Authorization: "Bearer " + cfg.token } : {}
-    }, 20000);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const body = await res.json();
+    /* ดึงผ่านทางเดียวกับการรวมข้อมูล — ห้ามแคช และไม่ยอมรับคำตอบที่ไม่ใช่ข้อมูล (เดิม fetch ซ้ำเองแยกไว้ จุดหนึ่งแก้แล้วอีกจุดตกหล่นได้) */
+    const body = await fetchCloudSnapshot();
     if (!body.data) { toast("บนคลาวด์ยังไม่มีข้อมูล"); return; }
     const n = (body.data.residents || []).length, a = (body.data.activities || []).length;
     if (!(await confirmAny("ดึงข้อมูลจากคลาวด์ (อัปเดตล่าสุด " + (body.updatedAt ? fmtDateTime(body.updatedAt) : "—") +
@@ -11870,7 +11868,7 @@ async function diagnoseQueueLink() {
 
   try {
     const t0 = performance.now();
-    const res = await fetchWithTimeout(url, { credentials: "include", headers: { Accept: "application/json" } }, 8000);
+    const res = await fetchWithTimeout(url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } }, 8000);
     const ms = Math.round(performance.now() - t0);
     if (res.ok) {
       const data = await res.json().catch(() => null);
