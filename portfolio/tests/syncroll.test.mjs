@@ -449,6 +449,65 @@ export default async function run() {
       t.check("(ช) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
       await page.close();
     }
+    /* (ซ) เครื่องไม่เก็บ HN รวมกับคลาวด์ที่ยังมี HN: ต้องเทียบเคสในมุมของระดับเครื่องนี้
+           เดิมเคสที่เครื่องนี้ลบถูกนับว่า "เครื่องอื่นแก้" แล้วคืนกลับมา และเคสที่แก้ถูกนับว่าชนกันทั้งที่ไม่มีใครแก้อีกฝั่ง
+       (ฌ) ฐานเก่าที่ยังมี HN (เขียนโดยโค้ดรุ่นก่อน) ต้องถูกลบตอนเปิดแอป และไม่ทำให้ทุกเคสดูเหมือนเครื่องนี้แก้
+           จนทับสิ่งที่เครื่องอื่นแก้ */
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const z = await page.evaluate(() => {
+        const withHn = () => {
+          const r = JSON.parse(JSON.stringify(fullPayload()));
+          r.cases.forEach((c, i) => Object.assign(c, { hn: "HNZZ" + i }));
+          return r;
+        };
+        store.data.orQueue ||= {}; store.data.orQueue.patientData = "nohn"; applyPatientLevel(); store.save();
+        const cloud = withHn();                                   /* ข้อมูลเดิมบนคลาวด์ (เครื่องเดสก์ท็อปที่เก็บ HN) */
+        syncCfg().rev = 5;
+        reconcileWithCloud({ rev: 9, data: cloud });              /* ฐานถูกเขียนแบบไม่มี HN */
+        const [del, edit] = store.data.cases;
+        store.data.cases = store.data.cases.filter(c => c.id !== del.id);
+        store.data.cases.find(c => c.id === edit.id).note = "แก้จากโทรศัพท์";
+        store.data.syncConflicts = [];
+        reconcileWithCloud({ rev: 10, data: JSON.parse(JSON.stringify(cloud)) });  /* rev ขยับจากเรื่องอื่น ข้อมูลเคสเหมือนเดิม */
+        const cf = (store.data.syncConflicts || []).filter(c => c.key === "cases");
+        return { delBack: store.data.cases.some(c => c.id === del.id), note: store.data.cases.find(c => c.id === edit.id)?.note,
+                 conflicts: cf.map(c => c.id + ":" + c.note) };
+      }).catch(e => ({ err: e.message }));
+      t.check("(ซ) ไม่เก็บ HN: เคสที่ลบในเครื่องนี้ไม่ถูกคืนกลับมาหลังรวมกับคลาวด์ที่ยังมี HN", z.delBack === false, JSON.stringify(z));
+      t.check("(ซ) ไม่เก็บ HN: เคสที่แก้คงค่าที่แก้ และไม่มีรายการชนกันของเคส", z.note === "แก้จากโทรศัพท์" && z.conflicts?.length === 0, JSON.stringify(z));
+      t.check("(ซ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
+    {
+      const { page, errors } = await openAs(browser, srv.url, "admin");
+      const prep = await page.evaluate(() => {
+        store.data.orQueue ||= {}; store.data.orQueue.patientData = "nohn"; applyPatientLevel(); store.save();
+        /* ฐานแบบโค้ดรุ่นก่อน: ชุดของคลาวด์ดิบที่มี HN ครบ เขียนตรง ๆ ไม่ผ่าน writeBaseline */
+        const raw = JSON.parse(JSON.stringify(fullPayload()));
+        raw.cases.forEach((c, i) => Object.assign(c, { hn: "HNOLD" + i }));
+        localStorage.setItem(BASELINE_KEY, JSON.stringify({ rev: 9, at: "2026-01-01", data: raw }));
+        syncCfg().rev = 9; store.save();
+        return { id: raw.cases[1].id };
+      });
+      await page.reload(); await page.waitForFunction(() => typeof store !== "undefined" && store.data);
+      const q = await page.evaluate(({ id }) => {
+        const hasHn = /HNOLD/.test(localStorage.getItem(BASELINE_KEY) || "");
+        /* เครื่องอื่นแก้เคสหนึ่ง (คลาวด์ยังมี HN) — เครื่องนี้ไม่ได้แก้อะไร ต้องได้ของเครื่องอื่น ไม่ชนกัน */
+        const cloud = JSON.parse(JSON.stringify(fullPayload()));
+        cloud.cases.forEach((c, i) => Object.assign(c, { hn: "HNOLD" + i }));
+        cloud.cases.find(c => c.id === id).note = "แก้จากเครื่องอื่น";
+        store.data.syncConflicts = [];
+        reconcileWithCloud({ rev: 10, data: cloud });
+        return { hasHn, note: store.data.cases.find(c => c.id === id)?.note,
+                 conflicts: (store.data.syncConflicts || []).filter(c => c.key === "cases").length };
+      }, prep).catch(e => ({ err: e.message }));
+      t.check("(ฌ) เปิดแอปใหม่: ฐานเก่าที่มี HN ถูกลบ HN ตามระดับของเครื่อง", q.hasHn === false, JSON.stringify(q));
+      t.check("(ฌ) ฐานเก่า: สิ่งที่เครื่องอื่นแก้ในเคสเข้ามาได้ ไม่ถูกฉบับเก่าในเครื่องทับ และไม่มีรายการชนกัน",
+        q.note === "แก้จากเครื่องอื่น" && q.conflicts === 0, JSON.stringify(q));
+      t.check("(ฌ) ไม่มี error หลุดในคอนโซล", errors.length === 0, errors.join(" | "));
+      await page.close();
+    }
 
     /* ---------- 4) เลื่อนชั้นปีแล้วย้อนกลับ ต้องได้ทะเบียนตรงตามเดิมทุกไบต์ ----------
        เดิมย้อนกลับแล้วเติม graduatedAY:"" ให้ทุกคน (ข้อมูลสาธิตไม่มีช่องนี้) ทะเบียนทั้งชุดจึงต่างจากฐานเปรียบเทียบ

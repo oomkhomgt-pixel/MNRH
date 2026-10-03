@@ -8166,37 +8166,53 @@ const writeBaseline = (rev, data) => {
   }
   catch (e) { console.warn("เก็บฐานเปรียบเทียบไม่ได้", e); }
 };
+/* ฐานที่เขียนไว้ก่อนเปลี่ยนระดับ หรือโดยโค้ดรุ่นก่อนที่ยังไม่ลบตามระดับ — เขียนใหม่ (รุ่นเดิม) เฉพาะเมื่อยังมีข้อมูลที่ระดับนี้ไม่ให้เก็บ */
+function rescrubBaseline() {
+  const lv = patientLevel(); if (lv === "full") return;
+  const b = readBaseline();
+  const dirty = (b?.data?.cases || []).some(c => c && (c.hn || (lv === "minimal" && (c.age || c.sex))));
+  if (dirty) writeBaseline(b.rev, b.data);
+}
+/* เคสเทียบกันในมุมของระดับข้อมูลผู้ป่วยของเครื่องนี้ — เคสในเครื่องและฐานถูกลบ HN/อายุ/เพศ ไปแล้ว แต่ของคลาวด์ยังมี
+   ถ้าเทียบดิบ เคสที่แก้จะถูกนับว่าชนกัน และเคสที่ลบจะถูกนับว่า "เครื่องอื่นแก้" แล้วคืนกลับมา (ฐานเก่าที่ยังมี HN ก็ทำให้
+   ทุกเคสดูเหมือนเครื่องนี้แก้ แล้วทับสิ่งที่เครื่องอื่นแก้) · ใช้เทียบเท่านั้น ค่าที่รวมเป็นเรคคอร์ดเดิมไม่เปลี่ยน */
+const mergeView = (key, rec, lv) => {
+  if (key !== "cases" || lv === "full" || !rec) return rec;
+  const x = { ...rec }; scrubCaseForLevel(x, lv); return x;
+};
 const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const indexById = (list) => new Map((list || []).filter(x => x && x.id).map(x => [x.id, x]));
 
 function mergeDatasets(base, mine, theirs) {
   const merged = JSON.parse(JSON.stringify(theirs || {}));
   const conflicts = [];
+  const lv = patientLevel();
   ID_COLLECTIONS.forEach(key => {
     const b = indexById(base?.[key]), m = indexById(mine?.[key]), t = indexById(theirs?.[key]);
     const out = new Map(t);
+    const same = (x, y) => sameJson(mergeView(key, x, lv), mergeView(key, y, lv));
     m.forEach((rec, id) => {
       const bRec = b.get(id), tRec = t.get(id);
-      if (bRec && sameJson(rec, bRec)) return;                    /* เครื่องนี้ไม่ได้แก้ ปล่อยของคลาวด์ไว้ */
+      if (bRec && same(rec, bRec)) return;                        /* เครื่องนี้ไม่ได้แก้ ปล่อยของคลาวด์ไว้ */
       /* ทะเบียนแพทย์ประจำบ้านและบัญชีผู้ใช้รวมรายช่อง ไม่ใช่ทั้งเรคคอร์ด — การเลื่อนชั้นปีบนเครื่องอื่นแก้ year / active /
          graduatedAY / name (และ displayName ของบัญชี) ของทุกคนพร้อมกัน ถ้าเครื่องนี้แก้ช่องอื่นของคนนั้นไว้ (เช่น อาจารย์ที่ปรึกษา)
          ทั้งเรคคอร์ดของเครื่องนี้เคยชนะ ชั้นปีจึงถอยกลับเป็นของปีก่อนทั้งที่ตัวชี้ปีบอกว่าเลื่อนแล้ว — คนนั้นค้างชั้นปีเดิมถาวร
          ใช้เกณฑ์ผิดปี และปี 4 ไม่จบการศึกษา · ช่องที่เครื่องนี้ไม่ได้แตะจึงต้องรับค่าจากคลาวด์
          บันทึกว่าชนเฉพาะช่องที่แก้ทั้งสองฝั่งจริง (mergeFields) ไม่ใช่ทั้งเรคคอร์ด */
       if (bRec && tRec && (key === "residents" || key === "users")) { out.set(id, mergeFields(bRec, rec, tRec, key, id, conflicts)); return; }
-      if (tRec && bRec && !sameJson(tRec, bRec) && !sameJson(tRec, rec))
+      if (tRec && bRec && !same(tRec, bRec) && !same(tRec, rec))
         conflicts.push({ key, id, note: "แก้ทั้งสองฝั่ง — เก็บฉบับของเครื่องนี้ไว้" });
       /* ไม่มีฐานเปรียบเทียบเลย (เช่น เครื่องนี้เพิ่งดึงข้อมูลมาครั้งแรก) — เทียบไม่ได้ว่าของเราแก้จริง
          หรือแค่ยังไม่เคยซิงก์ ถ้าของคลาวด์ต่างจากของเรา ต้องบันทึกไว้เป็นรายการที่ชนกันด้วย
          ไม่ใช่ทับเงียบ ๆ โดยไม่มีร่องรอยให้ตรวจสอบภายหลัง (เดิม bRec ที่ไม่มีทำให้เงื่อนไขข้างบนเป็นเท็จเสมอ) */
-      else if (!bRec && tRec && !sameJson(tRec, rec))
+      else if (!bRec && tRec && !same(tRec, rec))
         conflicts.push({ key, id, note: "ไม่มีฐานเปรียบเทียบ (ซิงก์ครั้งแรกของเครื่องนี้) — เก็บฉบับของเครื่องนี้ไว้ ควรตรวจสอบ" });
       out.set(id, rec);                                           /* ทับเฉพาะรายการที่เราแก้จริง */
     });
     b.forEach((bRec, id) => {
       if (m.has(id)) return;                                      /* ยังอยู่ ไม่ได้ลบ */
       const tRec = t.get(id);
-      if (tRec && !sameJson(tRec, bRec)) {
+      if (tRec && !same(tRec, bRec)) {
         conflicts.push({ key, id, note: "เครื่องนี้ลบ แต่เครื่องอื่นแก้ — คงของเครื่องอื่นไว้" });
         return;
       }
@@ -8950,7 +8966,7 @@ function caseSettingsDialog() {
         delete q.dropHn;
         applyPatientLevel();
         /* ฐานเปรียบเทียบที่เขียนไว้ก่อนเปลี่ยนระดับยังมีข้อมูลเดิมอยู่ — เขียนใหม่ตามระดับปัจจุบัน (รุ่นเดิม) */
-        { const b = readBaseline(); if (b?.data) writeBaseline(b.rev, b.data); }
+        rescrubBaseline();
         store.save(); renderLogbook(); toast("บันทึกการตั้งค่าแล้ว");
       }}
   ]);
@@ -12004,6 +12020,9 @@ function editUser(id, preset = {}) {
    ===================================================================== */
 function init() {
   store.load();
+  /* ฐานเปรียบเทียบจากโค้ดรุ่นก่อนเก็บชุดของคลาวด์ดิบ (มี HN) แม้เครื่องนี้ตั้งไม่เก็บ — ลบตามระดับครั้งเดียวตอนเปิด
+     (ทำที่นี่ ไม่ใช่ใน migrate() ซึ่งทำงานก่อนที่ writeBaseline จะถูกประกาศ) */
+  rescrubBaseline();
   setupIngest();
   watchFolds();
 
