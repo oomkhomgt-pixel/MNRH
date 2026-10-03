@@ -4,3 +4,6 @@
 # validation (DECISIONS.md section 5) practical.
 -r requirements.txt
 nibabel>=5.2,<6
+# The DICOM SEG export's tests (Slicer itself ships both).
+pydicom>=3,<4
+highdicom>=0.27,<1

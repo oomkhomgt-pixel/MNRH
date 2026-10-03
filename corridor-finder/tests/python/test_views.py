@@ -16,7 +16,7 @@ TEXTBOOK = {
 }
 
 
-def _tilted_pelvis(tilt_deg=0.0):
+def _tilted_pelvis(tilt_deg=0.0, foramen_deg=45.0):
     """A pelvis of blocks, optionally tilted back about the left-right axis:
     two wings in their own plane, two pubic bodies, two ischial tuberosities
     and a sacrum. Tilting it must move every computed view by the same
@@ -45,17 +45,19 @@ def _tilted_pelvis(tilt_deg=0.0):
         block(label, sign * 38, sign * 62, 10, 30, 35, 70)     # anterior column
         block(label, sign * 45, sign * 75, -25, 0, 5, 25)      # ischial tuberosity
         block(label, sign * 16, sign * 60, -25, 10, 60, 105)   # the surface facing the sacrum
-        # An obturator ring: bone around a thin oblique slab of space, which
-        # is what makes the foramen a hole with a plane of its own.
-        block(label, sign * 18, sign * 72, -22, 28, 8, 42)
+        # An obturator ring: a plate of bone turned to the foramen's angle,
+        # with a hole through it, which is what a radiograph sees open.
         zz, yy, xx = np.mgrid[0:nz, 0:ny, 0:nx]
         x, y, z = origin[0] + xx, origin[1] + yy, origin[2] + zz
         if tilt_deg:
             a_rad = np.radians(tilt_deg)
             y, z = y * np.cos(a_rad) + z * np.sin(a_rad), -y * np.sin(a_rad) + z * np.cos(a_rad)
-        hole = ((np.abs(0.7 * (x - sign * 45) + sign * 0.7 * (y - 3)) < 7)
-                & (np.abs(x - sign * 45) < 22) & (y > -18) & (y < 24) & (z > 12) & (z < 38))
-        labels[hole] = 0
+        c, s_ = np.cos(np.radians(foramen_deg)), np.sin(np.radians(foramen_deg))
+        across = c * (x - sign * 45) + sign * s_ * (y - 3)  # out of the plate
+        along = -sign * s_ * (x - sign * 45) + c * (y - 3)  # in it, horizontally
+        plate = (np.abs(across) < 5) & (np.abs(along) < 30) & (z > 8) & (z < 46)
+        hole = plate & (along ** 2 / 18.0 ** 2 + (z - 27) ** 2 / 11.0 ** 2 < 1.0)
+        labels[plate & ~hole & (labels == 0)] = label
     # A sacrum with a slope: its front face leans back as it descends, which
     # is what gives a patient his own outlet angle.
     for z in range(45, 115, 5):
@@ -64,8 +66,8 @@ def _tilted_pelvis(tilt_deg=0.0):
     return Volume(labels, (1.0, 1.0, 1.0), origin)
 
 
-def _views(tilt_deg=0.0):
-    vol = _tilted_pelvis(tilt_deg)
+def _views(tilt_deg=0.0, foramen_deg=45.0):
+    vol = _tilted_pelvis(tilt_deg, foramen_deg)
     marks = detect_landmarks(vol)
     frame = build_app(marks["asis_right"].xyz, marks["asis_left"].xyz,
                       marks["pubic_tubercle_right"].xyz, marks["pubic_tubercle_left"].xyz)
@@ -138,3 +140,16 @@ def test_missing_anatomy_leaves_the_view_out_rather_than_guessing():
     views = patient_views(vol, without, frame, textbook=TEXTBOOK)
     assert "lateral_sacral" not in views
     assert "ap" in views
+
+
+def test_the_obturator_oblique_is_square_to_this_patients_foramen():
+    """DECISIONS 7.7: no fixed angles. A foramen turned 30 degrees from the
+    coronal plane instead of the textbook 45 needs a view turned with it."""
+    for foramen_deg in (45.0, 30.0):
+        views, _, _ = _views(foramen_deg=foramen_deg)
+        for side, sign in (("right", 1.0), ("left", -1.0)):
+            view = views[f"obturator_oblique_{side}"]
+            c, s_ = np.cos(np.radians(foramen_deg)), np.sin(np.radians(foramen_deg))
+            normal = np.array([c, sign * s_, 0.0])
+            assert abs(float(np.dot(view.beam, normal))) > np.cos(np.radians(6.0)), (side, foramen_deg, view.beam)
+            assert "obturator foramen" in view.definition and "could not" not in view.definition

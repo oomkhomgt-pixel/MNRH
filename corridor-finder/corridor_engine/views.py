@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 import numpy as np
+from scipy import ndimage as ndi
 
 from . import segmentation as seg
 from .volume import Volume
@@ -28,6 +29,19 @@ WING_ABOVE_BRIM_MM = 10.0  # iliac wing: bone this far above the brim and up
 SACRAL_FACE_MM = 6.0  # how deep the sacrum's front face is taken
 OBLIQUE_ROTATION_DEG = 45.0  # the Judet rotation, taken about the patient's own axis
 MIN_FIT_POINTS = 50
+# The obturator oblique (Judet) is a roll about the patient's long axis, no
+# tilt, to where that side's obturator foramen shows most open. It is found
+# the way a radiographer finds it: rolling the beam either side of the
+# classic 45 degrees and keeping the roll at which the hole in that hip
+# bone's projection is largest. Tilt is left out on purpose: letting it
+# vary, the foramen opened most at about 26 degrees of outlet tilt on all
+# four CLINIC pelves, which is an outlet-obturator, not a Judet view, and
+# would put the outlet into the composed outlet-obturator twice.
+FORAMEN_SEARCH_ROLL_DEG = 30.0  # either side of the classic rotation
+FORAMEN_COARSE_STEP_DEG = 5.0
+FORAMEN_FINE_STEP_DEG = 1.0
+FORAMEN_PIXEL_MM = 1.0
+FORAMEN_MIN_AREA_MM2 = 300.0  # a smaller hole is not the foramen
 
 
 @dataclass
@@ -140,8 +154,111 @@ def _sacral_face(labels_vol: Volume, landmarks: Dict[str, object]):
     return np.concatenate(face) if face else None
 
 
+def _visible_foramen_mm2(hip: np.ndarray, bone: np.ndarray, beam: np.ndarray, centre: np.ndarray) -> float:
+    """How much of the obturator foramen an image along ``beam`` shows: the
+    hole in the hip bone's own projection nearest ``centre`` (its ring is
+    that bone), less whatever other bone in the CT lies across it."""
+    u = _unit(np.cross(beam, [0.0, 0.0, 1.0]) if abs(beam[2]) < 0.95 else np.cross(beam, [1.0, 0.0, 0.0]))
+    v = np.cross(beam, u)
+    half = int(np.ceil(FORAMEN_FIELD_MM / FORAMEN_PIXEL_MM))
+    size = 2 * half + 1
+
+    def project(points: np.ndarray) -> np.ndarray:
+        rel = points - centre
+        i = np.floor(rel @ u / FORAMEN_PIXEL_MM).astype(int) + half
+        j = np.floor(rel @ v / FORAMEN_PIXEL_MM).astype(int) + half
+        ok = (i >= 0) & (i < size) & (j >= 0) & (j < size)
+        image = np.zeros((size, size), dtype=bool)
+        image[i[ok], j[ok]] = True
+        # Close the gaps between projected voxel centres, so the grid does
+        # not make holes of its own.
+        return ndi.binary_closing(image, iterations=max(1, int(np.ceil(BONE_GRID_MM / FORAMEN_PIXEL_MM))))
+
+    ring = project(hip)
+    holes = ndi.binary_fill_holes(ring) & ~ring
+    pieces, n = ndi.label(holes)
+    if n == 0:
+        return 0.0
+    k = pieces[half, half]
+    if k == 0:  # the centre is on bone: take the largest hole instead
+        k = int(np.argmax(np.bincount(pieces.ravel())[1:])) + 1
+    foramen = pieces == k
+    covered = project(bone) if bone is not None and len(bone) else np.zeros_like(foramen)
+    return float((foramen & ~covered).sum()) * FORAMEN_PIXEL_MM ** 2
+
+
+# What a C-arm image shows is all the bone along each ray: on CLINIC_0023
+# the roll that opened the hip bone's own hole most put the femoral shaft
+# across it. So the foramen is found from the hip bone, and what counts is
+# the part of it no other bone (CT voxels above BONE_HU) covers.
+BONE_HU = 150.0
+BONE_GRID_MM = 2.0
+FORAMEN_FIELD_MM = 60.0  # half-width of the image looked at, around the foramen
+FORAMEN_BONE_REACH_MM = 200.0  # bone farther than this from the foramen is left out (speed)
+
+
+def bone_points(hu_vol: Volume, centre, reach_mm: float = FORAMEN_BONE_REACH_MM) -> np.ndarray:
+    """World points of CT bone (above BONE_HU) within ``reach_mm`` of
+    ``centre``, on a grid of about BONE_GRID_MM."""
+    centre = np.asarray(centre, dtype=float)
+    stride = np.maximum(1, np.round(BONE_GRID_MM / np.array([hu_vol.spacing[2], hu_vol.spacing[1], hu_vol.spacing[0]])).astype(int))
+    corners = np.array([hu_vol.world_to_zyx_index(centre - reach_mm), hu_vol.world_to_zyx_index(centre + reach_mm)])
+    lo = np.maximum(np.floor(corners.min(axis=0)).astype(int), 0)
+    hi = np.minimum(np.ceil(corners.max(axis=0)).astype(int) + 1, hu_vol.array.shape)
+    sub = hu_vol.array[lo[0]:hi[0]:stride[0], lo[1]:hi[1]:stride[1], lo[2]:hi[2]:stride[2]]
+    return hu_vol.zyx_indices_to_world(np.argwhere(sub > BONE_HU) * stride + lo)
+
+
+def obturator_beam(labels_vol: Volume, hip_label: int, pubic_tubercle, ischial_tuberosity,
+                   classic: np.ndarray, cephalad: np.ndarray, hu_vol: Optional[Volume] = None):
+    """The roll, near the classic obturator oblique, at which this side's
+    obturator foramen shows most (open, and not covered by other bone), and
+    that visible area (mm2); None when no hole of foramen size shows, or
+    the best roll is at the edge of the search. Without the CT, the other
+    labelled bones stand in for what covers it."""
+    a, b = np.asarray(pubic_tubercle, dtype=float), np.asarray(ischial_tuberosity, dtype=float)
+    centre = 0.5 * (a + b)
+    pad = FORAMEN_FIELD_MM
+    corners = np.array([labels_vol.world_to_zyx_index(centre - pad), labels_vol.world_to_zyx_index(centre + pad)])
+    lo = np.maximum(np.floor(corners.min(axis=0)).astype(int), 0)
+    hi = np.minimum(np.ceil(corners.max(axis=0)).astype(int) + 1, labels_vol.array.shape)
+    if (hi - lo < 3).any():
+        return None
+    box = labels_vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
+    idx = np.argwhere(box == hip_label)
+    if len(idx) < MIN_FIT_POINTS:
+        return None
+    hip = labels_vol.zyx_indices_to_world(idx + lo)
+    if hu_vol is not None:
+        bone = bone_points(hu_vol, centre)
+    else:
+        others = np.argwhere(labels_vol.array != 0)
+        others = others[labels_vol.array[others[:, 0], others[:, 1], others[:, 2]] != hip_label]
+        bone = labels_vol.zyx_indices_to_world(others)
+
+    def beam_at(roll: float) -> np.ndarray:
+        return _rotate_about(classic, cephalad, roll)
+
+    best = (0.0, 0.0)
+    for step, half_roll, around in ((FORAMEN_COARSE_STEP_DEG, FORAMEN_SEARCH_ROLL_DEG, 0.0),
+                                    (FORAMEN_FINE_STEP_DEG, FORAMEN_COARSE_STEP_DEG, None)):
+        r0 = around if around is not None else best[1]
+        for roll in np.arange(r0 - half_roll, r0 + half_roll + 1e-6, step):
+            area = _visible_foramen_mm2(hip, bone, beam_at(roll), centre)
+            if area > best[0]:
+                best = (area, float(roll))
+    if best[0] < FORAMEN_MIN_AREA_MM2:
+        return None
+    # A best roll at the edge of the search is not a peak: the foramen was
+    # not seen opening and closing again, so the classic view is the
+    # honest answer.
+    if abs(best[1]) > FORAMEN_SEARCH_ROLL_DEG - FORAMEN_COARSE_STEP_DEG:
+        return None
+    return beam_at(best[1]), best[0]
+
+
 def patient_views(labels_vol: Volume, landmarks: Dict[str, object], frame=None,
-                  textbook: Optional[Dict[str, dict]] = None) -> Dict[str, View]:
+                  textbook: Optional[Dict[str, dict]] = None, hu_vol: Optional[Volume] = None) -> Dict[str, View]:
     """Every named view, computed from this patient. Views whose anatomy is
     missing are left out, and the caller falls back to the textbook angles
     for those."""
@@ -213,17 +330,26 @@ def patient_views(labels_vol: Volume, landmarks: Dict[str, object], frame=None,
                 f"square to this patient's {side} iliac wing, which opens the posterior column and the "
                 f"anterior wall", book(f"iliac_oblique_{side}"))
 
-        # Obturator oblique: the ring of that side face-on. The ring itself
-        # is not segmented, so this is the classic 45 degrees of rotation,
-        # but taken about THIS patient's cephalad axis and from HIS square
-        # AP, so his pelvic tilt and any rotation on the table are already
-        # in it. The rotation itself is still the textbook one.
-        beam = _rotate_about(posterior, cephalad, -sign * OBLIQUE_ROTATION_DEG)
+        # Obturator oblique: the roll about this patient's own upright axis,
+        # within 30 degrees of the classic 45, that shows his obturator
+        # foramen most open. Where no hole of foramen size shows, the
+        # classic view is used and says so.
+        classic = _rotate_about(posterior, cephalad, -sign * OBLIQUE_ROTATION_DEG)
+        beam, definition = classic, (
+            f"{OBLIQUE_ROTATION_DEG:.0f} degrees around this patient's own upright axis (his obturator foramen "
+            f"could not be measured), which opens the {side} obturator ring, the anterior column and the "
+            f"posterior wall")
+        tubercle, tuberosity = mark(f"pubic_tubercle_{side}"), mark(f"ischial_tuberosity_{side}")
+        found = (obturator_beam(labels_vol, hip_label, tubercle, tuberosity, classic, cephalad, hu_vol)
+                 if tubercle is not None and tuberosity is not None else None)
+        if found is not None:
+            beam, area = found
+            definition = (f"rolled about this patient's own upright axis to where most of his {side} obturator foramen shows "
+                          f"open "
+                          f"({area:.0f} mm2), which opens the {side} obturator ring, the anterior column and the "
+                          f"posterior wall")
         out[f"obturator_oblique_{side}"] = _view(
-            f"obturator_oblique_{side}", beam,
-            f"{OBLIQUE_ROTATION_DEG:.0f} degrees around this patient's own upright axis, entering from the "
-            f"other side, which opens the {side} obturator ring, the anterior column and the posterior wall",
-            book(f"obturator_oblique_{side}"))
+            f"obturator_oblique_{side}", beam, definition, book(f"obturator_oblique_{side}"))
 
     # Lateral of the sacrum: along the line joining the two sacroiliac
     # joints, which is what superimposes the two sides.

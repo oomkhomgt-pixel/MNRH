@@ -651,12 +651,26 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(logic.anatomy_state == "as scanned" and screw.validation["min_clearance_mm"] == before["min_clearance_mm"],
               "back on the scanned anatomy, nothing about the first screw changed")
 
+    @step("Navigation export: a CT not loaded from DICOM is refused, with the reason")
+    def navigation_export():
+        # The phantom and the sample CT are not DICOM, so there are no
+        # original slices for a SEG to refer to; the round trip on a DICOM
+        # CT is checked separately (see the commit that added it).
+        check(hasattr(w, "exportSegButton"), "the panel has the DICOM SEG export button")
+        try:
+            logic.export_screws_dicom_seg(os.path.join(OUT_DIR, f"{name}_screws.dcm"))
+            refused = ""
+        except RuntimeError as exc:
+            refused = str(exc)
+        check("not loaded from DICOM" in refused, f"refused: {refused[:90]!r}")
+        check(not os.path.exists(os.path.join(OUT_DIR, f"{name}_screws.dcm")), "and nothing was written")
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (virtual_reduction, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

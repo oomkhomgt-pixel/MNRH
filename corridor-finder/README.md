@@ -95,6 +95,17 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Export of the passing screws for navigation (Brainlab) as one DICOM
+      SEG on the original CT series (DECISIONS.md 8.3). Round trip checked
+      in Slicer: CLINIC_0025 written as DICOM, loaded through a temporary
+      DICOM database, two screws exported, every slice referenced, each
+      screw's axis inside its segment at 9/9 points. NOT yet imported into
+      a Brainlab system: that test import comes before any clinical use.
+- [x] Obturator oblique from the patient's own obturator foramen: the roll
+      at which most of it shows, other bone included (DECISIONS.md 7.7).
+      Found on 6 of 8 CLINIC sides, 1-11 degrees from the classic 45;
+      falls back to the classic view, and says so, otherwise. Not yet
+      compared with a real C-arm image.
 - [x] Antegrade posterior column screw put first when most square to
       the marked fracture (DECISIONS.md 7.3d); angle shown on every
       suggestion, the panel and the report. Checked on CLINIC_0025

@@ -91,6 +91,7 @@ try:
         app_frame,
         corridor as corridor_search,
         drr as drr_mod,
+        dicom_seg as dicom_seg_mod,
         edt as edt_mod,
         fracture as fracture_mod,
         si_joint as si_joint_mod,
@@ -613,7 +614,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         the textbook angles (DECISIONS.md 7.6)."""
         try:
             self.patient_views = views_mod.patient_views(
-                self.labels_volume, self.landmarks, self.frame, textbook=self.view_defs)
+                self.labels_volume, self.landmarks, self.frame, textbook=self.view_defs, hu_vol=self.hu_volume)
         except Exception:
             logging.warning("per-patient views could not be computed:\n%s", traceback.format_exc())
             self.patient_views = {}
@@ -1570,6 +1571,59 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     # resolution and the viewer's safety check uses the distance fields).
     VIEWER_FACES_PER_MESH = 60000
 
+    def _dicom_ct_series(self) -> list:
+        """The slices of the CT this plan is on, as loaded from DICOM, so the
+        screws can reference them. Refuses a CT that did not come from
+        DICOM, or that has been moved by a transform."""
+        node = self.volume_node
+        if node is None:
+            raise RuntimeError("No CT is loaded.")
+        if node.GetParentTransformNode() is not None:
+            raise RuntimeError("The CT has a transform applied in Slicer; the screws would not line up with the "
+                               "original DICOM images. Remove the transform first.")
+        uids = (node.GetAttribute("DICOM.instanceUIDs") or "").split()
+        if not uids:
+            raise RuntimeError(
+                "This CT was not loaded from DICOM, so there are no original images for the screws to refer to. "
+                "Load the patient's CT series through Slicer's DICOM module and plan on that.")
+        import pydicom
+
+        files = [slicer.dicomDatabase.fileForInstance(uid) for uid in uids]
+        missing = [uid for uid, f in zip(uids, files) if not f]
+        if missing:
+            raise RuntimeError(f"{len(missing)} of the CT's slices are no longer in Slicer's DICOM database.")
+        return [pydicom.dcmread(f) for f in files]
+
+    def export_screws_dicom_seg(self, path: str) -> dict:
+        """Every screw of the plan that passes, as one DICOM SEG on the
+        original CT series, for a navigation system to import (Brainlab:
+        DECISIONS.md 8.3). Screws that breach, are flagged, or were planned
+        on a virtual reduction are left out and named: a screw on reduced
+        anatomy is not where the bone is on these images."""
+        if self.plan is None or not self.plan.screws:
+            raise RuntimeError("The plan has no screws.")
+        self.refresh_derived()
+        objects, left_out = [], []
+        for s in self.plan.screws:
+            v = s.validation or {}
+            codes = set(v.get("warning_codes") or [])
+            if getattr(s, "anatomy", "as scanned") != "as scanned":
+                left_out.append(f"{s.screw_id}: planned on a virtual reduction, not on these images")
+            elif v.get("breach") or v.get("start_xyz") is None or v.get("tip_xyz") is None:
+                left_out.append(f"{s.screw_id}: breach")
+            elif codes & {"short_of_fracture", "invalid"}:
+                left_out.append(f"{s.screw_id}: {', '.join(sorted(codes & {'short_of_fracture', 'invalid'}))}")
+            else:
+                label = f"{s.screw_id} {s.diameter_mm:g} x {s.length_mm:.0f} mm"
+                objects.append(dicom_seg_mod.ScrewObject(label, v["start_xyz"], v["tip_xyz"], s.diameter_mm))
+        if not objects:
+            raise RuntimeError("No screw in the plan can be exported: " + "; ".join(left_out))
+        summary = dicom_seg_mod.write_screws_seg(self._dicom_ct_series(), objects, path)
+        summary["left_out"] = left_out
+        self.plan.log("export_dicom_seg", after={"screws": [o.label for o in objects], "left_out": left_out,
+                                                 "frame_of_reference": summary["frame_of_reference"]})
+        return summary
+
     def export_viewer_html(self, path: str) -> None:
         meshes = {
             label: mesh_mod.decimate_mesh(m, self.VIEWER_FACES_PER_MESH)
@@ -1792,7 +1846,12 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.exportReportButton = qt.QPushButton(_("Export report HTML..."))
         self.exportStlButton = qt.QPushButton(_("Export STL..."))
         self.exportViewerButton = qt.QPushButton(_("Export interactive viewer HTML..."))
-        for b in (self.exportPlanButton, self.exportReportButton, self.exportStlButton, self.exportViewerButton):
+        self.exportSegButton = qt.QPushButton(_("Export screws for navigation (DICOM SEG)..."))
+        self.exportSegButton.toolTip = _(
+            "The passing screws as objects on the original CT series, for Brainlab Elements or Spine & Trauma. "
+            "Needs the CT loaded from DICOM. Check the import on your own system before relying on it.")
+        for b in (self.exportPlanButton, self.exportReportButton, self.exportStlButton, self.exportViewerButton,
+                  self.exportSegButton):
             exportForm.addRow(b)
 
         layout.addStretch(1)
@@ -1818,6 +1877,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.exportReportButton.clicked.connect(self.onExportReport)
         self.exportStlButton.clicked.connect(self.onExportStl)
         self.exportViewerButton.clicked.connect(self.onExportViewer)
+        self.exportSegButton.clicked.connect(self.onExportSeg)
 
         self._onCorridorChanged()
 
@@ -2505,6 +2565,23 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         try:
             self._syncLabelsFromSegmentation()
             self.logic.export_viewer_html(path)
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+
+    def onExportSeg(self):
+        if self.logic.plan is None:
+            return
+        path = self._promptSavePath(_("Export screws as DICOM SEG"), "DICOM (*.dcm)")
+        if not path:
+            return
+        try:
+            self._syncLabelsFromSegmentation()
+            summary = self.logic.export_screws_dicom_seg(path)
+            text = _("{0} screw(s) written.").format(len(summary["voxels"]))
+            if summary["left_out"]:
+                text += "\n" + _("Left out: ") + "; ".join(summary["left_out"])
+            slicer.util.infoDisplay(text, windowTitle=_("Corridor Finder"))
         except Exception as exc:
             logging.error(traceback.format_exc())
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
