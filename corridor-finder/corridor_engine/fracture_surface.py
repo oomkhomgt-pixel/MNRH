@@ -87,6 +87,20 @@ voxels' centres, as every distance in the engine is (si_joint's gap is
 centre to centre), so the two faces of a fracture reduced exactly still lie
 up to about a voxel apart.
 
+**From the CT** (displacement-finder DECISIONS 7d.1, 7d.5, slice 1c), inside
+each bone label, so where the label is painted solid across a fracture or
+an impacted fracture leaves no gap: a **lucent line** (bone darker than the
+bone either side of it, through the cancellous bone and breaking the
+cortex, source CT_LUCENT) and a **dense band** (interior bone denser than
+the same place on the mirrored side by IMPACTION_MARGIN_HU, or with both
+sides injured than this patient's own cancellous bone nearby, with bone of
+the usual density on both sides of it, source CT_IMPACTED, carrying its
+thickness as impaction_depth_mm). Where, with the CT given, nothing is
+found near the surgeon's marks, the plane through them is the surface
+(source SURGEON_MARKS), flagged as not found, and its marks stay
+unmatched. Every surface says where it came from (``source``); slice 1b's
+are GAP.
+
 **The sacral split** (7c.5). The lateral fragment is cut off along the
 plane through that side's sacral fracture surfaces; where the faces still
 touch, the plane carries the cut across, and the share of the cut that is
@@ -172,10 +186,79 @@ WHOLE_FACE_COS = 0.7
 WHOLE_FACE_OPPOSITE_MM = 2.0 * MAX_FRACTURE_SLOT_MM
 WHOLE_FACE_REFITS = 5  # the face's plane is refitted to its points within the band, at most this often
 
+# The CT route (DECISIONS 7d.1, 7d.5). Every HU compared is the CT smoothed
+# by this (Gaussian sigma): a CT's white noise is tens of HU from voxel to
+# voxel. A lucent line much thinner than this is blurred into the bone on
+# either side: a faint line, which the surgeon's marks are the backup for.
+CT_SMOOTH_MM = 1.0
+SOFT_TISSUE_HU = 40.0  # blood and muscle: what fills a fracture that gapes
+# A lucent line is darker than the bone on both sides of it by at least
+# this, and at least half-way from that bone down to soft tissue. Chosen as
+# several times the smoothed CT's noise, not calibrated.
+LUCENT_MIN_CONTRAST_HU = 100.0
+# The bone on either side of a lucent line is looked for up to this (plus a
+# voxel) along each direction: half the widest slot looked for.
+LUCENT_REACH_MM = MAX_FRACTURE_SLOT_MM / 2.0
+# A lucent line breaks the cortex where at least this many of its voxels lie
+# in the bone's rind (CORTEX_RIND_MM) and read, by their median, under
+# CORTEX_FRACTION of this patient's cortex: more than one noisy voxel.
+# Chosen, not calibrated.
+BREAK_MIN_VOXELS = 3
+# A dense band is looked for only this deep inside the bone: the rind is
+# cortex, and a mirror a millimetre off would compare cortex with marrow.
+IMPACTION_INTERIOR_MM = 2.0 * CORTEX_RIND_MM
+# The same place on the mirrored side is the densest bone within this of the
+# reflected point, along each axis: the mirror's measured median floor at
+# the SI joint, 4.4-4.7 mm (DECISIONS, the table under section 1), rounded
+# up. Normal dense bone that lies a few millimetres from where its mirror
+# image puts it (subchondral bone at a joint) is then still met on the other
+# side.
+IMPACTION_MIRROR_REACH_MM = 5.0
+# With both sides injured, or no confirmed mirror, a band is compared with
+# this patient's own cancellous bone within this, along each axis: the mean
+# of the interior there, less what is denser than that mean by the margin.
+IMPACTION_NEARBY_MM = 15.0
+# How much denser than its reference a band must be (7d.5). Measured on the
+# one fully intact side on the workstation, CLINIC_0012's left hip and the
+# left half of its sacrum (the surgeon read its sacral fracture as right),
+# never on the fractures: see IMPACTION_MARGIN_PROVENANCE. One patient's one
+# side is scarce data, and the margin also bounds what can be found: an
+# impaction that is no denser than its two layers of bone laid one on the
+# other adds that bone's HU above soft tissue, about 70 HU in 0012's sacrum
+# (median interior 110 HU), under this margin.
+IMPACTION_MARGIN_HU = 200.0
+IMPACTION_MARGIN_PROVENANCE = (
+    "the 99th percentile of how much denser each interior voxel of CLINIC_0012's intact side is than the densest bone "
+    "within 5 mm of its mirrored place: 189 HU in the left hip, 171 HU in the left sacral half, rounded up to 25 HU; "
+    "with every veto, that side shows no band against the mirror at any margin from 0 to 400 HU, and one against "
+    "its own nearby bone at 100 and 150 HU, none from 200 HU; one side of one patient, not validated")
+# A band is the bone around a dense core down to half its height above the
+# bone's usual excess, looked for up to this far from the core.
+IMPACTION_BAND_PAD_MM = 15.0
+# ...and only within its slab (_in_slab), whose plane and thickness are
+# refitted to the band grown within it, at most this often.
+IMPACTION_SLAB_REFITS = 5
+# A band of impaction has bone of the usual density on both sides of it, this
+# far past its half-thickness (beyond the smoothing's blur of its edge), over
+# at least this share of it. Chosen, not calibrated.
+IMPACTION_FLANK_MM = 2.0 * CT_SMOOTH_MM
+IMPACTION_FLANKED_SHARE = 0.5
+
 BONE_KEYS = {seg.SACRUM: "sacrum", seg.HIP_R: "hip_right", seg.HIP_L: "hip_left"}
 BONE_NAMES = {seg.SACRUM: "sacrum", seg.HIP_R: "right hip", seg.HIP_L: "left hip"}
 CONTRALATERAL = {seg.SACRUM: seg.SACRUM, seg.HIP_R: seg.HIP_L, seg.HIP_L: seg.HIP_R}
 SLOT, FRAGMENT_BOUNDARY = "slot", "fragment boundary"
+# Where a surface came from (7d.1): the label's own gap (slice 1b's slot and
+# fragment boundary routes), the CT (a lucent line through bone and cortex,
+# or the dense band of impaction), or the surgeon's marked plane where
+# neither found anything near his marks. Each with the route it names.
+GAP, CT_LUCENT, CT_IMPACTED, SURGEON_MARKS = "gap", "ct_lucent", "ct_impacted", "surgeon_marks"
+SOURCES = (GAP, CT_LUCENT, CT_IMPACTED, SURGEON_MARKS)
+LUCENT_LINE, DENSE_BAND, MARKED_PLANE = "lucent line", "dense band", "marked plane"
+MIRROR_REFERENCE, NEARBY_REFERENCE = "mirror", "nearby cancellous bone"
+MARKS_SURFACE_FLAG = ("NOT FOUND: the plane through the surgeon's marks, used as the fracture surface because neither "
+                      "the CT nor a gap in the label shows a fracture near these marks (DECISIONS 7d.1); it is where "
+                      "he says the fracture is, not a surface seen in the scan")
 
 _OFFSETS = np.array([(dz, dy, dx) for dz in (-1, 0, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
                      if (dz, dy, dx) != (0, 0, 0)])
@@ -214,6 +297,16 @@ class FractureSurface:
     flags: List[str] = field(default_factory=list)
     # The slot's empty voxels, (z, y, x) on the labels grid; none where the faces touch.
     gap_voxels: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
+    source: str = GAP  # one of SOURCES
+    # ct_impacted: the dense band's thickness along its normal (7d.4 reports
+    # it as a negative gap); the faces lie either side of the band, this far
+    # apart, and nothing gapes (width_mm is 0).
+    impaction_depth_mm: Optional[float] = None
+    density_reference: Optional[str] = None  # ct_impacted: MIRROR_REFERENCE or NEARBY_REFERENCE
+    excess_hu: Optional[float] = None  # ct_impacted: how much denser than that reference, median over the band
+    # The bone-labelled voxels read as the fracture, (z, y, x) on the labels
+    # grid: the lucent line, the dense band, or the marked plane's cut.
+    zone_voxels: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
 
     @property
     def region(self) -> str:
@@ -224,10 +317,20 @@ class FractureSurface:
     def far_from_marks(self) -> bool:
         return self.mark_distance_mm is not None and self.mark_distance_mm > FAR_FROM_MARKS_MM
 
+    @property
+    def signed_gap_mm(self) -> float:
+        """The gap as 7d.4 reports it: minus the impaction depth for an
+        impacted fracture, else width_mm (nan where it was not measured)."""
+        return -float(self.impaction_depth_mm) if self.impaction_depth_mm is not None else float(self.width_mm)
+
     def sentence(self) -> str:
         a, b = self.faces
-        text = (f"fracture {self.id} ({self.route}): {a.side} against {b.side}, {self.area_mm2:.0f} mm2, "
-                f"gap {self.width_mm:.1f} mm, rim {int(a.rim.sum())} + {int(b.rim.sum())} points")
+        gap = (f"impacted {self.impaction_depth_mm:.1f} mm" if self.impaction_depth_mm is not None
+               else f"gap {self.width_mm:.1f} mm" if np.isfinite(self.width_mm) else "gap not measured")
+        text = (f"fracture {self.id} ({self.route}, from {self.source}): {a.side} against {b.side}, "
+                f"{self.area_mm2:.0f} mm2, {gap}, rim {int(a.rim.sum())} + {int(b.rim.sum())} points")
+        if self.excess_hu is not None:
+            text += f", {self.excess_hu:.0f} HU denser than the {self.density_reference}"
         if self.mark_distance_mm is not None:
             text += f", {self.mark_distance_mm:.0f} mm from the nearest mark"
         return text + "".join(f"; {f}" for f in self.flags)
@@ -245,6 +348,7 @@ class Patch:
     twin_share: Optional[float]  # None when the veto was not applied
     cortex_ratio: Optional[float]  # None when the veto was not applied
     reasons: List[str]
+    source: str = GAP  # the route that found it (SOURCES)
 
 
 @dataclass
@@ -279,6 +383,14 @@ class FractureSurfaces:
     # surfaces knows nothing about it and must say so where it lies
     # (congruence makes each one a region of unknown error at those points).
     unmatched_marks: List[UnmatchedMarks] = field(default_factory=list)
+    ct_checked: bool = False  # the CT route ran (it needs the CT)
+    density_reference: str = ""  # what a dense band was compared with: MIRROR_REFERENCE or NEARBY_REFERENCE
+    impaction_margin_hu: Optional[float] = None  # how much denser it had to be (IMPACTION_MARGIN_HU)
+    # Per bone key, every voxel the CT route read as lucent line or dense
+    # band before any veto, world mm.
+    lucent_points: Dict[str, np.ndarray] = field(default_factory=dict)
+    dense_points: Dict[str, np.ndarray] = field(default_factory=dict)
+    ct_small_patches: Dict[str, int] = field(default_factory=dict)  # "<bone key> <source>": under MIN_PATCH_AREA_MM2
 
     def flags(self) -> List[str]:
         """Everything a reduction built on these surfaces must carry in its
@@ -430,14 +542,20 @@ def _xyz(zyx: np.ndarray) -> np.ndarray:
 def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror] = None,
                            ct: Optional[Volume] = None, marks: Optional[Sequence[FracturePlane]] = None,
                            fragment_sets: Sequence[FragmentSet] = (),
-                           bones: Sequence[int] = (seg.SACRUM, seg.HIP_R, seg.HIP_L)) -> FractureSurfaces:
+                           bones: Sequence[int] = (seg.SACRUM, seg.HIP_R, seg.HIP_L),
+                           injured: Optional[str] = None) -> FractureSurfaces:
     """The fracture surfaces of ``bones`` (engine label ids).
 
     ``mirror`` (confirmed; an unconfirmed MirrorReference refuses) enables
     the mirror-twin veto, ``ct`` (on the labels grid) the cortex contrast
-    veto; each one missing is said in the notes. ``marks`` are the surgeon's
-    fracture marks (7c.3). ``fragment_sets`` are slice 1's results, one per
-    injured side, for the zero-width route."""
+    veto and the CT route (7d.1); each one missing is said in the notes.
+    ``marks`` are the surgeon's fracture marks (7c.3): they seed the search,
+    and where nothing is found near them, with the CT given, their plane
+    becomes the surface (source SURGEON_MARKS). ``fragment_sets`` are slice 1's results, one per
+    injured side, for the zero-width route. ``injured`` ("right", "left" or
+    "both") says what a dense band is compared with (7d.5): the mirrored
+    side, unless both sides are injured or there is no confirmed mirror,
+    when it is the patient's own bone nearby, and the result says so."""
     if isinstance(mirror, MirrorReference):
         raise ReferenceNotConfirmed("the mirror reference has not been confirmed (mirror.confirm); "
                                     + mirror.preselection_sentence())
@@ -446,6 +564,8 @@ def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror]
     unknown = [b for b in bones if b not in BONE_KEYS]
     if unknown:
         raise ValueError(f"fracture surfaces are found in the sacrum and the hips, not label {unknown}")
+    if injured not in (None, "right", "left", "both"):
+        raise ValueError(f"injured must be 'right', 'left', 'both' or None, got {injured!r}")
     marks = list(marks or [])
     mark_points = np.vstack([m.marks for m in marks]) if marks else np.zeros((0, 3))
     mark_tree = cKDTree(mark_points) if len(mark_points) else None
@@ -528,13 +648,53 @@ def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror]
                 for b, s, p, distance, kept_for in accepted]
     for fs in fragment_sets:
         surfaces = _fragment_surfaces(labels_vol, fs, surfaces, mark_tree, notes)
+
+    route = _CtRoute(mark_tree=mark_tree)
+    if ct is not None:
+        if mirror is not None and injured != "both":
+            route.reference = MIRROR_REFERENCE
+        else:
+            route.reference = NEARBY_REFERENCE
+            why = "both sides are injured" if injured == "both" else "there is no confirmed mirror"
+            notes.append(f"a dense band is compared with this patient's own cancellous bone within "
+                         f"{IMPACTION_NEARBY_MM:.0f} mm, not with the mirrored side, because {why} (DECISIONS 7d.5): "
+                         "normal dense bone, such as the subchondral bone of a joint, can read as impaction")
+        notes.append(f"a dense band reads as impaction when at least {IMPACTION_MARGIN_HU:.0f} HU denser than the "
+                     f"{route.reference} (IMPACTION_MARGIN_HU: {IMPACTION_MARGIN_PROVENANCE})")
+        for b in wanted:
+            if slots[b] is not None and BONE_KEYS[b] not in cortex_hu:
+                cortex_hu[BONE_KEYS[b]] = _cortex_hu(labels_vol, ct, b)
+        _ct_route(labels_vol, ct, mirror, wanted, cortex_hu, route, notes)
+        surfaces += _not_already_found(labels_vol, route.surfaces, surfaces, notes)
+        rejected += route.rejected
+        for s in surfaces:
+            if s.source != GAP and mark_tree is not None:
+                s.mark_distance_mm = _distance(s, mark_tree)
+    else:
+        notes.append("CT route not run (no CT): a fracture whose faces touch, an impacted fracture, and one the "
+                     "label is painted across are not found")
     for b in wanted:
         if slots[b] is not None and not any(s.label == b for s in surfaces):
+            faint = (f", and in the CT a line less than {LUCENT_MIN_CONTRAST_HU:.0f} HU darker or a band less than "
+                     f"{IMPACTION_MARGIN_HU:.0f} HU denser than its reference is not seen" if ct is not None else "")
             notes.append(f"no fracture surface found in the {BONE_NAMES[b]}: a fracture whose faces touch, or gape "
-                         f"wider than {MAX_FRACTURE_SLOT_MM:.0f} mm, leaves no slot, so this does not say the "
+                         f"wider than {MAX_FRACTURE_SLOT_MM:.0f} mm, leaves no slot{faint}, so this does not say the "
                          f"{BONE_NAMES[b]} is intact")
+    # Matched against what was found only: a marks surface is where he says
+    # the fracture is, not a surface seen, so each of its marks stays
+    # unmatched (and a reduction still knows nothing found there).
     unmatched = _match_marks(labels_vol, marks, surfaces, notes)
+    # The backup is for where the CT shows nothing (7d.1); with no CT that is
+    # not known, so the marks stay what slice 1b made them.
+    if ct is not None:
+        surfaces += _marks_surfaces(labels_vol, mirror, unmatched, wanted, notes)
+    elif unmatched:
+        notes.append("the plane through the surgeon's marks is not made a fracture surface where nothing was found "
+                     "near them, because there is no CT: whether the CT shows a fracture there is not known")
     if mark_tree is not None:
+        for s in surfaces:
+            if s.source == SURGEON_MARKS:
+                s.mark_distance_mm = _distance(s, mark_tree)
         for s in surfaces:
             if s.far_from_marks:
                 s.flags.append(f"{s.mark_distance_mm:.0f} mm from every mark the surgeon placed, more than "
@@ -547,7 +707,9 @@ def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror]
             counts[s.label] = counts.get(s.label, 0) + 1
             s.id = f"{BONE_KEYS[s.label]}_{counts[s.label]}"
     return FractureSurfaces(surfaces, rejected, small, candidate_points, cortex_hu, mirror is not None,
-                            ct is not None, len(marks), notes, unmatched)
+                            ct is not None, len(marks), notes, unmatched, ct is not None, route.reference,
+                            IMPACTION_MARGIN_HU if ct is not None else None, route.lucent_points,
+                            route.dense_points, route.small)
 
 
 def _distance(surface: FractureSurface, tree: cKDTree) -> float:
@@ -959,6 +1121,578 @@ def _fragment_surfaces(labels_vol: Volume, fs: FragmentSet, surfaces: List[Fract
 
 
 # --------------------------------------------------------------------------
+# The CT route (7d.1, 7d.5): fractures the label does not show.
+
+
+@dataclass
+class _CtRoute:
+    reference: str = ""
+    mark_tree: Optional[cKDTree] = None
+    surfaces: List[FractureSurface] = field(default_factory=list)
+    rejected: List[Patch] = field(default_factory=list)
+    small: Dict[str, int] = field(default_factory=dict)
+    lucent_points: Dict[str, np.ndarray] = field(default_factory=dict)
+    dense_points: Dict[str, np.ndarray] = field(default_factory=dict)
+
+
+@dataclass
+class _Lucent:
+    """The voxels of one bone that read as a lucent line, on a box."""
+
+    label: int
+    lo: np.ndarray
+    voxels: np.ndarray  # (m, 3) box indices
+    normals: np.ndarray  # (m, 3) zyx unit, across the line (the direction its bone either side was found along)
+    rind: np.ndarray  # (m,) bool, in the bone's rind (CORTEX_RIND_MM)
+    hu: np.ndarray  # (m,) the CT's own HU, unsmoothed
+    patch_of_voxel: np.ndarray
+    n_patches: int
+    # (m, 2, 3) box indices: the bone either side of each voxel along its
+    # direction, back of normals and ahead of it: the first voxel at least
+    # half-way back up from the line to its flank. The fracture's faces.
+    edges: np.ndarray
+    width_mm: np.ndarray  # (m,) the line's width there, edge to edge, centre to centre
+
+
+def _smoothed(ct: Volume, box, sampling: np.ndarray, within: np.ndarray) -> np.ndarray:
+    """The CT on ``box`` smoothed by CT_SMOOTH_MM over the voxels of
+    ``within`` only (a normalised convolution), -inf elsewhere. Smoothed
+    across the bone's surface, a one-voxel cortex bled into the bone under
+    it: the marrow of a thin iliac wing read 150 HU darker than the bone
+    beside it on the phantom, a lucent line the whole wing wide."""
+    sigma = CT_SMOOTH_MM / sampling
+    weight = ndi.gaussian_filter(within.astype(np.float32), sigma)
+    total = ndi.gaussian_filter(np.where(within, ct.array[box], 0).astype(np.float32), sigma)
+    return np.where(within, total / np.maximum(weight, 1e-6), -np.inf).astype(np.float32)
+
+
+def _gather(a: np.ndarray, at: np.ndarray, fill):
+    """a at each (z, y, x) of ``at``, ``fill`` where it falls outside a."""
+    inside = np.all((at >= 0) & (at < np.array(a.shape)), axis=1)
+    out = np.full(len(at), fill, dtype=a.dtype)
+    out[inside] = a[tuple(at[inside].T)]
+    return out
+
+
+def _lucent(labels_vol: Volume, ct: Volume, label: int, cortex: float) -> Optional[_Lucent]:
+    """Each voxel of the bone darker than the bone on both sides of it, along
+    some direction within LUCENT_REACH_MM, by LUCENT_MIN_CONTRAST_HU and at
+    least half-way down to soft tissue. The bone's two layers are read
+    apart, each smoothed over itself only: inside the bone (deeper than
+    CORTEX_RIND_MM) a voxel is compared with interior bone either side, which
+    must be cancellous (under CORTEX_FRACTION of this patient's cortex), as a
+    fracture face is; in the rind, with the rind either side along the
+    surface, the cortex either side of the break."""
+    labels = labels_vol.array
+    where = np.argwhere(labels == label)
+    if not len(where):
+        return None
+    sampling = _sampling(labels_vol)
+    lo, _, box = _box(labels.shape, where, np.array([1, 1, 1]))
+    bone = labels[box] == label
+    depth = ndi.distance_transform_edt(bone, sampling=sampling)
+    shell = bone & (depth <= CORTEX_RIND_MM)
+    marrow = _smoothed(ct, box, sampling, bone & ~shell)
+    cortex_layer = _smoothed(ct, box, sampling, shell)
+    vi = np.argwhere(bone)
+    rind = shell[tuple(vi.T)]
+    own = np.where(shell, cortex_layer, marrow)
+    gv = own[tuple(vi.T)]
+    best = np.zeros(len(vi), dtype=np.float32)
+    best_dir = np.full(len(vi), -1)
+    for d, e in enumerate(_OFFSETS[:13]):
+        step_mm = float(np.linalg.norm(e * sampling))
+        for k in range(1, int((LUCENT_REACH_MM + float(sampling.max())) // step_mm) + 1):
+            flank = np.where(rind,
+                             np.minimum(_gather(cortex_layer, vi + k * e, -np.inf),
+                                        _gather(cortex_layer, vi - k * e, -np.inf)),
+                             np.minimum(_gather(marrow, vi + k * e, -np.inf), _gather(marrow, vi - k * e, -np.inf)))
+            dip = flank - gv
+            ok = ((dip >= LUCENT_MIN_CONTRAST_HU) & (2.0 * gv <= flank + SOFT_TISSUE_HU) & (dip > best)
+                  & (rind | (flank < CORTEX_FRACTION * cortex)))
+            best[ok] = dip[ok]
+            best_dir[ok] = d
+    hit = best_dir >= 0
+    voxels = vi[hit]
+    e = _OFFSETS[best_dir[hit]]
+    layer, level = np.where(rind[hit], 1, 0), gv[hit] + 0.5 * best[hit]
+    reach = int((LUCENT_REACH_MM + float(sampling.max())) // float(sampling.min())) + 1
+    edges = np.zeros((len(voxels), 2, 3), dtype=np.int64)
+    steps = np.zeros((len(voxels), 2))
+    for side, sign in enumerate((-1, 1)):
+        found = np.zeros(len(voxels), dtype=bool)
+        for k in range(1, reach + 1):
+            at = voxels + sign * k * e
+            value = np.where(layer == 1, _gather(cortex_layer, at, -np.inf), _gather(marrow, at, -np.inf))
+            now = ~found & (value >= level)
+            edges[now, side], steps[now, side] = at[now], k
+            found |= now
+        # The flank the dip was measured to is that high, so an edge is met;
+        # this only guards a voxel at the box's edge.
+        edges[~found, side], steps[~found, side] = voxels[~found], 0
+    width = steps.sum(axis=1) * np.linalg.norm(e * sampling, axis=1)
+    mask = np.zeros(bone.shape, dtype=bool)
+    mask[tuple(voxels.T)] = True
+    patches, n = ndi.label(mask, structure=_RING)
+    return _Lucent(label, lo, voxels, _unit(e * sampling), rind[hit], ct.array[box][tuple(voxels.T)].astype(float),
+                   patches[tuple(voxels.T)], int(n), edges, width)
+
+
+def _merged(face: np.ndarray, normals: np.ndarray, zone: np.ndarray):
+    """One face of a lucent line: its edge voxels, each once with the mean
+    of the normals given for it, less any that are part of the line."""
+    voxels, which = np.unique(face, axis=0, return_inverse=True)
+    which = which.ravel()
+    summed = np.zeros((len(voxels), 3))
+    np.add.at(summed, which, normals)
+    dims = np.maximum(voxels.max(axis=0), zone.max(axis=0)) + 1
+    keep = ~np.isin(np.ravel_multi_index(voxels.T, dims), np.ravel_multi_index(zone.T, dims))
+    return voxels[keep], _unit(summed[keep])
+
+
+def _two_faces(bone: np.ndarray, zone: np.ndarray, normal_grid: np.ndarray, sampling: np.ndarray):
+    """The bone voxels touching ``zone`` (a mask of the line or band, on the
+    same box) on each side of it: side A where the zone's normal at the
+    nearest zone voxel points away from them (their outward normal is that
+    normal), side B the other way. A voxel mostly beside the zone's edge
+    rather than across it is on neither. Returns (voxels A, normals A zyx,
+    voxels B, normals B zyx), box indices."""
+    near = np.argwhere(bone & ndi.binary_dilation(zone, _RING) & ~zone)
+    if not len(near):
+        empty = np.zeros((0, 3), dtype=np.int64)
+        return empty, np.zeros((0, 3)), empty, np.zeros((0, 3))
+    at = ndi.distance_transform_edt(~zone, sampling=sampling, return_distances=False, return_indices=True)
+    s = at[(slice(None),) + tuple(near.T)].T
+    n = normal_grid[tuple(s.T)]
+    vec = (near - s) * sampling
+    along = np.einsum("ij,ij->i", vec, n)
+    across = np.abs(along) >= 0.5 * np.linalg.norm(vec, axis=1)
+    a, b = across & (along < 0), across & (along > 0)
+    return near[a], n[a], near[b], -n[b]
+
+
+def _ct_surface(labels_vol: Volume, mirror, label: int, va, na, vb, nb, zone, source: str, route: str,
+                width: float, area: float, flags=(), **ct) -> FractureSurface:
+    """A surface from the CT route or the marks: voxels on the labels grid,
+    normals xyz, outward (from the bone into the fracture)."""
+    centre = labels_vol.zyx_indices_to_world(np.vstack([va, vb])).mean(axis=0)
+    word_a, word_b = _side_words(mirror, labels_vol, centre, _unit(na.mean(axis=0)))
+    # The label has no gap here, so no outer surface of it lies in the
+    # fracture to keep off the rim.
+    rim_a, rim_b = _rims(labels_vol, label, [va, vb], np.zeros((0, 3), dtype=np.int64))
+    name = BONE_NAMES[label]
+    faces = (Face(f"{name}, {word_a} side", label, labels_vol.zyx_indices_to_world(va), na, va, rim_a),
+             Face(f"{name}, {word_b} side", label, labels_vol.zyx_indices_to_world(vb), nb, vb, rim_b))
+    return FractureSurface("", label, route, faces, float(width), float(area), None, list(flags),
+                           source=source, zone_voxels=np.asarray(zone, dtype=np.int64), **ct)
+
+
+def _extents(points: np.ndarray):
+    centre = points.mean(axis=0)
+    _, singular, vt = np.linalg.svd(points - centre, full_matrices=False)
+    extents = np.pad(singular / np.sqrt(len(points)), (0, 3 - len(singular)))
+    return centre, extents, vt[-1]
+
+
+def _columns(points: np.ndarray, normal: np.ndarray, cell: float) -> Tuple[np.ndarray, int]:
+    """Which column along ``normal`` each point lies in, on cells of
+    ``cell`` mm across it, and how many columns there are."""
+    u = np.cross(normal, [1.0, 0.0, 0.0] if abs(normal[0]) < 0.9 else [0.0, 1.0, 0.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(normal, u)
+    cells = np.floor(np.stack([points @ u, points @ v], axis=1) / cell).astype(np.int64)
+    _, which = np.unique(cells, axis=0, return_inverse=True)
+    which = which.ravel()
+    return which, int(which.max()) + 1 if len(which) else 0
+
+
+def _projected_area(points: np.ndarray, normal: np.ndarray, cell: float) -> float:
+    """The area points cover seen along ``normal``, on cells of ``cell`` mm."""
+    return float(_columns(points, normal, cell)[1]) * cell * cell
+
+
+def _ct_route(labels_vol: Volume, ct: Volume, mirror: Optional[ConfirmedMirror], wanted: Sequence[int],
+              cortex_hu: Dict[str, float], route: _CtRoute, notes: List[str]) -> None:
+    examined = list(wanted) + ([CONTRALATERAL[b] for b in wanted if CONTRALATERAL[b] not in wanted] if mirror else [])
+    cortex = dict(cortex_hu)  # the contralateral bones' too, for the twin veto; only the wanted ones are reported
+    lucent = {}
+    for b in examined:
+        key = BONE_KEYS[b]
+        if key not in cortex and (labels_vol.array == b).any():
+            cortex[key] = _cortex_hu(labels_vol, ct, b)
+        lucent[b] = _lucent(labels_vol, ct, b, cortex[key]) if key in cortex else None
+    trees = {}
+    if mirror is not None:
+        for b, z in lucent.items():
+            if z is not None and len(z.voxels):
+                trees[b] = (cKDTree(_world(labels_vol, z.lo, z.voxels)), z.patch_of_voxel)
+    for b in wanted:
+        if lucent[b] is None:
+            continue
+        key = BONE_KEYS[b]
+        route.lucent_points[key] = _world(labels_vol, lucent[b].lo, lucent[b].voxels)
+        _lucent_surfaces(labels_vol, mirror, lucent[b], cortex[key], trees, route)
+        _dense_surfaces(labels_vol, ct, mirror, b, route, notes)
+
+
+def _lucent_surfaces(labels_vol, mirror, z: _Lucent, cortex: float, trees, route: _CtRoute) -> None:
+    sampling = _sampling(labels_vol)
+    voxel_mm2 = float(np.prod(sampling)) ** (2.0 / 3.0)
+    key = BONE_KEYS[z.label]
+    small = f"{key} {CT_LUCENT}"
+    route.small.setdefault(small, 0)
+    for p in range(1, z.n_patches + 1):
+        mine = z.patch_of_voxel == p
+        voxels = z.voxels[mine]
+        if len(voxels) < 3:
+            route.small[small] += 1
+            continue
+        points = _world(labels_vol, z.lo, voxels)
+        centre, extents, plane = _extents(points)
+        # Face A lies back along the patch's normal, face B ahead of it;
+        # each voxel's own direction is turned to agree.
+        ahead = z.normals[mine] @ plane[::-1] >= 0
+        normals = z.normals[mine] * np.where(ahead, 1.0, -1.0)[:, None]
+        edges = z.edges[mine]
+        (va, na), (vb, nb) = [_merged(np.where(ahead[:, None], edges[:, side], edges[:, 1 - side]), sign * normals,
+                                      voxels) for side, sign in ((0, 1.0), (1, -1.0))]
+        area = 0.5 * (len(va) + len(vb)) * voxel_mm2
+        if area < MIN_PATCH_AREA_MM2 or not len(va) or not len(vb):
+            route.small[small] += 1
+            continue
+        va, vb = va + z.lo, vb + z.lo
+        na, nb = _xyz(na), _xyz(nb)
+        pa, pb = labels_vol.zyx_indices_to_world(va), labels_vol.zyx_indices_to_world(vb)
+        width = float(np.median(z.width_mm[mine]))
+        reasons = []
+        if extents[1] < SHEET_ASPECT * extents[2]:
+            reasons.append(f"a tube, not a sheet (extents {extents[0]:.1f} / {extents[1]:.1f} / {extents[2]:.1f} mm): "
+                           "a vessel channel or foramen")
+        in_rind = z.rind[mine]
+        ratio = float(np.median(z.hu[mine][in_rind])) / cortex if in_rind.any() and cortex > 0 else None
+        if int(in_rind.sum()) < BREAK_MIN_VOXELS or ratio is None or ratio >= CORTEX_FRACTION:
+            reasons.append(f"no break in the cortex ({int(in_rind.sum())} of its voxels in the rind"
+                           + (f", reading {100 * ratio:.0f}% of this patient's cortex HU" if ratio is not None else "")
+                           + "): a lucency inside intact bone, not a fracture")
+        if int((~in_rind).sum()) < BREAK_MIN_VOXELS:
+            reasons.append(f"in the cortex only ({int((~in_rind).sum())} of its voxels in the bone beneath it): a thin "
+                           "or uneven cortex, not a fracture through the bone")
+        twin, kept_for = None, []
+        distance = float(route.mark_tree.query(np.vstack([pa, pb]))[0].min()) if route.mark_tree is not None else None
+        if mirror is not None and CONTRALATERAL[z.label] in trees:
+            twin = _twin_share(points, mirror, trees[CONTRALATERAL[z.label]],
+                               own_patch=p if CONTRALATERAL[z.label] == z.label else None)
+            if twin > SYMMETRY_TWIN_FRACTION:
+                if distance is not None and distance <= FAR_FROM_MARKS_MM:
+                    kept_for.append(f"kept although {100 * twin:.0f}% of it has a mirror twin, because the surgeon "
+                                    f"marked a fracture {distance:.0f} mm away")
+                else:
+                    reasons.append(f"{100 * twin:.0f}% of it has a mirror twin on the "
+                                   f"{BONE_NAMES[CONTRALATERAL[z.label]]}: anatomy")
+        elif mirror is not None:
+            twin = 0.0
+        if reasons:
+            route.rejected.append(Patch(z.label, area, width, tuple(float(x) for x in extents), centre, twin, ratio,
+                                        reasons, CT_LUCENT))
+            continue
+        route.surfaces.append(_ct_surface(
+            labels_vol, mirror, z.label, va, na, vb, nb, voxels + z.lo, CT_LUCENT, LUCENT_LINE, width, area,
+            [f"found from the CT, a lucent line through the bone with a break in its cortex ({int(in_rind.sum())} "
+             f"voxels at {100 * ratio:.0f}% of this patient's cortex HU), not from a gap in the label"] + kept_for))
+
+
+def _dense_surfaces(labels_vol: Volume, ct: Volume, mirror, label: int, route: _CtRoute, notes: List[str]) -> None:
+    """Dense bands of one bone: interior bone (IMPACTION_INTERIOR_MM deep)
+    denser than its reference (_density_excess) by IMPACTION_MARGIN_HU,
+    each band a sheet reaching the bone's outer layers with bone of the
+    usual density on both sides of it. A band's thickness is taken at half
+    its height above the bone's typical excess, so it does not depend on the
+    margin that found it."""
+    found = _density_excess(labels_vol, ct, mirror, label, route.reference, notes)
+    if found is None:
+        return
+    lo, bone, depth, interior, excess = found
+    key = BONE_KEYS[label]
+    sampling = _sampling(labels_vol)
+    voxel_mm3 = float(np.prod(sampling))
+    baseline = float(np.nanmedian(excess))
+    dense = np.nan_to_num(excess, nan=-np.inf) > IMPACTION_MARGIN_HU
+    route.dense_points[key] = _world(labels_vol, lo, np.argwhere(dense))
+    patches, n = ndi.label(dense, structure=_RING)
+    small = f"{key} {CT_IMPACTED}"
+    route.small.setdefault(small, 0)
+    cell = float(sampling.max())
+    reach = IMPACTION_INTERIOR_MM + float(sampling.max())
+    pad = np.ceil(IMPACTION_BAND_PAD_MM / sampling).astype(int) + 1
+    covered = np.zeros(bone.shape, dtype=bool)
+    objects = ndi.find_objects(patches)
+    # The largest first: a band whose dense core is broken into pieces by
+    # noise is one band, found from its largest piece, and the other pieces
+    # inside it are not found again.
+    order = np.argsort(-np.bincount(patches.ravel(), minlength=n + 1)[1:], kind="stable") + 1
+    for p in order:
+        where = objects[p - 1]
+        if where is None:
+            continue
+        own = np.argwhere(patches[where] == p) + np.array([s.start for s in where])
+        if covered[tuple(own.T)].any():
+            continue
+        if len(own) * voxel_mm3 < MIN_PATCH_AREA_MM2 * float(sampling.min()):
+            route.small[small] += 1
+            continue
+        peak = float(np.percentile(excess[tuple(own.T)], 90))
+        half = 0.5 * (peak + baseline)
+        plo, _, pbox = _box(bone.shape, own, pad)
+        over_idx = np.argwhere(np.nan_to_num(excess[pbox], nan=-np.inf) >= half)
+        over_points = labels_vol.zyx_indices_to_world(over_idx + plo + lo)
+        # Grown down to half height only within the band's own slab, about
+        # its fitted plane: grown freely, it ran on through touching bone
+        # over half height, off the band's plane, to 7.5 mm from the right
+        # 6 mm phantom's band against the mirror and 12 mm (6 mm) and 30 mm
+        # (4 mm) against nearby bone. Started from the dense core's plane,
+        # refitted to the band.
+        # The first slab is as thick as the band grown freely, seen along the
+        # core's normal: too thick if anything, and the refits narrow it.
+        centre, _, normal = _extents(labels_vol.zyx_indices_to_world(own + lo))
+        slab = np.ones(len(over_idx), dtype=bool)
+        band, kept = None, None
+        for refit in range(IMPACTION_SLAB_REFITS + 1):
+            if refit:
+                slab = _in_slab(over_points, centre, normal, thickness, sampling)
+            grown = np.zeros(bone[pbox].shape, dtype=bool)
+            grown[tuple(over_idx[slab].T)] = True
+            pieces, _ = ndi.label(grown, structure=_RING)
+            keep = np.unique(pieces[tuple((own - plo).T)])
+            band = np.isin(pieces, keep[keep > 0])
+            now = band[tuple(over_idx.T)]
+            if not now.any() or (kept is not None and np.array_equal(now, kept)):
+                break
+            kept = now
+            if refit:
+                centre, _, normal = _extents(over_points[now])
+            thickness = int(now.sum()) * voxel_mm3 / _projected_area(over_points[now], normal, cell)
+        if not band.any():
+            route.small[small] += 1
+            continue
+        covered[pbox] |= band
+        band_idx = np.argwhere(band)
+        points = labels_vol.zyx_indices_to_world(band_idx + plo + lo)
+        centre, extents, normal = _extents(points)
+        area = _projected_area(points, normal, cell)
+        thickness = len(band_idx) * voxel_mm3 / area
+        median_excess = float(np.median(excess[pbox][band]))
+        local_bone = bone[pbox]
+        reaches = float(depth[pbox][band].min()) <= reach
+        # Bone either side of it, back to this bone's usual density: the two
+        # fragments driven together. Subchondral bone lies against its joint
+        # surface, with bone on one side only.
+        # Looked for from just past the band's blurred edge out to
+        # IMPACTION_FLANK_MM past it, so dense bone a few millimetres
+        # further on (the subchondral bone of a narrow fragment) does not
+        # hide the bone between.
+        # Measured from the band's own middle in each column across it, so
+        # a voxel at one edge of the band does not look for its far side
+        # inside the band.
+        column, n_columns = _columns(points, normal, cell)
+        along = (points - centre) @ normal
+        middle = (np.bincount(column, weights=along, minlength=n_columns)
+                  / np.maximum(np.bincount(column, minlength=n_columns), 1))[column]
+        mid_points = points + (middle - along)[:, None] * normal
+        steps = 0.5 * thickness + np.arange(CT_SMOOTH_MM, IMPACTION_FLANK_MM + 1e-9, 0.5 * float(sampling.min()))
+        lowest = []
+        for sign in (1.0, -1.0):
+            reads = np.full((len(points), len(steps)), np.inf, dtype=np.float32)
+            for k, step in enumerate(steps):
+                at = np.rint(labels_vol.world_to_zyx_indices(mid_points + sign * step * normal).T).astype(np.int64) - lo
+                reads[:, k] = np.nan_to_num(_gather(excess, at, np.nan), nan=np.inf)
+            lowest.append(reads.min(axis=1))  # inf where no compared bone lies there
+        flanked = float(np.mean(np.logical_and(*[side < half for side in lowest])))
+        reasons = []
+        if area < MIN_PATCH_AREA_MM2:
+            route.small[small] += 1
+            continue
+        if extents[1] < SHEET_ASPECT * extents[2]:
+            reasons.append(f"a lump, not a band (extents {extents[0]:.1f} / {extents[1]:.1f} / {extents[2]:.1f} mm): "
+                           "a bone island, not a fracture")
+        if not reaches:
+            reasons.append("wholly inside the bone, reaching none of its outer layers: not a fracture through it")
+        if flanked < IMPACTION_FLANKED_SHARE:
+            reasons.append(f"bone of the usual density on both sides of only {100 * flanked:.0f}% of it: dense against "
+                           "one side, as the subchondral bone under a joint surface is, not bone driven into itself")
+        if reasons:
+            route.rejected.append(Patch(label, area, -thickness, tuple(float(x) for x in extents), centre, None, None,
+                                        reasons, CT_IMPACTED))
+            continue
+        # Carried on through the rind, where it was not looked for, along
+        # its own plane: so its faces run out to the cortex, where the rims
+        # are.
+        # A rind voxel continues the band where it lies level with its
+        # nearest band voxel along the band's normal: the band carried on
+        # outward, not thickened; and within the band's slab about its
+        # fitted plane, since level with a voxel at the band's ragged edge
+        # can still be off the band.
+        local_idx = np.argwhere(local_bone & ~interior[pbox])
+        if len(local_idx):
+            to_band, nearest = ndi.distance_transform_edt(~band, sampling=sampling, return_indices=True)
+            nearest = nearest[(slice(None),) + tuple(local_idx.T)].T
+            level = np.abs(((local_idx - nearest) * sampling) @ normal[::-1]) <= 0.5 * float(sampling.max())
+            level &= _in_slab(labels_vol.zyx_indices_to_world(local_idx + plo + lo), centre, normal, thickness,
+                              sampling)
+            extra = local_idx[(to_band[tuple(local_idx.T)] <= reach) & level]
+            band[tuple(extra.T)] = True
+        grid = np.zeros(band.shape + (3,))
+        grid[band] = normal[::-1]
+        va, na, vb, nb = _two_faces(local_bone, band, grid, sampling)
+        if not len(va) or not len(vb):
+            continue
+        flags = [f"found from the CT, a dense band {median_excess:.0f} HU denser than the {route.reference}, "
+                 f"{thickness:.1f} mm thick: bone driven into itself (impacted), not a gap in the label"]
+        if route.reference == NEARBY_REFERENCE:
+            flags.append("compared with this patient's own bone nearby, not the mirrored side: normal dense bone, "
+                         "such as the subchondral bone of a joint, can read as this")
+        route.surfaces.append(_ct_surface(
+            labels_vol, mirror, label, va + plo + lo, _xyz(na), vb + plo + lo, _xyz(nb), np.argwhere(band) + plo + lo,
+            CT_IMPACTED, DENSE_BAND, 0.0, area, flags, impaction_depth_mm=float(thickness),
+            density_reference=route.reference, excess_hu=median_excess))
+
+
+def _in_slab(points: np.ndarray, centre: np.ndarray, normal: np.ndarray, thickness: float,
+             sampling: np.ndarray) -> np.ndarray:
+    """Which points (world mm) lie within a band's slab: no further from its
+    plane (centre, unit normal) than half its thickness and one voxel."""
+    return np.abs((points - centre) @ normal) <= 0.5 * thickness + float(sampling.max())
+
+
+def _density_excess(labels_vol: Volume, ct: Volume, mirror, label: int, reference: str, notes: List[str]):
+    """How much denser each interior voxel of one bone (IMPACTION_INTERIOR_MM
+    deep) is than its reference (7d.5), the CT smoothed over the interior
+    only: the densest interior bone of the contralateral bone within
+    IMPACTION_MIRROR_REACH_MM of the reflected point (MIRROR_REFERENCE), or
+    this bone's own cancellous bone within IMPACTION_NEARBY_MM
+    (NEARBY_REFERENCE). Returns (box corner, bone, depth mm, interior,
+    excess HU: nan where not compared) on the bone's box, or None, said in
+    the notes, where nothing can be compared."""
+    labels = labels_vol.array
+    sampling = _sampling(labels_vol)
+    lo, _, box = _box(labels.shape, np.argwhere(labels == label), np.array([1, 1, 1]))
+    bone = labels[box] == label
+    depth = ndi.distance_transform_edt(bone, sampling=sampling)
+    interior = bone & (depth >= IMPACTION_INTERIOR_MM)
+    g = _smoothed(ct, box, sampling, interior)
+    vi = np.argwhere(interior)
+    if not len(vi):
+        return None
+    if reference == MIRROR_REFERENCE:
+        other = CONTRALATERAL[label]
+        if other == label:
+            lo_c, g_c, interior_c = lo, g, interior
+        else:
+            where = np.argwhere(labels == other)
+            if not len(where):
+                notes.append(f"no {BONE_NAMES[other]} to compare the {BONE_NAMES[label]}'s density with: no dense band "
+                             f"looked for in the {BONE_NAMES[label]}")
+                return None
+            lo_c, _, box_c = _box(labels.shape, where, np.array([1, 1, 1]))
+            bone_c = labels[box_c] == other
+            interior_c = bone_c & (ndi.distance_transform_edt(bone_c, sampling=sampling) >= IMPACTION_INTERIOR_MM)
+            g_c = _smoothed(ct, box_c, sampling, interior_c)
+        size = tuple(2 * np.ceil(IMPACTION_MIRROR_REACH_MM / sampling).astype(int) + 1)
+        densest = ndi.maximum_filter(np.where(interior_c, g_c, -np.inf).astype(np.float32), size=size)
+        reflected = mirror.plane.reflect(labels_vol.zyx_indices_to_world(vi + lo))
+        at = np.rint(labels_vol.world_to_zyx_indices(reflected).T).astype(np.int64) - lo_c
+        ref = _gather(densest, at, -np.inf)
+    else:
+        # Its cancellous bone: the mean of the interior nearby, then again
+        # leaving out what is denser than that by the margin (a dense band
+        # itself, the subchondral bone of a joint), which pulled the mean of
+        # the impacted phantom's sacrum up past its band.
+        size = tuple(2 * np.ceil(IMPACTION_NEARBY_MM / sampling).astype(int) + 1)
+        within = interior
+        for _ in range(2):
+            total = ndi.uniform_filter(np.where(within, g, 0.0).astype(np.float32), size=size)
+            count = ndi.uniform_filter(within.astype(np.float32), size=size)
+            mean = np.where(count > 0, total / np.maximum(count, 1e-6), np.inf)
+            within = interior & (g < mean + IMPACTION_MARGIN_HU)
+        ref = mean[tuple(vi.T)]
+    compared = np.isfinite(ref)
+    if compared.mean() < 0.5:
+        notes.append(f"only {100 * compared.mean():.0f}% of the {BONE_NAMES[label]}'s interior has interior bone at "
+                     f"the mirrored place to compare its density with")
+    if not compared.any():
+        return None
+    excess = np.full(bone.shape, np.nan, dtype=np.float32)
+    excess[tuple(vi[compared].T)] = g[tuple(vi[compared].T)] - ref[compared]
+    return lo, bone, depth, interior, excess
+
+
+def _not_already_found(labels_vol: Volume, found: List[FractureSurface], surfaces: List[FractureSurface],
+                       notes: List[str]) -> List[FractureSurface]:
+    """The CT route's surfaces less those the gap route already has: most of
+    a lucent line lying within two voxels of a gap surface on its bone."""
+    reach = 2.0 * float(_sampling(labels_vol).max())
+    out = []
+    for s in found:
+        gap = [np.vstack([f.points for f in g.faces] + ([labels_vol.zyx_indices_to_world(g.gap_voxels)]
+                                                         if len(g.gap_voxels) else []))
+               for g in surfaces if g.label == s.label and g.source == GAP]
+        if gap and s.source == CT_LUCENT:
+            share = float(np.mean(cKDTree(np.vstack(gap)).query(labels_vol.zyx_indices_to_world(s.zone_voxels))[0]
+                                  <= reach))
+            if share > 0.5:
+                notes.append(f"a lucent line in the {BONE_NAMES[s.label]} ({s.area_mm2:.0f} mm2) is the gap route's own "
+                             f"surface ({100 * share:.0f}% of it beside one), so it is not listed twice")
+                continue
+        out.append(s)
+    return out
+
+
+def _marks_surfaces(labels_vol: Volume, mirror, unmatched: List[UnmatchedMarks], wanted: Sequence[int],
+                    notes: List[str]) -> List[FractureSurface]:
+    """Where the CT and the gap route found nothing near the surgeon's marks
+    (7d.1), the plane through all of that fracture's marks, clipped to the
+    bone those marks lie on and to within NEAR_MARKS_MM of them: a cut one
+    voxel thick, and the bone touching it on each side as its two faces."""
+    labels = labels_vol.array
+    sampling = _sampling(labels_vol)
+    voxel_mm2 = float(np.prod(sampling)) ** (2.0 / 3.0)
+    half = 0.5 * float(sampling.max())
+    out = []
+    for um in unmatched:
+        plane = um.plane
+        for b in sorted({int(x) for x in um.bone[um.unmatched]}):
+            if b not in wanted:
+                continue
+            marks = plane.marks[um.unmatched & (um.bone == b)]
+            centre_idx = np.rint(labels_vol.world_to_zyx_indices(marks).T).astype(np.int64)
+            lo, _, box = _box(labels.shape, centre_idx, np.ceil(NEAR_MARKS_MM / sampling).astype(int) + 2)
+            vi = np.argwhere(labels[box] == b)
+            if not len(vi):
+                continue
+            world = labels_vol.zyx_indices_to_world(vi + lo)
+            near = cKDTree(marks).query(world)[0] <= NEAR_MARKS_MM
+            off = (world - plane.point) @ plane.normal
+            cut = near & (np.abs(off) <= half)
+            if not cut.any():
+                notes.append(f"the plane marked at ({', '.join(f'{c:.0f}' for c in plane.point)}) mm does not cross the "
+                             f"{BONE_NAMES[b]} within {NEAR_MARKS_MM:.0f} mm of its marks: no surface made from it")
+                continue
+            cut_mask = np.zeros(labels[box].shape, dtype=bool)
+            cut_mask[tuple(vi[cut].T)] = True
+            beside = ndi.binary_dilation(cut_mask, _RING)[tuple(vi.T)] & ~cut & near
+            va, vb = vi[beside & (off < 0)] + lo, vi[beside & (off > 0)] + lo
+            if not len(va) or not len(vb):
+                continue
+            n = np.asarray(plane.normal, dtype=float)
+            out.append(_ct_surface(labels_vol, mirror, b, va, np.tile(n, (len(va), 1)), vb, np.tile(-n, (len(vb), 1)),
+                                   vi[cut] + lo, SURGEON_MARKS, MARKED_PLANE, float("nan"),
+                                   0.5 * (len(va) + len(vb)) * voxel_mm2, [MARKS_SURFACE_FLAG]))
+            notes.append(f"the fracture marked at ({', '.join(f'{c:.0f}' for c in plane.point)}) mm is a surface "
+                         f"from the surgeon's marks on the {BONE_NAMES[b]} ({SURGEON_MARKS}): nothing was found near "
+                         f"{len(marks)} of its marks")
+    return out
+
+
+# --------------------------------------------------------------------------
 # The sacral split (7c.5).
 
 SPLIT_UNCONFIRMED = ("UNCONFIRMED: the sacral split is proposed automatically and the surgeon has not confirmed it "
@@ -974,7 +1708,10 @@ class SacralSplit:
     plane_point: Optional[np.ndarray]  # world mm
     plane_normal: Optional[np.ndarray]  # unit, pointing lateral
     plane_rms_mm: float  # how far the found faces lie off the cut plane
-    slot_share: float  # approximate share of the cut where a slot was found; the rest is carried across by the plane
+    # Approximate share of the cut where a fracture surface was found (by any
+    # route but the surgeon's marks, which are not found); the rest is
+    # carried across by the plane.
+    slot_share: float
     refused: str = ""
     confirmed_by: Optional[str] = None
     notes: List[str] = field(default_factory=list)
@@ -987,7 +1724,7 @@ class SacralSplit:
         if self.refused:
             return f"{self.side} sacrum: no split ({self.refused})"
         text = (f"{self.side} sacrum: lateral fragment {self.volume_cm3:.1f} cm3 split off along "
-                f"{', '.join(self.surface_ids)} (cut plane rms {self.plane_rms_mm:.1f} mm; a slot over about "
+                f"{', '.join(self.surface_ids)} (cut plane rms {self.plane_rms_mm:.1f} mm; a surface found over about "
                 f"{100 * self.slot_share:.0f}% of the cut, the rest carried across by the plane)")
         return text + (f"; confirmed by {self.confirmed_by}" if self.confirmed else f"; {SPLIT_UNCONFIRMED}")
 
@@ -1114,9 +1851,13 @@ def _split_one(labels_vol: Volume, side: str, outward: np.ndarray, mine: List[Fr
     # The cut through bone (the band's voxels over its thickness) against
     # the slot's own area: how much of the split the plane extrapolates.
     cut_mm2 = float((band & sacrum).sum()) * float(np.prod(sampling)) / (2.0 * band_mm)
-    slot_mm2 = sum(s.area_mm2 for s in mine)
+    slot_mm2 = sum(s.area_mm2 for s in mine if s.source != SURGEON_MARKS)
     share = slot_mm2 / (slot_mm2 + cut_mm2) if slot_mm2 + cut_mm2 > 0 else 0.0
     notes = [SPLIT_UNCONFIRMED]
+    marked = [s.id for s in mine if s.source == SURGEON_MARKS]
+    if marked:
+        notes.append(f"cut along the plane through the surgeon's marks ({', '.join(marked)}), where no fracture was "
+                     "found in the CT or the label (DECISIONS 7d.1): the split is where he says the fracture is")
     if share < 0.5:
         notes.append(f"more than half of this cut ({100 * (1 - share):.0f}%) is the plane carried on from "
                      f"{slot_mm2:.0f} mm2 of fracture surface, not a surface found: check it with particular care")

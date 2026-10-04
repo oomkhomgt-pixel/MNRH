@@ -439,3 +439,279 @@ def bilateral_sacral_fractured_pelvis(cut_x_mm: float = 14.0, hinge_deg=(3.0, 2.
         labels[fragment_now] = seg.SACRUM
     return BilateralSacralFracturedPelvis(labels, (s, s, s), tuple(float(v) for v in origin), intact,
                                           {k: v[2] for k, v in now.items()}, before, moved, float(cut_x_mm))
+
+
+# --------------------------------------------------------------------------
+# A synthetic CT to go with the fractured-pelvis labels (displacement-finder
+# DECISIONS 7d.1, 7d.5): added for finding fractures from the CT; everything
+# above is unchanged.
+#
+# HU: soft tissue round the bones; a cortical rind; cancellous bone with a
+# smooth patchiness of its own (so the two sides are never the same HU voxel
+# for voxel) and white noise; and dense subchondral bone under every joint
+# surface (SI joints, hip joints, symphysis, L5/S1), densest at the joint and
+# thicker on the right than on the left, because the normal dense bone the
+# CT route must not read as impaction is never exactly symmetric in a
+# patient. The values are chosen to look like a CT, not measured: the CLINIC
+# CTs' cortex peaks at 1608-1779 HU, and 44-65% of their cancellous bone
+# reads under 150 HU.
+
+from typing import Optional  # noqa: E402
+
+from scipy import ndimage as _ndi  # noqa: E402
+
+CT_SOFT_TISSUE_HU = 40.0
+CT_CORTEX_HU = 900.0
+CT_CANCELLOUS_HU = 200.0
+CT_SUBCHONDRAL_HU = 700.0  # at the joint surface, falling linearly to cancellous at its depth
+CT_SUBCHONDRAL_MM = (4.0, 3.0)  # its depth under the joint surface, (right, left)
+CT_CORTEX_MM = 1.5  # the rind, as fracture_surface.CORTEX_RIND_MM
+CT_PATCHINESS_HU = 30.0  # the cancellous bone's smooth variation, standard deviation
+CT_PATCH_MM = 8.0  # its scale
+CT_NOISE_HU = 20.0
+_JOINT_REACH_MM = 12.0  # a bone surface this close to another bone is a joint surface (L5/S1 is 10.5 mm)
+
+
+def _bone_hu(labels, spacing, origin, seed, cortex: bool = True):
+    """Noise-free HU of a pelvis's labels: rind, patchy cancellous bone and
+    subchondral bone under each joint surface; soft tissue elsewhere. With
+    ``cortex`` False the rind is left as the bone beneath it, for a piece
+    that is moved and given the cortex of where it lies afterwards."""
+    sx, sy, sz = spacing
+    sampling = np.array([sz, sy, sx], dtype=float)
+    rng = np.random.default_rng(seed)
+    patchy = _ndi.gaussian_filter(rng.standard_normal(labels.shape), CT_PATCH_MM / sampling)
+    patchy *= CT_PATCHINESS_HU / max(float(patchy.std()), 1e-9)
+    hu = np.full(labels.shape, CT_SOFT_TISSUE_HU, dtype=np.float32)
+    bone_any = labels > 0
+    hu[bone_any] = CT_CANCELLOUS_HU + patchy[bone_any]
+    x = origin[0] + np.arange(labels.shape[2]) * sx
+    reach = np.broadcast_to(np.where(x > 0.0, CT_SUBCHONDRAL_MM[0], CT_SUBCHONDRAL_MM[1])[None, None, :], labels.shape)
+    for lab in np.unique(labels[bone_any]):
+        own = labels == lab
+        others = bone_any & ~own
+        depth = _ndi.distance_transform_edt(own, sampling=sampling)
+        if others.any():
+            to_other = _ndi.distance_transform_edt(~others, sampling=sampling)
+            joint = own & (depth <= sampling.max()) & (to_other <= _JOINT_REACH_MM)
+            if joint.any():
+                under = _ndi.distance_transform_edt(~joint, sampling=sampling)
+                weight = np.clip(1.0 - under / reach, 0.0, 1.0) * own
+                hu += (weight * (CT_SUBCHONDRAL_HU - CT_CANCELLOUS_HU)).astype(np.float32)
+        if cortex:
+            hu[own & (depth <= CT_CORTEX_MM)] = CT_CORTEX_HU
+    return hu
+
+
+def _rind(labels, spacing):
+    """Every bone's rind (CT_CORTEX_MM), each label on its own."""
+    sx, sy, sz = spacing
+    out = np.zeros(labels.shape, dtype=bool)
+    for lab in np.unique(labels[labels > 0]):
+        own = labels == lab
+        out |= own & (_ndi.distance_transform_edt(own, sampling=(sz, sy, sx)) <= CT_CORTEX_MM)
+    return out
+
+
+def _carried(intact_hu, intact_labels, spacing, origin, now, moved_by):
+    """HU at each voxel of ``now`` (a moved piece, where it is now), taken
+    from where the move carried it from in the intact CT (nearest voxel):
+    the bone without its rind (_bone_hu with cortex False), whose cortex is
+    then given by where the piece lies. The piece is moved analytically and
+    the HU looked up on the grid, so the voxel it came from can be a voxel
+    off: carrying the rind as well put cancellous bone in the moved piece's
+    cortex and cortex under it, and a voxel just outside the intact bone
+    takes the HU of the nearest intact bone voxel, not soft tissue."""
+    sx, sy, sz = spacing
+    nearest = _ndi.distance_transform_edt(intact_labels == 0, sampling=(sz, sy, sx), return_distances=False,
+                                          return_indices=True)
+    intact_hu = intact_hu[tuple(nearest)]
+    step = np.asarray(spacing, dtype=float)
+    zyx = np.argwhere(now)
+    world = np.asarray(origin) + zyx[:, ::-1] * step
+    inverse = np.linalg.inv(moved_by)
+    home = world @ inverse[:3, :3].T + inverse[:3, 3]
+    idx = np.rint((home - np.asarray(origin)) / step)[:, ::-1].astype(int)
+    idx = np.clip(idx, 0, np.array(now.shape) - 1)
+    return intact_hu[tuple(idx.T)]
+
+
+def _painted(labels, piece_a, piece_b, gap_mm, spacing):
+    """The empty voxels of the gap between two pieces, as a label painted
+    across it fills them: within the gap's reach of both pieces, and inside
+    the two pieces closed over the gap (a ball a voxel wider than the gap),
+    so the paint follows the bone's outline over the gap's mouth instead of
+    bulging out of it."""
+    sx, sy, sz = spacing
+    sampling = np.array([sz, sy, sx], dtype=float)
+    reach = gap_mm + float(sampling.max())
+    radius = np.ceil(reach / sampling).astype(int)
+    grid = np.ogrid[tuple(slice(-r, r + 1) for r in radius)]
+    ball = sum((g * step) ** 2 for g, step in zip(grid, sampling)) <= reach ** 2
+    both = piece_a | piece_b
+    closed = _ndi.binary_closing(np.pad(both, radius[:, None]), structure=ball)
+    closed = closed[tuple(slice(r, r + n) for r, n in zip(radius, both.shape))]
+    return (closed & (labels == 0) & (_ndi.distance_transform_edt(~piece_a, sampling=sampling) <= reach)
+            & (_ndi.distance_transform_edt(~piece_b, sampling=sampling) <= reach))
+
+
+def _noisy(hu, seed):
+    return (hu + np.random.default_rng(seed + 1).normal(0.0, CT_NOISE_HU, hu.shape)).astype(np.float32)
+
+
+def pelvis_ct(labels, spacing, origin, seed: int = 0) -> np.ndarray:
+    """A synthetic CT of an intact pelvis with these labels (no piece
+    moved): ZYX float32 HU on the labels' grid."""
+    return _noisy(_bone_hu(labels, spacing, origin, seed), seed)
+
+
+@_dataclass
+class PelvisWithCT:
+    labels: np.ndarray  # ZYX, segmentation ids
+    ct: np.ndarray  # ZYX float32 HU on the same grid
+    spacing: tuple
+    origin: tuple
+
+
+def intact_pelvis_with_ct(yaw_deg: float = 6.0, spacing_mm: float = 1.5, seed: int = 0) -> PelvisWithCT:
+    """fractured_pelvis's intact pelvis, turned ``yaw_deg``, with its CT:
+    dense subchondral bone under every joint on both sides, thicker on the
+    right. There is no fracture anywhere in it."""
+    p = fractured_pelvis(yaw_deg=yaw_deg, spacing_mm=spacing_mm)
+    return PelvisWithCT(p.labels, pelvis_ct(p.labels, p.spacing, p.origin, seed), p.spacing, p.origin)
+
+
+@_dataclass
+class LucentFracturedPelvis:
+    labels: np.ndarray  # ZYX: the hip label painted solid across the fracture, as CLINIC_0060's expert label is
+    ct: np.ndarray  # ZYX float32 HU: the fracture shows as a lucent line through the bone and its cortex
+    spacing: tuple
+    origin: tuple
+    fractured: FracturedPelvis  # the same fracture before the label was painted (its gap still empty)
+    painted: np.ndarray  # the voxels painted across the gap
+    gap_mm: float  # how far the fragment moved along the cut's normal
+    cut_point: np.ndarray  # world mm, a point of the cut before the move
+    cut_normal: np.ndarray  # world, unit, pointing into the fragment
+
+
+def lucent_fractured_pelvis(gap_mm: float = 3.0, yaw_deg: float = 6.0, side: str = "right",
+                            spacing_mm: float = 1.5, seed: int = 0) -> LucentFracturedPelvis:
+    """fractured_pelvis's iliac wing fracture opened ``gap_mm`` straight
+    along the cut's normal, so a slot of soft tissue runs through the bone
+    and its cortex; then the label painted solid across the slot. The CT is
+    the intact pelvis's, carried with the fragment, so the fracture faces
+    are cancellous bone, as in life, and the slot reads as soft tissue."""
+    sign = 1.0 if side == "right" else -1.0
+    cut_point, cut_normal = np.array([75.0, 0.0, 45.0]), np.array([0.2, 0.3, 1.0])
+    cut_normal = cut_normal / np.linalg.norm(cut_normal)
+    yaw = _rotation((0.0, 0.0, 1.0), yaw_deg)
+    point_world = yaw @ (cut_point * np.array([sign, 1.0, 1.0]))
+    normal_world = yaw @ (cut_normal * np.array([sign, 1.0, 1.0]))
+    p = fractured_pelvis(translate_mm=tuple(gap_mm * normal_world), side=side, yaw_deg=yaw_deg, spacing_mm=spacing_mm)
+    intact_hu = _bone_hu(p.intact_labels, p.spacing, p.origin, seed)
+    hu = np.where(p.labels > 0, intact_hu, CT_SOFT_TISSUE_HU).astype(np.float32)
+    inner = _bone_hu(p.intact_labels, p.spacing, p.origin, seed, cortex=False)
+    hu[p.fragment] = _carried(inner, p.intact_labels, p.spacing, p.origin, p.fragment, p.moved_by)
+    hip_id = seg.HIP_R if side == "right" else seg.HIP_L
+    sx, sy, sz = p.spacing
+    sampling = (sz, sy, sx)
+    main = (p.labels == hip_id) & ~p.fragment
+    painted = _painted(p.labels, p.fragment, main, gap_mm, p.spacing)
+    labels = p.labels.copy()
+    labels[painted] = hip_id
+    # The fragment's outer surface is cortex; its broken face, inside the
+    # painted label, stays cancellous.
+    hu[p.fragment & _rind(labels, p.spacing)] = CT_CORTEX_HU
+    return LucentFracturedPelvis(labels, _noisy(hu, seed), p.spacing, p.origin, p, painted, float(gap_mm),
+                                 point_world, normal_world)
+
+
+@_dataclass
+class ImpactedSacralPelvis:
+    labels: np.ndarray  # ZYX: one solid sacrum, the lateral fragment driven into the central one
+    ct: np.ndarray  # ZYX float32 HU: a dense band where the two fragments overlap
+    spacing: tuple
+    origin: tuple
+    sacral: SacralFracturedPelvis  # the labels' own phantom: the unit and its move
+    band: np.ndarray  # where the two fragments' bone overlaps (both are in it)
+    depth_mm: float  # how far the lateral fragment was driven in, along the fracture's normal
+    side: str
+    band_excess_hu: Optional[float]  # what the band adds to the central sacrum's HU; None: the fragment's own bone
+
+
+def impacted_sacral_pelvis(side: str = "right", depth_mm: float = 4.0, cut_x_mm: float = 14.0,
+                           band_excess_hu: Optional[float] = None, spacing_mm: float = 1.5,
+                           seed: int = 0) -> ImpactedSacralPelvis:
+    """An impacted (lateral compression) sacral fracture: sacral_fractured_pelvis's
+    vertical fracture through one ala, with the hemipelvis and its lateral
+    sacral fragment driven ``depth_mm`` medially into the central sacrum,
+    no hinge. The two fragments' bone overlaps in a band ``depth_mm`` thick
+    along the fracture's normal, so the label is one solid sacrum with no
+    gap. In the band each voxel holds both fragments' bone, so it reads the
+    central sacrum's HU plus what the fragment's bone added above soft
+    tissue where it came from: the two layers of bone laid one on the
+    other, about 160 HU here. How much denser a real impacted band is than
+    that is not known; ``band_excess_hu`` makes the band add that many HU
+    instead, for a band of a stated density."""
+    sign = 1.0 if side == "right" else -1.0
+    s = sacral_fractured_pelvis(side=side, cut_x_mm=cut_x_mm, hinge_deg=0.0,
+                                translate_mm=(-sign * depth_mm, 0.0, 0.0), spacing_mm=spacing_mm)
+    intact_hu = _bone_hu(s.intact_labels, s.spacing, s.origin, seed)
+    hip_id = seg.HIP_R if side == "right" else seg.HIP_L
+    head_id = seg.FEMUR_R if side == "right" else seg.FEMUR_L
+    central = (s.intact_labels == seg.SACRUM) & ~s.lateral_fragment_before
+    unit_now = (s.labels == hip_id) | (s.labels == head_id) | s.lateral_fragment
+    # What did not move keeps its own HU, where it is still itself; where the
+    # unit left, and nothing else is, soft tissue.
+    still = (s.labels > 0) & ~unit_now & (s.labels == s.intact_labels)
+    hu = np.where(still, intact_hu, CT_SOFT_TISSUE_HU).astype(np.float32)
+    band = s.lateral_fragment & central
+    inner = _bone_hu(s.intact_labels, s.spacing, s.origin, seed, cortex=False)
+    carried = np.zeros(s.labels.shape, dtype=np.float32)
+    carried[unit_now] = _carried(inner, s.intact_labels, s.spacing, s.origin, unit_now, s.moved_by)
+    carried[unit_now & _rind(s.labels, s.spacing)] = CT_CORTEX_HU
+    under = np.where(band, intact_hu, CT_SOFT_TISSUE_HU)  # the central sacrum's bone in the band
+    hu[unit_now] = (carried + under - CT_SOFT_TISSUE_HU)[unit_now]
+    if band_excess_hu is not None:
+        hu[band] = intact_hu[band] + float(band_excess_hu)
+    return ImpactedSacralPelvis(s.labels, _noisy(hu, seed), s.spacing, s.origin, s, band, float(depth_mm), side,
+                                band_excess_hu)
+
+
+@_dataclass
+class LucentSacralPelvis:
+    labels: np.ndarray  # ZYX: the sacrum painted solid across the fracture, as CLINIC_0060's expert label is
+    ct: np.ndarray  # ZYX float32 HU: the fracture shows as a lucent line through the ala and its cortex
+    spacing: tuple
+    origin: tuple
+    sacral: SacralFracturedPelvis  # the same fracture before the label was painted (its gap still empty)
+    painted: np.ndarray  # the voxels painted across the gap
+    gap_mm: float  # how far the unit moved laterally, opening the fracture
+    side: str
+
+
+def lucent_sacral_pelvis(side: str = "right", gap_mm: float = 3.0, cut_x_mm: float = 14.0, spacing_mm: float = 1.5,
+                         seed: int = 0) -> LucentSacralPelvis:
+    """sacral_fractured_pelvis's vertical fracture through one ala, the
+    hemipelvis and its lateral fragment moved ``gap_mm`` laterally with no
+    hinge, so a slot of soft tissue runs through the ala and its cortex;
+    then the sacrum painted solid across the slot. The CT is carried with
+    the unit as in lucent_fractured_pelvis: cancellous faces, a slot of soft
+    tissue, cortex on the outer surface."""
+    sign = 1.0 if side == "right" else -1.0
+    s = sacral_fractured_pelvis(side=side, cut_x_mm=cut_x_mm, hinge_deg=0.0, translate_mm=(sign * gap_mm, 0.0, 0.0),
+                                spacing_mm=spacing_mm)
+    intact_hu = _bone_hu(s.intact_labels, s.spacing, s.origin, seed)
+    hip_id = seg.HIP_R if side == "right" else seg.HIP_L
+    head_id = seg.FEMUR_R if side == "right" else seg.FEMUR_L
+    unit_now = (s.labels == hip_id) | (s.labels == head_id) | s.lateral_fragment
+    still = (s.labels > 0) & ~unit_now & (s.labels == s.intact_labels)
+    hu = np.where(still, intact_hu, CT_SOFT_TISSUE_HU).astype(np.float32)
+    inner = _bone_hu(s.intact_labels, s.spacing, s.origin, seed, cortex=False)
+    hu[unit_now] = _carried(inner, s.intact_labels, s.spacing, s.origin, unit_now, s.moved_by)
+    central = (s.labels == seg.SACRUM) & ~s.lateral_fragment
+    painted = _painted(s.labels, s.lateral_fragment, central, gap_mm, s.spacing)
+    labels = s.labels.copy()
+    labels[painted] = seg.SACRUM
+    hu[unit_now & _rind(labels, s.spacing)] = CT_CORTEX_HU
+    return LucentSacralPelvis(labels, _noisy(hu, seed), s.spacing, s.origin, s, painted, float(gap_mm), side)
