@@ -293,7 +293,7 @@ def _render_pilot(data: dict) -> str:
         "<tr>"
         f"<td>{_esc(r.get('corridor_id'))} ({_esc(r.get('side'))})</td>"
         f"<td>{_yes_no(r.get('surgeon_found_screw'))}</td><td>{_yes_no(r.get('tool_found_screw'))}</td>"
-        f"<td>{_yes_no(r.get('fit_agrees'))}</td>"
+        f"<td>{'needs reduction first' if r.get('needs_reduction') else _yes_no(r.get('fit_agrees'))}</td>"
         f"<td>{_esc(r.get('surgeon_diameter_mm', ''))} / {_esc(r.get('tool_diameter_mm', ''))}</td>"
         f"<td>{_fmt_mm(r.get('angle_between_deg'), 0)}</td><td>{_fmt_mm(r.get('entry_distance_mm'), 0)}</td>"
         f"<td>{_yes_no(r.get('tool_says_surgeon_breach'))}</td>"

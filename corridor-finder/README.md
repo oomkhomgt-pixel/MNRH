@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] A marked fracture's gap counts as bone (DECISIONS.md 7.14); bone colours
+      on the slices can be switched off and the 3D pelvis made see-through;
+      'needs reduction first' in the pilot. Checked in the Slicer harness:
+      a gap cut across a screw is a breach until marked, then passes.
 - [x] Pilot tools (DECISIONS.md 4.3): blinded planning of your own screws,
       'no screw fits' records, a logged reveal, your verdict on each screw,
       and the comparison with the tool, in the plan and the report. Checked

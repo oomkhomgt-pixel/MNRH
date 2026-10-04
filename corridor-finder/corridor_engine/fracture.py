@@ -50,6 +50,60 @@ def fit_plane(points: Sequence[Sequence[float]]) -> Optional[FracturePlane]:
     return FracturePlane(point=centroid, normal=normal, marks=marks, rms_mm=rms)
 
 
+# A fracture gap counts as bone (the surgeon, 2026-10-04: crossing a
+# fracture is not a breach; any gap near his marks). The gap is the empty
+# space within GAP_MARK_REACH_MM of a mark that has the same bone on both
+# sides of it across the marked fracture (along the plane's normal, within
+# GAP_ACROSS_MM): the space between fragments, not the outside of the bone
+# next to the fracture.
+GAP_MARK_REACH_MM = 25.0
+GAP_ACROSS_MM = 40.0
+
+
+def fracture_gap(labels: np.ndarray, spacing, origin, label: int, marks) -> Optional[np.ndarray]:
+    """The empty voxels of the fracture gap in bone ``label`` near ``marks``
+    (3 or more, spread out), as a boolean mask on the labels' grid; None
+    when the marks give no plane."""
+    plane = fit_plane(marks)
+    if plane is None:
+        return None
+    marks = plane.marks
+    sx, sy, sz = (float(v) for v in spacing)
+    ox, oy, oz = (float(v) for v in origin)
+    sampling = np.array([sz, sy, sx])
+    reach = GAP_MARK_REACH_MM
+    lo_xyz, hi_xyz = marks.min(axis=0) - reach, marks.max(axis=0) + reach
+    lo = np.maximum(np.floor((np.array([lo_xyz[2] - oz, lo_xyz[1] - oy, lo_xyz[0] - ox])) / sampling).astype(int), 0)
+    hi = np.minimum(np.ceil((np.array([hi_xyz[2] - oz, hi_xyz[1] - oy, hi_xyz[0] - ox])) / sampling).astype(int) + 1,
+                    labels.shape)
+    out = np.zeros(labels.shape, dtype=bool)
+    if (hi <= lo).any():
+        return out
+    kk, jj, ii = np.meshgrid(*(np.arange(a, b) for a, b in zip(lo, hi)), indexing="ij")
+    empty = labels[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] == 0
+    idx = np.stack([kk[empty], jj[empty], ii[empty]], axis=1)
+    if not len(idx):
+        return out
+    xyz = np.stack([ox + idx[:, 2] * sx, oy + idx[:, 1] * sy, oz + idx[:, 0] * sz], axis=1)
+    d = np.full(len(xyz), np.inf)
+    for m in marks:
+        d = np.minimum(d, np.linalg.norm(xyz - m, axis=1))
+    near = d <= reach
+    idx, xyz = idx[near], xyz[near]
+    step = float(min(spacing))
+    plus = np.zeros(len(xyz), dtype=bool)
+    minus = np.zeros(len(xyz), dtype=bool)
+    for k in range(1, int(np.ceil(GAP_ACROSS_MM / step)) + 1):
+        for sign, hit in ((1.0, plus), (-1.0, minus)):
+            p = xyz + sign * k * step * plane.normal
+            zyx = np.rint(np.stack([(p[:, 2] - oz) / sz, (p[:, 1] - oy) / sy, (p[:, 0] - ox) / sx], axis=1)).astype(int)
+            ok = np.all((zyx >= 0) & (zyx < np.array(labels.shape)), axis=1)
+            hit[ok] |= labels[zyx[ok, 0], zyx[ok, 1], zyx[ok, 2]] == label
+    gap = idx[plus & minus]
+    out[gap[:, 0], gap[:, 1], gap[:, 2]] = True
+    return out
+
+
 def marks_near(points, a, b, within_mm: float) -> np.ndarray:
     """The marks within ``within_mm`` of the segment a-b: the fracture this
     screw is about, not another one marked elsewhere on the same bone."""

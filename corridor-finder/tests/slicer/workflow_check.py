@@ -726,12 +726,60 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             slicer.mrmlScene.RemoveNode(model)
         w.corridorCombo.setCurrentIndex(w.corridorCombo.findData(cid))
 
+    @step("A fracture across the screw: a breach until it is marked, then not")
+    def fracture_gap():
+        # Cut a 3 mm gap across the screw's middle in every bone segment, as
+        # a fracture shows. Unmarked, the screw crosses empty space: breach.
+        # Marked (3 points in the gap), the gap counts as bone: it passes.
+        v0 = dict(screw.validation)
+        seg_node = w._bonesSegmentationNode
+        segmentation = seg_node.GetSegmentation()
+        start, tip = np.asarray(v0["start_xyz"]), np.asarray(v0["tip_xyz"])
+        mid, axis = (start + tip) / 2.0, (tip - start) / np.linalg.norm(tip - start)
+        m = vtk.vtkMatrix4x4()
+        ct.GetRASToIJKMatrix(m)
+        nk, nj, ni = slicer.util.arrayFromVolume(ct).shape
+        kk, jj, ii = np.mgrid[:nk, :nj, :ni]
+        ijk_to_ras = vtk.vtkMatrix4x4()
+        ct.GetIJKToRASMatrix(ijk_to_ras)
+        A = np.array([[ijk_to_ras.GetElement(r, c) for c in range(4)] for r in range(4)])
+        ras = (A[:3, :3] @ np.stack([ii.ravel(), jj.ravel(), kk.ravel()]).astype(float) + A[:3, 3:4]).T
+        slab = (np.abs((ras - mid) @ axis) <= 1.5).reshape(nk, nj, ni)
+        saved = {}
+        for n in range(segmentation.GetNumberOfSegments()):
+            sid = segmentation.GetNthSegmentID(n)
+            arr = slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, sid, ct)
+            saved[sid] = arr.copy()
+            arr[slab] = 0
+            slicer.util.updateSegmentBinaryLabelmapFromArray(arr, seg_node, sid, ct)
+        w._syncLabelsFromSegmentation()
+        check(screw.validation["breach"] is True, "an unmarked fracture gap across the screw reads as a breach")
+        u = np.cross(axis, [0.0, 0.0, 1.0])
+        u /= np.linalg.norm(u)
+        v = np.cross(axis, u)
+        marks = [mid + 6.0 * u, mid - 6.0 * u, mid + 6.0 * v, mid - 6.0 * v]
+        node = w._fractureNode()
+        node.RemoveAllControlPoints()
+        for p in marks:
+            node.AddControlPoint(vtk.vtkVector3d(*p))
+        w.onFractureMoved(None, None)
+        log(f"    marked: clearance {screw.validation['min_clearance_mm']:.2f} mm (before the cut "
+            f"{v0['min_clearance_mm']:.2f}), breach {screw.validation['breach']}")
+        check(screw.validation["breach"] is False, "marked, the gap counts as bone and the screw passes")
+        w.onClearFractures()
+        check(screw.validation["breach"] is True, "clearing the marks makes it a breach again")
+        for sid, arr in saved.items():
+            slicer.util.updateSegmentBinaryLabelmapFromArray(arr, seg_node, sid, ct)
+        w._syncLabelsFromSegmentation()
+        logic._validate_plan_screw(screw)
+        check(screw.validation["min_clearance_mm"] == v0["min_clearance_mm"], "restored, nothing changed")
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (fracture_gap, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

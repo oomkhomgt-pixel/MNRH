@@ -336,6 +336,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # to hold a fracture has to start on the near side of it, not past
         # it (corridors.json: clear_of_fracture_mm).
         self.fracture_sites: List[np.ndarray] = []
+        self._fracture_version = 0
+        self._gap_cache: Dict[tuple, Optional[np.ndarray]] = {}
         # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
         self.patient_views: Dict[str, "views_mod.View"] = {}
         # What the last suggestion could not offer, in words, for the panel.
@@ -413,6 +415,19 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.plan.log("pilot_no_screw", after={"corridor_id": corridor_id, "side": side,
                                                "blinded": self.pilot_blinded})
 
+    def record_needs_reduction(self, corridor_id: str, side: str) -> None:
+        """The surgeon would use this corridor, but only after reducing the
+        fracture: kept apart from 'no screw fits'."""
+        if self.plan is None:
+            raise RuntimeError("new_plan() must be called first")
+        entry = [corridor_id, side]
+        needs = list(self.plan.pilot.get("needs_reduction", []))
+        if entry not in needs:
+            needs.append(entry)
+        self.plan.pilot = dict(self.plan.pilot, needs_reduction=needs)
+        self.plan.log("pilot_needs_reduction", after={"corridor_id": corridor_id, "side": side,
+                                                      "blinded": self.pilot_blinded})
+
     def set_surgeon_judgment(self, screw_id: str, breach: Optional[bool] = None,
                              would_use: Optional[bool] = None) -> None:
         """The surgeon's verdict on a screw, after the reveal."""
@@ -435,13 +450,15 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         if self.plan is None:
             raise RuntimeError("new_plan() must be called first")
         stocked = sorted(self.stocked_diameters())
+        needs = {tuple(p) for p in self.plan.pilot.get("needs_reduction", [])}
         pairs = sorted({(s.corridor_id, s.side) for s in self.plan.screws if s.source == "surgeon"}
-                       | {tuple(p) for p in self.plan.pilot.get("no_screw", [])})
+                       | {tuple(p) for p in self.plan.pilot.get("no_screw", [])} | needs)
         rows = []
         for cid, side in pairs:
             mine = next((s for s in self.plan.screws if s.source == "surgeon"
                          and (s.corridor_id, s.side) == (cid, side)), None)
-            row = {"corridor_id": cid, "side": side, "surgeon_found_screw": mine is not None}
+            row = {"corridor_id": cid, "side": side, "surgeon_found_screw": mine is not None,
+                   "needs_reduction": (cid, side) in needs}
             if mine is not None:
                 v = mine.validation or {}
                 row.update(surgeon_screw=mine.screw_id, surgeon_diameter_mm=mine.diameter_mm,
@@ -467,7 +484,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
                     if mine.diameter_mm in stocked and tool.screw.diameter_mm in stocked:
                         row["diameter_within_one_size"] = abs(stocked.index(mine.diameter_mm)
                                                               - stocked.index(tool.screw.diameter_mm)) <= 1
-            row["fit_agrees"] = row["surgeon_found_screw"] == row["tool_found_screw"]
+            # A corridor that needs reduction first is not judged on fit
+            # here: the scanned bones are not where the screw will go.
+            row["fit_agrees"] = (None if row["needs_reduction"]
+                                 else row["surgeon_found_screw"] == row["tool_found_screw"])
             rows.append(row)
         self.plan.pilot = dict(self.plan.pilot, comparison=rows)
         self.plan.log("pilot_compare", after={"rows": len(rows)})
@@ -833,8 +853,42 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         raise KeyError(f"landmark {name!r} (side={side!r}) not found; run detect_landmarks() first")
 
     def set_fracture_sites(self, points) -> None:
-        """Record the fracture sites the surgeon has marked (world xyz)."""
+        """Record the fracture sites the surgeon has marked (world xyz). The
+        fracture gap near them counts as bone, so every distance field built
+        from the bones changes with them."""
         self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
+        self._fracture_version += 1
+
+    def _fracture_gaps(self, ids: tuple) -> Optional[np.ndarray]:
+        """The fracture gaps near the surgeon's marks in the bones ``ids``,
+        on the scanned anatomy only (a virtual reduction closes them
+        itself, and the marks are where the scanned bone was). A mark
+        belongs to the bone within 5 mm of it; each bone needs 3 marks."""
+        if not self.fracture_sites or self.anatomy_state != "as scanned":
+            return None
+        key = (ids, self._fracture_version, self._labels_version, id(self.labels_volume))
+        if key in self._gap_cache:
+            return self._gap_cache[key]
+        vol = self.labels_volume
+        reach = np.ceil(5.0 / np.array([vol.spacing[2], vol.spacing[1], vol.spacing[0]])).astype(int)
+        by_label: Dict[int, list] = {}
+        for site in self.fracture_sites:
+            k, j, i = np.round(vol.world_to_zyx_index(site)).astype(int)
+            lo = np.maximum(np.array([k, j, i]) - reach, 0)
+            hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
+            if (hi <= lo).any():
+                continue
+            near = vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
+            for label in ids:
+                if (near == label).any():
+                    by_label.setdefault(label, []).append(site)
+        gaps = None
+        for label, marks in by_label.items():
+            gap = fracture_mod.fracture_gap(vol.array, vol.spacing, vol.origin, label, marks)
+            if gap is not None:
+                gaps = gap if gaps is None else (gaps | gap)
+        self._gap_cache = {key: gaps}
+        return gaps
 
     # A mark belongs to the fracture a screw is about when it is this close
     # to the screw's line: marks on another fracture of the same bone (the
@@ -947,10 +1001,15 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         seg_mod.sacroiliac_gap_fill)."""
         ids = tuple(sorted(label_ids))
         widths = {label: mm for label, mm in (si_widths or {}).items() if mm > 0 and label in ids}
-        key = (ids, tuple(sorted(widths.items())))
+        key = self._field_key(ids, widths)
         if key in self._edt_cache:
             return self._edt_cache[key]
         mask = np.isin(self.labels_volume.array, ids)
+        # Crossing a fracture is not a breach (the surgeon, 2026-10-04): the
+        # gap near his marks counts as bone.
+        gaps = self._fracture_gaps(ids)
+        if gaps is not None:
+            mask |= gaps
         self._mask_cache[key] = mask
         hips = tuple(h for h in (seg_mod.HIP_R, seg_mod.HIP_L) if h in ids)
         if widths and seg_mod.SACRUM in ids and hips:
@@ -959,6 +1018,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         vol = EngineVolume(array=edt, spacing=self.labels_volume.spacing, origin=self.labels_volume.origin)
         self._edt_cache[key] = vol
         return vol
+
+    def _field_key(self, ids: tuple, widths: dict) -> tuple:
+        """What a bone distance field depends on: the bones, the bridged SI
+        joint, and the fracture marks (whose gaps count as bone)."""
+        marks = self._fracture_version if self.fracture_sites and self.anatomy_state == "as scanned" else 0
+        return (ids, tuple(sorted(widths.items())), marks)
 
     def _traverse_labels(self, corridor_id: str, side: str) -> tuple:
         if side == "midline":
@@ -986,7 +1051,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         if joint is None:
             return plain
         margin = float(margin_mm if margin_mm is not None else self.screw_library["margin_default_mm"])
-        base_key = (ids, tuple(sorted({k: v for k, v in (widths or {}).items() if v > 0 and k in ids}.items())))
+        base_key = self._field_key(ids, {k: v for k, v in (widths or {}).items() if v > 0 and k in ids})
         key = ("articular", base_key, margin)
         if key not in self._edt_cache:
             self._edt_cache[key] = structures_mod.articular_field(plain, self._mask_cache[base_key], joint, margin)
@@ -1958,6 +2023,17 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.screwsList = qt.QListWidget()
         planForm.addRow(_("Screws in plan:"), self.screwsList)
 
+        # How the bones show while screws are placed: the colour fill hid
+        # the corridor on the slices, and a 3D pelvis helps aim screws that
+        # do not lie in one CT plane.
+        self.boneSlicesCheck = qt.QCheckBox(_("Bone colours on the slices"))
+        self.boneSlicesCheck.checked = False
+        self.bone3dSlider = ctk.ctkSliderWidget()
+        self.bone3dSlider.minimum, self.bone3dSlider.maximum, self.bone3dSlider.singleStep = 0.0, 1.0, 0.05
+        self.bone3dSlider.value = 0.45
+        planForm.addRow(self.boneSlicesCheck)
+        planForm.addRow(_("3D bone opacity:"), self.bone3dSlider)
+
         self.clearanceLabel = qt.QLabel("")
         self.clearanceLabel.setWordWrap(True)
         planForm.addRow(_("Live clearance:"), self.clearanceLabel)
@@ -1979,6 +2055,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         pilotForm.addRow(self.pilotPlaceButton)
         self.pilotNoScrewButton = qt.QPushButton(_("No screw fits here (this corridor and side)"))
         pilotForm.addRow(self.pilotNoScrewButton)
+        self.pilotNeedsReductionButton = qt.QPushButton(_("Needs reduction first (this corridor and side)"))
+        pilotForm.addRow(self.pilotNeedsReductionButton)
         self.pilotBreachCombo = qt.QComboBox()
         self.pilotBreachCombo.addItems([_("not judged"), _("no breach"), _("BREACH")])
         self.pilotUseCombo = qt.QComboBox()
@@ -2044,6 +2122,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.pilotRevealButton.clicked.connect(self.onPilotReveal)
         self.pilotPlaceButton.clicked.connect(self.onPilotPlace)
         self.pilotNoScrewButton.clicked.connect(self.onPilotNoScrew)
+        self.pilotNeedsReductionButton.clicked.connect(self.onPilotNeedsReduction)
+        self.boneSlicesCheck.toggled.connect(self._applyBoneDisplay)
+        self.bone3dSlider.valueChanged.connect(self._applyBoneDisplay)
         self.pilotCompareButton.clicked.connect(self.onPilotCompare)
         self.pilotBreachCombo.currentIndexChanged.connect(self.onPilotJudgment)
         self.pilotUseCombo.currentIndexChanged.connect(self.onPilotJudgment)
@@ -2193,6 +2274,20 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             segmentation.AddEmptySegment(name, name, self._BONE_COLORS.get(name, (0.8, 0.8, 0.8)))
             slicer.util.updateSegmentBinaryLabelmapFromArray(mask.astype(np.uint8), node, name, volume_node)
         node.CreateClosedSurfaceRepresentation()
+        self._applyBoneDisplay()
+
+    def _applyBoneDisplay(self, *args) -> None:
+        """Slices: a thin outline, or the colour fill when asked. 3D: the
+        pelvis at the chosen opacity, so screws show inside it."""
+        node = self._bonesSegmentationNode
+        if node is None or node.GetScene() is None or node.GetDisplayNode() is None:
+            return
+        display = node.GetDisplayNode()
+        display.SetVisibility2DFill(bool(self.boneSlicesCheck.checked))
+        display.SetVisibility2DOutline(True)
+        display.SetOpacity2DOutline(0.6)
+        display.SetVisibility3D(self.bone3dSlider.value > 0)
+        display.SetOpacity3D(float(self.bone3dSlider.value))
 
     def _syncLabelsFromSegmentation(self) -> bool:
         """Read the "CF bones" segmentation (possibly corrected by the user)
@@ -2331,13 +2426,14 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _("none marked") if not points else _("{0} marked; screws that hold a fracture start clear of it")
             .format(len(points)))
         self._clearSuggestions()
-        # A planned screw that stops in bone depends on where the fracture is.
+        # Every planned screw depends on where the fracture is: its gap
+        # counts as bone, and a screw that stops in bone is measured from it.
         if self.logic.plan is not None:
             for screw in self.logic.plan.screws:
-                if self.logic.corridor_defs.get(screw.corridor_id, {}).get("short_tip") and screw.tip_rule == "inside":
-                    self.logic._validate_plan_screw(screw, derived=False)
-                    if screw.screw_id == getattr(self, "_shownScrewId", None):
-                        self._refreshClearanceLabel(screw.screw_id)
+                self.logic._validate_plan_screw(screw, derived=False)
+                self._updateScrewModel(screw)
+                if screw.screw_id == getattr(self, "_shownScrewId", None):
+                    self._refreshClearanceLabel(screw.screw_id)
 
     def onSiDisruptedChanged(self, index: int) -> None:
         self.logic.set_si_disrupted(None if index == 0 else self.siDisruptedCombo.currentText)
@@ -2828,6 +2924,12 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.screwsList.addItem(self._screwListText(screw))
         self.screwsList.setCurrentRow(self.screwsList.count - 1)
         return screw
+
+    def onPilotNeedsReduction(self) -> None:
+        self._ensurePlan()
+        self.logic.record_needs_reduction(self._currentCorridorId(), self.sideCombo.currentText)
+        self.pilotLabel.setText(_("Recorded: {0} ({1}) needs reduction first.").format(
+            self._currentCorridorId(), self.sideCombo.currentText))
 
     def onPilotNoScrew(self) -> None:
         self._ensurePlan()

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from corridor_engine.fracture import fit_plane, marks_near, off_square_deg, past_fracture_mm
+from corridor_engine.fracture import fit_plane, fracture_gap, marks_near, off_square_deg, past_fracture_mm
 
 # A crescent-like fracture: the plane x = 10, marked at four points.
 MARKS = [(10.0, 0.0, 0.0), (10.0, 20.0, 0.0), (10.0, 0.0, 20.0), (10.2, 15.0, 15.0)]
@@ -48,3 +48,19 @@ def test_square_to_the_fracture_is_zero_and_along_it_ninety():
     assert off_square_deg(plane, (-1.0, 0.0, 0.0)) == pytest.approx(0.0, abs=1.0)
     assert off_square_deg(plane, (0.0, 1.0, 0.0)) == pytest.approx(90.0, abs=1.0)
     assert off_square_deg(plane, (1.0, 1.0, 0.0)) == pytest.approx(45.0, abs=1.0)
+
+
+def test_a_fracture_gap_near_the_marks_counts_as_bone_and_nothing_else_does():
+    """The surgeon: crossing a fracture is not a breach. A bar of bone
+    broken across x = 30 with a 6 mm gap: the gap between the fragments is
+    filled; the air beside the bar, and a gap far from the marks, are not."""
+    labels = np.zeros((40, 40, 100), dtype=np.uint8)
+    labels[10:30, 10:30, 5:95] = 2
+    labels[10:30, 10:30, 27:33] = 0  # the fracture gap, 6 mm, at x 27..32
+    labels[10:30, 10:30, 80:84] = 0  # another gap, far from the marks
+    marks = [(30.0, 12.0, 12.0), (30.0, 27.0, 12.0), (30.0, 12.0, 27.0), (30.0, 25.0, 25.0)]
+    gap = fracture_gap(labels, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), 2, marks)
+    assert gap[10:30, 10:30, 27:33].all(), "the whole gap between the fragments"
+    assert not gap[:, :, 80:84].any(), "not a gap away from the marks"
+    assert not gap[0:10].any() and not gap[30:].any() and not gap[:, 0:10].any(), "not the air beside the bar"
+    assert fracture_gap(labels, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), 2, marks[:2]) is None
