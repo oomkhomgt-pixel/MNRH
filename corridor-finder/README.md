@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Sacral canal and foramina found, shown in purple and never counted as
+      bone (DECISIONS.md 7.15); switches for landmarks, fracture marks and
+      screw handles. Checked by eye on CLINIC_0012 (S1 canal and foramina,
+      S2 canal and foramina) and in the Slicer harness.
 - [x] A marked fracture's gap counts as bone (DECISIONS.md 7.14); bone colours
       on the slices can be switched off and the 3D pelvis made see-through;
       'needs reduction first' in the pilot. Checked in the Slicer harness:

@@ -232,7 +232,9 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         seg_node = w._bonesSegmentationNode
         segmentation = seg_node.GetSegmentation() if seg_node else None
         ids = {segmentation.GetNthSegmentID(i) for i in range(segmentation.GetNumberOfSegments())} if segmentation else set()
-        check(ids == {seg.LABEL_NAMES[v] for v in present}, "'CF bones' segmentation shows exactly the engine's labels")
+        # The canal-and-foramina segment is shown beside the bones, not a bone.
+        check(ids - {w._CANAL_SEGMENT} == {seg.LABEL_NAMES[v] for v in present},
+              "'CF bones' segmentation shows exactly the engine's labels (plus the protected canal and foramina)")
         if "hip_right" in ids:
             shown_x = segment_centroid_ras(seg_node, "hip_right", ct)[0]
             check(abs(shown_x - xr) < 0.5, f"hip_right is displayed where the engine has it (x {shown_x:.1f} vs {xr:.1f} mm)")
@@ -789,12 +791,33 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         logic._validate_plan_screw(screw)
         check(screw.validation["min_clearance_mm"] == v0["min_clearance_mm"], "restored, nothing changed")
 
+    @step("Display switches, and the sacral canal and foramina kept out of the bone")
+    def display_and_canal():
+        w.landmarksCheck.checked = False
+        w.handlesCheck.checked = False
+        line_node = w._screw_line_nodes.get(screw.screw_id)
+        check(not w._landmark_fiducial_node.GetDisplayVisibility() and not line_node.GetDisplayVisibility(),
+              "landmarks and screw handles can be hidden")
+        w.landmarksCheck.checked = True
+        w.handlesCheck.checked = True
+        check(w._landmark_fiducial_node.GetDisplayVisibility() and line_node.GetDisplayVisibility(), "and shown again")
+        protected = logic.protected_spaces()
+        log(f"    canal and foramina: {int(protected.sum())} voxels")
+        if protected.any():
+            seg_ids = [w._bonesSegmentationNode.GetSegmentation().GetNthSegmentID(i)
+                       for i in range(w._bonesSegmentationNode.GetSegmentation().GetNumberOfSegments())]
+            check(w._CANAL_SEGMENT in seg_ids, "they are shown as their own segment")
+            for cid_, side_ in (("iliosacral_s1", "right"), ("transiliac_transsacral_s1", "midline")):
+                field = logic.clearance_field(cid_, side_)
+                check(not (field.array[protected] > 0).any(),
+                      f"no part of them counts as bone in the {cid_} field, SI bridge included")
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (fracture_gap, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (fracture_gap, ()), (display_and_canal, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

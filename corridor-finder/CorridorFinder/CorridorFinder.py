@@ -104,6 +104,7 @@ try:
         phi as phi_mod,
         plan as plan_mod,
         reduction as reduction_mod,
+        sacral_canal as sacral_canal_mod,
         report as report_mod,
         segmentation as seg_mod,
         skin as skin_mod,
@@ -338,6 +339,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.fracture_sites: List[np.ndarray] = []
         self._fracture_version = 0
         self._gap_cache: Dict[tuple, Optional[np.ndarray]] = {}
+        self._canal_cache: Dict[tuple, np.ndarray] = {}
         # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
         self.patient_views: Dict[str, "views_mod.View"] = {}
         # What the last suggestion could not offer, in words, for the panel.
@@ -864,6 +866,18 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
         self._fracture_version += 1
 
+    def protected_spaces(self) -> Optional[np.ndarray]:
+        """The sacral canal and foramina (corridor_engine/sacral_canal.py):
+        never counted as bone, whatever else is bridged, so a screw keeps
+        the full margin from them (the surgeon, 2026-10-04)."""
+        if self.labels_volume is None:
+            return None
+        key = (self._labels_version, id(self.labels_volume))
+        if key not in self._canal_cache:
+            self._canal_cache = {key: sacral_canal_mod.canal_and_foramina(
+                self.labels_volume, seg_mod.SACRUM, (seg_mod.HIP_R, seg_mod.HIP_L))}
+        return self._canal_cache[key]
+
     def _fracture_gaps(self, ids: tuple) -> Optional[np.ndarray]:
         """The fracture gaps near the surgeon's marks in the bones ``ids``,
         on the scanned anatomy only (a virtual reduction closes them
@@ -1019,6 +1033,12 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         hips = tuple(h for h in (seg_mod.HIP_R, seg_mod.HIP_L) if h in ids)
         if widths and seg_mod.SACRUM in ids and hips:
             mask |= seg_mod.sacroiliac_gap_fill(self.labels_volume.array, self.labels_volume.spacing, widths, hips=hips)
+        # Whatever was bridged above, the sacral canal and foramina are never
+        # bone: the full margin from them always holds.
+        if seg_mod.SACRUM in ids:
+            protected = self.protected_spaces()
+            if protected is not None:
+                mask &= ~protected
         edt = edt_mod.bone_edt_mm(mask, self.labels_volume.spacing)
         vol = EngineVolume(array=edt, spacing=self.labels_volume.spacing, origin=self.labels_volume.origin)
         self._edt_cache[key] = vol
@@ -2033,6 +2053,21 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # do not lie in one CT plane.
         self.boneSlicesCheck = qt.QCheckBox(_("Bone colours on the slices"))
         self.boneSlicesCheck.checked = False
+        self.canalCheck = qt.QCheckBox(_("Sacral canal and foramina (purple)"))
+        self.canalCheck.checked = True
+        self.canalCheck.toolTip = _("What the tool treats as canal and foramina: never bone, so screws keep the full "
+                                    "margin from them. Check it covers each foramen.")
+        self.landmarksCheck = qt.QCheckBox(_("Landmarks"))
+        self.landmarksCheck.checked = True
+        self.fractureMarksCheck = qt.QCheckBox(_("Fracture marks"))
+        self.fractureMarksCheck.checked = True
+        self.handlesCheck = qt.QCheckBox(_("Screw handles"))
+        self.handlesCheck.checked = True
+        markupsRow = qt.QHBoxLayout()
+        for box in (self.landmarksCheck, self.fractureMarksCheck, self.handlesCheck):
+            markupsRow.addWidget(box)
+        planForm.addRow(_("Show:"), markupsRow)
+        planForm.addRow(self.canalCheck)
         self.bone3dSlider = ctk.ctkSliderWidget()
         self.bone3dSlider.minimum, self.bone3dSlider.maximum, self.bone3dSlider.singleStep = 0.0, 1.0, 0.05
         self.bone3dSlider.value = 0.45
@@ -2129,6 +2164,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.pilotNoScrewButton.clicked.connect(self.onPilotNoScrew)
         self.pilotNeedsReductionButton.clicked.connect(self.onPilotNeedsReduction)
         self.boneSlicesCheck.toggled.connect(self._applyBoneDisplay)
+        self.canalCheck.toggled.connect(self._applyBoneDisplay)
+        self.landmarksCheck.toggled.connect(self._applyMarkupsDisplay)
+        self.fractureMarksCheck.toggled.connect(self._applyMarkupsDisplay)
+        self.handlesCheck.toggled.connect(self._applyMarkupsDisplay)
         self.bone3dSlider.valueChanged.connect(self._applyBoneDisplay)
         self.pilotCompareButton.clicked.connect(self.onPilotCompare)
         self.pilotBreachCombo.currentIndexChanged.connect(self.onPilotJudgment)
@@ -2278,6 +2317,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             segmentation.AddEmptySegment(name, name, self._BONE_COLORS.get(name, (0.8, 0.8, 0.8)))
             slicer.util.updateSegmentBinaryLabelmapFromArray(mask.astype(np.uint8), node, name, volume_node)
+        # Shown, not read back: _syncLabelsFromSegmentation takes only bones.
+        protected = self.logic.protected_spaces()
+        if protected is not None and protected.any():
+            segmentation.AddEmptySegment(self._CANAL_SEGMENT, _("sacral canal and foramina"), (0.62, 0.2, 0.86))
+            slicer.util.updateSegmentBinaryLabelmapFromArray(
+                engine_array_to_node_array(volume_node, protected.astype(np.uint8)), node, self._CANAL_SEGMENT,
+                volume_node)
         node.CreateClosedSurfaceRepresentation()
         self._applyBoneDisplay()
 
@@ -2288,11 +2334,37 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if node is None or node.GetScene() is None or node.GetDisplayNode() is None:
             return
         display = node.GetDisplayNode()
-        display.SetVisibility2DFill(bool(self.boneSlicesCheck.checked))
+        display.SetVisibility2DFill(True)
         display.SetVisibility2DOutline(True)
         display.SetOpacity2DOutline(0.6)
-        display.SetVisibility3D(self.bone3dSlider.value > 0)
-        display.SetOpacity3D(float(self.bone3dSlider.value))
+        display.SetVisibility3D(True)
+        display.SetOpacity3D(1.0)
+        segmentation = node.GetSegmentation()
+        for i in range(segmentation.GetNumberOfSegments()):
+            sid = segmentation.GetNthSegmentID(i)
+            if sid == self._CANAL_SEGMENT:
+                show = bool(self.canalCheck.checked)
+                display.SetSegmentVisibility(sid, show)
+                display.SetSegmentVisibility2DFill(sid, True)
+                display.SetSegmentOpacity3D(sid, 0.8)
+            else:
+                display.SetSegmentVisibility(sid, True)
+                display.SetSegmentVisibility2DFill(sid, bool(self.boneSlicesCheck.checked))
+                display.SetSegmentVisibility3D(sid, self.bone3dSlider.value > 0)
+                display.SetSegmentOpacity3D(sid, float(self.bone3dSlider.value))
+
+    _CANAL_SEGMENT = "sacral_canal_foramina"
+
+    def _applyMarkupsDisplay(self, *args) -> None:
+        """Landmarks, fracture marks and screw handles on or off; the screws
+        themselves stay."""
+        for node, on in ((self._landmark_fiducial_node, self.landmarksCheck.checked),
+                         (getattr(self, "_fracture_node", None), self.fractureMarksCheck.checked)):
+            if node is not None and node.GetScene() is not None:
+                node.SetDisplayVisibility(bool(on))
+        for node in self._screw_line_nodes.values():
+            if node.GetScene() is not None:
+                node.SetDisplayVisibility(bool(self.handlesCheck.checked))
 
     def _syncLabelsFromSegmentation(self) -> bool:
         """Read the "CF bones" segmentation (possibly corrected by the user)
@@ -2353,7 +2425,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Show detected landmarks as a markups fiducial node so the surgeon
         can see and drag them; dragging updates logic.landmarks (see the
         point-modified observer wired below)."""
-        if self._landmark_fiducial_node is None:
+        if self._landmark_fiducial_node is None or self._landmark_fiducial_node.GetScene() is None:
             self._landmark_fiducial_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "CF_Landmarks")
             self.addObserver(self._landmark_fiducial_node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.onLandmarkMoved)
         node = self._landmark_fiducial_node
@@ -2363,6 +2435,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             ras = _engine_to_ras(lm.xyz)
             node.AddControlPoint(vtk.vtkVector3d(*ras), name)
             self._landmark_index_to_name.append(name)
+        self._applyMarkupsDisplay()
 
     def onLandmarkMoved(self, caller, event):
         node = caller
@@ -2400,6 +2473,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._fracture_node.GetDisplayNode().SetSelectedColor(0.95, 0.35, 0.1)
             self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.onFractureMoved)
             self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent, self.onFractureMoved)
+            self._applyMarkupsDisplay()
         return self._fracture_node
 
     def onMarkFracture(self):
@@ -2561,6 +2635,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         handler = lambda caller, event, sid=screw.screw_id: self.onScrewHandleMoved(sid)  # noqa: E731
         self._screw_line_nodes[screw.screw_id] = node
         self._screw_line_handlers[screw.screw_id] = handler
+        node.SetDisplayVisibility(bool(self.handlesCheck.checked))
         self.addObserver(node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, handler)
 
     def onScrewHandleMoved(self, screw_id: str) -> None:
