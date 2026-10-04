@@ -1,4 +1,4 @@
-"""Run slices 1 and 1b over the real CTPelvic1K cases on this workstation.
+"""Run slices 1, 1b and 1c over the real CTPelvic1K cases on this workstation.
 
     python displacement-finder/tools/measure_cases.py            # the four CLINIC cases
     python displacement-finder/tools/measure_cases.py --normals 5  # and the null test on normal pelvises
@@ -13,13 +13,18 @@ the fragments of the injured hemipelvis are found against the mirrored
 intact one (corridor_engine.fragments). CLINIC_0060 is bilateral, so it is
 refused a transform home (DECISIONS 2.4). Then the fracture surfaces of the
 sacrum and both hips are found (corridor_engine.fracture_surface, slice 1b)
-with the mirror-twin and cortex vetoes and slice 1's fragments, and set
-against the surgeon's reading, and the lateral sacral fragment is split off
-on each side. Last, the reduction is fitted by congruence
-(corridor_engine.congruence, DECISIONS 7c) with the targets of 7c.2 and
-7c.7: from the mirror start on the three unilateral cases, from where the
-bones lie on CLINIC_0060. Each moving unit, each region's error and every
-flag the Reduction would carry are printed.
+with the mirror-twin and cortex vetoes and slice 1's fragments, and from
+the CT inside each bone label (slice 1c: a lucent line with a broken
+cortex, and the dense band of an impacted fracture, against the mirrored
+side or, with both sides injured, the patient's own bone nearby), each
+surface with its source, and set against the surgeon's reading; the lateral
+sacral fragment is split off on each side, and each side of the sacrum is
+set against his reading. Last, the reduction is fitted by congruence
+(corridor_engine.congruence, DECISIONS 7c and 7d.6, the bound read per
+displacement, 7d.2) with the targets of 7c.2 and 7c.7: from the mirror start
+on the three unilateral cases, from where the bones lie on CLINIC_0060. Each
+moving unit, each region's error and every flag the Reduction would carry
+are printed.
 
 **The null test on real anatomy** (``--normals N``). The first N label
 files of each normal-anatomy subset (ABDOMEN, MSD Task 10, KITS19, CERVIX),
@@ -131,11 +136,13 @@ def _where(labels_vol, label, centre, axis, offset) -> str:
     return f"{name} (lateral {lateral:.2f}, anterior {anterior:.2f}, cephalad {cephalad:.2f})"
 
 
-def _surface_lines(loaded, confirmed, found):
+def _surface_lines(loaded, confirmed, found, injured, read_sacrum):
     """What the fracture surfaces and sacral splits are, in lines, and the
-    surfaces and splits themselves for the fit."""
+    surfaces and splits themselves for the fit. ``read_sacrum`` is the side
+    of the sacral fracture the surgeon read (DECISIONS 7b)."""
     sets = [found] if found is not None and not found.refused else []
-    surfaces = fracture_surface.find_fracture_surfaces(loaded.labels, confirmed, loaded.ct, fragment_sets=sets)
+    surfaces = fracture_surface.find_fracture_surfaces(loaded.labels, confirmed, loaded.ct, fragment_sets=sets,
+                                                       injured=injured)
     axis, offset = confirmed.plane.normal, confirmed.plane.offset_mm
     cortex = ", ".join(f"{k} {v:.0f}" for k, v in surfaces.cortex_hu.items())
     lines = [f"    fracture surfaces (this patient's cortex, median HU of each bone's rind: {cortex}):"]
@@ -155,6 +162,15 @@ def _surface_lines(loaded, confirmed, found):
             lines.append(f"        vetoed {p.area_mm2:.0f} mm2, gap {p.width_mm:.1f} mm, extents "
                          f"{'/'.join(f'{e:.1f}' for e in p.extents_mm)} mm, twin {twin}, cortex ratio {ratio}; "
                          f"{_where(loaded.labels, p.label, p.centre, axis, offset)}")
+    for key in surfaces.candidate_points:
+        lines.append(f"      {key}, CT route: {len(surfaces.lucent_points.get(key, ()))} voxels read as lucent line, "
+                     f"{len(surfaces.dense_points.get(key, ()))} as dense band (over the margin); patches under "
+                     f"{fracture_surface.MIN_PATCH_AREA_MM2:.0f} mm2: "
+                     + ", ".join(f"{k.split(' ', 1)[1]} {n}" for k, n in surfaces.ct_small_patches.items()
+                                 if k.startswith(key + " ")))
+    by_source = {source: sum(s.source == source for s in surfaces.surfaces) for source in fracture_surface.SOURCES}
+    lines.append(f"      found by source: {', '.join(f'{k} {n}' for k, n in by_source.items())}; dense bands against "
+                 f"the {surfaces.density_reference}, margin {surfaces.impaction_margin_hu:.0f} HU")
     for surface in surfaces.surfaces:
         lines.append(f"      {surface.sentence()}")
         centre = np.vstack([f.points for f in surface.faces]).mean(axis=0)
@@ -165,6 +181,18 @@ def _surface_lines(loaded, confirmed, found):
         lines.append(f"      {split.sentence()}")
         lines += [f"        note: {n}" for n in split.notes
                   if n != fracture_surface.SPLIT_UNCONFIRMED and not n.endswith(f"({split.refused})")]
+    # The key question of slice 1c: is each sacral fracture he read found,
+    # by what route, and is it split off as a lateral fragment?
+    read = {"both": ("right", "left"), None: ()}.get(read_sacrum, (read_sacrum,))
+    found_on = {"right": [], "left": []}
+    for surface in surfaces.surfaces:
+        if surface.label == seg.SACRUM:
+            centre = np.vstack([f.points for f in surface.faces]).mean(axis=0)
+            found_on["right" if centre @ axis - offset >= 0 else "left"].append(f"{surface.id} ({surface.source})")
+    for side in ("right", "left"):
+        lines.append(f"      SACRUM {side.upper()}: surgeon read {'a fracture' if side in read else 'no fracture'}; "
+                     f"found {', '.join(found_on[side]) or 'nothing'}; "
+                     + ("lateral fragment split off" if not splits[side].refused else "no split"))
     return "\n".join(lines), surfaces, splits
 
 
@@ -230,7 +258,7 @@ def clinic(case: str) -> str:
         found = fragments.find_fragments(loaded.labels, confirmed, injured, articular)
     except ValueError as failed:
         out.append(f"    {injured} hemipelvis: fragments not measured ({failed})")
-        text, surfaces, splits = _surface_lines(loaded, confirmed, None)
+        text, surfaces, splits = _surface_lines(loaded, confirmed, None, injured, expected["sacral_fracture"])
         out.append(text)
         out.append(_congruence_lines(loaded, injured, surfaces, None, splits))
         out.append(f"    ({time.time() - start:.0f} s)")
@@ -242,7 +270,7 @@ def clinic(case: str) -> str:
         out.append(f"    note: the surgeon read a fracture in the mirrored {expected['intact_side']} side as well, so the "
                    "reference is not an intact hemipelvis here")
     out.append(_fragment_lines(found))
-    text, surfaces, splits = _surface_lines(loaded, confirmed, found)
+    text, surfaces, splits = _surface_lines(loaded, confirmed, found, injured, expected["sacral_fracture"])
     out.append(text)
     out.append(_congruence_lines(loaded, injured, surfaces, found, splits))
     out.append(f"    ({time.time() - start:.0f} s)")

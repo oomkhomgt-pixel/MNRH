@@ -93,13 +93,19 @@ synthetic phantoms:
   at 4 mm, or 4 mm; 7c.7: `SYMPHYSIS_TARGET_GAP_MM = 4.93`). A motion no
   surface resists is never taken. Each region (`si_right`, `si_left`,
   `symphysis`, `fracture_<id>`) reports max(90th-percentile mismatch after
-  the fit, `PHANTOM_BOUND_MM` for its kind), or `inf` with the reason when
-  it has too little rim or joint surface, its rims disagree, some motion
-  no surface resists moves its two sides relative to each other, the fit
-  leaves it as scanned (both faces on one unit: "NOT REDUCED"), or the fit
-  moves it, or a unit of it, further than any phantom the bound was
-  measured on (`PHANTOM_TRAVEL_MM`). A fracture the surgeon marked is a
-  region too wherever a mark point has no surface matching it
+  the fit, the phantom bound for its kind at its displacement,
+  `phantom_bound_mm`, measured per displacement since slice 1c, and the
+  mirror's floor where it rests on the mirror), or `inf` with the reason
+  when it has too little rim or joint surface, its rims disagree, some
+  motion no surface resists moves its two sides relative to each other,
+  the fit leaves it as scanned (both faces on one unit: "NOT REDUCED"), it
+  is impacted with no mirror to restore it, or the fit moves it, or a unit
+  of it, further than any phantom the bound was measured on
+  (`PHANTOM_TRAVEL_MM`). An impacted fracture (slice 1c, 7d.6) has its
+  rims fitted along it and the length lost across it taken from the mirror
+  start; it, and any region or unit only that pins
+  (`unit_<name>_on_mirror`), rests on the mirror and carries its floor.
+  A fracture the surgeon marked is a region too wherever a mark point has no surface matching it
   (`fracture_mark_<k>`, `inf`, at those mark points and over the marked
   plane within `fracture.NEAR_MARKS_MM` of them, on a 5 mm grid). A unit
   that some motion no trustworthy surface resists moves as a whole stays
@@ -121,9 +127,11 @@ synthetic phantoms:
 
 This directory keeps only what is this project's own: `DECISIONS.md`, this
 README, `tools/measure_cases.py`, which runs the engine over the real
-CTPelvic1K cases on this workstation and prints what it finds, and
+CTPelvic1K cases on this workstation and prints what it finds,
 `tools/symphysis_gap.py`, which measures the symphyseal gap on the normal
-pelvises (DECISIONS 7c.7) with the engine's own `congruence.symphysis_gap`.
+pelvises (DECISIONS 7c.7) with the engine's own `congruence.symphysis_gap`,
+and `tools/phantom_bound.py`, which runs the phantom family behind the
+congruence fit's per-displacement bound (DECISIONS 7d.2) and prints it.
 Nothing they read or print is committed (DECISIONS 8.1).
 
 ## Status
@@ -548,7 +556,9 @@ reported separately below.
       surgeon confirms (7c.5), but its error is in the fracture region's
       landing, and it is what sets the fracture bound below.
 - [ ] **The error measured on phantoms, and how far it was measured.**
-      `PHANTOM_BOUND_MM` is the worst landing over the family above where
+      (Superseded in slice 1c by a bound measured per displacement to
+      30 mm; see below. As slice 1b left it:)
+      `PHANTOM_BOUND_MM` was the worst landing over the family above where
       the region reported a number, rounded up to half a millimetre:
       **fracture 6.5 mm** (6.24, the split's voxels; the fit itself lands
       within 4.62 mm, the iliac wing slid 4 mm from the exact start), up
@@ -740,11 +750,362 @@ reported separately below.
       is their sacral fractures found (part A's open problem), and a
       measured SI-joint bound.
 
+## Status: slice 1c (finding fractures on real CTs)
+
+DECISIONS 7d. **In one sentence: both parts work on phantoms, and on the
+four CLINIC cases none of the lateral sacral fractures the surgeon read is
+found, so no real case is reduced by its sacral fracture yet.**
+
+Part A, `fracture_surface.py` (7d.1, 7d.5): the CT route (a lucent line
+with a broken cortex, and the dense band of an impacted fracture), the
+surgeon's marks as the backup surface, a `source` on every surface (`gap`,
+`ct_lucent`, `ct_impacted`, `surgeon_marks`) and the impaction depth on
+impacted ones; synthetic CTs in `phantoms.py` (`pelvis_ct`,
+`intact_pelvis_with_ct`, `lucent_fractured_pelvis`, `lucent_sacral_pelvis`,
+`impacted_sacral_pelvis`). Part B, `congruence.py` (7d.2, 7d.6): the
+phantom bound measured per displacement (`phantom_bound_mm`, the family in
+`tools/phantom_bound.py`), and impacted fractures reduced by their rims and
+the mirror.
+
+### Part A: finding fractures from the CT
+
+- [x] **A gaping fracture the label is painted across is found from the
+      CT** (plan test 1). The phantom's iliac wing fracture opened 3 mm and
+      its label painted solid across the gap: slice 1b finds nothing; the CT
+      route finds one surface, `ct_lucent`, 1228 mm2, faces 97% / 98% on
+      their own side, p90 1.57 / 1.65 mm off the true cut, normal 6.1
+      degrees off, gap 4.50 mm centre to centre (the gap plus about a
+      voxel, as si_joint reads a joint), 118 voxels of broken cortex at 4%
+      of the cortex HU. Nothing else is found anywhere in the pelvis.
+- [x] **An impacted sacral fracture is found as `ct_impacted`, with its
+      depth** (plan test 2). One solid sacrum, the lateral fragment driven
+      in 4 and 6 mm, the band 400 HU denser than the bone it lies in (twice
+      the margin): depth read 3.83 and 6.18 mm (tolerance one voxel,
+      1.5 mm), 100% of the band found and 99-100% of the zone within a
+      voxel of it, compared with the mirrored side.
+- [ ] **An impaction no denser than its two layers of bone is not found.**
+      The phantom's own band (the fragment's bone laid on the central
+      sacrum's: about +160 HU here) is under the 200 HU margin and is not
+      found; the result says that a band fainter than the margin is not
+      seen and never reads as an intact sacrum (pinned in a test). In
+      CLINIC_0012's sacrum the interior reads a median 110 HU, so such a
+      band would add about 70 HU there. How dense a real impacted band is
+      has not been measured.
+- [x] **Dense subchondral bone is never read as a fracture** (plan test
+      3). The intact phantom with dense subchondral bone under every joint,
+      thicker on the right (4 against 3 mm), gives no surface, lucent or
+      impacted, against the mirror or against its own nearby bone. Against
+      its nearby bone 7 dense bands are examined and every one is removed
+      as dense against one side only.
+- [x] **The marks are the backup only where nothing is found** (plan test
+      4). With the CT blinded (the CT of the same labels, no band), the
+      plane through four marks becomes the surface, `surgeon_marks`, a cut
+      one voxel thick within 20 mm of the marks, flagged "NOT FOUND", its
+      marks still listed as unmatched. With the band in the CT, the band is
+      the surface (2 mm from the nearest mark) and no marks surface is
+      added. With no CT given the marks stay as slice 1b made them,
+      unmatched and flagged: whether the CT shows a fracture there is not
+      known (slice 1b's mark tests, unchanged, run without a CT).
+- [x] **The sacral split works from every source.** Recall 1.000 and
+      purity 1.000 cut along a painted-over lucent line (painted voxels left
+      out of purity), along the dense band (recall over the fragment outside
+      the band, which is bone of both) and along the marked plane, where the
+      split says it rests on his marks and counts none of the cut as found.
+
+How each part works, and what was tried and changed:
+
+- **Lucent line.** Each voxel darker by `LUCENT_MIN_CONTRAST_HU` (100) than
+  the bone on both sides along one of 13 directions, within 3 mm, and at
+  least half-way down to soft tissue. The CT is smoothed (1 mm) over each
+  layer of the bone separately, interior and rind: smoothed across the
+  surface, the one-voxel phantom cortex bled into the bone under it and the
+  marrow of the whole iliac wing read as one 12000-14000 mm2 lucent line.
+  Interior voxels are compared with interior bone, rind voxels with rind
+  along the surface (the cortex either side of the break). A patch must be a
+  sheet, break the cortex (3 or more rind voxels under 0.6 of the cortex),
+  cross the bone beneath it (3 or more interior voxels: a lucency in the
+  cortex only is thin cortex), and pass the mirror-twin veto. Its faces are
+  the first voxels either side at least half-way back up to the bone, so the
+  painted gap's own voxels are never a face.
+- **Dense band.** Interior bone (3 mm deep) is compared with the densest
+  interior bone within 5 mm of its mirrored place (or, with both sides
+  injured or no mirror, the patient's own cancellous bone within 15 mm: the
+  mean of the interior there, recomputed without what is denser than it by
+  the margin). Over the margin, the largest core first, a band is the bone
+  around it down to half its height above the bone's usual excess, so its
+  thickness (volume over projected area, the impaction depth) does not
+  depend on the margin. It must be a sheet, reach the bone's outer layers,
+  and have bone of the usual density on both sides of its middle over at
+  least half of it (`IMPACTION_FLANKED_SHARE`): subchondral bone lies
+  against its joint surface with bone on one side only. Without that test,
+  the displaced phantom's subchondral bone at the SI joint, 4 mm from its
+  mirror image and thicker on that side, read as three 200-680 mm2 bands.
+- **The margin, `IMPACTION_MARGIN_HU` = 200 HU**, measured on the only
+  fully intact side there is, CLINIC_0012's left hip and left sacral half,
+  never on the fractures: the 99th percentile of how much denser each
+  interior voxel there is than the densest bone within 5 mm of its mirrored
+  place, 189 HU (hip) and 171 HU (sacrum), rounded up. With every veto,
+  that side shows no band against the mirror at any margin from 0 to
+  400 HU, and one against its own nearby bone at 100 and 150 HU, none from
+  200 HU. One side of one patient; normal-pelvis CTs are not on the
+  workstation (only their labels).
+
+### Part B: the bound per displacement, and impacted fractures
+
+All on phantoms at 1.5 mm voxels (`tests/python/test_congruence.py`;
+`tools/phantom_bound.py` for the table). "Lands" is as in slice 1b: the
+worst distance, before rounding onto the grid, between where the fit puts a
+point of a region and where it belongs once the region's other side is put
+where it belongs.
+
+- [x] **The bound is measured per displacement** (7d.2, plan test 5).
+      `tools/phantom_bound.py` runs 117 fits: slice 1b's whole family, the
+      same fractures displaced 5, 10, 15, 20, 25 and 30 mm with rotation
+      (each sacral fracture hinged 3 degrees and slid up or back, right and
+      left, from the exact and from the wrong mirror start; both sides at
+      once, right up and left back; the iliac wing opened 2 mm, turned
+      3 degrees about its fracture's normal and slid laterally or forward,
+      both starts), and the impacted sacral fractures. A region's
+      displacement is how far the fit moved its units, relative to what they
+      are joined to, at it or at any other region: a fit that stops short
+      moves a region less than its unit is displaced (the sacral fracture
+      slid 10 mm up from the wrong start: the symphysis moved 6.5 mm and
+      landed 8.4 mm off, the fracture moved 10.2 mm), so the bound is read
+      where the unit was found displaced. At each displacement, the worst
+      landing of a region displaced between the displacements either side
+      of it, and the bound (rounded up to half a millimetre, never smaller
+      than at a smaller displacement, interpolated between):
+
+      | Displacement, mm | 0 | 5 | 10 | 15 | 20 | 25 | 30 |
+      | --- | --- | --- | --- | --- | --- | --- | --- |
+      | Fracture, worst landing | 1.86 | 6.24 | 10.86 | 15.37 | 25.13 | 25.67 | 25.67 |
+      | Fracture, bound | 2.0 | 6.5 | 11.0 | 15.5 | 25.5 | 26.0 | 26.0 |
+      | Symphysis, worst landing | 0.95 (6.26 kept) | 4.04 (6.26 kept) | 12.22 | 12.22 | 4.87 | 3.82 | 3.02 |
+      | Symphysis, bound | 6.5 | 6.5 | 12.5 | 12.5 | 12.5 | 12.5 | 12.5 |
+      | SI joint, bound (the largest) | 6.5 | 6.5 | 12.5 | 15.5 | 25.5 | 26.0 | 26.0 |
+
+      The symphysis keeps, at 0-5 mm, the 6.26 mm an earlier fit measured on
+      the half-crushed rim, which slice 1b kept; the present fit reads no
+      number there, and the bound is not lowered below it. The SI joint is
+      never measured where it pins a hip (its regions here have both sides
+      on one unit and land 0), so it takes the largest. Nothing smaller than
+      a 3.9 mm displacement was run, so the bound at 0 is the one measured
+      between 0 and 5 mm. Measured on the same phantoms the tests check, not
+      on held-out ones, at one voxel size.
+- [ ] **What the fracture bound is made of: the split, not the fit.** The
+      worst fracture landing at every displacement from 5 mm on is the
+      sacral split's own error. Where the faces touch, the plane carries the
+      cut across bone with no gap in it, and voxels within half a voxel of
+      the fracture go to the wrong piece and stay as far from home as the
+      slide: 6.24 mm at a 6 mm slide, 10.86 at 10, 15.37 at 15, 25.13-25.67
+      at 25 (slid back, and the left side slid up). The fit itself mostly
+      lands far closer: the same fractures slid up land 0.9-3.1 mm at
+      10-25 mm (the left one slid 25 mm up excepted, the split again), the
+      iliac wing 0.8-7.8 mm, except 12.16 mm slid 10 mm laterally from the
+      exact start (the fit moved it 19 mm). So **past about 10 mm a fracture region's bound
+      is about its own displacement**, too large to tell any screw it is
+      safe. What would make large displacements useful is a better split
+      where the faces touch, not a different bound.
+- [ ] **The symphysis bound jumps to 12.5 mm at 10 mm** because of one
+      fit: the bilateral phantom slid 10 mm (right up, left back), with no
+      mirror to start from, stops short (its symphysis moved 5.4 mm while its
+      units moved 10.5 mm) and the symphysis lands 12.22 mm off. On every
+      unilateral fit to 27 mm the symphysis lands within 4.87 mm. The
+      bilateral phantom slid 15-30 mm reports no number anywhere (rims
+      disagree, too little joint surface).
+- [ ] **The phantoms went to 30 mm; the bound stops at 27-28 mm.** At
+      30 mm no region of any phantom reported a number: the sacral fracture
+      slid 30 mm up is left free to slide along itself (0.28-0.38 mm per mm;
+      with the limit below in place, the wrong-start fit moves it past it),
+      slid back the fit moves its unit more than 30 mm, the iliac wing slid
+      30 mm laterally leaves no fracture surface, and the bilateral rims
+      disagree. The furthest that reported one were the iliac wing slid
+      25 mm (fracture displaced 27.69 mm) and the sacral fracture slid 25 mm
+      back (symphysis 26.76 mm). So `PHANTOM_TRAVEL_MM` is fracture 28.0,
+      symphysis 27.0, SI joint 28.0 mm, not the 30 mm the plan asked for: the
+      bound says nothing past the displacements it was measured at, as in
+      slice 1b. A region the fit moves further, or any region of a unit
+      moved further, is `inf`; tested on the sacral fracture slid 35 mm.
+      The limits differ by kind, so a unit moved 27-28 mm by a fracture is
+      within the fracture's limit and past the symphysis's: the symphysis's
+      bound there is `inf`, and the reason ("displaced further than the
+      phantoms", naming the unit, how far and at which region) is now set
+      where that bound is read (`_bound_by_displacement`). It was not: the
+      symphysis read `inf` with no reason. `_check_residual_contract` now
+      also checks that every `inf` in the Reduction is named in its notes
+      with a reason. On the iliac wing slid 25 mm (hip moved 27.2 mm at the
+      fracture) the symphysis now says so beside its unresisted motion.
+- [x] **Round trip at every displacement** through `reduction.apply_moves`,
+      from the wrong mirror start, the sacral fracture slid up and the iliac
+      wing slid laterally, 5-30 mm: every region lands within what it
+      reports, and each region's bound is the table's at its displacement.
+      At 15 mm, for instance, the sacral fracture is displaced 14.34 mm,
+      bound 14.9 mm, lands 2.12 mm; its symphysis bound 12.5 mm, lands
+      4.48 mm; the iliac wing's fracture is displaced 19.11 mm, bound
+      23.7 mm, lands 5.78 mm. At 30 mm both read `inf` everywhere. The
+      reduced right hip overlaps the intact one 0.80-0.95 (Dice; sacral
+      0.948, 0.801, 0.862, 0.854, 0.901, 0.940 at 5-30 mm) and 0.885-0.919
+      (iliac): lower than the 0.9 slice 1b's round trip holds its two fits
+      to, because from the wrong start the moved piece keeps part of the
+      mirror's error (the sacral unit slid 10 mm ends 8.63 mm / 3.41 degrees
+      off at its worst point). Printed, not asserted; slice 1b's round-trip
+      test and its 0.9 are unchanged and pass.
+- [x] **An impacted fracture is reduced by its rims and the mirror** (7d.6,
+      plan test 6). The lateral fragment driven 4 mm into the sacrum, one
+      solid label, the band found from the CT (read 3.83 mm) against the
+      confirmed mirror, the split cut along it. Its rims are fitted along the
+      fracture (sliding rows), and across it each rim point is held as far
+      from its partner face as at the mirror start: the length lost to
+      impaction is the mirror's. From the exact start the fit pulls the
+      fragment's face 4.02 mm laterally (the true depth 4.0 mm) and the hip
+      ends 0.94 mm / 0.39 degrees off at its worst point; the fracture lands
+      0.45 mm and reports 11.8 mm. From the wrong start (7.64 mm /
+      3.00 degrees) the hip ends 7.05 mm / 2.52 degrees off: what only the
+      mirror pins keeps the mirror's error, as 7d.6 says it must; the
+      fracture lands 5.57 mm and reports 11.8 mm, the symphysis 1.30 within
+      11.9 mm. The fracture's notes and the Reduction's say it rests on the
+      mirror, and it carries the mirror's floor, `MIRROR_FLOOR_MM["fracture"]`
+      = 11.8 mm (the whole-hemipelvis column of the table under section 1:
+      the table has no column for a sacral fracture; whether the SI joint's
+      4.7 mm is the right floor there is the surgeon's ruling, not taken
+      here).
+- [x] **A hip whose pose rests on the mirror is a region over all its
+      bone.** On that phantom a tilt of the hip is pinned only by the
+      mirror's distance across the band (0.98 mm per mm without it), so
+      `unit_hip_right_on_mirror` covers all the hip's bone at the mirror's
+      floor for a whole hemipelvis, 11.8 mm: a screw far from the fracture
+      and the joints is warned when its room is under 11.8 mm. Without it,
+      the mirror's rows would read the hip as pinned and that screw as safe.
+      Any other region whose two sides such a motion moves would carry its
+      own kind's floor; none did on the phantoms.
+- [x] **No mirror, no restored impaction.** Fitted as both sides injured
+      (2.4), the impacted fracture reads `inf`, "IMPACTION NOT RESTORED",
+      and the fit has no row across it that would hold the impaction as
+      scanned.
+- [x] **A 6 mm impaction is reduced, by rims and mirror.** It was not: the
+      band grew down to half height through touching bone off its plane, and
+      its continuation through the rind kept rind voxels level with the
+      nearest band voxel however far that voxel was off the plane, so the
+      zone ran 7.5 mm from the true band (12 mm against nearby bone, and
+      30 mm on the 4 mm phantom against nearby bone), faces with it, and the
+      split refused ("the cut plane does not separate the two faces"). Both
+      are now held to the band's slab: no further from its fitted plane than
+      half its thickness and a voxel (`fracture_surface._in_slab`; the plane
+      and thickness refitted to the band grown within it, at most
+      `IMPACTION_SLAB_REFITS` = 5 times, starting from the dense core's
+      plane). Every impacted phantom's zone now lies within 1.5 mm of its
+      band and its faces within 3.0 mm, right and left, against the mirror
+      and against nearby bone; depths read 3.83 / 6.16 mm (mirror) and
+      3.04 / 6.03 mm (nearby). The 6 mm phantom splits (34.9 cm3) and is
+      fitted: from the exact start the fracture lands 3.47 mm within its
+      11.8 mm (the mirror's floor), the symphysis 8.07 mm within 12.5 mm;
+      from the wrong start 6.31 within 12.7 mm and 5.70 within 12.5 mm. On
+      real anatomy a band that curves more than its slab is cut short where
+      it leaves the slab: the rest is not part of this surface.
+- How the impacted rims were made to work, each found on the phantom: paired
+  across the band as they lie, a rim point's nearest partner was the one
+  across the least of the face's unevenness (CT faces are two voxel layers
+  deep in places), and the medial face, driven toward the sacral canal, has
+  the canal's floor in its rim, which the lateral face has not: those paired
+  with the partner's outline 6 mm off and the rims disagreed (p90 3.7-4.3 mm)
+  from the exact start. Each rim point is now set to its face's local level
+  and moved half the faces' distance at the mirror start, so rims pair beside
+  each other; a sliding row needs both ends on cortex facing within
+  60 degrees of the same way (`IMPACTED_SLIDE_COS`, chosen, not
+  calibrated); and one distance across for the whole fracture tilted the
+  fit 1.9 degrees (a band read thicker at one end), so each rim point keeps
+  its own distance at the mirror start.
+- Tests replaced (plan test 7), each because it pinned the single
+  `PHANTOM_BOUND_MM` or the 8-9.5 mm travel: `_check_residual_contract`
+  (bound == `PHANTOM_BOUND_MM[kind]` became bound == `phantom_bound_mm(kind,
+  displacement)`, with the displacement at least the region's own travel
+  and within `PHANTOM_TRAVEL_MM`, and a region that rests on the mirror at
+  least its floor and saying so); `test_unilateral_recovery` and
+  `test_bilateral_recovery` (the hip's worst point within
+  `max(PHANTOM_BOUND_MM)` became within the largest bound at the fit's
+  displacement: 6.5 mm for the unilateral fits, as before, and 6.72 mm for
+  the bilateral one, displaced 5.18 mm); `test_displaced_further_than_the_
+  phantoms_is_unconstrained` (10 mm against 8 mm became 35 mm against
+  28 mm), and the stop-short case it described is a test of its own. Every
+  other slice 1 and 1b test is unchanged and passes.
+
+### On the four CLINIC cases
+
+`measure_cases.py --workers 2` (102-136 s a case), against the surgeon's
+reading (DECISIONS 7b). **None of the lateral sacral fractures he read is
+found, on any case, by any route.** Each case now prints, per side of the
+sacrum, what he read, what was found and whether a split was made:
+
+| Case | Sacrum right | Sacrum left |
+| --- | --- | --- |
+| CLINIC_0012 | read: fracture; found nothing; no split | read: none; found nothing |
+| CLINIC_0023 | read: fracture; found nothing; no split | read: none; found nothing |
+| CLINIC_0025 | read: none; found nothing | read: fracture; found `sacrum_1` (`ct_lucent`, 58 mm2), transverse, no split |
+| CLINIC_0060 | read: fracture; found `sacrum_2` (`gap`, 44 mm2), transverse, no split | read: fracture; found `sacrum_1` (`ct_impacted`, 104 mm2, 2.2 mm), transverse, no split |
+
+- [ ] CLINIC_0012 (right injured): nothing from the CT in any bone; every
+      dense candidate is removed as dense against one side only, the lucent
+      ones as lucencies inside intact bone. Found: slice 1's right pubic
+      fragment boundary (`gap`, 168 mm2). **That region now reports a
+      number, 18.1 mm** (mismatch 1.2 mm; the bound read at 16.3 mm, the
+      fragment's displacement at the symphysis, while the fracture itself
+      moved 6.8 mm): before slice 1c it read `inf`, displaced beyond the
+      9.5 mm the phantoms then reached. It is slice 1's mask boundary, not a
+      surface seen in the scan, and both the hip and the fragment are still
+      not pinned as wholes (`unit_*_unpinned`, `inf`), so every screw in
+      either is still warned as unknown. SI joint and symphysis
+      UNCONSTRAINED. The hip moves up to 21.7 mm, 36.2 mm from its mirror
+      start.
+- [ ] CLINIC_0023 (right): nothing in the sacrum. Three `ct_lucent`
+      surfaces in the hips (the right pubic body, 262 mm2, where he read a
+      fracture; the low right ilium, 156 mm2; the low left hip, 968 mm2, by
+      position the left pubic region he read), each within one unit or on
+      static bone: NOT REDUCED. Every region `inf`.
+- [ ] CLINIC_0025 (left): the left sacral `ct_lucent` surface (lateral 0.70,
+      posterior) is on the side he read, but its faces look front and back
+      (80 degrees from left-right), so the split refuses it as not lateral
+      and it reads NOT REDUCED. Three slots and two more `ct_lucent` surfaces
+      in the pubic regions, NOT REDUCED; nothing at the right acetabulum.
+      Every region `inf`.
+- [ ] CLINIC_0060 (both): against its own nearby bone (both sides injured,
+      and the result says so), the left `ct_impacted` band, on a side he
+      read, is transverse (83 degrees from left-right), and so is the right
+      44 mm2 slot (86 degrees): no split on either side, both NOT REDUCED.
+      The impacted reduction of 7d.6 never runs on a real case: the only
+      band found is on the bilateral case (no mirror to restore it) and is
+      not split. Every region `inf`. Rerun after the band was held to its
+      slab: everything on all four cases reads as before, except this
+      band's area, 104 mm2 where it was 106 mm2.
+
+So on real anatomy slice 1c changes one number: CLINIC_0012's pubic
+fragment boundary reads 18.1 mm where it read `inf`, because the bound now
+reaches the displacement the fit found there. Every SI joint, symphysis and
+sacral region of every case, and every `unit_*` region, still reads
+UNCONSTRAINED. That these cases come out this way was not used to set any
+constant.
+
+Not done in slice 1c:
+
+- the lateral sacral fractures on the four cases are not found (above);
+- the impaction no denser than its two layers of bone is not found at the
+  200 HU margin (part A), and how dense a real impacted band is has not
+  been measured;
+- the fracture bound past about 10 mm is the split's error, about the
+  displacement itself; nothing reports a number beyond 27-28 mm;
+- the mirror floor for an impacted sacral fracture is the whole-hemipelvis
+  11.8 mm; the surgeon has not ruled on whether the SI joint's 4.7 mm
+  applies there;
+- the CT route's other constants (`LUCENT_MIN_CONTRAST_HU`,
+  `BREAK_MIN_VOXELS`, `IMPACTION_FLANK_MM`, `IMPACTION_FLANKED_SHARE`,
+  `IMPACTION_MIRROR_REACH_MM`) and part B's `IMPACTED_SLIDE_COS` are chosen,
+  not calibrated; the normals null test (`--normals`, labels only) was not
+  rerun, since it does not exercise the CT route or the fit.
+
 ## Running it
 
 From `corridor-finder/`, with the development venv:
 
-    python -m pytest -q                      # the whole engine, including slices 1 and 1b
+    python -m pytest -q                      # the whole engine, including slices 1, 1b and 1c
     python -m pytest -q -s tests/python/test_congruence.py   # the congruence fit, printing its numbers
     python ../displacement-finder/tools/measure_cases.py --workers 2
     python ../displacement-finder/tools/measure_cases.py --normals 5 --workers 4
