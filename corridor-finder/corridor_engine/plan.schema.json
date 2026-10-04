@@ -32,6 +32,7 @@
     "landmarks": { "type": "object" },
     "screw_library": { "type": "object" },
     "si_joint": { "type": "object", "description": "Per sacroiliac joint: what it measured, which side the surgeon declared disrupted, and how much of the joint was counted as bone (DECISIONS.md section 2)." },
+    "pilot": { "type": "object", "description": "The blinded pilot (DECISIONS.md 4.3): when the surgeon planned without the tool's checks and when they were revealed, the corridors where he found no screw, and the comparison with the tool's suggestions." },
     "reduction": { "type": "object", "description": "The virtual reduction that screws tagged \"reduced\" were planned on: each moving unit's rigid transform (scanned to reduced world, 4x4), the remaining error per region in mm, and who proposed it (DECISIONS.md 3.4, 3.6). Empty when there is none." },
     "screws": {
       "type": "array",
@@ -77,7 +78,8 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "source": { "type": "string", "enum": ["auto", "adjusted"] },
+        "source": { "type": "string", "enum": ["auto", "adjusted", "surgeon"], "description": "auto: the tool's suggestion; adjusted: a suggestion the surgeon moved; surgeon: placed by the surgeon himself (the pilot)." },
+        "surgeon_judgment": { "type": "object", "description": "The surgeon's own verdict on this screw: breach (bool), would_use (bool)." },
         "tip_rule": { "enum": ["inside", "through"], "description": "inside: the tip stays in bone with the full margin; through: it passes the far cortex by up to one catalogue step (DECISIONS.md 1.5-1.6)." },
         "anatomy": { "enum": ["as scanned", "reduced"], "description": "The anatomy the screw was planned and is checked on (DECISIONS.md 3.4)." }
       }

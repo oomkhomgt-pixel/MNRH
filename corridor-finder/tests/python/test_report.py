@@ -256,3 +256,25 @@ def test_report_states_the_angle_to_the_fracture():
     html_str = render_report_html(plan)
     assert "Angle to the marked fracture: 12 degrees off square</li>" in html_str
     assert "70 degrees off square; it does NOT cross the fracture" in html_str
+
+
+def test_the_pilot_section_shows_the_comparison_and_the_surgeons_verdict():
+    """DECISIONS 4.3: his screws beside the tool's, after the reveal."""
+    plan = _plan_with_screws([3.0, 3.0])
+    plan.screws[0].source = "surgeon"
+    plan.screws[1].surgeon_judgment = {"breach": False, "would_use": True}
+    plan.pilot = {"blinded_from": "t0", "revealed_at": "t1", "comparison": [
+        {"corridor_id": "C0", "side": "right", "surgeon_found_screw": True, "tool_found_screw": True,
+         "fit_agrees": True, "surgeon_diameter_mm": 7.3, "tool_diameter_mm": 6.5, "angle_between_deg": 12.2,
+         "entry_distance_mm": 4.4, "tool_says_surgeon_breach": False},
+        {"corridor_id": "C1", "side": "left", "surgeon_found_screw": False, "tool_found_screw": True,
+         "fit_agrees": False}]}
+    html_str = render_report_html(plan)
+    assert "<h2>Pilot</h2>" in html_str and "revealed at t1" in html_str
+    assert "<td>12</td><td>4</td>" in html_str
+    assert "Placed by the surgeon." in html_str
+    assert "verdict: breach no, would use yes." in html_str
+
+
+def test_no_pilot_no_pilot_section():
+    assert "<h2>Pilot</h2>" not in render_report_html(_plan_with_screws([3.0]))

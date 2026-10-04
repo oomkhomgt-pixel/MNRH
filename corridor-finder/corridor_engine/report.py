@@ -274,6 +274,46 @@ def _render_reduction(data: dict) -> str:
             f"Skin entries on the moved side are approximate.</div>{table}")
 
 
+def _yes_no(value) -> str:
+    return "n/a" if value is None else ("yes" if value else "no")
+
+
+def _render_pilot(data: dict) -> str:
+    """DECISIONS.md 4.3: the surgeon's own screws beside the tool's, after
+    the reveal."""
+    pilot = data.get("pilot") or {}
+    rows = pilot.get("comparison") or []
+    if not pilot:
+        return ""
+    head = (f"<h2>Pilot</h2><p>Planned blinded from {_esc(pilot.get('blinded_from') or 'n/a')}; "
+            f"the tool revealed at {_esc(pilot.get('revealed_at') or 'NOT YET')}.</p>")
+    if not rows:
+        return head + "<p><em>No comparison yet.</em></p>"
+    body = "".join(
+        "<tr>"
+        f"<td>{_esc(r.get('corridor_id'))} ({_esc(r.get('side'))})</td>"
+        f"<td>{_yes_no(r.get('surgeon_found_screw'))}</td><td>{_yes_no(r.get('tool_found_screw'))}</td>"
+        f"<td>{_yes_no(r.get('fit_agrees'))}</td>"
+        f"<td>{_esc(r.get('surgeon_diameter_mm', ''))} / {_esc(r.get('tool_diameter_mm', ''))}</td>"
+        f"<td>{_fmt_mm(r.get('angle_between_deg'), 0)}</td><td>{_fmt_mm(r.get('entry_distance_mm'), 0)}</td>"
+        f"<td>{_yes_no(r.get('tool_says_surgeon_breach'))}</td>"
+        "</tr>" for r in rows)
+    return head + ("<table><thead><tr><th>Corridor</th><th>Surgeon found a screw</th><th>Tool found one</th>"
+                   "<th>Fit agrees</th><th>Diameter surgeon / tool (mm)</th><th>Angle between (deg)</th>"
+                   "<th>Entries apart (mm)</th><th>Tool calls the surgeon's a breach</th></tr></thead>"
+                   f"<tbody>{body}</tbody></table>")
+
+
+def _render_judgment(screw: dict) -> str:
+    j = screw.get("surgeon_judgment") or {}
+    who = "Placed by the surgeon. " if screw.get("source") == "surgeon" else ""
+    if not j and not who:
+        return ""
+    verdict = (f"Surgeon's verdict: breach {_yes_no(j.get('breach'))}, would use {_yes_no(j.get('would_use'))}."
+               if j else "")
+    return f"<p>{_esc(who + verdict)}</p>"
+
+
 def _render_anatomy(screw: dict, validation: dict) -> str:
     if screw.get("anatomy") != "reduced":
         return ""
@@ -304,6 +344,7 @@ def _render_screw_section(screw, drr_images=None) -> str:
   <p>Clearance: <span class="{clearance_class}">{_esc(clearance_val)} mm{' (BREACH)' if breach else ''}</span></p>
   {_render_articular(validation)}
   {_render_anatomy(screw, validation)}
+  {_render_judgment(screw)}
   {_render_geometry(screw, validation)}
   <h3>How to aim it</h3>
   {_render_guidance(screw.get('guidance'))}
@@ -368,6 +409,7 @@ def render_report_html(plan, *, drr_images: dict = None, title: str = "Corridor 
 <p>Case: {_esc(case_alias)}</p>
 {_render_si_joint(data.get("si_joint"))}
 {_render_reduction(data)}
+{_render_pilot(data)}
 <div class="disclaimer">{_esc(disclaimer)}</div>
 {body_sections}
 <div class="audit-appendix">

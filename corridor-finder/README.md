@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Pilot tools (DECISIONS.md 4.3): blinded planning of your own screws,
+      'no screw fits' records, a logged reveal, your verdict on each screw,
+      and the comparison with the tool, in the plan and the report. Checked
+      in the Slicer harness; the pilot itself has not been run yet.
 - [x] Export of the passing screws for navigation (Brainlab) as one DICOM
       SEG on the original CT series (DECISIONS.md 8.3). Round trip checked
       in Slicer: CLINIC_0025 written as DICOM, loaded through a temporary

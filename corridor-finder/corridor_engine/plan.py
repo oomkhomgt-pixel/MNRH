@@ -66,6 +66,9 @@ class ScrewPlan:
     # The anatomy the screw was planned on (DECISIONS.md 3.4): "as scanned",
     # or "reduced" -- the virtual reduction recorded in Plan.reduction.
     anatomy: str = "as scanned"
+    # The surgeon's own verdict on this screw in the pilot (DECISIONS.md
+    # 4.2-4.3): {"breach": bool, "would_use": bool}, either may be absent.
+    surgeon_judgment: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -92,6 +95,10 @@ class Plan:
     # moving unit's transform, the remaining error per region, and who
     # proposed it (DECISIONS.md 3.4, 3.6). Empty when there is none.
     reduction: dict = field(default_factory=dict)
+    # The pilot (DECISIONS.md 4.3): when the surgeon planned blinded and
+    # when the tool's checks were revealed, the corridors where he found no
+    # screw, and the comparison with the tool. Empty outside a pilot.
+    pilot: dict = field(default_factory=dict)
     audit: list = field(default_factory=list)  # list[AuditEntry]
     software: dict = field(default_factory=dict)
     disclaimer: str = DISCLAIMER
@@ -128,6 +135,7 @@ class Plan:
             "screw_library": _to_jsonable(self.screw_library),
             "si_joint": _to_jsonable(self.si_joint),
             "reduction": _to_jsonable(self.reduction),
+            "pilot": _to_jsonable(self.pilot),
             "audit": audit,
             "software": _to_jsonable(self.software),
             "disclaimer": self.disclaimer,
@@ -155,6 +163,7 @@ class Plan:
             screw_library=data.get("screw_library", {}),
             si_joint=data.get("si_joint", {}),
             reduction=data.get("reduction", {}),
+            pilot=data.get("pilot", {}),
             audit=audit,
             software=data.get("software", {}),
             disclaimer=data.get("disclaimer", DISCLAIMER),

@@ -146,6 +146,12 @@ class LeftRightMismatchError(RuntimeError):
 # Coordinate conversion (the one place Slicer geometry meets the engine)
 # ==========================================================================
 
+def datetime_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _ras_to_engine(xyz_ras) -> np.ndarray:
     """Slicer RAS point -> engine world point: the same coordinates (the
     engine works in RAS), as a float array."""
@@ -344,6 +350,128 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._anatomies: Dict[str, dict] = {}
         self.reduction: Optional["reduction_mod.Reduction"] = None
         self.reduction_overlaps: Dict[str, int] = {}
+        # The blinded pilot (DECISIONS.md 4.3): while on, the tool offers
+        # nothing and says nothing about the surgeon's own screws.
+        self.pilot_blinded: bool = False
+
+    # ---- Pilot: the surgeon plans first, then sees the tool -------------
+
+    def _not_while_blinded(self, what: str) -> None:
+        if self.pilot_blinded:
+            raise RuntimeError(f"The pilot is blinded: {what} is hidden until you press Reveal.")
+
+    def start_blinded_pilot(self) -> None:
+        """From now until reveal_pilot(), suggestions, sacral levels, entry
+        areas and the tool's check of the surgeon's own screws are hidden."""
+        if self.plan is None:
+            raise RuntimeError("new_plan() must be called first")
+        self.pilot_blinded = True
+        self.plan.pilot = dict(self.plan.pilot, blinded_from=datetime_now(), revealed_at=None,
+                               no_screw=list(self.plan.pilot.get("no_screw", [])))
+        self.plan.log("pilot_start_blinded")
+
+    def reveal_pilot(self) -> None:
+        if self.plan is None or not self.pilot_blinded:
+            return
+        self.pilot_blinded = False
+        self.plan.pilot = dict(self.plan.pilot, revealed_at=datetime_now())
+        self.plan.log("pilot_reveal", after={"surgeon_screws": [s.screw_id for s in self.plan.screws
+                                                                if s.source == "surgeon"],
+                                             "no_screw": list(self.plan.pilot.get("no_screw", []))})
+
+    def add_surgeon_screw(self, corridor_id: str, side: str, entry_xyz, target_xyz, diameter_mm: float,
+                          margin_mm: Optional[float] = None, screw_id: Optional[str] = None) -> "plan_mod.ScrewPlan":
+        """A screw the surgeon places himself, checked by the same rules as
+        any other (the result is hidden while the pilot is blinded)."""
+        if self.plan is None:
+            raise RuntimeError("new_plan() must be called first")
+        margin = float(margin_mm if margin_mm is not None else self.screw_library["margin_default_mm"])
+        screw = plan_mod.ScrewPlan(
+            screw_id=screw_id or f"mine_{corridor_id}_{side}_{len(self.plan.screws) + 1}",
+            corridor_id=corridor_id, side=side,
+            entry_xyz=tuple(float(v) for v in entry_xyz), target_xyz=tuple(float(v) for v in target_xyz),
+            diameter_mm=float(diameter_mm), length_mm=1.0, margin_mm=margin, source="surgeon",
+            drr_views=[self._resolve_view(v, side) for v in self.corridor_defs[corridor_id].get("drr_views", [])],
+            tip_rule=self.tip_rule(corridor_id), anatomy=self.anatomy_state)
+        self._validate_plan_screw(screw)
+        self.plan.screws.append(screw)
+        self.plan.log("add_surgeon_screw", screw_id=screw.screw_id,
+                      after={"corridor_id": corridor_id, "side": side, "entry_xyz": list(screw.entry_xyz),
+                             "target_xyz": list(screw.target_xyz), "diameter_mm": screw.diameter_mm,
+                             "blinded": self.pilot_blinded})
+        return screw
+
+    def record_no_screw(self, corridor_id: str, side: str) -> None:
+        """The surgeon finds no screw for this corridor and side."""
+        if self.plan is None:
+            raise RuntimeError("new_plan() must be called first")
+        entry = [corridor_id, side]
+        no_screw = list(self.plan.pilot.get("no_screw", []))
+        if entry not in no_screw:
+            no_screw.append(entry)
+        self.plan.pilot = dict(self.plan.pilot, no_screw=no_screw)
+        self.plan.log("pilot_no_screw", after={"corridor_id": corridor_id, "side": side,
+                                               "blinded": self.pilot_blinded})
+
+    def set_surgeon_judgment(self, screw_id: str, breach: Optional[bool] = None,
+                             would_use: Optional[bool] = None) -> None:
+        """The surgeon's verdict on a screw, after the reveal."""
+        self._not_while_blinded("judging the tool's screws")
+        screw = next(s for s in self.plan.screws if s.screw_id == screw_id)
+        judgment = dict(screw.surgeon_judgment)
+        if breach is not None:
+            judgment["breach"] = bool(breach)
+        if would_use is not None:
+            judgment["would_use"] = bool(would_use)
+        screw.surgeon_judgment = judgment
+        self.plan.log("surgeon_judgment", screw_id=screw_id, after=judgment)
+
+    def pilot_comparison(self) -> List[dict]:
+        """For every corridor and side the surgeon planned (or found no screw
+        for): his screw, the tool's verdict on it, and the tool's own best
+        suggestion, with how far apart the two are (DECISIONS.md 4.2:
+        fits/does-not-fit agreement, diameter within one size)."""
+        self._not_while_blinded("the comparison")
+        if self.plan is None:
+            raise RuntimeError("new_plan() must be called first")
+        stocked = sorted(self.stocked_diameters())
+        pairs = sorted({(s.corridor_id, s.side) for s in self.plan.screws if s.source == "surgeon"}
+                       | {tuple(p) for p in self.plan.pilot.get("no_screw", [])})
+        rows = []
+        for cid, side in pairs:
+            mine = next((s for s in self.plan.screws if s.source == "surgeon"
+                         and (s.corridor_id, s.side) == (cid, side)), None)
+            row = {"corridor_id": cid, "side": side, "surgeon_found_screw": mine is not None}
+            if mine is not None:
+                v = mine.validation or {}
+                row.update(surgeon_screw=mine.screw_id, surgeon_diameter_mm=mine.diameter_mm,
+                           surgeon_length_mm=mine.length_mm, tool_says_surgeon_breach=bool(v.get("breach")),
+                           tool_clearance_of_surgeon_mm=v.get("min_clearance_mm"))
+            try:
+                tool = next((r for r in self.suggest_corridor(cid, side, mine.margin_mm if mine else None)
+                             if r.screw.fits), None)
+            except RuntimeError as exc:
+                tool, row["tool_note"] = None, str(exc)
+            row["tool_found_screw"] = tool is not None
+            if tool is not None:
+                tv = tool.validation
+                row.update(tool_diameter_mm=tool.screw.diameter_mm, tool_length_mm=tool.screw.length_mm,
+                           tool_clearance_mm=float(tv.min_clearance_mm))
+                if mine is not None and (mine.validation or {}).get("start_xyz") is not None:
+                    a = np.asarray(mine.validation["tip_xyz"]) - np.asarray(mine.validation["start_xyz"])
+                    b = np.asarray(tv.tip_xyz) - np.asarray(tv.start_xyz)
+                    cos = float(a @ b / max(np.linalg.norm(a) * np.linalg.norm(b), 1e-9))
+                    row["angle_between_deg"] = float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+                    row["entry_distance_mm"] = float(np.linalg.norm(
+                        np.asarray(mine.validation["start_xyz"]) - np.asarray(tv.start_xyz)))
+                    if mine.diameter_mm in stocked and tool.screw.diameter_mm in stocked:
+                        row["diameter_within_one_size"] = abs(stocked.index(mine.diameter_mm)
+                                                              - stocked.index(tool.screw.diameter_mm)) <= 1
+            row["fit_agrees"] = row["surgeon_found_screw"] == row["tool_found_screw"]
+            rows.append(row)
+        self.plan.pilot = dict(self.plan.pilot, comparison=rows)
+        self.plan.log("pilot_compare", after={"rows": len(rows)})
+        return rows
 
     # ---- Anatomy: as scanned, or virtually reduced ---------------------
 
@@ -767,6 +895,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         dysmorphic sacrum has no S1 transsacral corridor, and the answer there
         is S2 or S3, not a thinner S1 screw. Each level is searched as the
         plan would search it; the verdict names the level to use."""
+        self._not_while_blinded("which sacral level takes a screw")
         levels = {}
         for level in ("s1", "s2", "s3"):
             cid = f"transiliac_transsacral_{level}"
@@ -912,6 +1041,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         7.10)."""
         if self.labels_volume is None or self.frame is None:
             raise RuntimeError("segment() and detect_landmarks() must both succeed first")
+        self._not_while_blinded("the tool's suggestions")
 
         self.suggestion_notes = []
         spec = self.corridor_defs[corridor_id]
@@ -1342,6 +1472,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """Where this screw's entry may sit and still pass the same check the
         plan applies, on the anatomy it was planned on. Recomputed whenever
         the screw or the bones change."""
+        self._not_while_blinded("the room around an entry")
         with self.anatomy(getattr(screw, "anatomy", "as scanned")):
             key = (tuple(screw.entry_xyz), tuple(screw.target_xyz), screw.diameter_mm, screw.margin_mm, screw.tip_rule, self._labels_version)
             cached = self._entry_area_cache.get(screw.screw_id)
@@ -1547,7 +1678,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         for screw in self.plan.screws:
             before = dict(validation=screw.validation, length_mm=screw.length_mm)
             self._validate_plan_screw(screw, derived=True)
-            screw.guidance = self.screw_guidance(screw, with_entry_area=True)
+            screw.guidance = self.screw_guidance(screw, with_entry_area=not self.pilot_blinded)
             if (screw.length_mm, screw.validation.get("breach"), screw.validation.get("min_clearance_mm")) != (
                 before["length_mm"], before["validation"].get("breach"), before["validation"].get("min_clearance_mm")
             ):
@@ -1831,6 +1962,37 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.clearanceLabel.setWordWrap(True)
         planForm.addRow(_("Live clearance:"), self.clearanceLabel)
 
+        # --- Pilot (DECISIONS.md 4.3): the surgeon plans first, blinded ---
+        pilotBox = ctk.ctkCollapsibleButton()
+        pilotBox.text = _("Pilot: plan first, then see the tool")
+        pilotBox.collapsed = True
+        planForm.addRow(pilotBox)
+        pilotForm = qt.QFormLayout(pilotBox)
+        self.pilotStartButton = qt.QPushButton(_("Start blinded pilot"))
+        self.pilotStartButton.toolTip = _("Hide the tool's suggestions and its check of your own screws until Reveal.")
+        self.pilotRevealButton = qt.QPushButton(_("Reveal the tool"))
+        self.pilotRevealButton.enabled = False
+        pilotForm.addRow(self.pilotStartButton, self.pilotRevealButton)
+        self.pilotDiameterCombo = qt.QComboBox()
+        self.pilotPlaceButton = qt.QPushButton(_("Place my own screw (entry, then target)"))
+        pilotForm.addRow(_("Diameter:"), self.pilotDiameterCombo)
+        pilotForm.addRow(self.pilotPlaceButton)
+        self.pilotNoScrewButton = qt.QPushButton(_("No screw fits here (this corridor and side)"))
+        pilotForm.addRow(self.pilotNoScrewButton)
+        self.pilotBreachCombo = qt.QComboBox()
+        self.pilotBreachCombo.addItems([_("not judged"), _("no breach"), _("BREACH")])
+        self.pilotUseCombo = qt.QComboBox()
+        self.pilotUseCombo.addItems([_("not judged"), _("would use"), _("would not use")])
+        pilotForm.addRow(_("Your verdict on the selected screw:"), self.pilotBreachCombo)
+        pilotForm.addRow("", self.pilotUseCombo)
+        self.pilotCompareButton = qt.QPushButton(_("Compare with the tool"))
+        self.pilotCompareButton.enabled = False
+        pilotForm.addRow(self.pilotCompareButton)
+        self.pilotLabel = qt.QLabel("")
+        self.pilotLabel.setWordWrap(True)
+        pilotForm.addRow(self.pilotLabel)
+        self._pilot_place_node = None
+
         self.entryAreaButton = qt.QPushButton(_("Show where this entry may sit"))
         self.entryAreaButton.setToolTip(_("Slide this screw sideways and mark every entry that still passes the same check (takes a few seconds)."))
         self.entryAreaButton.enabled = False
@@ -1878,6 +2040,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.exportStlButton.clicked.connect(self.onExportStl)
         self.exportViewerButton.clicked.connect(self.onExportViewer)
         self.exportSegButton.clicked.connect(self.onExportSeg)
+        self.pilotStartButton.clicked.connect(self.onPilotStart)
+        self.pilotRevealButton.clicked.connect(self.onPilotReveal)
+        self.pilotPlaceButton.clicked.connect(self.onPilotPlace)
+        self.pilotNoScrewButton.clicked.connect(self.onPilotNoScrew)
+        self.pilotCompareButton.clicked.connect(self.onPilotCompare)
+        self.pilotBreachCombo.currentIndexChanged.connect(self.onPilotJudgment)
+        self.pilotUseCombo.currentIndexChanged.connect(self.onPilotJudgment)
 
         self._onCorridorChanged()
 
@@ -2334,6 +2503,14 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         row = next((i for i, s in enumerate(self.logic.plan.screws) if s.screw_id == screw_id), None)
         if row is not None and row < self.screwsList.count:
             self.screwsList.item(row).setText(self._screwListText(screw))  # the length follows the handles
+        self._showJudgment(screw)
+        if self.logic.pilot_blinded and screw.source == "surgeon":
+            length = float(np.linalg.norm(np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)))
+            self.clearanceLabel.setText(
+                _("{0}: your screw, {1} mm, {2:.0f} mm between its handles. The tool's check is hidden until "
+                  "Reveal.").format(screw.screw_id, screw.diameter_mm, length))
+            self.clearanceLabel.setStyleSheet("color: #374151;")
+            return
         v = screw.validation
         breach = v.get("breach")
         warnings = v.get("warnings") or []
@@ -2417,6 +2594,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         warning, green otherwise. The line's handles only steer it."""
         v = screw.validation or {}
         start, tip = v.get("start_xyz"), v.get("tip_xyz")
+        blinded = self.logic.pilot_blinded and screw.source == "surgeon"
+        if blinded:  # drawn where the surgeon put it, in grey: no verdict
+            start, tip = screw.entry_xyz, screw.target_xyz
         node = self._screw_model_nodes.get(screw.screw_id)
         if start is None or tip is None:
             if node is not None and node.GetScene() is not None:
@@ -2437,7 +2617,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._screw_model_nodes[screw.screw_id] = node
         node.SetAndObservePolyData(tube.GetOutput())
         display = node.GetDisplayNode()
-        if v.get("breach"):
+        if blinded:
+            display.SetColor(0.6, 0.6, 0.6)
+        elif v.get("breach"):
             display.SetColor(0.85, 0.15, 0.15)
         elif v.get("warnings"):
             display.SetColor(0.96, 0.62, 0.04)
@@ -2568,6 +2750,127 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         except Exception as exc:
             logging.error(traceback.format_exc())
             slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+
+    # ---- Pilot ----------------------------------------------------------
+
+    def _ensurePlan(self):
+        if self.logic.plan is None:
+            self.onNewPlan()
+
+    def onPilotStart(self) -> None:
+        self._ensurePlan()
+        self.logic.start_blinded_pilot()
+        self._clearSuggestions()
+        self.pilotDiameterCombo.clear()
+        self.pilotDiameterCombo.addItems([f"{d:g}" for d in sorted(self.logic.stocked_diameters())])
+        self.suggestButton.enabled = False
+        self.sacralLevelsButton.enabled = False
+        self.entryAreaButton.enabled = False
+        self.pilotStartButton.enabled = False
+        self.pilotRevealButton.enabled = True
+        self.pilotCompareButton.enabled = False
+        self.pilotLabel.setText(_("Blinded. Place your own screws, or say none fits; then press Reveal."))
+
+    def onPilotReveal(self) -> None:
+        if not slicer.util.confirmYesNoDisplay(_("Reveal the tool's checks and suggestions? This is recorded."),
+                                               windowTitle=_("Corridor Finder")):
+            return
+        self.logic.reveal_pilot()
+        self.suggestButton.enabled = True
+        self.sacralLevelsButton.enabled = True
+        self.pilotRevealButton.enabled = False
+        self.pilotCompareButton.enabled = True
+        for screw in self.logic.plan.screws:
+            self._updateScrewModel(screw)
+        if self._shownScrewId:
+            self._refreshClearanceLabel(self._shownScrewId)
+        self.pilotLabel.setText(_("Revealed. Run Suggest for each corridor you planned, add the tool's screw, "
+                                  "give your verdict on it, then Compare."))
+
+    def onPilotPlace(self) -> None:
+        """Two clicks: the entry, then the target."""
+        self._ensurePlan()
+        if self.pilotDiameterCombo.count == 0:
+            self.pilotDiameterCombo.addItems([f"{d:g}" for d in sorted(self.logic.stocked_diameters())])
+        node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsLineNode", "CF_my_screw")
+        self._pilot_place_node = node
+        self.addObserver(node, slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent, self.onPilotPointPlaced)
+        selection = slicer.app.applicationLogic().GetSelectionNode()
+        selection.SetActivePlaceNodeClassName("vtkMRMLMarkupsLineNode")
+        selection.SetActivePlaceNodeID(node.GetID())
+        slicer.app.applicationLogic().GetInteractionNode().SetPlaceModePersistence(0)
+        slicer.app.applicationLogic().GetInteractionNode().SetCurrentInteractionMode(
+            slicer.vtkMRMLInteractionNode.Place)
+
+    def onPilotPointPlaced(self, caller=None, event=None) -> None:
+        node = self._pilot_place_node
+        if node is None or node.GetNumberOfDefinedControlPoints() < 2:
+            return
+        self.removeObserver(node, slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent, self.onPilotPointPlaced)
+        entry, target = [0.0] * 3, [0.0] * 3
+        node.GetNthControlPointPosition(0, entry)
+        node.GetNthControlPointPosition(1, target)
+        slicer.mrmlScene.RemoveNode(node)
+        self._pilot_place_node = None
+        self._addSurgeonScrew(_ras_to_engine(entry), _ras_to_engine(target))
+
+    def _addSurgeonScrew(self, entry, target):
+        try:
+            self._syncLabelsFromSegmentation()
+            screw = self.logic.add_surgeon_screw(self._currentCorridorId(), self.sideCombo.currentText, entry, target,
+                                                 float(self.pilotDiameterCombo.currentText), self.marginSpin.value)
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+            return None
+        self._createScrewLineNode(screw)
+        self._updateScrewModel(screw)
+        self.screwsList.addItem(self._screwListText(screw))
+        self.screwsList.setCurrentRow(self.screwsList.count - 1)
+        return screw
+
+    def onPilotNoScrew(self) -> None:
+        self._ensurePlan()
+        self.logic.record_no_screw(self._currentCorridorId(), self.sideCombo.currentText)
+        self.pilotLabel.setText(_("Recorded: no screw fits {0} ({1}).").format(
+            self._currentCorridorId(), self.sideCombo.currentText))
+
+    def _showJudgment(self, screw) -> None:
+        judged = screw.surgeon_judgment or {}
+        for combo, key, yes_index in ((self.pilotBreachCombo, "breach", 2), (self.pilotUseCombo, "would_use", 1)):
+            combo.blockSignals(True)
+            value = judged.get(key)
+            combo.setCurrentIndex(0 if value is None else (yes_index if value else 3 - yes_index))
+            combo.enabled = not self.logic.pilot_blinded
+            combo.blockSignals(False)
+
+    def onPilotJudgment(self, *args) -> None:
+        if self.logic.plan is None or not self._shownScrewId or self.logic.pilot_blinded:
+            return
+        breach = {0: None, 1: False, 2: True}[self.pilotBreachCombo.currentIndex]
+        would_use = {0: None, 1: True, 2: False}[self.pilotUseCombo.currentIndex]
+        self.logic.set_surgeon_judgment(self._shownScrewId, breach=breach, would_use=would_use)
+
+    def onPilotCompare(self) -> None:
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        try:
+            rows = self.logic.pilot_comparison()
+        except Exception as exc:
+            logging.error(traceback.format_exc())
+            slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+            return
+        finally:
+            qt.QApplication.restoreOverrideCursor()
+        lines = []
+        for r in rows:
+            text = f"{r['corridor_id']} ({r['side']}): you {'placed one' if r['surgeon_found_screw'] else 'found none'}, "
+            text += f"the tool {'found one' if r['tool_found_screw'] else 'found none'}"
+            if r.get("angle_between_deg") is not None:
+                text += f"; {r['angle_between_deg']:.0f} degrees and {r['entry_distance_mm']:.0f} mm apart at the entry"
+            if r.get("tool_says_surgeon_breach"):
+                text += "; the tool calls yours a breach"
+            lines.append(text)
+        self.pilotLabel.setText("\n".join(lines) or _("Nothing to compare: place a screw or record none first."))
 
     def onExportSeg(self):
         if self.logic.plan is None:

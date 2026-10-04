@@ -665,12 +665,73 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check("not loaded from DICOM" in refused, f"refused: {refused[:90]!r}")
         check(not os.path.exists(os.path.join(OUT_DIR, f"{name}_screws.dcm")), "and nothing was written")
 
+    @step("Pilot: plan blinded, reveal, judge, compare")
+    def pilot():
+        # The surgeon places his own screw exactly where the tool's first
+        # screw is, so the comparison must find them 0 degrees and 0 mm apart.
+        n_before = len(logic.plan.screws)
+        w.onPilotStart()
+        check(logic.pilot_blinded and not w.suggestButton.enabled, "blinded: Suggest is off")
+        try:
+            logic.suggest_corridor(cid, side)
+            hidden = False
+        except RuntimeError:
+            hidden = True
+        check(hidden, "and the logic refuses suggestions while blinded, not only the panel")
+        w.corridorCombo.setCurrentIndex(w.corridorCombo.findData(cid))
+        w.sideCombo.setCurrentIndex(w.sideCombo.findText(side))
+        w.pilotDiameterCombo.setCurrentIndex(w.pilotDiameterCombo.findText(f"{screw.diameter_mm:g}"))
+        mine = w._addSurgeonScrew(np.asarray(screw.entry_xyz), np.asarray(screw.target_xyz))
+        check(mine is not None and mine.source == "surgeon" and "breach" in mine.validation,
+              "your own screw is added and checked by the same rules")
+        check("hidden until" in w.clearanceLabel.text and "clearance" not in w.clearanceLabel.text,
+              f"while blinded the panel does not say what the tool thinks of it ({w.clearanceLabel.text!r})")
+        check(mine.validation["min_clearance_mm"] == screw.validation["min_clearance_mm"],
+              "placed where the tool's screw is, the check gives the same clearance")
+        w.corridorCombo.setCurrentIndex(w.corridorCombo.findData("supra_acetabular"))
+        w.onPilotNoScrew()
+        slicer.util.confirmYesNoDisplay = lambda *a, **k: True
+        w.onPilotReveal()
+        check(not logic.pilot_blinded and logic.plan.pilot.get("revealed_at")
+              and logic.plan.audit[-1].action == "pilot_reveal", "reveal is recorded with its time")
+        w.screwsList.setCurrentRow(len(logic.plan.screws) - 1)
+        w.pilotBreachCombo.setCurrentIndex(1)
+        w.pilotUseCombo.setCurrentIndex(1)
+        check(mine.surgeon_judgment == {"breach": False, "would_use": True}, f"verdict stored ({mine.surgeon_judgment})")
+        rows = logic.pilot_comparison()
+        log(f"    comparison: {rows}")
+        row = next((r for r in rows if (r["corridor_id"], r["side"]) == (cid, side)), None)
+        check(row is not None and row["fit_agrees"] and row.get("entry_distance_mm", 99) < 1.0
+              and row.get("angle_between_deg", 99) < 1.0,
+              "the comparison finds your screw and the tool's in the same place")
+        check(any(r["corridor_id"] == "supra_acetabular" and not r["surgeon_found_screw"] for r in rows),
+              "and lists the corridor you found no screw for")
+        path = os.path.join(OUT_DIR, f"{name}_pilot_report.html")
+        logic.export_report(path)
+        html = open(path, encoding="utf-8").read()
+        check("<h2>Pilot</h2>" in html and "verdict: breach no, would use yes" in html,
+              "the report carries the pilot table and your verdict")
+        plan_mod.validate_plan(logic.plan)
+        # Leave the plan as the later steps expect it.
+        logic.plan.screws = logic.plan.screws[:n_before]
+        logic.plan.pilot = {}
+        w.screwsList.clear()
+        for s_ in logic.plan.screws:
+            w.screwsList.addItem(w._screwListText(s_))
+        node = w._screw_line_nodes.pop(mine.screw_id, None)
+        if node is not None:
+            slicer.mrmlScene.RemoveNode(node)
+        model = w._screw_model_nodes.pop(mine.screw_id, None)
+        if model is not None:
+            slicer.mrmlScene.RemoveNode(model)
+        w.corridorCombo.setCurrentIndex(w.corridorCombo.findData(cid))
+
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)
