@@ -685,10 +685,15 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         ts_logic.setupPythonRequirements()
 
         # TotalSegmentator "total" task class names -> corridor_engine label ids.
+        # TotalSegmentator v2 labels the S1 vertebral body apart from the
+        # rest of the sacrum ("vertebrae_S1"); without it the middle of S1
+        # was missing (the surgeon, CLINIC_0012, 2026-10-04), which is
+        # exactly where an S1 transsacral screw runs. It is sacrum.
         classes = {
             "hip_left": seg_mod.HIP_L,
             "hip_right": seg_mod.HIP_R,
             "sacrum": seg_mod.SACRUM,
+            "vertebrae_S1": seg_mod.SACRUM,
             "femur_left": seg_mod.FEMUR_L,
             "femur_right": seg_mod.FEMUR_R,
         }

@@ -585,31 +585,48 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
 
     @step("Virtual reduction: screws planned on it, checked on it, and tagged")
     def virtual_reduction():
-        # A known move (the right hip 3 mm laterally) stands in for the
-        # displacement engine's reduction, with a large error at the right
-        # sacroiliac joint so that any screw there must be warned about.
+        # A known move of the right hip stands in for the displacement
+        # engine's reduction, with a large error at the right sacroiliac
+        # joint so that any screw there must be warned about. Which small
+        # move leaves this corridor open depends on the CT (3 mm lateral
+        # closes it on the sample CT, 3 mm cephalad on the phantom), and
+        # what is tested here is the machinery, so the first move after
+        # which the corridor still fits is used.
         before = dict(screw.validation)
         hip = logic.labels_volume.array == seg.HIP_R
-        shift = np.eye(4)
-        shift[0, 3] = 3.0
-        # The right sacroiliac joint as the reduction reports it: the hip
-        # bone's surface facing the sacrum, where it lands once moved.
         from scipy import ndimage as ndi
         to_sacrum = ndi.distance_transform_edt(logic.labels_volume.array != seg.SACRUM,
                                                sampling=logic.labels_volume.spacing[::-1])
-        facing = logic.labels_volume.mask_voxel_centers_world(hip & (to_sacrum <= 3.0)) + [3.0, 0.0, 0.0]
-        reduction = reduction_mod.Reduction(
-            moves=[reduction_mod.Move("hip_right", hip, shift)], residual_mm={"si_right": 50.0},
-            region_xyz={"si_right": facing}, source="workflow check")
-        try:
-            logic.apply_reduction(reduction)
-            refused = False
-        except RuntimeError:
-            refused = True
-        check(refused and logic.anatomy_state == "as scanned",
-              "a reduction the surgeon has not accepted is refused (3.1)")
-        reduction.accepted_by = "workflow check (phantom test, not a surgeon)"
-        overlaps = logic.apply_reduction(reduction)
+        surface = logic.labels_volume.mask_voxel_centers_world(hip & (to_sacrum <= 3.0))
+        fits, refusal_checked = [], False
+        for axis_index, words in ((0, "3 mm lateral"), (2, "3 mm cephalad"), (1, "3 mm anterior")):
+            shift = np.eye(4)
+            shift[axis_index, 3] = 3.0
+            offset = np.zeros(3)
+            offset[axis_index] = 3.0
+            # The joint as the reduction reports it: the hip bone's surface
+            # facing the sacrum, where it lands once moved.
+            facing = surface + offset
+            reduction = reduction_mod.Reduction(
+                moves=[reduction_mod.Move("hip_right", hip, shift)], residual_mm={"si_right": 50.0},
+                region_xyz={"si_right": facing}, source="workflow check")
+            if not refusal_checked:
+                try:
+                    logic.apply_reduction(reduction)
+                    refused = False
+                except RuntimeError:
+                    refused = True
+                check(refused and logic.anatomy_state == "as scanned",
+                      "a reduction the surgeon has not accepted is refused (3.1)")
+                refusal_checked = True
+            reduction.accepted_by = "workflow check (phantom test, not a surgeon)"
+            overlaps = logic.apply_reduction(reduction)
+            results = logic.suggest_corridor(cid, side, w.marginSpin.value)
+            fits = [r for r in results if r.screw.fits]
+            log(f"    move {words}: {cid}/{side} {'fits' if fits else 'does not fit'} on the reduced anatomy")
+            if fits:
+                break
+            logic.clear_reduction()
         moved = logic.labels_volume.array == seg.HIP_R
         check(logic.anatomy_state == "reduced" and not np.array_equal(moved, hip),
               "applying the reduction moves the hip bone and switches to the reduced anatomy")
@@ -618,8 +635,6 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         logic._validate_plan_screw(screw, derived=False)
         check(screw.anatomy == "as scanned" and screw.validation["min_clearance_mm"] == before["min_clearance_mm"],
               "a screw planned before the reduction is still checked on the bones as scanned")
-        results = logic.suggest_corridor(cid, side, w.marginSpin.value)
-        fits = [r for r in results if r.screw.fits]
         if check(bool(fits), f"{cid}/{side} is suggested on the reduced anatomy"):
             reduced = logic.add_screw_to_plan(fits[0], cid, side, "reduced_1", w.marginSpin.value)
             v = reduced.validation
