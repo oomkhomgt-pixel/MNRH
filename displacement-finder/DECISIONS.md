@@ -365,6 +365,24 @@ over it.
 | 7d.5 | **A band is dense (impacted)** when it is denser than **the same place on the mirrored intact side of the same patient** by a measured margin: self-calibrating to each patient's bone and scanner. With both sides injured, against the patient's own cancellous bone nearby, and it says so. | The patient's own nearby cancellous bone always (normal sclerosis, as at the SI joint, could read as impaction); a fixed HU threshold (slice 1 found 44-65% of cancellous bone under 150 HU). |
 | 7d.6 | **Reducing an impacted fracture**: the cortical rims beyond the impacted zone are fitted together, and the length lost to impaction comes from the mirrored side. Where the reduction rests on the mirror, it says so and carries the mirror's floor (the table under section 1); where the rims cannot pin it, the region is unconstrained (inf). | The mirror alone there; leaving it unreduced. |
 
+## 7e. After slice 1c on the real cases (decided 2026-10-04)
+
+Slice 1c finds fractures from the CT on phantoms (a lucent line painted
+over by the label; impacted bands, with depth to within 0.2-1.0 mm). On
+the four CLINIC cases it found **no** lateral sacral fracture the surgeon
+read, and he read **every** sacral surface it did find as **not a
+fracture**: CLINIC_0025 sacrum_1 (lucent, transverse), CLINIC_0060
+sacrum_1 (impacted band along the junction of two sacral segments) and
+sacrum_2 (gap near the top of the right ala). On real sacra the CT detector
+is so far 0 of 3 right where it fires, and it has missed every lateral
+sacral fracture read.
+
+| # | Decision | Rejected |
+| --- | --- | --- |
+| 7e.1 | **For now, a sacral fracture is found from the surgeon's marks** (3 or more clicks in Corridor Finder, its fracture.py), which become the fracture surface. They are labelled as marks, never as found. This unblocks the reduction and the outcome number on real cases. **The CT detector keeps improving behind it**, and is reported beside the marks wherever both exist. | Improving the detector with no marks (nothing works on real cases until it does); trying a learned fracture-segmentation model first. |
+| 7e.2 | **Surfaces lying along the junctions between fused sacral segments** (S1-S2, S2-S3 and so on: remnant disc spaces, present in every adult sacrum) are **flagged as a probable disc remnant** on the review sheet, **not dropped**: a true transverse sacral fracture can run there too, and the surgeon decides. | Dropping them (a transverse fracture at that level would vanish); reporting them as found (every adult sacrum would show fractures). |
+| 7e.3 | **The phantom bounds stop at 27-28 mm**, not the 30 mm of 7d.2: at 30 mm the phantom fits gave no usable number. Beyond the limit a region is unconstrained, with the reason. | Reworking the phantoms or the fit until 30 mm gives a number. |
+
 ## 8. Data
 
 | # | Decision |
