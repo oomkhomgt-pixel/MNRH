@@ -54,11 +54,14 @@ taken: along it each unit stays where it started.
 
 **What each region reports** (agreed with Corridor Finder): the larger of
 the 90th-percentile mismatch after the fit and the error measured on
-phantoms for that kind of region (PHANTOM_BOUND_MM); ``inf`` when the
-region is unconstrained, with the reason in the notes, never a small
-number. The SI joint and the symphysis are measured on the reduced labels
-the way their targets were (si_joint.measure_joint_widths;
-symphysis_gap below). A region is unconstrained when:
+phantoms for that kind of region at its displacement (phantom_bound_mm,
+DECISIONS 7d.2: measured per displacement from 0 to 30 mm, read where the
+fit found the region's units displaced), and where its reduction rests on
+the mirror, the mirror's floor (below); ``inf`` when the region is
+unconstrained, with the reason in the notes, never a small number. The SI
+joint and the symphysis are measured on the reduced labels the way their
+targets were (si_joint.measure_joint_widths; symphysis_gap below). A region
+is unconstrained when:
 
 - it has too little rim or joint surface to pair (fewer than MIN_PAIRS,
   the engine's minimum for a rigid fit);
@@ -71,10 +74,13 @@ symphysis_gap below). A region is unconstrained when:
 - the fit leaves it as scanned (a fracture with both faces on one unit,
   below), or the surgeon marked a fracture there and no surface was found;
 - it is a whole unit nothing pins (below);
-- the fit moves its two sides relative to each other further than on any
-  phantom PHANTOM_BOUND_MM was measured on (PHANTOM_TRAVEL_MM), or moves
-  one of its units that far at another region: the bound says nothing
-  beyond the displacements it was measured on.
+- the fit moves its two sides relative to each other further than any
+  phantom its bound was measured on reported a number at
+  (PHANTOM_TRAVEL_MM: 27-28 mm; the phantoms went to 30 mm), or moves one
+  of its units that far at another region: the bound says nothing beyond
+  the displacements it was measured on;
+- it is an impacted fracture and there is no mirror to take the length
+  lost to impaction from (below).
 
 Each region's error is the error of its two sides **relative to each
 other**: at a fracture between a fragment and its parent, how far the
@@ -101,8 +107,23 @@ unconstrained and placed at those mark points, each moved with the unit
 it lies on: the fit knows nothing about the fracture there, and a missing
 region would read as safe.
 
+**Impacted fractures** (7d.6). A fracture found as a dense band
+(fracture_surface.CT_IMPACTED) has no gap: its two faces lie either side
+of bone driven into itself. Its rims are fitted along the fracture as any
+fracture's are, but across it they do not meet: each rim point is held as
+far from its partner face as at the mirror start, the length lost to
+impaction taken from the mirrored side. Such a region rests on the mirror:
+its notes say so and its error is at least the mirror's floor
+(MIRROR_FLOOR_MM). So does any region whose two sides, or any unit whose
+pose, a motion only those rows pin moves (``unit_<name>_on_mirror``, over
+all of its bone); with both sides injured there is no mirror, and the
+impacted region is unconstrained. An impacted surface a sacral split was
+cut along is fitted on its own two faces, not as the split's boundary,
+whose cut runs through the band and would hold the impaction as scanned.
+
 **What the phantoms show** (1.5 mm voxels; the README lists each case,
-PHANTOM_BOUND_MM the worst, PHANTOM_TRAVEL_MM how far they were displaced):
+PHANTOM_BOUND_TABLE_MM the worst per displacement, PHANTOM_TRAVEL_MM how far
+they were displaced):
 a fracture surface a few centimetres across is a short lever for a whole
 hemipelvis, and a degree off at the sacrum is several millimetres at the
 pubis. The fit's own cost is lower at the pose it lands on than at the
@@ -133,7 +154,7 @@ from scipy.spatial import cKDTree
 from . import landmarks as landmarks_mod
 from . import segmentation as seg
 from . import si_joint
-from .fracture_surface import (MARK_MATCH_MM, MAX_FRACTURE_SLOT_MM, RIM_MM, Face, FractureSurface,
+from .fracture_surface import (CT_IMPACTED, MARK_MATCH_MM, MAX_FRACTURE_SLOT_MM, RIM_MM, Face, FractureSurface,
                                FractureSurfaces, SacralSplit, _Normals, _rims, _whole_faces)
 from .fragments import MIN_PAIRS, FragmentSet, _surface
 from .mirror import surface_points
@@ -194,42 +215,79 @@ NULL_RELATIVE_SHARE = 0.25
 # calibrated on real cases.
 RIMS_DISAGREE_MM = 3.0
 
-# The error measured on phantoms for each kind of region: the worst landing
-# error of a region's side relative to its other side, before rounding onto
-# the grid, over the recovery phantoms of tests/python/test_congruence.py
-# (1.5 mm voxels), wherever the region reported a number, rounded up to half
-# a millimetre. The family: each sacral fracture (right, left, both) hinged
-# 2-3 degrees and slid 1-1.5 mm, or 6 mm up, back or forward, or 4 mm down;
-# the iliac wing moved 5 mm, or opened 2-3 mm and slid 4-6 mm along its
-# fracture; each from the exact start and a mirror start 5 mm and 3 degrees
-# off; and the crushed sacral fracture. Fracture 6.24 mm: on a 6 mm forward
-# or back slide the split gives 10-16 voxels of the lateral fragment, at the
-# cut where the faces touch and within half a voxel of the fracture, to the
-# central sacrum, and they stay 6 mm from home (the fit itself lands within
-# 4.62 mm, the iliac wing opened 2 mm and slid 4 mm). Symphysis: measured
-# 3.38 mm on this family, kept at the 6.26 mm an earlier fit measured on the
-# half-crushed rim. The phantom never measures the SI joint where it is what
-# pins a hip (its SI joint is flat; with a sacral split the joint moves with
-# its unit), so the SI joint takes the largest bound measured. Measured on
-# the same phantoms the round-trip test checks, not on held-out ones, and at
-# one voxel size.
-PHANTOM_BOUND_MM = {"fracture": 6.5, "symphysis": 6.5, "si": 6.5}
-# The furthest the fit moved a region's two sides relative to each other on
-# that family where the region reported a number, rounded up to half a
-# millimetre (fracture 7.99 mm, symphysis 9.31 mm): the bound was measured up
-# to there and says nothing past it. A region the fit moves further is
+# The error measured on phantoms for each kind of region, per displacement
+# (DECISIONS 7d.2): the worst landing error of a region's side relative to
+# its other side, before rounding onto the grid, wherever the region reported
+# a number, over the 117 fits displacement-finder/tools/phantom_bound.py runs
+# (1.5 mm voxels; the README lists them): every recovery phantom of slice 1b
+# (each sacral fracture, right, left and both, hinged 2-3 degrees and slid
+# 1-1.5 mm, 6 mm up, back or forward or 4 mm down; the iliac wing moved 5 mm,
+# or opened 2-3 mm and slid 4-6 mm; the crushed sacral fracture), the same
+# fractures displaced 5, 10, 15, 20, 25 and 30 mm (each sacral fracture
+# hinged 3 degrees and slid up or back, both at once, the iliac wing opened
+# 2 mm, turned 3 degrees and slid laterally or forward), and the impacted
+# sacral fractures; each unilateral one from the exact start and a mirror
+# start 5 mm and 3 degrees off. A region's displacement is how far the fit
+# moved its units, relative to what they are joined to, at it or at any
+# other region (RegionFit.displacement_mm). PHANTOM_BOUND_MEASURED_MM is, at
+# each displacement of PHANTOM_DISPLACEMENTS_MM, the worst landing of a
+# region whose displacement lies between the displacements either side of it.
+# PHANTOM_BOUND_TABLE_MM is that rounded up to half a millimetre and never
+# smaller than at a smaller displacement. Between two displacements the bound
+# is interpolated, so it is never lower than any landing measured between
+# them: both displacements' windows hold that landing.
+# - Fracture: the worst is the sacral split's own error, which grows with the
+#   slide. Where the faces touch, the plane carries the cut across bone with
+#   no gap in it, and voxels within half a voxel of the fracture go to the
+#   wrong piece and stay as far from home as the slide: 6.24 mm at a 6 mm
+#   slide, 10.86 at 10, 15.37 at 15, 25.13-25.67 at 25 (slid back or up).
+#   The fit itself lands far closer (the same fractures slid up, 1.2-2.3 mm).
+#   So past about 10 mm a fracture's bound is about its displacement.
+# - Symphysis: 12.22 mm at 10.5 mm, the bilateral phantom slid 10 mm, where
+#   the fit stops short with nothing to start from; at most 4.87 mm on every
+#   unilateral fit to 27 mm. At 0-5 mm it keeps the 6.26 mm an earlier fit
+#   measured on the half-crushed rim (slice 1b kept it; the present fit reads
+#   no number there), so it is not lowered.
+# - SI joint: never measured where it is what pins a hip (its regions here
+#   have both sides on one unit and land 0), so it takes the largest of the
+#   others at each displacement.
+# Measured on the same phantoms the round-trip tests check, not on held-out
+# ones, at one voxel size; the smallest displacement run is 3.9 mm, so the
+# bound at 0 is the one measured between 0 and 5 mm.
+PHANTOM_DISPLACEMENTS_MM = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+PHANTOM_BOUND_MEASURED_MM = {"fracture": (1.86, 6.24, 10.86, 15.37, 25.13, 25.67, 25.67),
+                             "symphysis": (6.26, 6.26, 12.22, 12.22, 4.87, 3.82, 3.02),
+                             "si": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)}
+PHANTOM_BOUND_TABLE_MM = {"fracture": (2.0, 6.5, 11.0, 15.5, 25.5, 26.0, 26.0),
+                          "symphysis": (6.5, 6.5, 12.5, 12.5, 12.5, 12.5, 12.5),
+                          "si": (6.5, 6.5, 12.5, 15.5, 25.5, 26.0, 26.0)}
+# The furthest displacement at which a region reported a number on that
+# family, rounded up to half a millimetre: the bound says nothing past it. The
+# phantoms were displaced to 30 mm (7d.2), but at 30 mm no region reported a
+# number: the sacral fracture slid 30 mm up was left unresisted along it, slid
+# back it moved its unit further than 30 mm, the iliac wing slid 30 mm
+# laterally left no fracture surface, and the bilateral fit's rims disagreed.
+# The furthest that reported one were the iliac wing slid 25 mm (fracture
+# 27.69 mm) and the sacral fracture slid 25 mm back (symphysis 26.76 mm). The
+# SI joint takes the largest. A region the fit moves further is
 # unconstrained, and so is every region of a unit that is (its pose is
-# outside the family). On the sacral phantom slid 10 mm up from the wrong
-# mirror start the fit stopped short, its symphysis moved only 6.5 mm and
-# read the 6.5 mm bound while landing 8.4 mm off; its fracture had moved
-# 10.2 mm. The SI joint, never measured, takes the largest.
-PHANTOM_TRAVEL_MM = {"fracture": 8.0, "symphysis": 9.5, "si": 9.5}
+# outside the family).
+PHANTOM_TRAVEL_MM = {"fracture": 28.0, "symphysis": 27.0, "si": 28.0}
 
 # DECISIONS, the table under section 1: the median maximum travel of a
 # normal hemipelvis onto its mirror, relative to the sacrum (which cancels
 # any rigid error of the plane), at the SI joint, at the symphysis, and over
-# the whole hemipelvis (taken for a fracture, which is not in the table).
-MIRROR_FLOOR_MM = {"si": 4.7, "symphysis": 9.6, "fracture": 11.8}
+# the whole hemipelvis (taken for a fracture, which is not in the table, and
+# for a whole unit whose pose rests on the mirror).
+MIRROR_FLOOR_MM = {"si": 4.7, "symphysis": 9.6, "fracture": 11.8, "unit": 11.8}
+# An impacted fracture's rims are paired across its dense band (7d.6): reduced,
+# its two faces lie about twice the band's depth apart (each fragment's bone
+# in the overlap goes back to its own side), so the reach grows by that.
+IMPACTED_REACH_PER_DEPTH = 2.0
+# Along an impacted fracture, a rim point and its partner give a sliding row
+# only where their outer cortex faces within 60 degrees of the same way
+# (_pairs). Chosen, not calibrated.
+IMPACTED_SLIDE_COS = 0.5
 
 SOURCE = "displacement engine congruence fit"
 NOT_ACCEPTED = ("NOT ACCEPTED: this reduction is proposed automatically; nothing may be planned on it until the "
@@ -248,6 +306,17 @@ UNIT_COVER_CELL_MM = REGION_RADIUS_MM / (2.0 * np.sqrt(3.0))
 # unmatched mark is within the warning radius of a region point.
 MARK_COVER_STEP_MM = REGION_RADIUS_MM / 2.0
 STATIC = -1
+
+
+def phantom_bound_mm(kind: str, displacement_mm: float) -> float:
+    """The error measured on phantoms for a region of this kind displaced
+    this far (PHANTOM_BOUND_TABLE_MM, interpolated); inf past
+    PHANTOM_TRAVEL_MM, where nothing was measured."""
+    if kind not in PHANTOM_BOUND_TABLE_MM:
+        raise ValueError(f"no phantom bound for a region of kind {kind!r}")
+    if not np.isfinite(displacement_mm) or displacement_mm > PHANTOM_TRAVEL_MM[kind]:
+        return float("inf")
+    return float(np.interp(max(float(displacement_mm), 0.0), PHANTOM_DISPLACEMENTS_MM, PHANTOM_BOUND_TABLE_MM[kind]))
 
 
 # --------------------------------------------------------------------------
@@ -325,8 +394,8 @@ class RegionFit:
     units: Tuple[str, ...]  # the units it joins ("static" for bone that does not move)
     pairs: int  # pairs across it after the fit
     mismatch_p90_mm: float  # 90th percentile mismatch after the fit; nan when not measured
-    bound_mm: float  # PHANTOM_BOUND_MM for its kind; nan for a whole unit, which has none
-    residual_mm: float  # max(mismatch, bound), or inf when unconstrained
+    bound_mm: float  # phantom_bound_mm at its displacement; nan for a whole unit, which has none
+    residual_mm: float  # max(mismatch, bound, the mirror's floor where it rests on it), or inf when unconstrained
     xyz: np.ndarray  # (n, 3) world mm, its surface in the reduced anatomy
     unconstrained: str = ""  # why it is inf; "" when it is not
     notes: List[str] = field(default_factory=list)
@@ -337,12 +406,24 @@ class RegionFit:
     sides: Tuple[np.ndarray, np.ndarray] = (np.zeros((0, 3)), np.zeros((0, 3)))
     side_units: Tuple[np.ndarray, np.ndarray] = (np.zeros(0, int), np.zeros(0, int))
     travel_mm: float = float("nan")  # how far the fit moves its two sides relative to each other, at most
+    # How far the fit moved its units, at it or at any other region: the
+    # displacement its bound is read at (7d.2). nan for a whole unit.
+    displacement_mm: float = float("nan")
+    # The mirror's normal floor for it (MIRROR_FLOOR_MM) where its reduction
+    # rests on the mirror (7d.6), which its residual is never below; nan
+    # where it does not.
+    floor_mm: float = float("nan")
 
     def sentence(self) -> str:
         if self.unconstrained:
             return f"{self.name}: UNCONSTRAINED ({self.unconstrained})"
+        if self.kind == "unit":
+            return (f"{self.name}: {self.residual_mm:.1f} mm (rests on the mirror: the mirror's normal floor over a "
+                    f"whole hemipelvis)")
         return (f"{self.name}: {self.residual_mm:.1f} mm (90th-percentile mismatch {self.mismatch_p90_mm:.1f} mm, "
-                f"phantom bound {self.bound_mm:.1f} mm, {self.pairs} pairs, moved {self.travel_mm:.1f} mm)")
+                f"phantom bound {self.bound_mm:.1f} mm at {self.displacement_mm:.1f} mm displaced, {self.pairs} pairs, "
+                f"moved {self.travel_mm:.1f} mm"
+                + (f", rests on the mirror, floor {self.floor_mm:.1f} mm" if np.isfinite(self.floor_mm) else "") + ")")
 
 
 @dataclass
@@ -387,11 +468,15 @@ class _Side:
     unit: np.ndarray  # (n,) unit index, STATIC for bone that does not move
     half_layer: Optional[np.ndarray] = None  # (n,) mm, fracture faces only (see _half_layer)
     inplane: Optional[np.ndarray] = None  # (n, 3) unit outer normal along the fracture; 0 where unreliable
+    # (n,) mm, an impacted fracture's rims only: how far beyond one voxel
+    # layer each point lay from its partner face at the mirror start (7d.6).
+    across: Optional[np.ndarray] = None
 
     def subset(self, keep: np.ndarray) -> "_Side":
         return _Side(self.points[keep], self.normals[keep], self.unit[keep],
                      None if self.half_layer is None else self.half_layer[keep],
-                     None if self.inplane is None else self.inplane[keep])
+                     None if self.inplane is None else self.inplane[keep],
+                     None if self.across is None else self.across[keep])
 
 
 @dataclass
@@ -404,6 +489,21 @@ class _Region:
     reach_mm: float = RIM_PAIR_MAX_MM
     where: Optional[_Side] = None  # every point that says where the region is (fractures: whole faces)
     faces: Optional[Tuple[_Side, _Side]] = None  # fractures: the whole faces, as scanned
+    # An impacted fracture (fracture_surface.CT_IMPACTED, 7d.6): its band's
+    # depth, and the distance across it, rim to partner face, that the fit
+    # closes it to: its distance at the mirror start. None: not taken (no
+    # mirror, or no rim pairs there), and the reason; the fit then has no row
+    # across it.
+    depth_mm: Optional[float] = None
+    across_mm: Optional[float] = None
+    no_across: str = ""
+
+    @property
+    def impacted(self) -> bool:
+        return self.depth_mm is not None
+
+
+_ROW_FIELDS = ("region", "p", "p0", "q", "q0", "n", "target", "u", "v", "pair", "mirror")
 
 
 @dataclass
@@ -420,10 +520,14 @@ class _Rows:
     u: np.ndarray
     v: np.ndarray
     pair: np.ndarray  # rows of one pair share an id (a rim pair has a normal and a sliding row)
+    mirror: np.ndarray  # bool: a row across an impacted fracture, whose target comes from the mirror (7d.6)
 
     @property
     def deviation(self) -> np.ndarray:
         return np.einsum("ij,ij->i", self.p - self.q, self.n) - self.target
+
+    def subset(self, keep: np.ndarray) -> "_Rows":
+        return _Rows(*(getattr(self, k)[keep] for k in _ROW_FIELDS))
 
 
 def _unit_of(voxels: np.ndarray, units: Sequence[Unit]) -> np.ndarray:
@@ -506,7 +610,10 @@ def _fracture_region(labels_vol: Volume, s: FractureSurface, units: Sequence[Uni
                            _half_layer(normals, labels_vol.spacing), inplane))
     a, b = sides
     where = _Side(np.vstack([a.points, b.points]), np.vstack([a.normals, b.normals]), np.concatenate([a.unit, b.unit]))
-    return _Region(s.region, "fracture", a.subset(s.faces[0].rim), b.subset(s.faces[1].rim), where=where, faces=(a, b))
+    depth = float(s.impaction_depth_mm) if s.source == CT_IMPACTED and s.impaction_depth_mm is not None else None
+    reach = RIM_PAIR_MAX_MM + (IMPACTED_REACH_PER_DEPTH * depth if depth is not None else 0.0)
+    return _Region(s.region, "fracture", a.subset(s.faces[0].rim), b.subset(s.faces[1].rim), reach_mm=reach,
+                   where=where, faces=(a, b), depth_mm=depth)
 
 
 def _split_surface(labels_vol: Volume, split: SacralSplit, mine: Sequence[FractureSurface]) -> FractureSurface:
@@ -617,7 +724,7 @@ def _pairs(region: _Region, poses: np.ndarray, index: int,
     the pairs matched now)."""
     if matched is None:
         matched = _match(region, poses)
-    rows = {k: [] for k in ("p", "p0", "q", "q0", "n", "target", "u", "v")}
+    rows = {k: [] for k in ("p", "p0", "q", "q0", "n", "target", "u", "v", "mirror")}
     pair_ids = []
     first = 0
     for (src, dst), (i, j) in zip(_directions(region), matched):
@@ -628,15 +735,23 @@ def _pairs(region: _Region, poses: np.ndarray, index: int,
         ids = first + np.arange(len(i))
         first += len(i)
 
-        def add(sel, n, target):
+        def add(sel, n, target, mirror=False):
             for k, x in zip(rows, (p[sel], src.points[i][sel], q[sel], dst.points[j][sel], n, target,
-                                   src.unit[i][sel], dst.unit[j][sel])):
+                                   src.unit[i][sel], dst.unit[j][sel], np.full(int(np.sum(sel)), mirror))):
                 rows[k].append(x)
             pair_ids.append(ids[sel])
 
         every = np.ones(len(i), dtype=bool)
         if region.kind == "fracture":
-            add(every, n_q, src.half_layer[i] + dst.half_layer[j])
+            if not region.impacted:
+                add(every, n_q, src.half_layer[i] + dst.half_layer[j])
+            elif region.across_mm is not None:
+                # 7d.6: across the band the bone is driven into itself, so
+                # its rims do not meet; each rim point is held as far from its
+                # partner face as at the mirror start (_set_off), the length
+                # lost to impaction taken from the mirrored side. Along the
+                # fracture the rims meet as at any fracture.
+                add(every, n_q, src.half_layer[i] + dst.half_layer[j] + src.across[i], mirror=True)
             # A sliding row needs both ends on the outer cortex. A face voxel
             # that is a rim only because exposed fracture surface lies beside
             # it (and was taken for outer surface) is no outline: on the left
@@ -644,6 +759,15 @@ def _pairs(region: _Region, poses: np.ndarray, index: int,
             # with the partner's top cortex and pulled 8-9.5 mm toward the
             # scanned pose.
             slide = (np.linalg.norm(m_q, axis=1) > 0) & (np.linalg.norm(m_p, axis=1) > 0)
+            if region.impacted:
+                # An impacted fracture's two faces are two cross-sections of
+                # the bone, twice the band's depth apart, whose outlines need
+                # not match: on the impacted phantom the medial face, driven
+                # toward the sacral canal, has the canal's floor in its rim
+                # and the lateral face has not, and those rim points paired
+                # with the partner's outer outline 6 mm off. A sliding row
+                # needs both ends on cortex facing the same way.
+                slide &= np.einsum("ij,ij->i", m_p, m_q) >= IMPACTED_SLIDE_COS
             add(slide, m_q[slide], np.zeros(int(slide.sum())))
         else:
             # A joint's target is a width (7c.2, 7c.7): it says nothing about
@@ -660,15 +784,81 @@ def _pairs(region: _Region, poses: np.ndarray, index: int,
     if not rows["p"]:
         empty3 = np.zeros((0, 3))
         return _Rows(np.zeros(0, int), empty3, empty3, empty3, empty3, empty3, np.zeros(0), np.zeros(0, int),
-                     np.zeros(0, int), np.zeros(0, int))
+                     np.zeros(0, int), np.zeros(0, int), np.zeros(0, dtype=bool))
     cat = {k: np.concatenate(v) for k, v in rows.items()}
     return _Rows(np.full(len(cat["p"]), index), cat["p"], cat["p0"], cat["q"], cat["q0"], cat["n"], cat["target"],
-                 cat["u"].astype(int), cat["v"].astype(int), np.concatenate(pair_ids))
+                 cat["u"].astype(int), cat["v"].astype(int), np.concatenate(pair_ids), cat["mirror"].astype(bool))
 
 
 def _concat(rows: Sequence[_Rows]) -> _Rows:
-    return _Rows(*(np.concatenate([getattr(r, k) for r in rows]) for k in
-                   ("region", "p", "p0", "q", "q0", "n", "target", "u", "v", "pair")))
+    return _Rows(*(np.concatenate([getattr(r, k) for r in rows]) for k in _ROW_FIELDS))
+
+
+def _set_off(region: _Region, poses: np.ndarray) -> None:
+    """An impacted fracture's rims made ready to fit (7d.6), at the mirror
+    start ``poses``. Each rim point is moved along its face's normal to its
+    face's level there (the mean over the whole face within
+    FACE_NORMAL_RADIUS_MM), and then by half of how far the two faces lie
+    apart at the mirror start beyond one voxel layer, so that the rims are
+    paired as any fracture's rims, each with the partner beside it along the
+    fracture: a CT surface's faces are the first bone either side of a band
+    read from noisy HU, two voxel layers deep in places, and paired across the
+    band as they lay, a rim point's nearest partner was the one across the
+    least unevenness, not the one beside it. Each rim point is then held as
+    far from its partner face as it lies at the mirror start (_Side.across):
+    with one distance for the whole fracture, a band read thicker at one end
+    than the other tilted the fit, which walked 3.3 mm and 1.9 degrees from
+    the exact start on the impacted phantom. The whole faces, which say where
+    the region is and what its error is measured on, are not moved."""
+    for name, face in (("a", region.faces[0]), ("b", region.faces[1])):
+        rim = getattr(region, name)
+        normal = rim.normals.mean(axis=0)
+        normal /= max(float(np.linalg.norm(normal)), 1e-9)
+        level = face.points @ normal
+        near = cKDTree(face.points).query_ball_point(rim.points, FACE_NORMAL_RADIUS_MM)
+        smooth = np.array([level[i].mean() for i in near])
+        off = 0.5 * region.across_mm - float(np.mean(rim.half_layer))
+        moved = rim.points + (smooth - rim.points @ normal + off)[:, None] * normal
+        setattr(region, name, _Side(moved, rim.normals, rim.unit, rim.half_layer, rim.inplane, np.zeros(len(moved))))
+    region.reach_mm = RIM_PAIR_MAX_MM
+    beyond = []
+    for (src, dst), (i, j) in zip(_directions(region), _match(region, poses)):
+        extra = np.full(len(src.points), np.nan)
+        if len(i):
+            p, _, _ = _moved(src.subset(i), poses)
+            q, n_q, _ = _moved(dst.subset(j), poses)
+            extra[i] = np.einsum("ij,ij->i", p - q, n_q) - src.half_layer[i] - dst.half_layer[j]
+        beyond.append(extra)
+    typical = float(np.nanmedian(np.concatenate(beyond))) if np.isfinite(np.concatenate(beyond)).any() else 0.0
+    for name, extra in zip(("a", "b"), beyond):
+        getattr(region, name).across[:] = np.where(np.isfinite(extra), extra, typical)
+
+
+def _opened(region: _Region, poses: np.ndarray) -> float:
+    """How far the fit moves an impacted fracture's faces apart across it:
+    the median motion of face B's points relative to face A's unit, along
+    face A's outward normal (toward B)."""
+    a, b = region.faces
+    normal = a.normals.mean(axis=0)
+    normal /= max(float(np.linalg.norm(normal)), 1e-9)
+
+    def pose(k):
+        return np.eye(4) if k == STATIC else poses[k]
+    relative = np.linalg.inv(pose(_commonest(a.unit))) @ pose(_commonest(b.unit))
+    return float(np.median((transform_points(relative, b.points) - b.points) @ normal))
+
+
+def _across(region: _Region, poses: np.ndarray) -> float:
+    """The median distance across an impacted fracture under these poses:
+    from each rim point to its partner face's tangent plane, both ways; nan
+    with no rim pairs."""
+    out = []
+    for (src, dst), (i, j) in zip(_directions(region), _match(region, poses)):
+        if len(i):
+            p, _, _ = _moved(src.subset(i), poses)
+            q, n_q, _ = _moved(dst.subset(j), poses)
+            out.append(np.einsum("ij,ij->i", p - q, n_q))
+    return float(np.median(np.concatenate(out))) if out else float("nan")
 
 
 def _jacobian(rows: _Rows, centres: np.ndarray, radii: np.ndarray, n_units: int) -> np.ndarray:
@@ -857,11 +1047,15 @@ def fit_reduction(labels_vol: Volume, injured: str, surfaces: FractureSurfaces,
     # The regions, from the scanned anatomy.
     # A sacral fracture a used split was cut along is fitted as the split's
     # whole boundary, under the first surface's id.
+    # An impacted surface the split was cut along is fitted on its own two
+    # faces, either side of its band: the split's cut runs through the band,
+    # where the two fragments' bone overlaps, and fitted there it would hold
+    # the impaction as scanned.
     by_split: Dict[str, List[FractureSurface]] = {}
     for side in sides:
         split = (splits or {}).get(side)
         if split is not None and not split.refused:
-            by_split[side] = [sf for sf in surfaces.surfaces if sf.id in split.surface_ids]
+            by_split[side] = [sf for sf in surfaces.surfaces if sf.id in split.surface_ids and sf.source != CT_IMPACTED]
     joined = {sf.id for group in by_split.values() for sf in group}
     regions: List[_Region] = [_fracture_region(labels_vol, sf, units) for sf in surfaces.surfaces if sf.id not in joined]
     for side, group in by_split.items():
@@ -897,6 +1091,23 @@ def fit_reduction(labels_vol: Volume, injured: str, surfaces: FractureSurfaces,
         radii.append(max(float(np.sqrt(np.mean(np.sum((voxels[::7] - centres0[-1]) ** 2, axis=1)))), 1.0))
     centres0, radii = np.stack(centres0), np.array(radii)
     n = len(units)
+    # 7d.6: the length lost to an impaction comes from the mirrored side, so
+    # each impacted fracture is closed to its distance across at the mirror
+    # start. A bilateral injury has no mirror (2.4): nothing restores it.
+    for region in regions:
+        if not region.impacted:
+            continue
+        if injured == "both":
+            region.no_across = ("both sides are injured, so there is no mirror (DECISIONS 2.4) to take the length "
+                                "lost to impaction from (7d.6)")
+            continue
+        across = _across(region, poses)
+        if np.isfinite(across):
+            region.across_mm = across
+            _set_off(region, poses)
+        else:
+            region.no_across = (f"no rim pairs across it within {region.reach_mm:.0f} mm at the mirror start, so the "
+                                "length lost to impaction cannot be taken from the mirror (7d.6)")
     poses, rounds = _solve(regions, poses, centres0, radii)
     for u, pose in zip(units, poses):
         u.transform = pose
@@ -923,13 +1134,17 @@ def fit_reduction(labels_vol: Volume, injured: str, surfaces: FractureSurfaces,
     own = [_assess(region, rr, poses, centres, radii, no_motion, names, widths, sym_levels, targets,
                    symphysis_target_mm) for region, rr in zip(regions, final)]
     trusted = [i for i, fit in enumerate(own) if not fit.unconstrained]
-    keep = np.isin(rows.region, trusted)
-    trusted_rows = _Rows(*(getattr(rows, k)[keep] for k in
-                           ("region", "p", "p0", "q", "q0", "n", "target", "u", "v", "pair")))
+    trusted_rows = rows.subset(np.isin(rows.region, trusted))
     jac = _jacobian(trusted_rows, centres, radii, n)
     null = _null_space(jac, trusted_rows, len(regions), resisted=False)
     unpinned = {k: _unit_null_share(labels_vol, u, k, centres, radii, null) for k, u in enumerate(units)}
     unpinned = {k: share for k, share in unpinned.items() if share >= NULL_RELATIVE_SHARE}
+    # The motions only the mirror pins: those no surface resists once the
+    # rows across impacted fractures, whose distance is the mirror's, are
+    # left out. A region or unit they move rests on the mirror (7d.6).
+    on_mirror = trusted_rows.subset(~trusted_rows.mirror)
+    mirror_null = (_null_space(_jacobian(on_mirror, centres, radii, n), on_mirror, len(regions), resisted=False)
+                   if trusted_rows.mirror.any() else null[:, :0])
 
     out: Dict[str, RegionFit] = {}
     for i, (region, rr) in enumerate(zip(regions, final)):
@@ -951,8 +1166,8 @@ def fit_reduction(labels_vol: Volume, injured: str, surfaces: FractureSurfaces,
             name = f"fracture_{u.name}"
             why = ("no fracture surface was found between it and its parent, so nothing pins it: its pose is "
                    f"where it started ({started})")
-            out[name] = RegionFit(name, "fracture", (u.name,), 0, float("nan"), PHANTOM_BOUND_MM["fracture"],
-                                  float("inf"), _unit_cover(labels_vol, u), why)
+            out[name] = RegionFit(name, "fracture", (u.name,), 0, float("nan"), float("nan"), float("inf"),
+                                  _unit_cover(labels_vol, u), why)
         elif k in unpinned:
             name = f"unit_{u.name}_unpinned"
             why = (f"not pinned down as a whole: a rigid motion no surface in the fit resists moves it "
@@ -962,7 +1177,10 @@ def fit_reduction(labels_vol: Volume, injured: str, surfaces: FractureSurfaces,
                          f"surface resists): {name} covers all of it and is unconstrained")
             out[name] = RegionFit(name, "unit", (u.name,), 0, float("nan"), float("nan"), float("inf"),
                                   _unit_cover(labels_vol, u), why)
+    if mirror_null.shape[1]:
+        notes += _rests_on_mirror(labels_vol, out, regions, final, units, unpinned, centres, radii, mirror_null)
     _beyond_the_family(out)
+    _bound_by_displacement(out)
     out.update(_mark_regions(labels_vol, surfaces, units))
     if injured != "both":
         notes += _departures(units, regions, final)
@@ -1046,12 +1264,12 @@ def _assess(region: _Region, rows: _Rows, poses, centres, radii, null, names, wi
         values, counts = np.unique(region.a.unit, return_counts=True)
         involved = [int(values[np.argmax(counts)])]
     unit_names = tuple("static" if k == STATIC else names[k] for k in involved)
-    bound = PHANTOM_BOUND_MM[region.kind]
     pairs = int(len(np.unique(rows.pair))) if len(rows.p) else 0
     xyz = _region_xyz(region, rows, poses)
     notes: List[str] = []
     why = ""
     mismatch = float("nan")
+    floor = float("nan")
     if region.kind == "fracture":
         if pairs:
             dev = rows.deviation
@@ -1069,12 +1287,22 @@ def _assess(region: _Region, rows: _Rows, poses, centres, radii, null, names, wi
                     "not grow with the displacement" if pairs else "no rim pairs at all")
             why = (f"NOT REDUCED: both faces lie on {on}, so the fit leaves this fracture as scanned, and how far "
                    f"it is out of place is not measured ({seen})")
+        elif region.impacted and region.across_mm is None:
+            why = (f"IMPACTION NOT RESTORED: an impacted fracture ({region.depth_mm:.1f} mm dense band) and "
+                   f"{region.no_across}, so the fit does not say how far across it the fragments belong")
         elif pairs < MIN_PAIRS:
             why = (f"too little rim: {pairs} rim pairs within {region.reach_mm:.0f} mm after the fit, fewer than "
                    f"{MIN_PAIRS}")
         elif mismatch > RIMS_DISAGREE_MM:
             why = (f"its rims disagree: still {mismatch:.1f} mm apart (90th percentile) after the best rigid fit, "
                    f"more than {RIMS_DISAGREE_MM:.1f} mm")
+        if reduced_here and region.impacted and region.across_mm is not None:
+            floor = MIRROR_FLOOR_MM["fracture"]
+            notes.append(f"rests on the mirror: impacted ({region.depth_mm:.1f} mm dense band), so its rims were fitted "
+                         f"along the fracture only, and across it the length lost to impaction was taken from the "
+                         f"mirrored side (DECISIONS 7d.6): the fit moves its faces {_opened(region, poses):.1f} mm apart "
+                         f"across the band; its error is therefore at least the mirror's normal floor, {floor:.1f} mm "
+                         "(DECISIONS section 1)")
     else:
         if region.kind == "si":
             side = region.name.split("_", 1)[1]
@@ -1108,16 +1336,18 @@ def _assess(region: _Region, rows: _Rows, poses, centres, radii, null, names, wi
     limit = PHANTOM_TRAVEL_MM[region.kind]
     if not why and travel > limit:
         why = (f"displaced further than the phantoms its error was measured on: the fit moves its two sides up to "
-               f"{travel:.1f} mm relative to each other, and the {bound:.1f} mm bound was measured only up to "
-               f"{limit:.1f} mm")
-    residual = float("inf") if why else max(mismatch, bound)
+               f"{travel:.1f} mm relative to each other, and its bound was measured only up to {limit:.1f} mm")
+    # Its own displacement for now; _bound_by_displacement reads the bound
+    # again once every region's travel is known.
+    bound = phantom_bound_mm(region.kind, travel)
+    residual = float("inf") if why else float(np.nanmax([mismatch, bound, floor]))
     return RegionFit(region.name, region.kind, unit_names, pairs, mismatch, bound, residual, xyz, why, notes, sides,
-                     side_units, travel)
+                     side_units, travel, travel, floor)
 
 
 def _beyond_the_family(regions: Dict[str, RegionFit]) -> None:
     """Every region of a unit the fit moved further, at some region, than the
-    phantoms measured is outside the family PHANTOM_BOUND_MM was measured on:
+    phantoms measured is outside the family its bound was measured on:
     unconstrained, naming where."""
     beyond: Dict[str, str] = {}
     for r in regions.values():
@@ -1140,6 +1370,92 @@ def _beyond_the_family(regions: Dict[str, RegionFit]) -> None:
         elif not r.unconstrained:
             r.unconstrained = why
         r.residual_mm = float("inf")
+
+
+def _bound_by_displacement(regions: Dict[str, RegionFit]) -> None:
+    """Each region's bound read off the measured table (7d.2) at its
+    displacement: the furthest the fit moved any of its units relative to
+    what that unit is joined to, at this region or at any other. A fit that
+    stops short moves a region less than its unit is displaced (the sacral
+    phantom slid 10 mm up from the wrong mirror start: its symphysis moved
+    6.5 mm and landed 8.4 mm off, its fracture moved 10.2 mm), so the bound
+    is read where the unit was found displaced, not only at the region.
+
+    The limits differ by kind, so a unit can be within the limit of the
+    region that moved it (_beyond_the_family passes it) and past the limit
+    of another region on it: the bound there is inf, and the reason is said
+    here, where the inf is made, never left for someone else to find."""
+    unit_travel: Dict[str, Tuple[float, str]] = {}
+    for r in regions.values():
+        if np.isfinite(r.travel_mm):
+            for u in r.units:
+                if u != "static" and r.travel_mm > unit_travel.get(u, (0.0, ""))[0]:
+                    unit_travel[u] = (r.travel_mm, r.name)
+    for r in regions.values():
+        if r.kind == "unit" or not np.isfinite(r.travel_mm):
+            continue
+        r.displacement_mm = max([r.travel_mm] + [unit_travel[u][0] for u in r.units if u in unit_travel])
+        r.bound_mm = phantom_bound_mm(r.kind, r.displacement_mm)
+        if np.isinf(r.bound_mm):
+            limit = PHANTOM_TRAVEL_MM[r.kind]
+            hit = [f"{u} moved {unit_travel[u][0]:.1f} mm at {unit_travel[u][1]}" for u in r.units
+                   if u in unit_travel and unit_travel[u][0] > limit]
+            if r.travel_mm > limit:
+                hit.insert(0, f"its two sides moved {r.travel_mm:.1f} mm relative to each other")
+            why = ("displaced further than the phantoms its error was measured on: " + "; ".join(hit)
+                   + f", and the {r.kind} bound was measured only up to {limit:.1f} mm")
+            if r.unconstrained and "further than the phantoms" not in r.unconstrained:
+                r.unconstrained = f"{r.unconstrained}; and {why}"
+            elif not r.unconstrained:
+                r.unconstrained = why
+            r.residual_mm = float("inf")
+        elif not r.unconstrained:
+            r.residual_mm = float(np.nanmax([r.mismatch_p90_mm, r.bound_mm, r.floor_mm]))
+
+
+def _rests_on_mirror(labels_vol: Volume, regions: Dict[str, RegionFit], fitted: Sequence[_Region],
+                     final: Sequence[_Rows], units: Sequence[Unit], unpinned: Dict[int, float], centres, radii,
+                     mirror_null: np.ndarray) -> List[str]:
+    """7d.6: where a motion only the mirror pins (mirror_null: no surface
+    resists it once the rows across impacted fractures are left out) moves a
+    region's two sides apart, that region rests on the mirror, and its error
+    is at least the mirror's floor for its kind; where it moves a whole unit,
+    the unit rests on the mirror, and a region over all its bone,
+    ``unit_<name>_on_mirror``, carries the floor for a whole hemipelvis. Read
+    as the unpinned test is (NULL_RELATIVE_SHARE). Without this, the mirror's
+    length across an impacted fracture would pin a unit no surface pins, and
+    a screw far from every region in it would read as safe."""
+    n = len(units)
+    impacted = ", ".join(r.name for r in fitted if r.impacted and r.across_mm is not None)
+    notes = []
+    for region, rows in zip(fitted, final):
+        fit = regions[region.name]
+        if fit.unconstrained or region.impacted or not len(rows.p):
+            continue
+        share = _null_share(rows, centres, radii, mirror_null, n)
+        if share >= NULL_RELATIVE_SHARE:
+            fit.floor_mm = MIRROR_FLOOR_MM[fit.kind]
+            fit.notes.append(f"rests on the mirror: a motion that only the length taken from the mirror across "
+                             f"{impacted} pins moves its two sides {share:.2f} mm per mm (DECISIONS 7d.6), so its error "
+                             f"is at least the mirror's normal floor here, {fit.floor_mm:.1f} mm (DECISIONS section 1)")
+    for k, u in enumerate(units):
+        if k in unpinned or not any(u.name in r.units for r in regions.values()):
+            continue
+        share = _unit_null_share(labels_vol, u, k, centres, radii, mirror_null)
+        if share < NULL_RELATIVE_SHARE:
+            continue
+        name = f"unit_{u.name}_on_mirror"
+        floor = MIRROR_FLOOR_MM["unit"]
+        regions[name] = RegionFit(name, "unit", (u.name,), 0, float("nan"), float("nan"), floor,
+                                  _unit_cover(labels_vol, u), floor_mm=floor,
+                                  notes=[f"rests on the mirror: a motion that only the length taken from the mirror "
+                                         f"across {impacted} pins moves it {share:.2f} mm per mm, so where it lies "
+                                         "along that motion is the mirror's (DECISIONS 7d.6); this region covers all "
+                                         f"of its bone with the mirror's normal floor over a whole hemipelvis, "
+                                         f"{floor:.1f} mm (DECISIONS section 1)"])
+        notes.append(f"{u.name} rests on the mirror as a whole ({share:.2f} mm per mm under a motion only the mirror "
+                     f"pins): {name} covers all of it at {floor:.1f} mm")
+    return notes
 
 
 def _commonest(units: np.ndarray) -> int:
@@ -1286,7 +1602,7 @@ def _mark_regions(labels_vol: Volume, surfaces: FractureSurfaces, units: Sequenc
                f"lies on within {MARK_MATCH_MM:.0f} mm, so the fit knows nothing about it there: those marks lie on "
                f"{who}, carried as a whole with this fracture as scanned; this region covers the marked plane "
                f"within {NEAR_MARKS_MM:.0f} mm of them")
-        out[name] = RegionFit(name, "fracture", on, 0, float("nan"), PHANTOM_BOUND_MM["fracture"], float("inf"),
+        out[name] = RegionFit(name, "fracture", on, 0, float("nan"), float("nan"), float("inf"),
                               xyz, why)
     return out
 

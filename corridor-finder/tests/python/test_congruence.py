@@ -25,12 +25,12 @@ from scipy.spatial import cKDTree
 from corridor_engine import congruence as cg
 from corridor_engine import fracture_surface as fsm
 from corridor_engine import segmentation as seg
-from corridor_engine import si_joint
+from corridor_engine import mirror, si_joint
 from corridor_engine.fracture import fit_plane
 from corridor_engine.fragments import Fragment, FragmentSet
 from corridor_engine.landmarks import detect_landmarks
 from corridor_engine.phantoms import (_rotation, bilateral_sacral_fractured_pelvis, fractured_pelvis,
-                                      sacral_fractured_pelvis)
+                                      impacted_sacral_pelvis, pelvis_ct, sacral_fractured_pelvis)
 from corridor_engine.reduction import REGION_RADIUS_MM, Reduction, apply_moves, reduction_warnings, warning_text
 from corridor_engine.register import invert, rotation_deg, transform_points
 from corridor_engine.volume import Volume
@@ -42,10 +42,16 @@ WRONG_TURN_DEG = 3.0
 SACRAL_MOVES = {"right": (0.0, 1.5, 0.0), "left": (0.0, -1.0, 1.0)}  # each unit's slide, with a 3 degree hinge
 # How far an undisplaced hip may be moved (plan test 3), and how far a fit
 # started exactly may walk away: the fracture bound these tests were written
-# against, kept when the wider family raised PHANTOM_BOUND_MM to 6.5 mm so
+# against, kept when the wider family raised the phantom bound to 6.5 mm so
 # neither check loosened with it. The review measured walks of 5.61 and
 # 9.41 mm from the exact start.
 STAY_MM = 3.5
+# What plan tests 1 and 2 held a hip's pose error to before the bound was
+# measured per displacement: max(PHANTOM_BOUND_MM.values()), 6.5 mm. The
+# replacement holds it to the table's bound at the fit's displacement as
+# well, which at 5.18 mm is 6.72 mm, looser; plan test 7 asks for a
+# replacement as strict, so both hold.
+SLICE_1B_BOUND_MM = 6.5
 
 
 def _vol(labels, phantom):
@@ -212,7 +218,7 @@ def test_unilateral_recovery(unilateral):
     _report(f"unilateral {side} sacral fracture from the {start} start: start off {before[0]:.2f} mm, "
             f"{before[1]:.2f} deg; fitted off {after[0]:.2f} mm, {after[1]:.2f} deg (worst surface point)", fit, landing)
     assert unit.name == f"hip_{side}" and any("lateral sacral fragment" in p for p in unit.parts)
-    assert after[0] <= max(cg.PHANTOM_BOUND_MM.values())
+    assert after[0] <= min(SLICE_1B_BOUND_MM, _largest_bound(fit))
     if start == "wrong":
         assert after[0] < before[0], "congruence did not correct the mirror at all"
     _check_lands_within(fit, landing)
@@ -307,7 +313,7 @@ def test_bilateral_recovery(bilateral):
         lines.append(f"{unit.name} scanned {scanned[0]:.2f} mm / {scanned[1]:.2f} deg off, fitted {fitted[0]:.2f} mm / "
                      f"{fitted[1]:.2f} deg off")
         assert fitted[0] < scanned[0]
-        assert fitted[0] <= max(cg.PHANTOM_BOUND_MM.values())
+        assert fitted[0] <= min(SLICE_1B_BOUND_MM, _largest_bound(fit))
     _report("bilateral sacral fractures: " + "; ".join(lines), fit, landing)
     assert any("both sides injured" in n for n in fit.notes)
     _check_lands_within(fit, landing)
@@ -566,19 +572,67 @@ def test_a_fracture_with_no_rim_at_all_is_unconstrained_and_still_placed(iliac, 
 
 def _check_residual_contract(fit):
     """Every region: inf exactly when it says why, and otherwise never less
-    than its phantom bound or its own mismatch. The Reduction carries the
-    same numbers, under the same keys."""
+    than the phantom bound measured at its displacement (which is at least
+    how far the fit moved it), its own mismatch, or, where it rests on the
+    mirror, the mirror's floor, which its notes say. The Reduction carries
+    the same numbers, under the same keys. (Since slice 1c: the bound was
+    PHANTOM_BOUND_MM, one number per kind, before it was measured per
+    displacement.)"""
     reduction = fit.reduction()
     assert set(reduction.residual_mm) == set(reduction.region_xyz) == set(fit.regions)
+    assert reduction.accepted_by is None and reduction.notes[0] == cg.NOT_ACCEPTED
+    # No region anywhere is inf with nothing said: the reason Corridor
+    # Finder shows the surgeon is in the Reduction's notes, and not empty.
+    for name, residual in reduction.residual_mm.items():
+        if np.isinf(residual):
+            said = [n for n in reduction.notes if n.startswith(f"{name}: unconstrained, its error is not known (")]
+            assert said and not any(n.endswith("()") for n in said), f"{name}: inf with no reason given"
+    # How far the fit moved each unit, at any region (7d.2's displacement).
+    unit_travel = {}
+    for region in fit.regions.values():
+        if np.isfinite(region.travel_mm):
+            for u in region.units:
+                if u != "static":
+                    unit_travel[u] = max(unit_travel.get(u, 0.0), region.travel_mm)
     for name, region in fit.regions.items():
         assert reduction.residual_mm[name] == region.residual_mm
+        if region.kind != "unit" and np.isfinite(region.travel_mm):
+            furthest = max([region.travel_mm] + [unit_travel[u] for u in region.units if u in unit_travel])
+            assert region.displacement_mm == pytest.approx(furthest), (
+                f"{name}: its bound is read at {region.displacement_mm:.2f} mm, but its units were displaced "
+                f"{furthest:.2f} mm")
         assert np.isinf(region.residual_mm) == bool(region.unconstrained), region.sentence()
         assert not np.isnan(region.residual_mm)
-        if np.isfinite(region.residual_mm):
-            assert region.bound_mm == cg.PHANTOM_BOUND_MM[region.kind]
-            assert region.residual_mm >= region.bound_mm, region.sentence()
-            if np.isfinite(region.mismatch_p90_mm):
-                assert region.residual_mm >= region.mismatch_p90_mm, region.sentence()
+        if np.isfinite(region.floor_mm):
+            assert any(n.startswith("rests on the mirror") for n in region.notes), region.sentence()
+            # The floor is the mirror's for that kind of region (DECISIONS,
+            # the table under section 1), not any number.
+            assert region.floor_mm == cg.MIRROR_FLOOR_MM[region.kind], region.sentence()
+        # A region that says it rests on the mirror carries the floor.
+        if any(n.startswith("rests on the mirror") for n in region.notes):
+            assert np.isfinite(region.floor_mm), region.sentence()
+        if not np.isfinite(region.residual_mm):
+            continue
+        if region.kind == "unit":
+            assert region.floor_mm == cg.MIRROR_FLOOR_MM["unit"] and region.residual_mm >= region.floor_mm
+            continue
+        assert region.displacement_mm >= region.travel_mm, region.sentence()
+        assert region.displacement_mm <= cg.PHANTOM_TRAVEL_MM[region.kind], region.sentence()
+        assert region.bound_mm == cg.phantom_bound_mm(region.kind, region.displacement_mm), region.sentence()
+        assert region.residual_mm >= region.bound_mm, region.sentence()
+        if np.isfinite(region.mismatch_p90_mm):
+            assert region.residual_mm >= region.mismatch_p90_mm, region.sentence()
+        if np.isfinite(region.floor_mm):
+            assert region.residual_mm >= region.floor_mm, region.sentence()
+
+
+def _largest_bound(fit):
+    """The largest phantom bound of any kind at the furthest any region of
+    the fit was displaced: what the unit's own pose error is held to (it was
+    max(PHANTOM_BOUND_MM.values()) before the bound was measured per
+    displacement)."""
+    furthest = max(r.displacement_mm for r in fit.regions.values() if np.isfinite(r.displacement_mm))
+    return max(cg.phantom_bound_mm(kind, furthest) for kind in cg.PHANTOM_BOUND_TABLE_MM)
 
 
 def test_every_region_reports_its_bound_or_inf_unilateral_and_iliac(sacral, own_targets, iliac):
@@ -711,7 +765,7 @@ def test_with_no_symphysis_the_gap_is_not_a_number():
 
 # --------------------------------------------------------------------------
 # Beyond the slides the first phantoms used (plan tests 1, 2 and 6 over the
-# family PHANTOM_BOUND_MM is measured on).
+# family the phantom bound is measured on).
 
 
 def _iliac_slid():
@@ -803,10 +857,38 @@ def test_each_face_is_its_bodys_whole_broken_surface():
 
 
 def test_displaced_further_than_the_phantoms_is_unconstrained(own_targets):
-    """Slid 10 mm up from the wrong mirror start, the fit stops short: its
-    symphysis moved only 6.5 mm and would have read the 6.5 mm bound while
-    landing 8.4 mm off. Its fracture moved further than any phantom the
-    bound was measured on, so every region of that hip says so."""
+    """Slid 25 mm up and 25 mm back (35 mm) from the wrong mirror start: the
+    fit moves its fracture further than any phantom the bound was measured on
+    (PHANTOM_TRAVEL_MM, 28 mm since slice 1c), so every region of that hip
+    says so. Replaces slice 1b's test, which slid the fracture 10 mm against
+    the 8 mm the bound was then measured to; the 10 mm slide now lies inside
+    the family (test_a_fit_that_stops_short_reads_the_bound_where_its_unit_was_displaced)."""
+    phantom = sacral_fractured_pelvis(side="right", hinge_deg=3.0, translate_mm=(0.0, -25.0, 25.0))
+    vol = _vol(phantom.labels, phantom)
+    found = fsm.find_fracture_surfaces(vol, bones=(seg.SACRUM,))
+    truth = np.linalg.inv(phantom.moved_by)
+    hip = phantom.labels == seg.HIP_R
+    begin = _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+    fit = cg.fit_reduction(vol, "right", found, _fragment_set("right", [_body(0, None, hip, begin)]),
+                           fsm.split_sacrum(vol, found), **own_targets)
+    femur = phantom.labels == seg.FEMUR_R
+    landing = _landing(fit, _truth(vol, [(hip | phantom.lateral_fragment | femur, truth)]))
+    _report("sacral fracture slid 35 mm (25 up, 25 back), wrong start", fit, landing)
+    fracture = [r for r in fit.regions.values() if r.kind == "fracture"][0]
+    assert fracture.travel_mm > cg.PHANTOM_TRAVEL_MM["fracture"]
+    for region in fit.regions.values():
+        assert np.isinf(region.residual_mm), region.sentence()
+        assert "further than the phantoms" in region.unconstrained, region.sentence()
+    _check_residual_contract(fit)
+
+
+def test_a_fit_that_stops_short_reads_the_bound_where_its_unit_was_displaced(own_targets):
+    """Slid 10 mm up from the wrong mirror start the fit stops short: its
+    symphysis moves less than its fracture (slice 1b measured 6.5 against
+    10.2 mm, the symphysis landing 8.4 mm off). Each region's bound is read at
+    the furthest its units were displaced at any region, so the symphysis
+    takes the fracture's displacement, and every region lands within what it
+    reports."""
     phantom = sacral_fractured_pelvis(side="right", hinge_deg=3.0, translate_mm=(0.0, 0.0, 10.0))
     vol = _vol(phantom.labels, phantom)
     found = fsm.find_fracture_surfaces(vol, bones=(seg.SACRUM,))
@@ -818,11 +900,13 @@ def test_displaced_further_than_the_phantoms_is_unconstrained(own_targets):
     femur = phantom.labels == seg.FEMUR_R
     landing = _landing(fit, _truth(vol, [(hip | phantom.lateral_fragment | femur, truth)]))
     _report("sacral fracture slid 10 mm up, wrong start", fit, landing)
-    fracture = [r for r in fit.regions.values() if r.kind == "fracture"][0]
-    assert fracture.travel_mm > cg.PHANTOM_TRAVEL_MM["fracture"]
+    furthest = max(r.travel_mm for r in fit.regions.values() if "hip_right" in r.units and np.isfinite(r.travel_mm))
     for region in fit.regions.values():
-        assert np.isinf(region.residual_mm), region.sentence()
-        assert "further than the phantoms" in region.unconstrained, region.sentence()
+        if "hip_right" in region.units and region.kind != "unit":
+            assert region.displacement_mm == pytest.approx(furthest), region.sentence()
+    symphysis = fit.regions["symphysis"]
+    assert symphysis.travel_mm < furthest, "the fit no longer stops short here; this test needs another case"
+    _check_lands_within(fit, landing)
     _check_residual_contract(fit)
 
 
@@ -981,3 +1065,507 @@ def test_units_that_share_voxels_are_refused(sacral, own_targets):
     both = {"right": right, "left": fsm.replace(right, side="left")}
     with pytest.raises(ValueError, match="share"):
         cg.fit_reduction(vol, "both", found, None, both, **own_targets)
+
+
+# --------------------------------------------------------------------------
+# Slice 1c, part B (displacement-finder DECISIONS 7d.2, 7d.6): the bound
+# measured per displacement to 30 mm, and impacted fractures reduced by
+# their rims and the mirror (plan tests 5 and 6).
+
+BOUND_DISPLACEMENTS_MM = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+# The impacted phantom's band is given twice the margin, as in
+# test_fracture_surface: a band the CT route finds, not a claim about how
+# dense a real one is.
+IMPACTED_BAND_HU = 2.0 * fsm.IMPACTION_MARGIN_HU
+
+
+def test_the_bound_is_measured_per_displacement_and_never_below_what_was_measured():
+    """7d.2: at every displacement the phantoms were run at (0 to 30 mm),
+    each kind's bound is at least the worst landing measured there; between
+    two of them it is interpolated, so never below the smaller of the two
+    (each holds every landing measured between them); it never falls as the
+    displacement grows; past the furthest displacement any region reported
+    a number at (PHANTOM_TRAVEL_MM, never past 30 mm) there is none; and the
+    SI joint, never measured where it pins a hip, takes the largest."""
+    nodes = cg.PHANTOM_DISPLACEMENTS_MM
+    assert nodes[0] == 0.0 and nodes[-1] == 30.0 and set(BOUND_DISPLACEMENTS_MM) <= set(nodes)
+    for kind in ("fracture", "symphysis", "si"):
+        table, measured = cg.PHANTOM_BOUND_TABLE_MM[kind], cg.PHANTOM_BOUND_MEASURED_MM[kind]
+        print(f"{kind}: " + ", ".join(f"{d:.0f} mm {t:.1f} (measured {m:.2f})" for d, t, m in zip(nodes, table, measured)))
+        assert len(table) == len(measured) == len(nodes)
+        limit = cg.PHANTOM_TRAVEL_MM[kind]
+        for d, t, m in zip(nodes, table, measured):
+            if d <= limit:
+                assert cg.phantom_bound_mm(kind, d) == t
+            if np.isfinite(m):
+                assert t >= m, f"{kind} at {d} mm: bound {t} below the {m} mm measured"
+        assert np.all(np.diff(table) >= 0)
+        for k in range(len(nodes) - 1):
+            for x in np.linspace(nodes[k], min(nodes[k + 1], limit), 7):
+                assert cg.phantom_bound_mm(kind, x) >= min(table[k], table[k + 1])
+        assert nodes[-2] < limit <= nodes[-1]
+        assert np.isfinite(cg.phantom_bound_mm(kind, limit))
+        assert np.isinf(cg.phantom_bound_mm(kind, limit + 0.01))
+    for i in range(len(nodes)):
+        assert cg.PHANTOM_BOUND_TABLE_MM["si"][i] >= max(cg.PHANTOM_BOUND_TABLE_MM["fracture"][i],
+                                                         cg.PHANTOM_BOUND_TABLE_MM["symphysis"][i])
+    with pytest.raises(ValueError):
+        cg.phantom_bound_mm("unit", 5.0)
+
+
+def test_the_bound_says_nothing_past_the_phantoms_and_never_a_number_for_an_unknown_displacement():
+    """Past 30 mm, past each kind's travel limit, and for a displacement that
+    is not a number or infinite, the bound is inf (never the last value of
+    the table carried on). At or under no displacement it is the table's
+    first value, never less."""
+    for kind in cg.PHANTOM_BOUND_TABLE_MM:
+        for beyond in (30.0 + 1e-6, 31.0, 35.0, 100.0, 1e6, float("inf"), float("nan")):
+            assert np.isinf(cg.phantom_bound_mm(kind, beyond)), (kind, beyond)
+        assert cg.PHANTOM_TRAVEL_MM[kind] <= 30.0
+        for under in (0.0, -0.5, -10.0):
+            assert cg.phantom_bound_mm(kind, under) == cg.PHANTOM_BOUND_TABLE_MM[kind][0]
+
+
+def test_the_table_follows_from_what_was_measured_by_its_stated_rule():
+    """The constants as their provenance states them: each kind's table is
+    its worst measured landing at each displacement rounded up to half a
+    millimetre and never smaller than at a smaller displacement; the SI
+    joint's is the largest of all kinds' measured. A hand-edited table that
+    dropped below what was measured anywhere, or below an earlier
+    displacement's, differs from this."""
+    nodes = cg.PHANTOM_DISPLACEMENTS_MM
+    measured = cg.PHANTOM_BOUND_MEASURED_MM
+
+    def rule(values):
+        rounded = [np.ceil(v * 2.0) / 2.0 for v in values]
+        return tuple(float(v) for v in np.maximum.accumulate(rounded))
+
+    for kind in ("fracture", "symphysis"):
+        assert all(np.isfinite(measured[kind])), kind
+        assert cg.PHANTOM_BOUND_TABLE_MM[kind] == rule(measured[kind]), kind
+    largest = [max(measured[k][i] for k in ("fracture", "symphysis", "si")) for i in range(len(nodes))]
+    assert cg.PHANTOM_BOUND_TABLE_MM["si"] == rule(largest)
+
+
+def _phantom_bound_tool():
+    import importlib.util
+    import pathlib
+    tool = pathlib.Path(__file__).resolve().parents[3] / "displacement-finder" / "tools" / "phantom_bound.py"
+    spec = importlib.util.spec_from_file_location("phantom_bound_tool", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_the_tools_table_is_never_below_a_landing_it_was_given_at_that_displacement(seed, monkeypatch):
+    """7d.2's rule ("never let the bound at a displacement be lower than what
+    the phantoms measured there") on the tool that turns landings into the
+    table, phantom_bound.table, fed random landings: with its table and
+    travel limit in place, phantom_bound_mm at every landing's displacement
+    is at least that landing, wherever it reported a number; the limit never
+    passes 30 mm, covers every landing up to 30 mm, and is inf just past
+    it."""
+    tool = _phantom_bound_tool()
+    rng = np.random.default_rng(seed)
+    samples = []
+    for kind in ("fracture", "symphysis", "si"):
+        n = int(rng.integers(3, 40))
+        displacement = rng.uniform(0.0, 34.0, n)
+        if kind == "si":
+            displacement = rng.uniform(0.0, 10.0, n)  # as measured: only near where it does not pin a hip
+        landing = np.where(rng.random(n) < 0.2, rng.uniform(0.0, 40.0, n), rng.uniform(0.0, 1.2, n) * displacement)
+        samples += [(f"case {i}", kind, float(d), float(x)) for i, (d, x) in enumerate(zip(displacement, landing))]
+    measured, tables, furthest, travel = tool.table(samples)
+    monkeypatch.setattr(cg, "PHANTOM_BOUND_TABLE_MM", tables)
+    monkeypatch.setattr(cg, "PHANTOM_TRAVEL_MM", travel)
+    worst = {}
+    for _, kind, d, x in samples:
+        assert travel[kind] <= 30.0
+        if d <= 30.0:
+            assert d <= travel[kind], (kind, d, travel[kind])
+        bound = cg.phantom_bound_mm(kind, d)
+        if np.isfinite(bound):
+            assert bound >= x, f"{kind}: a landing of {x:.2f} mm at {d:.2f} mm, but the bound there is {bound:.2f}"
+            # The SI joint is held to every kind's landings, as its table says.
+            assert cg.phantom_bound_mm("si", d) >= x
+            worst[kind] = max(worst.get(kind, 0.0), x)
+        else:
+            assert d > travel[kind]
+    for kind in tables:
+        assert np.isinf(cg.phantom_bound_mm(kind, travel[kind] + 0.01))
+    print(f"seed {seed}: travel {travel}, worst landing held {worst}")
+
+
+def test_a_region_whose_unit_was_displaced_past_its_own_kinds_limit_is_unconstrained_and_says_so(own_targets,
+                                                                                                 monkeypatch):
+    """The limits differ by kind (27 mm at the symphysis, 28 mm at a fracture),
+    and a region's displacement is how far its unit was moved at any region.
+    A fracture that moves its unit between the two limits leaves its
+    symphysis displaced past the symphysis's limit, where its bound is inf:
+    the region must then be unconstrained, with the reason, never an inf
+    with nothing said (or, worse, a number). That 1 mm window is too narrow
+    to hit with a phantom, so it is widened here: the sacral fracture slid
+    10 mm from the wrong start stops short (its symphysis moves 6.5 mm, its
+    fracture 10.2 mm), and the symphysis's limit is put between the two."""
+    monkeypatch.setitem(cg.PHANTOM_TRAVEL_MM, "symphysis", 8.0)
+    phantom = sacral_fractured_pelvis(side="right", hinge_deg=3.0, translate_mm=(0.0, 0.0, 10.0))
+    vol = _vol(phantom.labels, phantom)
+    found = fsm.find_fracture_surfaces(vol, bones=(seg.SACRUM,))
+    truth = np.linalg.inv(phantom.moved_by)
+    hip = phantom.labels == seg.HIP_R
+    begin = _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+    fit = cg.fit_reduction(vol, "right", found, _fragment_set("right", [_body(0, None, hip, begin)]),
+                           fsm.split_sacrum(vol, found), **own_targets)
+    symphysis = fit.regions["symphysis"]
+    print(symphysis.sentence(), f"(moved {symphysis.travel_mm:.2f} mm, displaced {symphysis.displacement_mm:.2f} mm, "
+                                f"residual {symphysis.residual_mm})")
+    assert symphysis.travel_mm <= 8.0 < symphysis.displacement_mm, "this case no longer stops short; find another"
+    assert np.isinf(symphysis.residual_mm)
+    assert symphysis.unconstrained, "inf with no reason given"
+    _check_residual_contract(fit)
+
+
+def _displaced(kind, displacement_mm, own_targets):
+    """A phantom of the family displaced this far with rotation, fitted from
+    the wrong mirror start: the right sacral fracture hinged 3 degrees and
+    slid up, or the iliac wing opened 2 mm, turned 3 degrees about its
+    fracture's normal and slid laterally along it. Returns (phantom, vol,
+    fit, truth_of, (the moved piece's truth, its mask))."""
+    if kind == "sacral":
+        phantom = sacral_fractured_pelvis(side="right", hinge_deg=3.0, translate_mm=(0.0, 0.0, displacement_mm))
+        vol = _vol(phantom.labels, phantom)
+        found = fsm.find_fracture_surfaces(vol, bones=(seg.SACRUM,))
+        truth = np.linalg.inv(phantom.moved_by)
+        hip = phantom.labels == seg.HIP_R
+        begin = _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+        fit = cg.fit_reduction(vol, "right", found, _fragment_set("right", [_body(0, None, hip, begin)]),
+                               fsm.split_sacrum(vol, found), **own_targets)
+        moving = hip | phantom.lateral_fragment | (phantom.labels == seg.FEMUR_R)
+        return phantom, vol, fit, _truth(vol, [(moving, truth)]), (truth, hip)
+    normal = np.array([0.2, 0.3, 1.0]) / np.linalg.norm([0.2, 0.3, 1.0])
+    lateral = -np.cross(normal, [0.0, 1.0, 0.0])
+    lateral /= np.linalg.norm(lateral)
+    phantom = fractured_pelvis(translate_mm=tuple(2.0 * normal + displacement_mm * lateral), rotate_deg=3.0,
+                               rotate_axis=tuple(normal))
+    vol = _vol(phantom.labels, phantom)
+    main = (phantom.labels == seg.HIP_R) & ~phantom.fragment
+    begin = _wrong(vol.mask_voxel_centers_world(phantom.fragment)) @ phantom.to_reference
+    bodies = _fragment_set("right", [_body(0, None, main, np.eye(4)), _body(1, 0, phantom.fragment, begin)])
+    found = fsm.find_fracture_surfaces(vol, bones=(seg.HIP_R,), fragment_sets=[bodies])
+    fit = cg.fit_reduction(vol, "right", found, bodies, {}, **own_targets)
+    truth_of = _truth(vol, [(phantom.fragment, phantom.to_reference)])
+    return phantom, vol, fit, truth_of, (phantom.to_reference, phantom.fragment)
+
+
+@pytest.mark.parametrize("displacement", BOUND_DISPLACEMENTS_MM)
+@pytest.mark.parametrize("kind", ["sacral", "iliac"])
+def test_each_region_gets_the_bound_of_its_displacement_and_the_round_trip_lands_within_it(kind, displacement,
+                                                                                         own_targets):
+    """Plan test 5: at every measured displacement, 5 to 30 mm, a region
+    moved that far gets the bound measured there (a region moved 15 mm gets
+    the 15 mm bound), and the round trip through reduction.apply_moves lands
+    within each region's residual, printed. Both phantoms are in the family
+    the table was measured on, so this checks that the table is read where
+    it was measured and kept, not a held-out error. At 30 mm no region of
+    either reports a number (the sacral fracture is left unresisted along
+    itself, the iliac wing leaves no fracture surface), which is why
+    PHANTOM_TRAVEL_MM stops short of 30 mm; there the round trip is checked
+    against inf."""
+    phantom, vol, fit, truth_of, (truth, mask) = _displaced(kind, displacement, own_targets)
+    reduction = fit.reduction()
+    reduced, overlaps = apply_moves(vol, reduction.moves)
+    dice = {}
+    for lab, name in ((seg.HIP_R, "right hip"), (seg.HIP_L, "left hip"), (seg.SACRUM, "sacrum")):
+        a, b = reduced.array == lab, phantom.intact_labels == lab
+        dice[name] = 2.0 * float((a & b).sum()) / float(a.sum() + b.sum())
+    landing = _landing(fit, truth_of)
+    moved = [u for u in fit.units if (u.mask & mask).sum() >= 0.9 * mask.sum()][0]
+    off = _pose_error(moved.transform, truth, vol.mask_voxel_centers_world(mask))
+    _report(f"{kind} displaced {displacement:.0f} mm with rotation, wrong start, round trip (Dice "
+            + ", ".join(f"{k} {v:.3f}" for k, v in dice.items()) + f"; the moved piece {off[0]:.2f} mm / "
+            f"{off[1]:.2f} deg off at its worst point)", fit, landing)
+    for name, region in fit.regions.items():
+        if region.kind != "unit" and np.isfinite(region.residual_mm):
+            print(f"  {name}: displaced {region.displacement_mm:.2f} mm, so its bound is the table's there, "
+                  f"{region.bound_mm:.2f} mm")
+            assert region.bound_mm == cg.phantom_bound_mm(region.kind, region.displacement_mm)
+    # The Dice overlap is printed, not held to slice 1b's 0.9: from the wrong
+    # start the moved piece keeps part of the mirror's error, and the right
+    # hip read 0.85-0.89 at some displacements (the thin iliac wing 5 mm and
+    # 25 mm off, the sacral unit at 10-20 mm). What a region reports is held
+    # to where it lands, below.
+    for move in reduction.moves:
+        assert overlaps[move.name] <= 0.02 * move.mask.sum(), f"{move.name}: {overlaps[move.name]} voxels on static bone"
+    _check_lands_within(fit, landing)
+    _check_residual_contract(fit)
+    fractures = [r for r in fit.regions.values() if r.kind == "fracture" and np.isfinite(r.residual_mm)]
+    if displacement < cg.PHANTOM_TRAVEL_MM["fracture"]:
+        assert fractures, "the fracture reports no number here, so this displacement measures nothing: " + fit.sentence()
+    for r in fractures:
+        assert r.displacement_mm >= displacement - VOXEL_MM, r.sentence()
+
+
+@pytest.fixture(scope="module")
+def straight_confirmed():
+    """The untilted pelvis's mirror plane, confirmed with the sacrum
+    fractured: every sacral phantom shares it (fitted to L5)."""
+    reference = fractured_pelvis()
+    return mirror.confirm(mirror.fit_reference(_vol(reference.labels, reference)), sacrum_fractured=True)
+
+
+@pytest.fixture(scope="module")
+def impacted(straight_confirmed):
+    """The impacted sacral phantoms (4 and 6 mm, the band twice the margin),
+    found from the CT against the confirmed mirror, and split."""
+    confirmed = straight_confirmed
+    out = {}
+    for depth in (4.0, 6.0):
+        phantom = impacted_sacral_pelvis(depth_mm=depth, band_excess_hu=IMPACTED_BAND_HU)
+        vol = _vol(phantom.labels, phantom)
+        found = fsm.find_fracture_surfaces(vol, mirror=confirmed, ct=_vol(phantom.ct, phantom), bones=(seg.SACRUM,),
+                                           injured="right")
+        out[depth] = (phantom, vol, found, fsm.split_sacrum(vol, found, confirmed))
+    return out
+
+
+def _impacted_fit(impacted, own_targets, depth, start, injured="right"):
+    phantom, vol, found, splits = impacted[depth]
+    sacral = phantom.sacral
+    truth = np.linalg.inv(sacral.moved_by)
+    hip = sacral.labels == seg.HIP_R
+    begin = truth if start == "exact" else _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+    bodies = _fragment_set("right", [_body(0, None, hip, begin)]) if injured != "both" else None
+    fit = cg.fit_reduction(vol, injured, found, bodies, splits, **own_targets)
+    moving = hip | sacral.lateral_fragment | (sacral.labels == seg.FEMUR_R)
+    return phantom, vol, found, fit, truth, begin, _truth(vol, [(moving, truth)])
+
+
+@pytest.mark.parametrize("start", ["exact", "wrong"])
+def test_an_impacted_fracture_is_reduced_by_its_rims_and_the_mirror(impacted, own_targets, start):
+    """Plan test 6 (7d.6): the lateral fragment driven 4 mm into the sacrum,
+    one solid label, the band found from the CT. Its rims are fitted along
+    the fracture and the length lost across it is the mirror start's: from
+    the exact start the fit pulls the impaction back out (the fragment moves
+    laterally by the depth, to within a voxel) and does not walk; from either
+    start the hip lands within what the fracture reports, every region lands
+    within what it reports, the fracture reports at least the mirror's
+    floor, and its notes, and the Reduction's, say it rests on the mirror."""
+    phantom, vol, found, fit, truth, begin, truth_of = _impacted_fit(impacted, own_targets, 4.0, start)
+    assert [s.source for s in found.surfaces] == [fsm.CT_IMPACTED], found.sentence()
+    surface = found.surfaces[0]
+    region = fit.regions[surface.region]
+    unit = fit.units[0]
+    outline = vol.mask_voxel_centers_world(unit.mask & ~ndi.binary_erosion(unit.mask))
+    before, after = _pose_error(begin, truth, outline), _pose_error(unit.transform, truth, outline)
+    on_unit = np.vstack([side[units == 0] for side, units in zip(region.sides, region.side_units)])
+    pulled = float(np.median(transform_points(unit.transform, on_unit)[:, 0] - on_unit[:, 0]))
+    landing = _landing(fit, truth_of)
+    _report(f"impacted 4 mm (band read {surface.impaction_depth_mm:.2f} mm) from the {start} start: start off "
+            f"{before[0]:.2f} mm / {before[1]:.2f} deg, fitted off {after[0]:.2f} mm / {after[1]:.2f} deg; the fragment's "
+            f"face moved {pulled:.2f} mm laterally", fit, landing)
+    print("  " + "\n  ".join(region.notes))
+    assert np.isfinite(region.residual_mm), region.sentence()
+    assert region.floor_mm == cg.MIRROR_FLOOR_MM["fracture"] and region.residual_mm >= region.floor_mm
+    assert any(n.startswith("rests on the mirror") and "7d.6" in n for n in region.notes)
+    assert any(n.startswith(f"{region.name}: rests on the mirror") for n in fit.reduction().notes)
+    assert after[0] <= region.residual_mm, "the fit does not recover the pose within what the fracture reports"
+    if start == "exact":
+        assert after[0] <= STAY_MM, "the fit walked away from the exact start"
+        assert abs(pulled - phantom.depth_mm) <= VOXEL_MM, "the impaction was not pulled back out"
+    else:
+        assert after[0] < before[0]
+    _check_lands_within(fit, landing)
+    _check_residual_contract(fit)
+
+
+def test_a_unit_whose_pose_rests_on_the_mirror_is_a_region_over_all_of_its_bone(impacted, own_targets):
+    """Where only the mirror's length across the impacted fracture pins a
+    motion of the hip, the hip rests on the mirror as a whole: a region over
+    all its bone carries the mirror's floor for a whole hemipelvis, so a
+    screw far from the fracture and the joints is still warned when its room
+    is less than that. Without it the mirror's rows would read the hip as
+    pinned and that screw as safe."""
+    phantom, vol, found, fit, *_ = _impacted_fit(impacted, own_targets, 4.0, "wrong")
+    region = fit.regions["unit_hip_right_on_mirror"]
+    print(region.sentence(), region.notes)
+    assert region.kind == "unit" and region.units == ("hip_right",)
+    assert region.residual_mm == cg.MIRROR_FLOOR_MM["unit"] and not region.unconstrained
+    unit = fit.units[0]
+    bone = transform_points(unit.transform, vol.mask_voxel_centers_world(unit.mask))
+    assert cKDTree(region.xyz).query(bone)[0].max() <= REGION_RADIUS_MM / 2.0
+    others = np.vstack([np.asarray(r.xyz).reshape(-1, 3) for k, r in fit.regions.items() if k != region.name])
+    far = bone[cKDTree(others).query(bone)[0] > REGION_RADIUS_MM + 5.0]
+    assert len(far) > 1000, "the case the region is for: hip bone far from every other region"
+    screw = far[np.linspace(0, len(far) - 1, 20).astype(int)]
+    warned = {w["region"] for w in reduction_warnings(screw, np.full(len(screw), 5.0), fit.reduction())}
+    assert warned == {region.name}, warned
+    assert not reduction_warnings(screw, np.full(len(screw), cg.MIRROR_FLOOR_MM["unit"] + 1.0), fit.reduction())
+    _check_residual_contract(fit)
+
+
+def test_an_impacted_fracture_with_no_mirror_is_not_restored_and_says_so(impacted, own_targets):
+    """Both sides injured (2.4): there is no mirror to take the length lost
+    to impaction from, so the region is unconstrained, with the reason, and
+    the fit has no row across it that would hold the impaction as scanned."""
+    phantom, vol, found, fit, *_ = _impacted_fit(impacted, own_targets, 4.0, None, injured="both")
+    region = fit.regions[found.surfaces[0].region]
+    print(region.sentence())
+    assert np.isinf(region.residual_mm) and region.unconstrained.startswith("IMPACTION NOT RESTORED")
+    assert "no mirror" in region.unconstrained
+    _check_residual_contract(fit)
+
+
+@pytest.mark.parametrize("start", ["exact", "wrong"])
+def test_a_deeper_impaction_is_never_a_small_number(impacted, own_targets, start):
+    """Driven in 6 mm: whatever the split and the fit make of it, every
+    region lands within what it reports or reports inf with the reason, and
+    the fracture is never missing from the regions."""
+    phantom, vol, found, fit, truth, begin, truth_of = _impacted_fit(impacted, own_targets, 6.0, start)
+    split = impacted[6.0][3]["right"]
+    landing = _landing(fit, truth_of)
+    _report(f"impacted 6 mm from the {start} start; {split.sentence()[:150]}", fit, landing)
+    assert [s.source for s in found.surfaces] == [fsm.CT_IMPACTED], found.sentence()
+    assert found.surfaces[0].region in fit.regions
+    _check_lands_within(fit, landing)
+    _check_residual_contract(fit)
+
+
+# The surgeon's marks on the impacted phantom's fracture (x = 12 mm, in the
+# band), as in test_fracture_surface.
+SACRAL_MARKS = [[12.0, -45.0, 0.0], [12.0, -40.0, 20.0], [12.0, -48.0, 40.0], [12.0, -38.0, 10.0]]
+
+
+def test_a_reduction_cut_along_the_surgeons_marks_never_reads_as_found(straight_confirmed, own_targets):
+    """7d.1: where the CT shows nothing (the impacted phantom's CT with no
+    band in it), the marked plane is the fracture surface and the sacrum is
+    split along it, but it is never presented as found: the Reduction says
+    so, every mark stays a region of unknown error (inf), and a screw
+    crossing the marks surface anywhere, as reduced, is warned however much
+    room it has. The reduction is not accepted."""
+    phantom = impacted_sacral_pelvis(depth_mm=4.0, band_excess_hu=IMPACTED_BAND_HU)
+    vol = _vol(phantom.labels, phantom)
+    blind = Volume(pelvis_ct(phantom.labels, phantom.spacing, phantom.origin), phantom.spacing, phantom.origin)
+    found = fsm.find_fracture_surfaces(vol, mirror=straight_confirmed, ct=blind, marks=[fit_plane(SACRAL_MARKS)],
+                                       bones=(seg.SACRUM,), injured="right")
+    assert [s.source for s in found.surfaces] == [fsm.SURGEON_MARKS], found.sentence()
+    surface = found.surfaces[0]
+    splits = fsm.split_sacrum(vol, found, straight_confirmed)
+    sacral = phantom.sacral
+    truth = np.linalg.inv(sacral.moved_by)
+    hip = sacral.labels == seg.HIP_R
+    begin = _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+    fit = cg.fit_reduction(vol, "right", found, _fragment_set("right", [_body(0, None, hip, begin)]), splits,
+                           **own_targets)
+    reduction = fit.reduction()
+    _report(f"marked, not found; {splits['right'].sentence()[:120]}", fit,
+            _landing(fit, _truth(vol, [(hip | sacral.lateral_fragment | (sacral.labels == seg.FEMUR_R), truth)])))
+    assert reduction.accepted_by is None and reduction.notes[0] == cg.NOT_ACCEPTED
+    assert any(fsm.MARKS_SURFACE_FLAG in n for n in reduction.notes), "the Reduction does not say it was not found"
+    marked = [r for k, r in fit.regions.items() if k.startswith("fracture_mark_")]
+    assert len(marked) == 1 and np.isinf(marked[0].residual_mm) and "surgeon marked a fracture" in marked[0].unconstrained
+    # Every point of the marks surface's faces, where the fit puts it.
+    points = []
+    for face in surface.faces:
+        unit = cg._unit_of(face.voxels, fit.units)
+        for k in np.unique(unit):
+            pose = np.eye(4) if k == cg.STATIC else fit.units[k].transform
+            points.append(transform_points(pose, face.points[unit == k]))
+    points = np.vstack(points)
+    unknown = {k for k, r in reduction.residual_mm.items() if np.isinf(r)}
+    near_unknown = np.zeros(len(points), dtype=bool)
+    for k in unknown:
+        near_unknown |= cKDTree(np.asarray(reduction.region_xyz[k]).reshape(-1, 3)).query(points)[0] <= REGION_RADIUS_MM
+    print(f"marks surface {surface.id}: {int(near_unknown.sum())} of {len(points)} face points, as reduced, within "
+          f"{REGION_RADIUS_MM:.0f} mm of a region of unknown error ({sorted(unknown)}); its own region: "
+          f"{fit.regions[surface.region].sentence() if surface.region in fit.regions else 'none'}")
+    assert near_unknown.all(), "a screw crossing the marks surface there is not warned as unknown"
+    sample = points[np.linspace(0, len(points) - 1, 12).astype(int)]
+    for p in sample:
+        assert any(np.isinf(w["residual_mm"]) for w in reduction_warnings(p[None], np.full(1, 50.0), reduction))
+    _check_residual_contract(fit)
+
+
+def _with_impacted_rim(found, keep):
+    """The same surfaces, each face keeping only its first ``keep`` rim
+    points, with everything else (source, impaction depth) as found."""
+    surfaces = []
+    for s in found.surfaces:
+        faces = []
+        for f in s.faces:
+            rim = np.zeros(len(f.rim), dtype=bool)
+            rim[np.flatnonzero(f.rim)[:keep]] = True
+            faces.append(dataclasses.replace(f, rim=rim))
+        surfaces.append(dataclasses.replace(s, faces=tuple(faces)))
+    return dataclasses.replace(found, surfaces=surfaces)
+
+
+def _inf_cover(fit, vol, unit):
+    """The share of a unit's voxels, as reduced, within Corridor Finder's
+    warning radius of a region of unknown error (inf): where a screw is
+    warned whatever its room."""
+    reduction = fit.reduction()
+    bone = transform_points(unit.transform, vol.mask_voxel_centers_world(unit.mask))
+    near = np.zeros(len(bone), dtype=bool)
+    for name, residual in reduction.residual_mm.items():
+        if np.isinf(residual):
+            near |= cKDTree(np.asarray(reduction.region_xyz[name]).reshape(-1, 3)).query(bone)[0] <= REGION_RADIUS_MM
+    return float(near.mean())
+
+
+@pytest.mark.parametrize("keep", [0, 5])
+def test_an_impacted_fracture_its_rims_cannot_pin_is_unconstrained_and_the_mirror_pins_nothing(impacted, own_targets,
+                                                                                               keep):
+    """7d.6: "where the rims cannot pin it, inf". The 4 mm impacted fracture
+    with its rims taken away (none left, or five per face): the length
+    across it cannot be taken from the mirror, or too few rims are left to
+    trust, so the fracture is inf with the reason, never a small number;
+    no region that reports a number rests on the mirror, and there is no
+    unit_<name>_on_mirror region, whose finite number would read the hip as
+    known; and since nothing
+    trustworthy pins the hip (the phantom's joints are flat), every voxel of
+    it is within the warning radius of a region of unknown error."""
+    phantom, vol, found, splits = impacted[4.0]
+    starved = _with_impacted_rim(found, keep)
+    surface = starved.surfaces[0]
+    assert surface.source == fsm.CT_IMPACTED and surface.impaction_depth_mm == found.surfaces[0].impaction_depth_mm
+    assert all(int(f.rim.sum()) <= keep for f in surface.faces)
+    sacral = phantom.sacral
+    truth = np.linalg.inv(sacral.moved_by)
+    hip = sacral.labels == seg.HIP_R
+    begin = _wrong(vol.mask_voxel_centers_world(hip)) @ truth
+    fit = cg.fit_reduction(vol, "right", starved, _fragment_set("right", [_body(0, None, hip, begin)]), splits,
+                           **own_targets)
+    region = fit.regions[surface.region]
+    cover = _inf_cover(fit, vol, fit.units[0])
+    print(f"impacted 4 mm, {keep} rim points per face: {region.sentence()}; the hip within "
+          f"{REGION_RADIUS_MM:.0f} mm of a region of unknown error: {100 * cover:.1f}%")
+    assert np.isinf(region.residual_mm) and region.unconstrained, region.sentence()
+    if keep == 0:
+        assert region.unconstrained.startswith("IMPACTION NOT RESTORED") and "no rim pairs" in region.unconstrained
+    # With five rim points left, the length across is still taken at the
+    # mirror start, so the fracture's own notes say it rests on the mirror
+    # (as the fit did) while it reads inf for too little rim; no region that
+    # reports a number may lean on the mirror.
+    leaning = [r.sentence() for r in fit.regions.values() if np.isfinite(r.floor_mm) and np.isfinite(r.residual_mm)]
+    assert not leaning, leaning
+    assert not any(k.endswith("_on_mirror") for k in fit.regions)
+    assert cover == 1.0
+    _check_residual_contract(fit)
+
+
+def test_with_no_mirror_a_screw_anywhere_in_the_impacted_hip_is_warned(impacted, own_targets):
+    """Both sides injured: the impacted fracture is not restored (inf), so
+    its rows pin nothing; the phantom's flat joints pin nothing either. A
+    screw anywhere in either hip, as the fit leaves it, is then within
+    the warning radius of a region of unknown error, whatever its room:
+    never read as safe because the only surface near it was not trusted."""
+    phantom, vol, found, fit, *_ = _impacted_fit(impacted, own_targets, 4.0, None, injured="both")
+    assert np.isinf(fit.regions[found.surfaces[0].region].residual_mm)
+    for unit in fit.units:
+        cover = _inf_cover(fit, vol, unit)
+        print(f"{unit.name}: {100 * cover:.1f}% of it within {REGION_RADIUS_MM:.0f} mm of a region of unknown error")
+        assert cover == 1.0, unit.name
+    assert not any(np.isfinite(r.floor_mm) and np.isfinite(r.residual_mm) for r in fit.regions.values())
+    assert not any(k.endswith("_on_mirror") for k in fit.regions)
+    _check_residual_contract(fit)
