@@ -1320,3 +1320,69 @@ def test_an_impacted_fracture_on_the_left_is_found_its_faces_named_and_split(dep
     purity = float((split.mask & phantom.sacral.lateral_fragment).sum() / split.mask.sum())
     assert recall >= 0.9 and purity >= 0.9, (recall, purity)
     assert split.plane_normal @ phantom.sacral.cut_normal > 0 and split.plane_normal[0] < 0, "lateral is to the left"
+
+
+# --------------------------------------------------------------------------
+# DECISIONS 7e.2: probable disc remnants are flagged, never dropped.
+
+
+def _plate(centre, normal, radius_mm=10.0, half_gap_mm=1.0, step_mm=1.5):
+    """A thin synthetic fracture: two planar faces either side of a plane."""
+    normal = np.asarray(normal, float) / np.linalg.norm(normal)
+    helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(normal, helper)
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(normal, e1)
+    g = np.arange(-radius_mm, radius_mm + 1e-9, step_mm)
+    u, v = np.meshgrid(g, g)
+    disc = np.hypot(u, v) <= radius_mm
+    flat = centre + u[disc][:, None] * e1 + v[disc][:, None] * e2
+    faces = []
+    for sign in (1.0, -1.0):
+        pts = flat + sign * half_gap_mm * normal
+        faces.append(fsm.Face("sacrum", seg.SACRUM, pts, np.tile(sign * normal, (len(pts), 1)),
+                              np.zeros((len(pts), 3), dtype=np.int64), np.zeros(len(pts), dtype=bool)))
+    return fsm.FractureSurface("sacrum_test", seg.SACRUM, fsm.SLOT, tuple(faces), 2.0, float(disc.sum() * step_mm ** 2),
+                               None)
+
+
+def _remnant_flagged(surface):
+    return any(f.startswith("probable disc remnant") for f in surface.flags)
+
+
+def test_a_transverse_plate_across_the_sacral_body_is_flagged_and_kept(intact):
+    """A thin plate square to the S1-S2 line, between the two body centres:
+    where a fused segment junction lies. It is flagged, and it is still
+    there. The same plate 40 mm lateral (in the ala), or tilted 60 degrees
+    off square, is not flagged."""
+    from corridor_engine import landmarks as lm
+
+    phantom, vol, _ = intact
+    marks = lm.detect_landmarks(vol)
+    s1 = np.asarray(marks["s1_body_center"].xyz, float)
+    s2 = np.asarray(marks["s2_body_center"].xyz, float)
+    axis = (s1 - s2) / np.linalg.norm(s1 - s2)
+    centre = 0.5 * (s1 + s2)
+
+    across = [_plate(centre, axis)]
+    notes = []
+    fsm._flag_disc_remnants(vol, across, notes)
+    assert len(across) == 1 and _remnant_flagged(across[0]), (across[0].flags, notes)
+
+    lateral = [_plate(centre + np.array([40.0, 0.0, 0.0]), axis)]
+    fsm._flag_disc_remnants(vol, lateral, [])
+    assert not _remnant_flagged(lateral[0])
+
+    side = np.cross(axis, [0.0, 1.0, 0.0])
+    side /= np.linalg.norm(side)
+    tilted_normal = np.cos(np.radians(60.0)) * axis + np.sin(np.radians(60.0)) * side
+    tilted = [_plate(centre, tilted_normal)]
+    fsm._flag_disc_remnants(vol, tilted, [])
+    assert not _remnant_flagged(tilted[0])
+
+
+def test_a_lateral_sacral_fracture_is_not_flagged_as_a_disc_remnant(impacted):
+    """The impacted phantom's fracture runs up and down through the ala, as
+    the surgeon's lateral sacral fractures do: it is not a disc remnant."""
+    _, _, _, found = impacted
+    assert found.surfaces and not any(_remnant_flagged(s) for s in found.surfaces), [s.flags for s in found.surfaces]

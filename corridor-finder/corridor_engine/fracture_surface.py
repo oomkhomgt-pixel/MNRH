@@ -238,6 +238,12 @@ IMPACTION_BAND_PAD_MM = 15.0
 # ...and only within its slab (_in_slab), whose plane and thickness are
 # refitted to the band grown within it, at most this often.
 IMPACTION_SLAB_REFITS = 5
+# DECISIONS 7e.2, a probable disc remnant: within this of the line through
+# the S1 and S2 body centres (an adult S1 body is about 45-50 mm across, so
+# its column), and within this of square to that line. Chosen from that
+# anatomy, not tuned on the four CLINIC cases; it only flags, never drops.
+DISC_REMNANT_BODY_RADIUS_MM = 25.0
+DISC_REMNANT_MAX_TILT_DEG = 30.0
 # A band of impaction has bone of the usual density on both sides of it, this
 # far past its half-thickness (beyond the smoothing's blur of its edge), over
 # at least this share of it. Chosen, not calibrated.
@@ -699,6 +705,7 @@ def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror]
             if s.far_from_marks:
                 s.flags.append(f"{s.mark_distance_mm:.0f} mm from every mark the surgeon placed, more than "
                                f"{FAR_FROM_MARKS_MM:.0f} mm: found automatically, not where a fracture was marked")
+    _flag_disc_remnants(labels_vol, surfaces, notes)
     # The surgeon's marked fractures first, then the largest.
     surfaces.sort(key=lambda s: (not (s.mark_distance_mm is not None and not s.far_from_marks), -s.area_mm2))
     counts: Dict[int, int] = {}
@@ -710,6 +717,52 @@ def find_fracture_surfaces(labels_vol: Volume, mirror: Optional[ConfirmedMirror]
                             ct is not None, len(marks), notes, unmatched, ct is not None, route.reference,
                             IMPACTION_MARGIN_HU if ct is not None else None, route.lucent_points,
                             route.dense_points, route.small)
+
+
+def _surface_plane(surface: FractureSurface) -> Tuple[np.ndarray, np.ndarray]:
+    """A surface's centre and unit normal, from both faces' points."""
+    pts = np.vstack([f.points for f in surface.faces if len(f.points)])
+    centre = pts.mean(axis=0)
+    normal = np.linalg.svd(pts - centre, full_matrices=False)[2][-1]
+    return centre, normal / np.linalg.norm(normal)
+
+
+def _flag_disc_remnants(labels_vol: Volume, surfaces: List[FractureSurface], notes: List[str]) -> None:
+    """DECISIONS 7e.2. Every adult sacrum has the remnant disc spaces of its
+    fused segments (S1-S2, S2-S3 ...): thin transverse plates across the
+    vertebral body column, which can read as a lucent line or, with their
+    dense end plates, as an impacted band. On the four CLINIC cases every
+    sacral surface the CT route found was read by the surgeon as not a
+    fracture, one of them lying exactly along such a junction. A sacral
+    surface that lies **within the body column** (its centre within
+    DISC_REMNANT_BODY_RADIUS_MM of the line through the S1 and S2 body
+    centres) **and across it** (its normal within DISC_REMNANT_MAX_TILT_DEG
+    of that line) is **flagged** as a probable disc remnant for the surgeon,
+    not dropped: a transverse sacral fracture can run there too."""
+    sacral = [s for s in surfaces if s.label == seg.SACRUM and any(len(f.points) for f in s.faces)]
+    if not sacral:
+        return
+    from . import landmarks as landmarks_mod  # only needed when the sacrum has a surface
+
+    marks = landmarks_mod.detect_landmarks(labels_vol)
+    if "s1_body_center" not in marks or "s2_body_center" not in marks:
+        notes.append("probable disc remnants not checked: the S1 and S2 body centres were not found")
+        return
+    s1 = np.asarray(marks["s1_body_center"].xyz, dtype=float)
+    s2 = np.asarray(marks["s2_body_center"].xyz, dtype=float)
+    axis = (s1 - s2) / max(float(np.linalg.norm(s1 - s2)), 1e-9)
+    cos_max = np.cos(np.radians(DISC_REMNANT_MAX_TILT_DEG))
+    for s in sacral:
+        centre, normal = _surface_plane(s)
+        off_axis = float(np.linalg.norm(np.cross(centre - s1, axis)))
+        across = abs(float(np.dot(normal, axis)))
+        if off_axis <= DISC_REMNANT_BODY_RADIUS_MM and across >= cos_max:
+            tilt = float(np.degrees(np.arccos(min(1.0, across))))
+            s.flags.append(
+                f"probable disc remnant (7e.2): it lies across the sacral body, {off_axis:.0f} mm from the line "
+                f"through the S1 and S2 body centres and {tilt:.0f} degrees from square to it, where the junction "
+                "of two fused sacral segments lies in every adult; a transverse fracture can run here too, so it "
+                "is kept for the surgeon to judge")
 
 
 def _distance(surface: FractureSurface, tree: cKDTree) -> float:
