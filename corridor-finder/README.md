@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Zone II: with one side of the sacrum called fractured, its foramina are
+      the intact side's, mirrored, so the fracture outside them can be crossed
+      and the foramina cannot (DECISIONS.md 7.16). Checked on test sacra and,
+      by eye, on CLINIC_0012 (right) and 0060; not on a real marked case.
 - [x] Sacral canal and foramina found, shown in purple and never counted as
       bone (DECISIONS.md 7.15); switches for landmarks, fracture marks and
       screw handles. Checked by eye on CLINIC_0012 (S1 canal and foramina,

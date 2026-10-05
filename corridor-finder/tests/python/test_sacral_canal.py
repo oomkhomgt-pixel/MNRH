@@ -52,3 +52,86 @@ def test_a_thin_fracture_gap_is_not_a_foramen():
     sheet = np.zeros(labels.shape, dtype=bool)
     sheet[30:33, 12:68, 20:26] = True  # away from the foramen
     assert not found[sheet].any()
+
+
+# DECISIONS 7.16: a Denis zone II fracture runs through the foramina.
+
+from corridor_engine.sacral_canal import protected_spaces  # noqa: E402
+
+MIDLINE = ((60.0, 0.0, 0.0), (1.0, 0.0, 0.0))  # the plane x = 60, normal to the patient's right
+
+
+def _symmetric_sacrum(gap_on_right=True, gap_on_left=False, gap_mm=6):
+    """A sacrum block symmetric about x = 60: a canal in the middle, one
+    foramen each side at x = 60 -/+ 22 (9 mm across, front to back), and a
+    zone II fracture gap gap_mm wide, full height and depth, through the
+    foramen of the side(s) asked for."""
+    labels = np.zeros((60, 80, 120), dtype=np.uint8)
+    labels[5:55, 10:70, 25:96] = SACRUM
+    labels[5:55, 15:30, 53:68] = 0  # canal
+    zz, yy, xx = np.mgrid[0:60, 0:80, 0:120]
+    foramina = np.zeros(labels.shape, dtype=bool)
+    gaps = np.zeros(labels.shape, dtype=bool)
+    for cx, broken in ((82.0, gap_on_right), (38.0, gap_on_left)):
+        f = ((zz - 30) ** 2 + (xx - cx) ** 2 <= 4.5 ** 2) & (yy >= 10) & (yy < 70)
+        foramina |= f
+        if broken:
+            gaps |= (np.abs(xx - cx) <= gap_mm / 2.0) & (zz >= 5) & (zz < 55) & (yy >= 10) & (yy < 70)
+    labels[(foramina | gaps) & (labels == SACRUM)] = 0
+    return Volume(labels, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)), foramina, gaps
+
+
+def test_without_a_marked_fracture_the_gap_is_taken_for_foramen():
+    """What the surgeon saw: the gap and the foramen are one hole."""
+    vol, foramina, gaps = _symmetric_sacrum()
+    found = canal_and_foramina(vol, SACRUM)
+    away = gaps & ~foramina
+    away[:, :, :] &= (np.abs(np.mgrid[0:60, 0:80, 0:120][0] - 30) > 12)
+    assert found[away].mean() > 0.5
+
+
+def test_a_marked_zone_two_fracture_keeps_the_foramen_and_frees_the_gap():
+    vol, foramina, gaps = _symmetric_sacrum()
+    found, notes = protected_spaces(vol, SACRUM, midline=MIDLINE, fractured_sides=["right"])
+    zz = np.mgrid[0:60, 0:80, 0:120][0]
+    right_foramen = foramina & (np.mgrid[0:60, 0:80, 0:120][2] > 60)
+    inner = right_foramen.copy()
+    inner[:, :12] = False
+    inner[:, 68:] = False
+    assert found[inner].mean() > 0.95, "the foramen in the fracture stays protected (mirrored from the left)"
+    far_gap = gaps & (np.abs(zz - 30) > 4.5 + 2.0 + 2.0)
+    assert not found[far_gap].any(), "the gap above and below it may be crossed"
+    left_foramen = foramina & (np.mgrid[0:60, 0:80, 0:120][2] < 60)
+    inner_left = left_foramen.copy()
+    inner_left[:, :12] = False
+    inner_left[:, 68:] = False
+    assert found[inner_left].mean() > 0.95, "the intact side as found"
+    assert found[10:50, 17:28, 55:66].all(), "the canal"
+    assert notes and "mirrored" in notes[0]
+
+
+def test_both_sides_fractured_keeps_everything_protected_and_says_so():
+    vol, foramina, gaps = _symmetric_sacrum(gap_on_right=True, gap_on_left=True)
+    found, notes = protected_spaces(vol, SACRUM, midline=MIDLINE, fractured_sides=["right", "left"])
+    assert (found >= canal_and_foramina(vol, SACRUM)).all()
+    assert notes and "Both sides" in notes[0]
+
+
+def test_a_hole_enclosed_between_fragments_away_from_the_midline_is_not_the_canal():
+    vol, _, _ = _symmetric_sacrum(gap_on_right=False)
+    labels = vol.array.copy()
+    labels[10:50, 40:50, 90:93] = 0  # a thin enclosed slot, 30 mm off the midline
+    found, _ = protected_spaces(Volume(labels, vol.spacing, vol.origin), SACRUM, midline=MIDLINE)
+    assert not found[10:50, 40:50, 90:93].any(), "a thin slot off the midline is neither canal nor foramen"
+
+
+def test_nothing_is_mirrored_from_a_side_with_no_foramina_found():
+    """If the side called intact shows no foramina (a segmentation problem),
+    the fractured side keeps everything the shape found."""
+    vol, foramina, gaps = _symmetric_sacrum()
+    labels = vol.array.copy()
+    labels[foramina & (np.mgrid[0:60, 0:80, 0:120][2] < 60)] = SACRUM  # the left foramen painted over
+    v2 = Volume(labels, vol.spacing, vol.origin)
+    found, notes = protected_spaces(v2, SACRUM, midline=MIDLINE, fractured_sides=["right"])
+    assert (found >= canal_and_foramina(v2, SACRUM)).all()
+    assert notes and "almost no foramina" in notes[0]

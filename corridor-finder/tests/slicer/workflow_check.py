@@ -811,6 +811,17 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
                 field = logic.clearance_field(cid_, side_)
                 check(not (field.array[protected] > 0).any(),
                       f"no part of them counts as bone in the {cid_} field, SI bridge included")
+            # DECISIONS 7.16: with one side of the sacrum called fractured, its
+            # foramina are the other side's, mirrored; the panel says so.
+            w.sacralFractureCombo.setCurrentIndex(w.sacralFractureCombo.findText("right"))
+            mirrored = logic.protected_spaces()
+            log(f"    sacral fracture right: {int(mirrored.sum())} voxels; {logic.protected_notes}")
+            check(bool(logic.protected_notes) and w.canalNoteLabel.text == chr(10).join(logic.protected_notes),
+                  "calling the right sacrum fractured changes how its foramina are found, and the panel says how")
+            field = logic.clearance_field("iliosacral_s1", "right")
+            check(not (field.array[mirrored] > 0).any(), "and none of them counts as bone")
+            w.sacralFractureCombo.setCurrentIndex(0)
+            check(np.array_equal(logic.protected_spaces(), protected), "'not said' gives back what the shape found")
 
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior

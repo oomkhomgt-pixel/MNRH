@@ -340,6 +340,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._fracture_version = 0
         self._gap_cache: Dict[tuple, Optional[np.ndarray]] = {}
         self._canal_cache: Dict[tuple, np.ndarray] = {}
+        # How the foramina were found (sacral_canal.protected_spaces notes).
+        self.protected_notes: List[str] = []
+        # Which side of the sacrum the surgeon says is fractured (DECISIONS.md
+        # 7.16): None (not said), "none", "right", "left" or "both".
+        self.sacral_fracture: Optional[str] = None
         # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
         self.patient_views: Dict[str, "views_mod.View"] = {}
         # What the last suggestion could not offer, in words, for the panel.
@@ -869,14 +874,63 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     def protected_spaces(self) -> Optional[np.ndarray]:
         """The sacral canal and foramina (corridor_engine/sacral_canal.py):
         never counted as bone, whatever else is bridged, so a screw keeps
-        the full margin from them (the surgeon, 2026-10-04)."""
+        the full margin from them (the surgeon, 2026-10-04). On a side whose
+        sacrum he has marked as fractured (a fracture plane of 3 or more
+        marks) while the other side is not, the foramina are the intact
+        side's, mirrored across the sacral midline (DECISIONS.md 7.16)."""
         if self.labels_volume is None:
             return None
-        key = (self._labels_version, id(self.labels_volume))
+        midline = self.sacral_midline()
+        fractured = self.fractured_sacral_sides(midline)
+        key = (self._labels_version, id(self.labels_volume), tuple(sorted(fractured)),
+               None if midline is None else tuple(np.round(np.concatenate(midline), 3)))
         if key not in self._canal_cache:
-            self._canal_cache = {key: sacral_canal_mod.canal_and_foramina(
-                self.labels_volume, seg_mod.SACRUM, (seg_mod.HIP_R, seg_mod.HIP_L))}
+            mask, notes = sacral_canal_mod.protected_spaces(
+                self.labels_volume, seg_mod.SACRUM, (seg_mod.HIP_R, seg_mod.HIP_L), midline=midline,
+                fractured_sides=sorted(fractured))
+            self._canal_cache = {key: mask}
+            self.protected_notes = notes
         return self._canal_cache[key]
+
+    def sacral_midline(self) -> Optional[tuple]:
+        """The sacral midline plane: through the S1 and S2 body centres,
+        square to the patient's left-right axis; (point, unit normal toward
+        the patient's right). None before the landmarks are found."""
+        s1, s2 = self.landmarks.get("s1_body_center"), self.landmarks.get("s2_body_center")
+        if s1 is None or s2 is None or self.frame is None:
+            return None
+        a, b = np.asarray(s1.xyz, dtype=float), np.asarray(s2.xyz, dtype=float)
+        u = a - b
+        if np.linalg.norm(u) < 1e-6:
+            return None
+        u /= np.linalg.norm(u)
+        n = np.asarray(self.frame.x_hat, dtype=float)
+        n = n - (n @ u) * u
+        if np.linalg.norm(n) < 1e-6:
+            return None
+        n /= np.linalg.norm(n)
+        if n[0] < 0:  # toward the patient's right (+x in RAS)
+            n = -n
+        return 0.5 * (a + b), n
+
+    def set_sacral_fracture(self, sides: Optional[str]) -> None:
+        """Which side of the sacrum the surgeon says is fractured: decides
+        which side's foramina are taken from the other, intact, side
+        (DECISIONS.md 7.16). Every field built with the sacrum changes."""
+        if sides not in (None, "none", "right", "left", "both"):
+            raise ValueError(f"sacral fracture side {sides!r}")
+        self.sacral_fracture = sides
+        self._edt_cache, self._mask_cache, self._entry_area_cache = {}, {}, {}
+        self._canal_cache = {}
+        for other in self._anatomies.values():
+            other["_edt_cache"], other["_mask_cache"], other["_entry_area_cache"] = {}, {}, {}
+
+    def fractured_sacral_sides(self, midline=None) -> set:
+        """The sides of the sacrum the surgeon says are fractured, on the
+        scanned anatomy (a virtual reduction has its own bones)."""
+        if self.anatomy_state != "as scanned" or self.sacral_fracture in (None, "none"):
+            return set()
+        return {"right", "left"} if self.sacral_fracture == "both" else {self.sacral_fracture}
 
     def _fracture_gaps(self, ids: tuple) -> Optional[np.ndarray]:
         """The fracture gaps near the surgeon's marks in the bones ``ids``,
@@ -1048,7 +1102,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """What a bone distance field depends on: the bones, the bridged SI
         joint, and the fracture marks (whose gaps count as bone)."""
         marks = self._fracture_version if self.fracture_sites and self.anatomy_state == "as scanned" else 0
-        return (ids, tuple(sorted(widths.items())), marks)
+        return (ids, tuple(sorted(widths.items())), marks, self.sacral_fracture)
 
     def _traverse_labels(self, corridor_id: str, side: str) -> tuple:
         if side == "midline":
@@ -1618,6 +1672,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         what the surgeon declared, and what was counted as bone."""
         return {
             "disrupted": self.si_disrupted,
+            "sacral_fracture": self.sacral_fracture,
             "bridge_mm": dict(self.si_bridge_mm),
             "measured_mm": {side: float(w.measured_mm) for side, w in self.si_widths.items()},
             "covered": {side: round(w.covers(self.si_bridge_mm.get(side, 0.0)), 3) for side, w in self.si_widths.items()},
@@ -1966,6 +2021,14 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
               "the joint are not suggested until this is set."))
         corridorForm.addRow(_("Disrupted joint:"), self.siDisruptedCombo)
 
+        self.sacralFractureCombo = qt.QComboBox()
+        self.sacralFractureCombo.addItems([_("not said"), "none", "right", "left", "both"])
+        self.sacralFractureCombo.setToolTip(
+            _("Which side of the sacrum is fractured. With one side fractured, that side's foramina are taken from "
+              "the intact side, mirrored, because in a zone II fracture the foramen and the fracture are one hole. "
+              "With both, or not said, everything shaped like a foramen stays protected."))
+        corridorForm.addRow(_("Sacral fracture:"), self.sacralFractureCombo)
+
         widthsRow = qt.QWidget()
         widthsLayout = qt.QHBoxLayout(widthsRow)
         widthsLayout.setContentsMargins(0, 0, 0, 0)
@@ -2057,6 +2120,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.canalCheck.checked = True
         self.canalCheck.toolTip = _("What the tool treats as canal and foramina: never bone, so screws keep the full "
                                     "margin from them. Check it covers each foramen.")
+        self.canalNoteLabel = qt.QLabel("")
+        self.canalNoteLabel.setWordWrap(True)
         self.landmarksCheck = qt.QCheckBox(_("Landmarks"))
         self.landmarksCheck.checked = True
         self.fractureMarksCheck = qt.QCheckBox(_("Fracture marks"))
@@ -2068,6 +2133,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             markupsRow.addWidget(box)
         planForm.addRow(_("Show:"), markupsRow)
         planForm.addRow(self.canalCheck)
+        planForm.addRow(self.canalNoteLabel)
         self.bone3dSlider = ctk.ctkSliderWidget()
         self.bone3dSlider.minimum, self.bone3dSlider.maximum, self.bone3dSlider.singleStep = 0.0, 1.0, 0.05
         self.bone3dSlider.value = 0.45
@@ -2151,6 +2217,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.sacralLevelsButton.clicked.connect(self.onCheckSacralLevels)
         self.fractureClearButton.clicked.connect(self.onClearFractures)
         self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
+        self.sacralFractureCombo.currentIndexChanged.connect(self.onSacralFractureChanged)
         self.siRightSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("right", value))
         self.siLeftSpin.valueChanged.connect(lambda value: self.onSiWidthChanged("left", value))
         self.exportPlanButton.clicked.connect(self.onExportPlan)
@@ -2317,15 +2384,31 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             segmentation.AddEmptySegment(name, name, self._BONE_COLORS.get(name, (0.8, 0.8, 0.8)))
             slicer.util.updateSegmentBinaryLabelmapFromArray(mask.astype(np.uint8), node, name, volume_node)
-        # Shown, not read back: _syncLabelsFromSegmentation takes only bones.
+        self._updateCanalSegment(create_surface=False)
+        node.CreateClosedSurfaceRepresentation()
+        self._applyBoneDisplay()
+
+    def _updateCanalSegment(self, create_surface: bool = True) -> None:
+        """The purple canal-and-foramina segment, as the logic has them now
+        (it changes when the sacral fracture marks do). Shown, not read
+        back: _syncLabelsFromSegmentation takes only bones."""
+        node = self._bonesSegmentationNode
+        if node is None or node.GetScene() is None or self.logic.labels_volume is None:
+            return
+        volume_node = self.logic.volume_node
+        segmentation = node.GetSegmentation()
+        if segmentation.GetSegment(self._CANAL_SEGMENT) is not None:
+            segmentation.RemoveSegment(self._CANAL_SEGMENT)
         protected = self.logic.protected_spaces()
         if protected is not None and protected.any():
             segmentation.AddEmptySegment(self._CANAL_SEGMENT, _("sacral canal and foramina"), (0.62, 0.2, 0.86))
             slicer.util.updateSegmentBinaryLabelmapFromArray(
                 engine_array_to_node_array(volume_node, protected.astype(np.uint8)), node, self._CANAL_SEGMENT,
                 volume_node)
-        node.CreateClosedSurfaceRepresentation()
-        self._applyBoneDisplay()
+        self.canalNoteLabel.setText("\n".join(self.logic.protected_notes))
+        if create_surface:
+            node.CreateClosedSurfaceRepresentation()
+            self._applyBoneDisplay()
 
     def _applyBoneDisplay(self, *args) -> None:
         """Slices: a thin outline, or the colour fill when asked. 3D: the
@@ -2513,6 +2596,17 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self._updateScrewModel(screw)
                 if screw.screw_id == getattr(self, "_shownScrewId", None):
                     self._refreshClearanceLabel(screw.screw_id)
+
+    def onSacralFractureChanged(self, index: int) -> None:
+        self.logic.set_sacral_fracture(None if index == 0 else self.sacralFractureCombo.currentText)
+        self._clearSuggestions()
+        self._updateCanalSegment()
+        if self.logic.plan is not None:
+            for screw in self.logic.plan.screws:
+                self.logic._validate_plan_screw(screw, derived=False)
+                self._updateScrewModel(screw)
+            if getattr(self, "_shownScrewId", None):
+                self._refreshClearanceLabel(self._shownScrewId)
 
     def onSiDisruptedChanged(self, index: int) -> None:
         self.logic.set_si_disrupted(None if index == 0 else self.siDisruptedCombo.currentText)
