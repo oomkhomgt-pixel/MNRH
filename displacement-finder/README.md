@@ -1101,6 +1101,31 @@ Not done in slice 1c:
   not calibrated; the normals null test (`--normals`, labels only) was not
   rerun, since it does not exercise the CT route or the fit.
 
+## Status: after slice 1c (DECISIONS 7e)
+
+- [ ] **No lateral sacral fracture is found on a real CT.** The surgeon read
+      every sacral surface slice 1c found on the four CLINIC cases (3) as not
+      a fracture. So, for now, a sacral fracture comes from his marks
+      (7e.1).
+- [x] **The marks reader** (`tools/fracture_marks.py`, tested in
+      `tests/test_fracture_marks.py`) reads the per-case file Corridor
+      Finder saves, schema `corridor-finder-fracture-marks/1`. Each marked
+      fracture is fitted as its own plane, and a set that defines no plane
+      is reported, not fitted. Anything not RAS, not mm, or under another
+      schema is refused, not guessed. `measure_cases.py` passes the planes
+      to the fracture search. No marks file exists yet for any case.
+- [x] **Probable disc remnants are flagged, never dropped** (7e.2): a
+      sacral surface whose centre lies within 25 mm of the line through the
+      S1 and S2 body centres, and which is within 30 degrees of square to
+      that line. The thresholds were set from anatomy, not tuned. On the
+      real cases it flags CLINIC_0025's lucent line (22 mm off the line, 16
+      degrees). It does not flag CLINIC_0060's dense band: that band lies in
+      the body column (11.5 mm) but 55 degrees off square to the S1-S2 line,
+      so geometrically it does not follow a segment junction. Nor does it
+      flag 0060's slot, which lies in the ala, 28 mm off. The surgeon rejected
+      all three as fractures, so the flag catches one of the three false
+      alarms; the other two are false alarms of other kinds.
+
 ## Running it
 
 From `corridor-finder/`, with the development venv:

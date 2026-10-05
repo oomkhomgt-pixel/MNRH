@@ -56,6 +56,9 @@ from corridor_engine import congruence, ctpelvic1k, fracture_surface, fragments,
 from corridor_engine import segmentation as seg  # noqa: E402
 from corridor_engine.register import rotation_deg  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fracture_marks  # noqa: E402
+
 DATA = r"C:\Users\oom\CorridorFinderData\ctpelvic1k"
 CLINIC_LABELS = os.path.join(DATA, "labels", "ipcai2021_dataset6_Anonymized", "dataset6_CLINIC_{}_mask_4label.nii.gz")
 CLINIC_IMAGES = os.path.join(DATA, "images", "dataset6_CLINIC_{}_data.nii.gz")
@@ -136,16 +139,34 @@ def _where(labels_vol, label, centre, axis, offset) -> str:
     return f"{name} (lateral {lateral:.2f}, anterior {anterior:.2f}, cephalad {cephalad:.2f})"
 
 
-def _surface_lines(loaded, confirmed, found, injured, read_sacrum):
+def _surface_lines(loaded, confirmed, found, injured, read_sacrum, case=None):
     """What the fracture surfaces and sacral splits are, in lines, and the
     surfaces and splits themselves for the fit. ``read_sacrum`` is the side
     of the sacral fracture the surgeon read (DECISIONS 7b)."""
     sets = [found] if found is not None and not found.refused else []
-    surfaces = fracture_surface.find_fracture_surfaces(loaded.labels, confirmed, loaded.ct, fragment_sets=sets,
-                                                       injured=injured)
+    # The surgeon's fracture marks, when Corridor Finder has saved them for
+    # this case (DECISIONS 7e.1): each marked fracture is its own plane, and
+    # where the CT finds nothing it becomes the surface, labelled as marks.
+    mark_lines, planes = [], []
+    if case is not None:
+        try:
+            path = fracture_marks.find_marks_file(f"CLINIC_{case}")
+            if path is None:
+                mark_lines.append(f"    surgeon marks: none saved for this case (looked in {fracture_marks.MARKS_DIR})")
+            else:
+                alias, marked = fracture_marks.read_marks(path)
+                mark_lines.append(f"    surgeon marks: {os.path.basename(path)} ({len(marked)} fractures)")
+                for m in marked:
+                    mark_lines.append(f"      {m.name} ({m.bone}, {m.side}): {m.n_points} points"
+                                      + (f"; {m.note}" if m.note else ""))
+                planes = [m.plane for m in marked if m.plane is not None]
+        except fracture_marks.MarksRefused as refused:
+            mark_lines.append(f"    surgeon marks REFUSED: {refused}")
+    surfaces = fracture_surface.find_fracture_surfaces(loaded.labels, confirmed, loaded.ct, marks=planes or None,
+                                                       fragment_sets=sets, injured=injured)
     axis, offset = confirmed.plane.normal, confirmed.plane.offset_mm
     cortex = ", ".join(f"{k} {v:.0f}" for k, v in surfaces.cortex_hu.items())
-    lines = [f"    fracture surfaces (this patient's cortex, median HU of each bone's rind: {cortex}):"]
+    lines = mark_lines + [f"    fracture surfaces (this patient's cortex, median HU of each bone's rind: {cortex}):"]
     for key, points in surfaces.candidate_points.items():
         rejected = [p for p in surfaces.rejected if fracture_surface.BONE_KEYS[p.label] == key]
         tally = {}
@@ -258,7 +279,7 @@ def clinic(case: str) -> str:
         found = fragments.find_fragments(loaded.labels, confirmed, injured, articular)
     except ValueError as failed:
         out.append(f"    {injured} hemipelvis: fragments not measured ({failed})")
-        text, surfaces, splits = _surface_lines(loaded, confirmed, None, injured, expected["sacral_fracture"])
+        text, surfaces, splits = _surface_lines(loaded, confirmed, None, injured, expected["sacral_fracture"], case)
         out.append(text)
         out.append(_congruence_lines(loaded, injured, surfaces, None, splits))
         out.append(f"    ({time.time() - start:.0f} s)")
@@ -270,7 +291,7 @@ def clinic(case: str) -> str:
         out.append(f"    note: the surgeon read a fracture in the mirrored {expected['intact_side']} side as well, so the "
                    "reference is not an intact hemipelvis here")
     out.append(_fragment_lines(found))
-    text, surfaces, splits = _surface_lines(loaded, confirmed, found, injured, expected["sacral_fracture"])
+    text, surfaces, splits = _surface_lines(loaded, confirmed, found, injured, expected["sacral_fracture"], case)
     out.append(text)
     out.append(_congruence_lines(loaded, injured, surfaces, found, splits))
     out.append(f"    ({time.time() - start:.0f} s)")
