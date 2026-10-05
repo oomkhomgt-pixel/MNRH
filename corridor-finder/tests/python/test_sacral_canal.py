@@ -135,3 +135,22 @@ def test_nothing_is_mirrored_from_a_side_with_no_foramina_found():
     found, notes = protected_spaces(v2, SACRUM, midline=MIDLINE, fractured_sides=["right"])
     assert (found >= canal_and_foramina(v2, SACRUM)).all()
     assert notes and "almost no foramina" in notes[0]
+
+
+def test_a_painted_foramen_frees_the_fracture_gap_on_its_side_only():
+    """DECISIONS 7.17: both sides fractured; the surgeon paints the right
+    foramen on one coronal slice. It becomes a channel front to back; the
+    right fracture gap outside it may be crossed; the unpainted left side
+    stays fully protected."""
+    vol, foramina, gaps = _symmetric_sacrum(gap_on_right=True, gap_on_left=True)
+    zz, yy, xx = np.mgrid[0:60, 0:80, 0:120]
+    painted = ((zz - 30) ** 2 + (xx - 82) ** 2 <= 4.5 ** 2) & (yy == 40)
+    found, notes = protected_spaces(vol, SACRUM, midline=MIDLINE, fractured_sides=["right", "left"],
+                                    user_foramina=painted, fracture_gap=gaps, ap_axis=(0.0, 1.0, 0.0))
+    channel = foramina & (xx > 60) & (yy >= 12) & (yy < 68)
+    assert found[channel].mean() > 0.95, "the painted foramen, front to back"
+    right_gap_far = gaps & (xx > 60) & (np.abs(zz - 30) > 4.5 + 1.0)
+    assert not found[right_gap_far].any(), "the right fracture gap outside it may be crossed"
+    left_gap_far = gaps & (xx < 60) & (np.abs(zz - 30) > 4.5 + 1.0)
+    assert found[left_gap_far].mean() > 0.5, "the left side, not painted, stays protected"
+    assert any("painted" in n for n in notes)

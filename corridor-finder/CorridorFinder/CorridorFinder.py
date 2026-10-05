@@ -94,6 +94,7 @@ try:
         dicom_seg as dicom_seg_mod,
         edt as edt_mod,
         fracture as fracture_mod,
+        fracture_marks as fracture_marks_mod,
         si_joint as si_joint_mod,
         structures as structures_mod,
         views as views_mod,
@@ -336,7 +337,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # Where the surgeon has marked the fracture. A screw that is meant
         # to hold a fracture has to start on the near side of it, not past
         # it (corridors.json: clear_of_fracture_mm).
-        self.fracture_sites: List[np.ndarray] = []
+        self.fracture_sites: List[np.ndarray] = []  # every mark, all fractures together
+        # One set of marks per fracture (DECISIONS.md 7.14; fracture_marks.py).
+        self.fractures: List["fracture_marks_mod.FractureMarks"] = []
+        # Where each case's marks are written, outside the repository.
+        self.marks_directory = os.path.join(os.path.expanduser("~"), "CorridorFinderData", "marks")
         self._fracture_version = 0
         self._gap_cache: Dict[tuple, Optional[np.ndarray]] = {}
         self._canal_cache: Dict[tuple, np.ndarray] = {}
@@ -345,6 +350,10 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # Which side of the sacrum the surgeon says is fractured (DECISIONS.md
         # 7.16): None (not said), "none", "right", "left" or "both".
         self.sacral_fracture: Optional[str] = None
+        # Foramina the surgeon painted himself (DECISIONS.md 7.17), engine
+        # layout, on the scanned anatomy.
+        self.user_foramina: Optional[np.ndarray] = None
+        self._user_foramina_version = 0
         # The C-arm angles for THIS patient, view by view (DECISIONS 7.6).
         self.patient_views: Dict[str, "views_mod.View"] = {}
         # What the last suggestion could not offer, in words, for the panel.
@@ -827,6 +836,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             width = self.si_widths.get(side)
             if width is not None:
                 lines.append(width.sentence(self.si_bridge_mm.get(side)))
+        shared = si_joint_mod.shared_step_sentence(self.si_widths)
+        if shared:
+            lines.append(shared)
         return lines
 
     def landmark_warnings(self) -> List[str]:
@@ -864,12 +876,76 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return self.landmarks[name].xyz
         raise KeyError(f"landmark {name!r} (side={side!r}) not found; run detect_landmarks() first")
 
-    def set_fracture_sites(self, points) -> None:
-        """Record the fracture sites the surgeon has marked (world xyz). The
-        fracture gap near them counts as bone, so every distance field built
+    def set_fractures(self, fractures) -> None:
+        """The surgeon's fracture marks, one set per fracture (world xyz). A
+        plane is fitted to one fracture's marks at a time, and each
+        fracture's gap counts as bone (7.14), so every distance field built
         from the bones changes with them."""
-        self.fracture_sites = [np.asarray(p, dtype=float) for p in points]
+        self.fractures = list(fractures)
+        self.fracture_sites = [np.asarray(p, dtype=float) for f in self.fractures for p in f.points_ras_mm]
         self._fracture_version += 1
+        if self.plan is not None:
+            self.plan.fracture_marks = self._fracture_marks_record()
+
+    def set_fracture_sites(self, points) -> None:
+        """All the marks as one fracture (kept for scripts; the panel keeps
+        one set per fracture: set_fractures)."""
+        pts = np.asarray(points, dtype=float).reshape(-1, 3)
+        self.set_fractures([self.describe_fracture("fracture", pts)] if len(pts) else [])
+
+    def _fracture_marks_record(self) -> list:
+        return [{"name": f.name, "bone": f.bone, "side": f.side,
+                 "points_ras_mm": [[float(v) for v in p] for p in f.points_ras_mm]} for f in self.fractures]
+
+    def _labels_near(self, point, reach_mm: float = 5.0) -> set:
+        vol = self.labels_volume
+        if vol is None:
+            return set()
+        reach = np.ceil(reach_mm / np.array([vol.spacing[2], vol.spacing[1], vol.spacing[0]])).astype(int)
+        k, j, i = np.round(vol.world_to_zyx_index(point)).astype(int)
+        lo = np.maximum(np.array([k, j, i]) - reach, 0)
+        hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
+        if (hi <= lo).any():
+            return set()
+        return {int(v) for v in np.unique(vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]) if v}
+
+    def describe_fracture(self, name: str, points) -> "fracture_marks_mod.FractureMarks":
+        """A fracture's marks with the bone most of them lie on (within 5 mm)
+        and their side of the sacral midline."""
+        pts = np.asarray(points, dtype=float).reshape(-1, 3)
+        votes: Dict[int, int] = {}
+        for p in pts:
+            for label in self._labels_near(p):
+                votes[label] = votes.get(label, 0) + 1
+        bone = seg_mod.LABEL_NAMES.get(max(votes, key=votes.get), "unknown") if votes else "unknown"
+        midline = self.sacral_midline()
+        if midline is not None and len(pts):
+            offset = float(np.mean((pts - midline[0]) @ midline[1]))
+            side = "midline" if abs(offset) < 10.0 else ("right" if offset > 0 else "left")
+        else:
+            side = "right" if bone.endswith("right") else "left" if bone.endswith("left") else "midline"
+        return fracture_marks_mod.FractureMarks(name=name, bone=bone, side=side, points_ras_mm=pts)
+
+    @staticmethod
+    def default_fracture_name(fracture) -> str:
+        words = {"sacrum": "sacrum", "hip_right": "hip", "hip_left": "hip", "femur_right": "femur",
+                 "femur_left": "femur"}.get(fracture.bone, "fracture")
+        return f"{words} {fracture.side}"
+
+    def marks_path(self) -> Optional[str]:
+        """Where this case's marks are written: <marks directory>/<case
+        alias>.fracture_marks.json; None without a case alias."""
+        alias = self.plan.case_alias if self.plan is not None else ""
+        if not alias or alias == "case":
+            return None
+        return os.path.join(self.marks_directory, fracture_marks_mod.file_name(alias))
+
+    def save_fracture_marks(self) -> Optional[str]:
+        """Write the marks for the displacement tool to read (RAS mm)."""
+        path = self.marks_path()
+        if path is None:
+            return None
+        return fracture_marks_mod.save(path, self.plan.case_alias, self.fractures)
 
     def protected_spaces(self) -> Optional[np.ndarray]:
         """The sacral canal and foramina (corridor_engine/sacral_canal.py):
@@ -882,12 +958,18 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             return None
         midline = self.sacral_midline()
         fractured = self.fractured_sacral_sides(midline)
+        scanned = self.anatomy_state == "as scanned"
+        painted = self.user_foramina if scanned else None
         key = (self._labels_version, id(self.labels_volume), tuple(sorted(fractured)),
-               None if midline is None else tuple(np.round(np.concatenate(midline), 3)))
+               None if midline is None else tuple(np.round(np.concatenate(midline), 3)),
+               self._user_foramina_version if painted is not None else 0,
+               self._fracture_version if (painted is not None and self.fracture_sites) else 0)
         if key not in self._canal_cache:
+            gap = self._fracture_gaps((seg_mod.SACRUM,)) if painted is not None else None
             mask, notes = sacral_canal_mod.protected_spaces(
                 self.labels_volume, seg_mod.SACRUM, (seg_mod.HIP_R, seg_mod.HIP_L), midline=midline,
-                fractured_sides=sorted(fractured))
+                fractured_sides=sorted(fractured), user_foramina=painted, fracture_gap=gap,
+                ap_axis=None if self.frame is None else np.asarray(self.frame.y_hat, dtype=float))
             self._canal_cache = {key: mask}
             self.protected_notes = notes
         return self._canal_cache[key]
@@ -913,6 +995,19 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             n = -n
         return 0.5 * (a + b), n
 
+    def set_user_foramina(self, mask: Optional[np.ndarray]) -> bool:
+        """The foramina the surgeon painted (a boolean mask in the engine's
+        layout, or None). Returns True if they changed; every field built
+        with the sacrum then changes."""
+        new = None if mask is None or not np.asarray(mask).any() else np.asarray(mask, dtype=bool)
+        old = self.user_foramina
+        if (new is None and old is None) or (new is not None and old is not None and np.array_equal(new, old)):
+            return False
+        self.user_foramina = new
+        self._user_foramina_version += 1
+        self._edt_cache, self._mask_cache, self._entry_area_cache, self._canal_cache = {}, {}, {}, {}
+        return True
+
     def set_sacral_fracture(self, sides: Optional[str]) -> None:
         """Which side of the sacrum the surgeon says is fractured: decides
         which side's foramina are taken from the other, intact, side
@@ -935,79 +1030,84 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     def _fracture_gaps(self, ids: tuple) -> Optional[np.ndarray]:
         """The fracture gaps near the surgeon's marks in the bones ``ids``,
         on the scanned anatomy only (a virtual reduction closes them
-        itself, and the marks are where the scanned bone was). A mark
-        belongs to the bone within 5 mm of it; each bone needs 3 marks."""
+        itself, and the marks are where the scanned bone was). Fracture by
+        fracture: each set's plane is fitted to its own marks, and its gap
+        is filled in every bone of ``ids`` that 3 or more of them lie on
+        (within 5 mm)."""
         if not self.fracture_sites or self.anatomy_state != "as scanned":
             return None
         key = (ids, self._fracture_version, self._labels_version, id(self.labels_volume))
         if key in self._gap_cache:
             return self._gap_cache[key]
         vol = self.labels_volume
-        reach = np.ceil(5.0 / np.array([vol.spacing[2], vol.spacing[1], vol.spacing[0]])).astype(int)
-        by_label: Dict[int, list] = {}
-        for site in self.fracture_sites:
-            k, j, i = np.round(vol.world_to_zyx_index(site)).astype(int)
-            lo = np.maximum(np.array([k, j, i]) - reach, 0)
-            hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
-            if (hi <= lo).any():
-                continue
-            near = vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
-            for label in ids:
-                if (near == label).any():
-                    by_label.setdefault(label, []).append(site)
         gaps = None
-        for label, marks in by_label.items():
-            gap = fracture_mod.fracture_gap(vol.array, vol.spacing, vol.origin, label, marks)
-            if gap is not None:
-                gaps = gap if gaps is None else (gaps | gap)
+        for fracture in self.fractures:
+            counts: Dict[int, int] = {}
+            for p in fracture.points_ras_mm:
+                for label in self._labels_near(p) & set(ids):
+                    counts[label] = counts.get(label, 0) + 1
+            for label, n in counts.items():
+                if n < 3:
+                    continue
+                gap = fracture_mod.fracture_gap(vol.array, vol.spacing, vol.origin, label, fracture.points_ras_mm)
+                if gap is not None:
+                    gaps = gap if gaps is None else (gaps | gap)
         self._gap_cache = {key: gaps}
         return gaps
 
-    # A mark belongs to the fracture a screw is about when it is this close
-    # to the screw's line: marks on another fracture of the same bone (the
-    # ramus, say) must not tilt the plane.
+    # A fracture is the one a screw is about when its marks come this close
+    # to the screw's line.
     FRACTURE_MARKS_NEAR_MM = 40.0
 
+    def _hip_fractures(self, side: str) -> list:
+        hip = "hip_right" if side == "right" else "hip_left"
+        return [f for f in self.fractures if f.bone == hip]
+
     def fracture_plane(self, side: str, near=None) -> Optional["fracture_mod.FracturePlane"]:
-        """The fracture of this side's hip bone as a plane through the marks
-        on it (three or more, not on one line; DECISIONS.md 7.12), or None.
-        A mark counts for the hip bone that is within 5 mm of it, and, given
-        ``near`` = (a, b), only if it is within FRACTURE_MARKS_NEAR_MM of the
-        segment a-b."""
-        if not self.fracture_sites or self.labels_volume is None:
+        """A fracture of this side's hip bone as a plane through its own
+        marks (three or more, not on one line; DECISIONS.md 7.12), or None.
+        Given ``near`` = (a, b), the fracture with the most marks within
+        FRACTURE_MARKS_NEAR_MM of the segment a-b; otherwise the one with
+        the most marks."""
+        candidates = [f for f in self._hip_fractures(side) if len(f.points_ras_mm) >= 3]
+        if not candidates or self.labels_volume is None:
             return None
-        hip = seg_mod.HIP_R if side == "right" else seg_mod.HIP_L
-        vol = self.labels_volume
-        reach = np.ceil(5.0 / np.array([vol.spacing[2], vol.spacing[1], vol.spacing[0]])).astype(int)
-        marks = []
-        for site in self.fracture_sites:
-            k, j, i = np.round(vol.world_to_zyx_index(site)).astype(int)
-            lo = np.maximum(np.array([k, j, i]) - reach, 0)
-            hi = np.minimum(np.array([k, j, i]) + reach + 1, vol.array.shape)
-            if (hi > lo).all() and (vol.array[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] == hip).any():
-                marks.append(site)
-        if near is not None and marks:
-            marks = list(fracture_mod.marks_near(marks, near[0], near[1], self.FRACTURE_MARKS_NEAR_MM))
-        return fracture_mod.fit_plane(marks)
+        if near is not None:
+            scored = [(len(fracture_mod.marks_near(f.points_ras_mm, near[0], near[1], self.FRACTURE_MARKS_NEAR_MM)), f)
+                      for f in candidates]
+            scored = [item for item in scored if item[0] > 0]
+            if not scored:
+                return None
+            best = max(scored, key=lambda item: (item[0], len(item[1].points_ras_mm)))[1]
+        else:
+            best = max(candidates, key=lambda f: len(f.points_ras_mm))
+        return fracture_mod.fit_plane(best.points_ras_mm)
+
+    def _ring_marks(self, side: str) -> list:
+        """The marks on this side's hip bone: the fractures an anterior
+        column screw holds (a sacral fracture is not one of them)."""
+        return [p for f in self._hip_fractures(side) for p in f.points_ras_mm]
 
     def _is_clear_of_fracture(self, point, side: str, clear_mm: float) -> bool:
         """Is this point at least ``clear_mm`` on the midline side of every
-        marked fracture?"""
-        if not self.fracture_sites or not clear_mm:
+        fracture marked on this side's hip bone?"""
+        marks = self._ring_marks(side)
+        if not marks or not clear_mm:
             return True
         toward_midline = -1.0 if side == "right" else 1.0  # patient right is +x
-        return all((float(point[0]) - float(site[0])) * toward_midline >= clear_mm for site in self.fracture_sites)
+        return all((float(point[0]) - float(site[0])) * toward_midline >= clear_mm for site in marks)
 
     def _clear_of_fracture(self, mask: np.ndarray, side: str, clear_mm: float) -> np.ndarray:
         """Drop the part of an anchor region that is not at least ``clear_mm``
-        on the midline side of every marked fracture: a screw put in to hold
-        a fracture has to start before it."""
-        if not self.fracture_sites or not clear_mm:
+        on the midline side of every fracture marked on this side's hip
+        bone: a screw put in to hold a fracture has to start before it."""
+        marks = self._ring_marks(side)
+        if not marks or not clear_mm:
             return mask
         toward_midline = -1.0 if side == "right" else 1.0  # patient right is +x
         x = (np.arange(mask.shape[2]) * self.labels_volume.spacing[0] + self.labels_volume.origin[0])
         keep = np.ones(mask.shape[2], dtype=bool)
-        for site in self.fracture_sites:
+        for site in marks:
             keep &= ((x - site[0]) * toward_midline) >= clear_mm
         return mask & keep[None, None, :]
 
@@ -1102,7 +1202,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         """What a bone distance field depends on: the bones, the bridged SI
         joint, and the fracture marks (whose gaps count as bone)."""
         marks = self._fracture_version if self.fracture_sites and self.anatomy_state == "as scanned" else 0
-        return (ids, tuple(sorted(widths.items())), marks, self.sacral_fracture)
+        return (ids, tuple(sorted(widths.items())), marks, self.sacral_fracture, self._user_foramina_version)
 
     def _traverse_labels(self, corridor_id: str, side: str) -> tuple:
         if side == "midline":
@@ -1664,6 +1764,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             screw_library=self.screw_library,
             si_joint=self.si_joint_record(),
             software={"name": "Corridor Finder", "version": "0.1.0"},
+            fracture_marks=self._fracture_marks_record(),
         )
         return self.plan
 
@@ -1941,7 +2042,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._bonesSegmentationNode = None
         self._shownScrewId = None  # screw whose clearance the label shows
         self._updating_si = False  # while the panel writes the SI widths itself
-        self._fracture_node = None  # where the surgeon marked the fracture
+        self._fracture_node = None  # the fracture chosen in the list
+        self._fracture_nodes = []  # one markups node per fracture
+        self._loading_marks = False
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
@@ -1950,6 +2053,8 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._showDependencyProblem(missing)
             return
         self.logic = CorridorFinderLogic()
+        self.logic.marks_directory = str(qt.QSettings().value("CorridorFinder/marksDirectory",
+                                                             self.logic.marks_directory))
 
         # ScriptedLoadableModuleWidget.setup() has already installed a layout
         # on self.parent and exposed it as self.layout. Creating another
@@ -1997,17 +2102,25 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         fractureRow = qt.QWidget()
         fractureLayout = qt.QHBoxLayout(fractureRow)
         fractureLayout.setContentsMargins(0, 0, 0, 0)
-        self.fractureButton = qt.QPushButton(_("Mark fracture"))
+        self.fractureCombo = qt.QComboBox()
+        self.fractureCombo.setToolTip(_("The fractures you have marked, one set of points each."))
+        self.fractureButton = qt.QPushButton(_("New fracture"))
         self.fractureButton.setToolTip(
-            _("Click a point on each fracture in the slice views. A screw put in to hold a fracture has to "
-              "start on the near side of it: an anterior column screw is then started at least 10 mm toward "
-              "the symphysis from the nearest mark."))
-        self.fractureClearButton = qt.QPushButton(_("Clear"))
+            _("Start a new fracture, then click 3 or more points spread along it in the slice or 3D views. Each "
+              "fracture is its own set, because a plane is fitted to one fracture's points. Crossing a marked "
+              "fracture is not a breach; an anterior column screw starts at least 10 mm toward the symphysis "
+              "from a fracture of that hip bone."))
+        self.fractureAddButton = qt.QPushButton(_("Add points"))
+        self.fractureAddButton.setToolTip(_("Add points to the fracture chosen in the list."))
+        self.fractureDeleteButton = qt.QPushButton(_("Delete"))
+        self.fractureClearButton = qt.QPushButton(_("Clear all"))
+        for widget in (self.fractureCombo, self.fractureButton, self.fractureAddButton, self.fractureDeleteButton,
+                       self.fractureClearButton):
+            fractureLayout.addWidget(widget)
+        corridorForm.addRow(_("Fractures:"), fractureRow)
         self.fractureLabel = qt.QLabel(_("none marked"))
-        fractureLayout.addWidget(self.fractureButton)
-        fractureLayout.addWidget(self.fractureClearButton)
-        fractureLayout.addWidget(self.fractureLabel, 1)
-        corridorForm.addRow(_("Fracture:"), fractureRow)
+        self.fractureLabel.setWordWrap(True)
+        corridorForm.addRow("", self.fractureLabel)
 
         self.siLabel = qt.QLabel(_("measured after Detect landmarks"))
         self.siLabel.setWordWrap(True)
@@ -2134,6 +2247,13 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         planForm.addRow(_("Show:"), markupsRow)
         planForm.addRow(self.canalCheck)
         planForm.addRow(self.canalNoteLabel)
+        self.paintForaminaButton = qt.QPushButton(_("Paint your foramina..."))
+        self.paintForaminaButton.toolTip = _(
+            "Opens Segment Editor on a 'your foramina' segment with the brush ready. Paint each foramen on any "
+            "slice (one coronal slice is enough): the tool extends it front to back through the sacrum, and on "
+            "that side your foramina replace the tool's where those touch the marked fracture. Come back to "
+            "Corridor Finder when done.")
+        planForm.addRow(self.paintForaminaButton)
         self.bone3dSlider = ctk.ctkSliderWidget()
         self.bone3dSlider.minimum, self.bone3dSlider.maximum, self.bone3dSlider.singleStep = 0.0, 1.0, 0.05
         self.bone3dSlider.value = 0.45
@@ -2213,7 +2333,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.sideCombo.currentIndexChanged.connect(self._clearSuggestions)
         self.marginSpin.valueChanged.connect(self._clearSuggestions)
         self.lengthSpin.valueChanged.connect(self._clearSuggestions)
-        self.fractureButton.clicked.connect(self.onMarkFracture)
+        self.fractureButton.clicked.connect(self.onNewFracture)
+        self.fractureAddButton.clicked.connect(self.onMarkFracture)
+        self.fractureDeleteButton.clicked.connect(self.onDeleteFracture)
+        self.fractureCombo.currentIndexChanged.connect(self.onFractureSelected)
         self.sacralLevelsButton.clicked.connect(self.onCheckSacralLevels)
         self.fractureClearButton.clicked.connect(self.onClearFractures)
         self.siDisruptedCombo.currentIndexChanged.connect(self.onSiDisruptedChanged)
@@ -2232,6 +2355,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.pilotNeedsReductionButton.clicked.connect(self.onPilotNeedsReduction)
         self.boneSlicesCheck.toggled.connect(self._applyBoneDisplay)
         self.canalCheck.toggled.connect(self._applyBoneDisplay)
+        self.paintForaminaButton.clicked.connect(self.onPaintForamina)
         self.landmarksCheck.toggled.connect(self._applyMarkupsDisplay)
         self.fractureMarksCheck.toggled.connect(self._applyMarkupsDisplay)
         self.handlesCheck.toggled.connect(self._applyMarkupsDisplay)
@@ -2441,8 +2565,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _applyMarkupsDisplay(self, *args) -> None:
         """Landmarks, fracture marks and screw handles on or off; the screws
         themselves stay."""
-        for node, on in ((self._landmark_fiducial_node, self.landmarksCheck.checked),
-                         (getattr(self, "_fracture_node", None), self.fractureMarksCheck.checked)):
+        nodes = [(self._landmark_fiducial_node, self.landmarksCheck.checked)]
+        nodes += [(n, self.fractureMarksCheck.checked) for n in getattr(self, "_fracture_nodes", [])]
+        for node, on in nodes:
             if node is not None and node.GetScene() is not None:
                 node.SetDisplayVisibility(bool(on))
         for node in self._screw_line_nodes.values():
@@ -2455,6 +2580,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         harmless; a deleted segment clears that bone. When anything changed,
         every screw in the plan is re-validated against the new bones.
         Returns True if the labels changed."""
+        self._syncUserForamina()
         node = self._bonesSegmentationNode
         if node is None or node.GetScene() is None or self.logic.labels_volume is None:
             return False
@@ -2476,6 +2602,89 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if self._shownScrewId is not None:
                 self._refreshClearanceLabel(self._shownScrewId)
         return True
+
+    _USER_FORAMINA_SEGMENT = "user_foramina"
+
+    def _userForaminaNode(self, create: bool = False):
+        node = getattr(self, "_user_foramina_node", None)
+        if (node is None or node.GetScene() is None) and create and self.logic.volume_node is not None:
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", "CF your foramina")
+            node.CreateDefaultDisplayNodes()
+            node.SetReferenceImageGeometryParameterFromVolumeNode(self.logic.volume_node)
+            node.GetSegmentation().AddEmptySegment(self._USER_FORAMINA_SEGMENT, _("your foramina"), (1.0, 0.45, 0.85))
+            self._user_foramina_node = node
+        return node if node is not None and node.GetScene() is not None else None
+
+    def onPaintForamina(self) -> None:
+        """Open Segment Editor on the 'your foramina' segment, brush ready."""
+        node = self._userForaminaNode(create=True)
+        if node is None:
+            slicer.util.warningDisplay(_("Load a CT first."), windowTitle=_("Corridor Finder"))
+            return
+        slicer.util.selectModule("SegmentEditor")
+        editor = slicer.modules.segmenteditor.widgetRepresentation().self().editor
+        editor.setSegmentationNode(node)
+        if hasattr(editor, "setSourceVolumeNode"):
+            editor.setSourceVolumeNode(self.logic.volume_node)
+        else:
+            editor.setMasterVolumeNode(self.logic.volume_node)
+        editor.setCurrentSegmentID(self._USER_FORAMINA_SEGMENT)
+        editor.setActiveEffectByName("Paint")
+        effect = editor.activeEffect()
+        if effect is not None:
+            effect.setParameter("BrushSphere", "0")
+            effect.setParameter("BrushAbsoluteDiameter", "6")
+            effect.setParameter("BrushRelativeDiameter", "2")
+
+    def _syncUserForamina(self) -> bool:
+        """Read what the surgeon painted into the logic; re-check the plan's
+        screws when it changed."""
+        node = self._userForaminaNode()
+        volume_node = self.logic.volume_node
+        if node is None or volume_node is None or self.logic.labels_volume is None:
+            changed = self.logic.set_user_foramina(None)
+        else:
+            mask = slicer.util.arrayFromSegmentBinaryLabelmap(node, self._USER_FORAMINA_SEGMENT, volume_node)
+            changed = self.logic.set_user_foramina(
+                None if mask is None else node_array_to_engine_array(volume_node, mask) > 0)
+        if changed:
+            self._updateCanalSegment()
+            if self.logic.plan is not None:
+                for screw in self.logic.plan.screws:
+                    self.logic._validate_plan_screw(screw, derived=False)
+                    self._updateScrewModel(screw)
+                if getattr(self, "_shownScrewId", None):
+                    self._refreshClearanceLabel(self._shownScrewId)
+            # Kept beside the case's fracture marks, so a case opened again
+            # keeps the surgeon's painting.
+            path = self.userForaminaPath()
+            if node is not None and path:
+                try:
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    slicer.util.saveNode(node, path)
+                except Exception:
+                    logging.error(traceback.format_exc())
+        return changed
+
+    def userForaminaPath(self) -> Optional[str]:
+        marks = self.logic.marks_path()
+        return None if marks is None else marks.replace(".fracture_marks.json", ".foramina.seg.nrrd")
+
+    def loadUserForamina(self, path: str) -> None:
+        """Bring back the foramina painted on this case before."""
+        node = slicer.util.loadSegmentation(path)
+        node.SetName("CF your foramina")
+        self._user_foramina_node = node
+        self._syncUserForamina()
+
+    def enter(self) -> None:
+        """Back in Corridor Finder (e.g. from painting foramina): use what
+        was painted."""
+        try:
+            if getattr(self, "logic", None) is not None:
+                self._syncUserForamina()
+        except Exception:
+            logging.error(traceback.format_exc())
 
     def onDetectLandmarks(self):
         try:
@@ -2550,19 +2759,51 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     # ---- Fracture sites -------------------------------------------------
 
+    _FRACTURE_COLORS = [(0.95, 0.35, 0.1), (0.1, 0.75, 0.95), (0.95, 0.85, 0.1), (0.55, 0.95, 0.2),
+                        (0.95, 0.3, 0.8)]
+    _FRACTURE_EVENTS = ("PointModifiedEvent", "PointPositionDefinedEvent", "PointRemovedEvent")
+
+    def _liveFractureNodes(self) -> list:
+        self._fracture_nodes = [n for n in self._fracture_nodes if n.GetScene() is not None]
+        return self._fracture_nodes
+
+    def _newFractureNode(self, name: Optional[str] = None):
+        index = len(self._liveFractureNodes()) + 1
+        node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", f"CF fracture {index}")
+        node.SetAttribute("CF.autoName", "0" if name else "1")
+        node.SetAttribute("CF.name", name or f"fracture {index}")
+        if name:
+            node.SetName(f"CF fracture: {name}")
+        color = self._FRACTURE_COLORS[(index - 1) % len(self._FRACTURE_COLORS)]
+        node.GetDisplayNode().SetSelectedColor(*color)
+        node.GetDisplayNode().SetColor(*color)
+        for event in self._FRACTURE_EVENTS:
+            self.addObserver(node, getattr(slicer.vtkMRMLMarkupsNode, event), self.onFractureMoved)
+        self._fracture_nodes.append(node)
+        self._fracture_node = node
+        self._refreshFractureCombo()
+        self._applyMarkupsDisplay()
+        return node
+
+    def _removeFractureNode(self, node) -> None:
+        for event in self._FRACTURE_EVENTS:
+            self.removeObserver(node, getattr(slicer.vtkMRMLMarkupsNode, event), self.onFractureMoved)
+        if node.GetScene() is not None:
+            slicer.mrmlScene.RemoveNode(node)
+
     def _fractureNode(self):
-        if self._fracture_node is None or slicer.mrmlScene.GetNodeByID(self._fracture_node.GetID()) is None:
-            self._fracture_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "CF_Fracture")
-            self._fracture_node.GetDisplayNode().SetSelectedColor(0.95, 0.35, 0.1)
-            self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.onFractureMoved)
-            self.addObserver(self._fracture_node, slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent, self.onFractureMoved)
-            self._applyMarkupsDisplay()
+        """The fracture chosen in the list (a new one when there is none)."""
+        nodes = self._liveFractureNodes()
+        if self._fracture_node not in nodes:
+            index = self.fractureCombo.currentIndex
+            self._fracture_node = nodes[index] if 0 <= index < len(nodes) else (nodes[-1] if nodes else None)
+        if self._fracture_node is None:
+            self._newFractureNode()
         return self._fracture_node
 
-    def onMarkFracture(self):
-        """Put the mouse into place-point mode on the fracture node, so the
-        surgeon clicks the fracture where he sees it in the slice views."""
-        node = self._fractureNode()
+    def _placeInto(self, node) -> None:
+        """Put the mouse into place-point mode on this fracture's node, so the
+        surgeon clicks the fracture where he sees it."""
         selection = slicer.app.applicationLogic().GetSelectionNode()
         selection.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
         selection.SetActivePlaceNodeID(node.GetID())
@@ -2570,23 +2811,106 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         slicer.app.applicationLogic().GetInteractionNode().SetCurrentInteractionMode(
             slicer.vtkMRMLInteractionNode.Place)
 
+    def onNewFracture(self):
+        self._placeInto(self._newFractureNode())
+
+    def onMarkFracture(self):
+        self._placeInto(self._fractureNode())
+
+    def onFractureSelected(self, index: int) -> None:
+        nodes = self._liveFractureNodes()
+        if 0 <= index < len(nodes):
+            self._fracture_node = nodes[index]
+
+    def onDeleteFracture(self):
+        if not self._liveFractureNodes():
+            return
+        node = self._fractureNode()
+        self._fracture_node = None
+        self._removeFractureNode(node)
+        self.onFractureMoved(None, None)
+
     def onClearFractures(self):
-        if self._fracture_node is not None:
-            self._fracture_node.RemoveAllControlPoints()
+        for node in list(self._liveFractureNodes()):
+            self._removeFractureNode(node)
+        self._fracture_nodes = []
+        self._fracture_node = None
+        self.onFractureMoved(None, None)
+
+    def _refreshFractureCombo(self) -> None:
+        nodes = self._liveFractureNodes()
+        self.fractureCombo.blockSignals(True)
+        self.fractureCombo.clear()
+        for node in nodes:
+            self.fractureCombo.addItem(_("{0} ({1} points)").format(node.GetAttribute("CF.name") or node.GetName(),
+                                                                    node.GetNumberOfControlPoints()))
+        if self._fracture_node in nodes:
+            self.fractureCombo.setCurrentIndex(nodes.index(self._fracture_node))
+        self.fractureCombo.blockSignals(False)
+
+    def loadFractureMarks(self, path: str) -> None:
+        """Bring back a case's marks from its file (a case opened again keeps
+        the surgeon's marks)."""
+        _case, fractures = fracture_marks_mod.load(path)
+        self._loading_marks = True
+        try:
+            for node in list(self._liveFractureNodes()):
+                self._removeFractureNode(node)
+            self._fracture_nodes, self._fracture_node = [], None
+            for fracture in fractures:
+                node = self._newFractureNode(fracture.name)
+                for p in fracture.points_ras_mm:
+                    node.AddControlPoint(vtk.vtkVector3d(*_engine_to_ras(p)))
+        finally:
+            self._loading_marks = False
         self.onFractureMoved(None, None)
 
     def onFractureMoved(self, caller, event):
-        node = self._fracture_node
-        points = []
-        if node is not None:
+        if self._loading_marks:
+            return
+        fractures, taken = [], set()
+        for index, node in enumerate(self._liveFractureNodes(), start=1):
+            points = []
             for i in range(node.GetNumberOfControlPoints()):
                 ras = [0.0, 0.0, 0.0]
                 node.GetNthControlPointPosition(i, ras)
                 points.append(_ras_to_engine(ras))
-        self.logic.set_fracture_sites(points)
-        self.fractureLabel.setText(
-            _("none marked") if not points else _("{0} marked; screws that hold a fracture start clear of it")
-            .format(len(points)))
+            name = node.GetAttribute("CF.name") or f"fracture {index}"
+            # A node the surgeon renamed in the Markups module keeps his name.
+            if node.GetName() not in (f"CF fracture {index}", f"CF fracture: {name}") and \
+                    not node.GetName().startswith("CF fracture "):
+                name = node.GetName()
+                node.SetAttribute("CF.autoName", "0")
+            fracture = self.logic.describe_fracture(name, points)
+            if node.GetAttribute("CF.autoName") == "1" and points:
+                base = self.logic.default_fracture_name(fracture)
+                name, k = base, 2
+                while name in taken:
+                    name, k = f"{base} {k}", k + 1
+                fracture.name = name
+            taken.add(fracture.name)
+            node.SetAttribute("CF.name", fracture.name)
+            if node.GetName() != f"CF fracture: {fracture.name}":
+                node.SetName(f"CF fracture: {fracture.name}")
+            fractures.append(fracture)
+        self.logic.set_fractures(fractures)
+        self._refreshFractureCombo()
+        try:
+            saved = self.logic.save_fracture_marks()
+        except OSError as exc:
+            saved = None
+            logging.error(f"fracture marks not saved: {exc}")
+        n_points = sum(len(f.points_ras_mm) for f in fractures)
+        if not fractures or not n_points:
+            text = _("none marked")
+        else:
+            text = _("{0} fracture(s), {1} points").format(len(fractures), n_points)
+            short = [f.name for f in fractures if 0 < len(f.points_ras_mm) < 3]
+            if short:
+                text += _("; needs 3 or more points: {0}").format(", ".join(short))
+            text += (_("; saved for the displacement measurement") if saved else
+                     _("; start a plan with a case alias to save them"))
+        self.fractureLabel.setText(text)
         self._clearSuggestions()
         # Every planned screw depends on where the fracture is: its gap
         # counts as bone, and a screw that stops in bone is measured from it.

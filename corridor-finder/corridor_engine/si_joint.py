@@ -362,12 +362,34 @@ def bridging_widths(widths: Dict[str, JointWidth], disrupted: str) -> Dict[str, 
 
 def looks_disrupted(widths: Dict[str, JointWidth]) -> Optional[str]:
     """The side to pre-select as disrupted: the joint that is further out of
-    place, by gap or by step, when the two differ by more than ASYMMETRY_MM
+    place than the other, by gap or by step, by more than ASYMMETRY_MM
     (DECISIONS 2.4). A hemipelvis can slide along the joint without the gap
-    opening at all, so the step counts here as much as the gap. None if the
-    two are close, or if either could not be measured."""
-    measured = {side: max(w.measured_mm, w.step_mm) for side, w in widths.items() if np.isfinite(w.measured_mm)}
-    if len(measured) < 2:
+    opening at all, so the step counts here as much as the gap. The gap and
+    the step are each compared side to side: a step the two joints share is
+    this patient's anatomy, not an injury (the surgeon, 2026-10-05; the four
+    intact CLINIC pelves showed one on both sides), and taking the larger of
+    gap and step per side first let a shared step hide a difference in the
+    gap. None if neither differs that much, or if either joint could not be
+    measured."""
+    if not all(side in widths and np.isfinite(widths[side].measured_mm) for side in ("right", "left")):
         return None
-    wide, narrow = sorted(measured, key=measured.get, reverse=True)
-    return wide if measured[wide] - measured[narrow] > ASYMMETRY_MM else None
+    right, left = widths["right"], widths["left"]
+    steps = (right.step_mm, left.step_mm) if np.isfinite(right.step_mm) and np.isfinite(left.step_mm) else (0.0, 0.0)
+    gap = right.measured_mm - left.measured_mm
+    step = steps[0] - steps[1]
+    score = {"right": max(gap, step), "left": max(-gap, -step)}
+    side = max(score, key=score.get)
+    return side if score[side] > ASYMMETRY_MM else None
+
+
+def shared_step_sentence(widths: Dict[str, JointWidth]) -> Optional[str]:
+    """When both joints show a similar step, say that it is taken as this
+    patient's anatomy (the surgeon, 2026-10-05), so a step on its own does
+    not read as an injury."""
+    right, left = widths.get("right"), widths.get("left")
+    if right is None or left is None or not (np.isfinite(right.step_mm) and np.isfinite(left.step_mm)):
+        return None
+    if min(right.step_mm, left.step_mm) < 1.0 or abs(right.step_mm - left.step_mm) > ASYMMETRY_MM:
+        return None
+    return (f"Both joints show a similar step (right {right.step_mm:.1f} mm, left {left.step_mm:.1f} mm): taken as "
+            f"this patient's anatomy, not an injury; only a difference between the sides counts.")

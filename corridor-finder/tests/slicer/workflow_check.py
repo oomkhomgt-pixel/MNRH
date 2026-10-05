@@ -384,6 +384,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         w.sideCombo.setCurrentIndex(w.sideCombo.findText(side))
         w.suggestButton.click()
         w.caseAliasEdit.text = f"workflow-{name}"
+        logic.marks_directory = OUT_DIR  # not the user's data folder
         w.newPlanButton.click()
         w.resultsList.setCurrentRow(0)
         w.addScrewButton.click()
@@ -783,6 +784,27 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         log(f"    marked: clearance {screw.validation['min_clearance_mm']:.2f} mm (before the cut "
             f"{v0['min_clearance_mm']:.2f}), breach {screw.validation['breach']}")
         check(screw.validation["breach"] is False, "marked, the gap counts as bone and the screw passes")
+        # The marks are saved per case for the displacement measurement, as
+        # named sets in RAS mm, and come back when the case is opened again.
+        from corridor_engine import fracture_marks as fracture_marks_mod
+        path = logic.marks_path()
+        check(path is not None and os.path.exists(path), f"the marks are saved for the case ({path})")
+        if path and os.path.exists(path):
+            case_, sets_ = fracture_marks_mod.load(path)
+            log(f"    saved: {[(f.name, f.bone, f.side, len(f.points_ras_mm)) for f in sets_]}")
+            check(len(sets_) == 1 and np.allclose(sets_[0].points_ras_mm, np.asarray(marks), atol=1e-3),
+                  "as one named set, in RAS mm, exactly where they were clicked")
+            second = w._newFractureNode()
+            for p in marks[:3]:
+                second.AddControlPoint(vtk.vtkVector3d(*(np.asarray(p) + [0.0, 0.0, 40.0])))
+            w.onFractureMoved(None, None)
+            case_, sets_ = fracture_marks_mod.load(path)
+            check(len(sets_) == 2 and len({f.name for f in sets_}) == 2 and w.fractureCombo.count == 2,
+                  f"a second fracture is its own set ({[f.name for f in sets_]})")
+            w.onDeleteFracture()
+            w.loadFractureMarks(path)
+            check(len(logic.fractures) == 1 and screw.validation["breach"] is False,
+                  "loading the case's file brings the marks back, and the screw still passes")
         w.onClearFractures()
         check(screw.validation["breach"] is True, "clearing the marks makes it a breach again")
         for sid, arr in saved.items():
@@ -822,6 +844,29 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             check(not (field.array[mirrored] > 0).any(), "and none of them counts as bone")
             w.sacralFractureCombo.setCurrentIndex(0)
             check(np.array_equal(logic.protected_spaces(), protected), "'not said' gives back what the shape found")
+            # DECISIONS 7.17: foramina the surgeon paints on one slice become
+            # channels front to back, are never bone, and are saved with the case.
+            painted_node = w._userForaminaNode(create=True)
+            s1 = np.asarray(logic.landmarks["s1_body_center"].xyz)
+            m_ = vtk.vtkMatrix4x4()
+            ct.GetRASToIJKMatrix(m_)
+            ci, cj, ck = (int(round(v)) for v in m_.MultiplyPoint([*(s1 + [25.0, 0.0, 0.0]), 1.0])[:3])
+            arr = np.zeros(slicer.util.arrayFromVolume(ct).shape, dtype=np.uint8)
+            arr[ck - 3:ck + 4, cj, ci - 3:ci + 4] = 1  # a small patch on one coronal row of voxels
+            slicer.util.updateSegmentBinaryLabelmapFromArray(arr, painted_node, w._USER_FORAMINA_SEGMENT, ct)
+            changed = w._syncUserForamina()
+            with_paint = logic.protected_spaces()
+            log(f"    painted: {int(arr.sum())} voxels; protected {int(protected.sum())} -> {int(with_paint.sum())}; "
+                f"{logic.protected_notes}")
+            check(changed and with_paint.sum() > protected.sum() + arr.sum(),
+                  "a patch painted on one slice is extended front to back")
+            field = logic.clearance_field("iliosacral_s1", "right")
+            check(not (field.array[with_paint] > 0).any(), "and none of it counts as bone")
+            check(w.userForaminaPath() is not None and os.path.exists(w.userForaminaPath()),
+                  "the painting is saved with the case")
+            slicer.mrmlScene.RemoveNode(painted_node)
+            w._syncUserForamina()
+            check(np.array_equal(logic.protected_spaces(), protected), "removing it gives back what the shape found")
 
     # Pulling the target 1 mm back along the axis keeps the screw on a subset
     # of its validated path, so it cannot breach; moving it 80 mm anterior

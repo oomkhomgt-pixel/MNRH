@@ -37,6 +37,13 @@ With both sides fractured there is no intact side: everything the shape
 found stays protected (the safe side, which may also block crossing the
 fracture next to the foramina), and the notes say so.
 
+The surgeon may also paint foramina himself (7.17), e.g. where both sides
+are fractured and nothing can be mirrored. What he paints, on any slice, is
+extended front to back through the sacrum (along the anterior pelvic
+plane's normal, within USER_REACH_MM), and on each side he painted, the
+tool's own foramina that touch a marked fracture gap are replaced by his;
+the tool's foramina away from the fracture keep their protection.
+
 Space within NEAR_HIP_MM of a hip bone is left out: that is the sacroiliac
 joint, not a foramen. Taking sacrum-labelled voxels darker than fat as well
 (in case the segmentation painted into a foramen) was tried on CLINIC_0012
@@ -59,6 +66,7 @@ MIN_THICKNESS_MM = 2.5  # an opening of this radius: sheets thinner than 5 mm dr
 CANAL_HALF_WIDTH_MM = 20.0  # the sacral canal lies within this of the midline
 MIRROR_MARGIN_MM = 2.0  # a mirrored foramen is widened by this much
 MIN_INTACT_FORAMINA_CM3 = 1.0  # less than this on the intact side: nothing to mirror
+USER_REACH_MM = 40.0  # a painted foramen is extended this far in front and behind
 
 
 def _parts(labels: Volume, sacrum_label: int, hip_labels, midline):
@@ -110,7 +118,7 @@ def _parts(labels: Volume, sacrum_label: int, hip_labels, midline):
         core = (ndi.distance_transform_edt(room, sampling=sampling) > MIN_THICKNESS_MM) & room
         foramina &= ndi.distance_transform_edt(~core, sampling=sampling) <= MIN_THICKNESS_MM + max(labels.spacing)
     envelope = (closed | s) & away & ((labels_box == 0) | s)
-    return box, crop, start, sampling, s, canal, foramina, envelope, signed
+    return box, crop, start, sampling, s, canal, foramina, envelope, signed, widths
 
 
 def _signed_distance(labels: Volume, lo, shape, midline) -> np.ndarray:
@@ -148,45 +156,91 @@ def _mirrored(labels: Volume, lo, shape, sampling, source: np.ndarray, midline) 
 
 
 def protected_spaces(labels: Volume, sacrum_label: int, hip_labels=(), midline=None,
-                     fractured_sides: Sequence[str] = ()) -> Tuple[np.ndarray, List[str]]:
+                     fractured_sides: Sequence[str] = (), user_foramina: Optional[np.ndarray] = None,
+                     fracture_gap: Optional[np.ndarray] = None, ap_axis=None) -> Tuple[np.ndarray, List[str]]:
     """The sacral canal and foramina (boolean mask on the labels' grid), and
     notes saying how the foramina of each side were found. ``midline`` is
     (a point on the sacral midline plane, its unit normal pointing to the
-    patient's right); ``fractured_sides`` the sides whose sacrum the
-    surgeon has marked as fractured."""
+    patient's right); ``fractured_sides`` the sides the surgeon says are
+    fractured; ``user_foramina`` what he painted (labels' grid),
+    ``fracture_gap`` the marked fracture gap in the sacrum, and ``ap_axis``
+    the front-to-back direction his paint is extended along."""
     arr = labels.array
     out = np.zeros(arr.shape, dtype=bool)
     notes: List[str] = []
     if not (arr == sacrum_label).any():
         return out, notes
-    box, crop, start, sampling, s, canal, foramina, envelope, signed = _parts(
+    box, crop, start, sampling, s, canal, foramina, envelope, signed, widths = _parts(
         labels, sacrum_label, tuple(hip_labels), midline)
     fractured = set(fractured_sides) if midline is not None else set()
-    if midline is None or not fractured:
-        out[box] = (canal | foramina)[crop]
-        return out, notes
-    right, left = signed > 0, signed <= 0
-    if fractured >= {"right", "left"}:
-        out[box] = (canal | foramina)[crop]
-        notes.append("Both sides of the sacrum are fractured, so there is no intact side to take the "
-                     "foramina from: everything shaped like a foramen stays protected, which may include fracture "
-                     "gap next to the foramina (no screw is offered across it).")
-        return out, notes
-    broken = "right" if "right" in fractured else "left"
-    intact_name = "left" if broken == "right" else "right"
-    on_broken, on_intact = (right, left) if broken == "right" else (left, right)
-    voxel_cm3 = float(np.prod(labels.spacing)) / 1000.0
-    if float((foramina & on_intact).sum()) * voxel_cm3 < MIN_INTACT_FORAMINA_CM3:
-        out[box] = (canal | foramina)[crop]
-        notes.append(f"The {broken} sacrum is fractured, but the {intact_name} side shows almost no foramina to "
-                     "mirror (check the segmentation there): everything shaped like a foramen stays protected.")
-        return out, notes
-    mirrored = _mirrored(labels, start, s.shape, sampling, foramina & on_intact, midline) & on_broken & envelope
-    out[box] = (canal | (foramina & on_intact) | mirrored)[crop]
-    notes.append(f"The {broken} sacrum is fractured: its foramina are the {intact_name} side's, mirrored across "
-                 f"the midline and widened by {MIRROR_MARGIN_MM:.0f} mm; a marked fracture gap outside them may be "
-                 "crossed.")
+    chosen = foramina
+    if midline is not None and fractured:
+        right, left = signed > 0, signed <= 0
+        if fractured >= {"right", "left"}:
+            notes.append("Both sides of the sacrum are fractured, so there is no intact side to take the "
+                         "foramina from: everything shaped like a foramen stays protected, which may include "
+                         "fracture gap next to the foramina (no screw is offered across it), unless you paint the "
+                         "foramina yourself.")
+        else:
+            broken = "right" if "right" in fractured else "left"
+            intact_name = "left" if broken == "right" else "right"
+            on_broken, on_intact = (right, left) if broken == "right" else (left, right)
+            voxel_cm3 = float(np.prod(labels.spacing)) / 1000.0
+            if float((foramina & on_intact).sum()) * voxel_cm3 < MIN_INTACT_FORAMINA_CM3:
+                notes.append(f"The {broken} sacrum is fractured, but the {intact_name} side shows almost no "
+                             "foramina to mirror (check the segmentation there): everything shaped like a foramen "
+                             "stays protected.")
+            else:
+                mirrored = _mirrored(labels, start, s.shape, sampling, foramina & on_intact, midline) & on_broken & envelope
+                chosen = (foramina & on_intact) | mirrored
+                notes.append(f"The {broken} sacrum is fractured: its foramina are the {intact_name} side's, mirrored "
+                             f"across the midline and widened by {MIRROR_MARGIN_MM:.0f} mm; a marked fracture gap "
+                             "outside them may be crossed.")
+    if user_foramina is not None and user_foramina.any():
+        painted = np.pad(user_foramina[box], widths, constant_values=False)
+        painted = _extend_front_to_back(labels, start, painted, envelope, ap_axis) if ap_axis is not None else painted
+        painted &= envelope
+        gap = np.pad(fracture_gap[box], widths, constant_values=False) if fracture_gap is not None else None
+        sides = ((signed > 0, "right"), (signed <= 0, "left")) if signed is not None else ((np.ones_like(s), "both"),)
+        for on_side, name in sides:
+            mine = painted & on_side
+            if not mine.any():
+                continue
+            if gap is not None and gap.any():
+                pieces, _n = ndi.label(chosen & on_side)
+                touching = np.unique(pieces[ndi.binary_dilation(gap) & (pieces > 0)])
+                chosen = chosen & ~np.isin(pieces, touching[touching > 0])
+            chosen = chosen | mine
+            notes.append(f"Your painted foramina are used on the {name} side, in place of the tool's where those "
+                         "touch the marked fracture.")
+    out[box] = (canal | chosen)[crop]
     return out, notes
+
+
+def _extend_front_to_back(labels: Volume, start, painted: np.ndarray, envelope: np.ndarray, ap_axis) -> np.ndarray:
+    """What the surgeon painted, carried front to back along ``ap_axis`` (a
+    unit vector) within USER_REACH_MM, inside the sacrum's envelope: a
+    foramen painted on one slice becomes the channel it is."""
+    out = painted.copy()
+    idx = np.argwhere(painted)
+    if not len(idx):
+        return out
+    ap = np.asarray(ap_axis, dtype=float)
+    ap = ap / np.linalg.norm(ap)
+    sx, sy, sz = labels.spacing
+    ox, oy, oz = labels.origin
+    xyz = np.stack([ox + (idx[:, 2] + start[2]) * sx, oy + (idx[:, 1] + start[1]) * sy,
+                    oz + (idx[:, 0] + start[0]) * sz], axis=1)
+    step = 0.5 * float(min(labels.spacing))
+    shape = np.array(painted.shape)
+    for t in np.arange(-USER_REACH_MM, USER_REACH_MM + step, step):
+        p = xyz + t * ap
+        k = np.rint((p[:, 2] - oz) / sz).astype(int) - start[0]
+        j = np.rint((p[:, 1] - oy) / sy).astype(int) - start[1]
+        i = np.rint((p[:, 0] - ox) / sx).astype(int) - start[2]
+        ok = (k >= 0) & (k < shape[0]) & (j >= 0) & (j < shape[1]) & (i >= 0) & (i < shape[2])
+        out[k[ok], j[ok], i[ok]] = True
+    return out & envelope
 
 
 def canal_and_foramina(labels: Volume, sacrum_label: int, hip_labels=()) -> np.ndarray:

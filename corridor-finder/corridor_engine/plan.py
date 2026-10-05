@@ -99,6 +99,9 @@ class Plan:
     # when the tool's checks were revealed, the corridors where he found no
     # screw, and the comparison with the tool. Empty outside a pilot.
     pilot: dict = field(default_factory=dict)
+    # The surgeon's fracture marks, one set per fracture, in RAS mm
+    # (corridor_engine/fracture_marks.py): name, bone, side, points_ras_mm.
+    fracture_marks: list = field(default_factory=list)
     audit: list = field(default_factory=list)  # list[AuditEntry]
     software: dict = field(default_factory=dict)
     disclaimer: str = DISCLAIMER
@@ -136,6 +139,7 @@ class Plan:
             "si_joint": _to_jsonable(self.si_joint),
             "reduction": _to_jsonable(self.reduction),
             "pilot": _to_jsonable(self.pilot),
+            "fracture_marks": _to_jsonable(self.fracture_marks),
             "audit": audit,
             "software": _to_jsonable(self.software),
             "disclaimer": self.disclaimer,
@@ -164,6 +168,7 @@ class Plan:
             si_joint=data.get("si_joint", {}),
             reduction=data.get("reduction", {}),
             pilot=data.get("pilot", {}),
+            fracture_marks=data.get("fracture_marks", []),
             audit=audit,
             software=data.get("software", {}),
             disclaimer=data.get("disclaimer", DISCLAIMER),

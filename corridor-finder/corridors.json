@@ -438,7 +438,7 @@
       },
       "length_range_mm": [
         130,
-        180
+        160
       ],
       "prefer_diameter_mm": 7.3,
       "textbook_direction": [
@@ -491,7 +491,7 @@
       },
       "length_range_mm": [
         130,
-        180
+        160
       ],
       "prefer_diameter_mm": 7.0,
       "textbook_direction": [
@@ -544,7 +544,7 @@
       },
       "length_range_mm": [
         110,
-        180
+        160
       ],
       "prefer_diameter_mm": 7.0,
       "textbook_direction": [

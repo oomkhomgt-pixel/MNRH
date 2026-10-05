@@ -171,3 +171,24 @@ def test_a_hemipelvis_moved_up_is_read_as_up():
     down = measure_joint_widths(*_profiled(up=-5.0))["right"]
     assert -5.5 <= down.step_cephalad_mm <= -3.0 and "below" in down.step_sentence()
 
+
+
+
+def test_a_step_both_joints_share_is_anatomy_and_does_not_hide_a_gap():
+    """The surgeon, 2026-10-05: a symmetric step is this patient's anatomy;
+    only a difference between the sides counts, by gap or by step."""
+    from corridor_engine.si_joint import JointWidth, shared_step_sentence
+
+    def joint(side, gap, step):
+        return JointWidth(side=side, measured_mm=gap, n_samples=10, band_z_mm=(0.0, 10.0), step_mm=step)
+
+    same = {"right": joint("right", 3.0, 4.0), "left": joint("left", 3.0, 4.0)}
+    assert looks_disrupted(same) is None
+    assert "anatomy" in shared_step_sentence(same)
+    # A shared 4 mm step must not hide a 3 mm difference in the gap.
+    wider = {"right": joint("right", 6.0, 4.0), "left": joint("left", 3.0, 4.0)}
+    assert looks_disrupted(wider) == "right"
+    # A step on one side only is a difference.
+    slid = {"right": joint("right", 3.0, 1.0), "left": joint("left", 3.0, 4.5)}
+    assert looks_disrupted(slid) == "left"
+    assert shared_step_sentence(slid) is None

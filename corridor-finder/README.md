@@ -95,6 +95,10 @@ This is under active development. What's implemented and unit tested today:
       (`clear_of_fracture_mm` in corridors.json, DECISIONS.md 7.1). The rule
       is applied to the screw that comes out, not only to the points the
       search starts from.
+- [x] Foramina you paint (DECISIONS.md 7.17), one named set of marks per
+      fracture saved per case for the displacement measurement (7.18), the
+      SI step judged side to side (2.4), and the screw stock 40-160 mm
+      (7.5). Checked in the Slicer harness and on test volumes.
 - [x] Zone II: with one side of the sacrum called fractured, its foramina are
       the intact side's, mirrored, so the fracture outside them can be crossed
       and the foramina cannot (DECISIONS.md 7.16). Checked on test sacra and,
