@@ -397,12 +397,25 @@ Relayed by the Corridor Finder session under one engine (7a, corridor-finder
 
 | # | Decision |
 | --- | --- |
-| 7f.1 | The **first plane is the mid-sagittal plane of the sacrum**: through the S1 and S2 vertebral body centres and the centre of the sacral canal at those levels. |
+| 7f.1 | The **first plane is the mid-sagittal plane of the sacrum**. As first ruled, it went through the S1 and S2 vertebral body centres and the centre of the sacral canal at those levels. **Amended with the surgeon's agreement, 2026-10-09:** it is the **central sacrum's own symmetry plane** (`mirror.fit_plane(labels, "central_sacrum")`, placed from L5 but fitted to sacrum voxels only), with the S1/S2/canal points kept as the fallback. Fitted to those points, the plane came out 13 and 31 degrees off the pelvis on 2 of the 4 CLINIC cases (on 0023 a canal "centre" was an S1 foramen 23 mm lateral), while the symmetry plane was 2.6-6.5 degrees from the line between the ASISs on all four (Corridor Finder session's measurement, corridor-finder DECISIONS 8.5). |
 | 7f.2 | The **true coronal** is then tilted parallel to the anterior pelvic plane of the **intact** hemipelvis (its ASIS and pubic tubercle; both sides when both are intact). The surgeon can shift the axes himself. |
 | 7f.3 | The **true axial** is perpendicular to both. |
 | 7f.4 | Scope: Corridor Finder's SI gap and step, its C-arm views and screw angles, and **this project's displacement measurement**. The frame is built once, in the shared engine (`corridor_engine/anatomical_frame.py`, being built by the Corridor Finder session), and every slice-based measurement and every reported direction (1.3) uses it. |
 | 7f.5 | **The outcome gap and step (1.5) is reported both ways, side by side** (this project's ruling, 2026-10-09): measured in 3D across each fracture surface, where no cut can tilt it, and measured slice by slice on the CT resliced into the true planes, as it is read on a film. The paper can then show how much slicing alone changes the number. Every direction is given in the true frame either way. Rejected: the frame for direction only; true-plane slices only. |
+| 7f.7 | **Slice-by-slice numbers are taken from the original voxels**, placed in the true frame and binned by their true-axial coordinate, **never from resampled voxels**: reslicing the labels onto the true planes moved SI gaps by 1-2 mm even with no turn at all (Corridor Finder session's measurement). A resliced CT is for display only. |
 | 7f.6 | **Two midlines are kept, each for its own question**, and the engine reports how far apart they are on every case: the **mirror plane** (2.1, 2.1a: L5, plus the central sacrum when it is intact) decides the symmetry of the bones, and the **frame's mid-sagittal plane** (7f.1: the S1 and S2 bodies and the canal) decides the orientation of the cuts. Rejected: one plane under the frame's rule; one plane under the mirror's rule. |
+
+## 7g. Which bone labels the study measures on (decided 2026-10-09)
+
+The same CT gives different SI figures on the CTPelvic1K expert labels and
+on TotalSegmentator's: CLINIC_0012's left gap 8.4 against 4.5 mm,
+CLINIC_0023's right step 2.3 against 6.1 mm (Corridor Finder session's
+measurement). Hospital cases will only have TotalSegmentator labels.
+
+| # | Decision | Rejected |
+| --- | --- | --- |
+| 7g.1 | The study measures on **TotalSegmentator's labels, corrected by the surgeon** in Segment Editor at each measured joint and fracture before anything is measured. The correction is part of the measurement and is saved with the case, so every number can be traced to the labels it was taken on. | TotalSegmentator uncorrected, with its difference from the expert labels reported as method error; the expert labels only (the hospital cases will not have them). |
+| 7g.2 | How far the numbers move between the expert labels, uncorrected TotalSegmentator labels and corrected ones is still **measured** on the CTPelvic1K cases and reported, so the paper says what the segmentation, and the correction, contribute. | Not measuring it. |
 
 ## 8. Data
 
