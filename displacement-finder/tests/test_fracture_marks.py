@@ -42,13 +42,45 @@ def test_each_fracture_is_its_own_plane_and_a_short_set_is_reported_not_fitted(t
 
 @pytest.mark.parametrize("field, value, says", [
     ("schema", "corridor-finder-fracture-marks/2", "schema"),
-    ("coordinate_system", "LPS", "wrong side"),
-    ("units", "cm", "units"),
+    ("coordinate_system", "LPS", "expected RAS mm"),
+    ("units", "cm", "expected RAS mm"),
 ])
 def test_anything_but_the_agreed_format_is_refused(tmp_path, field, value, says):
+    """Refused by the shared reader (corridor_engine.fracture_marks.load),
+    the one reader both projects use."""
     bad = dict(GOOD, **{field: value})
     with pytest.raises(fm.MarksRefused, match=says):
         fm.read_marks(_write(tmp_path, bad))
+
+
+def test_an_unknown_bone_is_refused(tmp_path):
+    bad = dict(GOOD, fractures=[dict(GOOD["fractures"][0], bone="femur")])
+    with pytest.raises(fm.MarksRefused, match="bone"):
+        fm.read_marks(_write(tmp_path, bad))
+
+
+def test_the_harness_sample_corridor_finder_wrote_reads(tmp_path):
+    """A file written by Corridor Finder's own save(), not by this test."""
+    from corridor_engine import fracture_marks as shared
+
+    path = shared.save(str(tmp_path / shared.file_name("SAMPLE-harness")), "SAMPLE-harness", [
+        shared.FractureMarks("sacrum right", "sacrum", "right",
+                             [[28.0, -2.0, 105.0], [31.5, 4.0, 92.0], [33.0, -6.0, 80.0], [35.5, 1.0, 68.0]]),
+        shared.FractureMarks("hip right", "hip_right", "right", [[18.0, 62.0, 10.0], [22.0, 55.0, 4.0], [26.0, 60.0, -3.0]]),
+    ])
+    case, fractures = fm.read_marks(path)
+    assert case == "SAMPLE-harness"
+    assert [(f.name, f.n_points) for f in fractures] == [("sacrum right", 4), ("hip right", 3)]
+    # Each set gets a plane exactly when the shared rule (fracture.fit_plane)
+    # gives one, and is reported otherwise. The sample's three hip points
+    # are too close to one line for it, so they are reported, not fitted.
+    from corridor_engine import fracture
+
+    for f, (_, sets) in zip(fractures, [shared.load(path)] * len(fractures)):
+        mine = next(s for s in sets if s.name == f.name)
+        assert (f.plane is None) == (fracture.fit_plane(mine.points_ras_mm) is None)
+        assert (f.plane is None) == bool(f.note)
+    assert fractures[0].plane is not None and fractures[1].plane is None
 
 
 def test_the_file_is_found_by_case_whatever_its_alias_and_two_are_refused(tmp_path):
