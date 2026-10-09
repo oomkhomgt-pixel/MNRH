@@ -88,6 +88,7 @@ if _PROJECT_ROOT not in sys.path:
 _ENGINE_IMPORT_ERROR = None
 try:
     from corridor_engine import (
+        anatomical_frame as anatomical_frame_mod,
         app_frame,
         corridor as corridor_search,
         drr as drr_mod,
@@ -102,6 +103,7 @@ try:
         guidance as guidance_mod,
         landmarks as landmarks_mod,
         mesh as mesh_mod,
+        mirror as mirror_mod,
         phi as phi_mod,
         plan as plan_mod,
         reduction as reduction_mod,
@@ -350,6 +352,13 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # Which side of the sacrum the surgeon says is fractured (DECISIONS.md
         # 7.16): None (not said), "none", "right", "left" or "both".
         self.sacral_fracture: Optional[str] = None
+        # The true planes (anatomical_frame.py): the surgeon's own turn of
+        # them, what they were built from, and whether they are anatomical
+        # (False: fell back to the anterior pelvic plane of both sides).
+        self.frame_adjust_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.frame_info: str = ""
+        self.frame_anatomical: bool = False
+        self._frame_intact: Optional[tuple] = None
         # Foramina the surgeon painted himself (DECISIONS.md 7.17), engine
         # layout, on the scanned anatomy.
         self.user_foramina: Optional[np.ndarray] = None
@@ -359,6 +368,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         # What the last suggestion could not offer, in words, for the panel.
         self.suggestion_notes: List[str] = []
         self.si_widths: Dict[str, "si_joint_mod.JointWidth"] = {}
+        # The same joints on the planes turned by STEADINESS_TURNS_DEG: an
+        # offer that a 3-degree turn changes is not made.
+        self.si_turned: List[Dict[str, "si_joint_mod.JointWidth"]] = []
         self.si_disrupted: Optional[str] = None
         self.si_bridge_mm: Dict[str, float] = {}
         # Virtual reduction (DECISIONS.md 3.4, 3.6). The anatomy in use is
@@ -513,7 +525,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
 
     # What differs between the scanned and the reduced anatomy: the bones,
     # the CT, everything measured on them, and every cache built from them.
-    _ANATOMY_ATTRS = ("labels_volume", "hu_volume", "landmarks", "frame", "si_widths", "si_bridge_mm",
+    _ANATOMY_ATTRS = ("labels_volume", "hu_volume", "landmarks", "frame", "frame_info", "frame_anatomical",
+                      "si_widths", "si_turned", "si_bridge_mm",
                       "patient_views", "_edt_cache", "_mask_cache", "_joint_cache", "_body_mask",
                       "_entry_area_cache", "_labels_version")
     # Where bone moves away in a virtual reduction, the CT reads soft tissue.
@@ -583,7 +596,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         declared = self.si_disrupted
         self.landmarks = landmarks_mod.detect_landmarks(self.labels_volume)
         self._build_frame()
-        self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        self.si_widths = self._measure_si()
         self._compute_views()
         self.si_disrupted = declared
         self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, declared) if declared else {}
@@ -710,6 +723,9 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             "hip_right": seg_mod.HIP_R,
             "sacrum": seg_mod.SACRUM,
             "vertebrae_S1": seg_mod.SACRUM,
+            # L5: the shared mirror module places its reference sets from it
+            # (corridor_engine/mirror.py), and the true planes use them.
+            "vertebrae_L5": seg_mod.LUMBAR,
             "femur_left": seg_mod.FEMUR_L,
             "femur_right": seg_mod.FEMUR_R,
         }
@@ -761,7 +777,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._mask_cache = {}
         self._labels_version += 1
         if self.landmarks:
-            self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+            self.si_widths = self._measure_si()
             self._compute_views()
             self.set_si_disrupted(self.si_disrupted)  # same declaration, re-measured joints
         return True
@@ -772,10 +788,11 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         if self.labels_volume is None:
             raise RuntimeError("segment() must be called first")
         self.landmarks = landmarks_mod.detect_landmarks(self.labels_volume)
+        self.si_disrupted = None  # the surgeon confirms it before any sacral corridor
         self._build_frame()
-        self.si_widths = si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        self.si_widths = self._measure_si()
         self._compute_views()
-        self.set_si_disrupted(None)  # the surgeon confirms it before any sacral corridor
+        self.set_si_disrupted(None)
         return self.landmarks
 
     def _compute_views(self) -> None:
@@ -809,6 +826,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         widths that follow (DECISIONS.md 2.2). None means not yet said, and
         blocks the corridors that cross the joint."""
         self.si_disrupted = disrupted
+        if self.landmarks and self._frame_intact is not None and self.intact_hip_sides() != self._frame_intact:
+            self.refresh_frame()  # the intact side changed, so did the true planes
         self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, disrupted) if disrupted else {}
         self._edt_cache = {}
         self._entry_area_cache = {}
@@ -854,17 +873,177 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._build_frame()
         self._compute_views()
 
+    # The sacral midline's left-right axis may differ this much from the
+    # line between the ASIS before it is taken for a wrong midline.
+    MAX_MIDLINE_DISAGREEMENT_DEG = 15.0
+
+    def intact_hip_sides(self) -> tuple:
+        """The hemipelves taken as intact for the true planes: not declared
+        disrupted at the SI joint and with no fracture marked on that hip
+        bone. Both when neither is (then both are used, and said)."""
+        sides = []
+        for side in ("right", "left"):
+            if self.si_disrupted in (side, "both"):
+                continue
+            if any(f.bone == f"hip_{side}" for f in self.fractures):
+                continue
+            sides.append(side)
+        return tuple(sides)
+
     def _build_frame(self) -> None:
-        required = ("asis_right", "asis_left", "pubic_tubercle_right", "pubic_tubercle_left")
-        if not all(k in self.landmarks for k in required):
-            self.frame = None
+        """The true planes (DECISIONS.md 8.5): mid-sagittal from the sacral
+        midline, coronal tilted to the intact hemipelvis's anterior pelvic
+        plane, the surgeon's own turn on top. Falls back to the anterior
+        pelvic plane of both sides when the sacral midline is not found."""
+        lm = self.landmarks
+        self.frame, self.frame_info, self.frame_anatomical = None, "", False
+        intact = self.intact_hip_sides()
+        self._frame_intact = intact
+        pairs_from = intact or ("right", "left")
+        pairs = [(lm[f"asis_{s}"].xyz, lm[f"pubic_tubercle_{s}"].xyz) for s in pairs_from
+                 if f"asis_{s}" in lm and f"pubic_tubercle_{s}" in lm]
+        try:
+            if "s1_body_center" not in lm:
+                raise ValueError("no S1 body centre")
+            long_axis = (np.asarray(lm["s1_body_center"].xyz, float) - np.asarray(lm["s2_body_center"].xyz, float)
+                         if "s2_body_center" in lm else None)
+            # The first plane: the symmetry plane of the central sacrum (its
+            # body and canal, S1 down), fitted to its whole shape by the
+            # shared mirror module. Fitted to a few landmark points instead,
+            # it came out 13 and 31 degrees off the pelvis on two of the four
+            # CLINIC cases; the symmetry plane, 2.6-6.5 on all four.
+            normal, points, sagittal = None, None, ""
+            try:
+                plane = mirror_mod.fit_plane(self.labels_volume, "central_sacrum")
+                if plane.refused:
+                    raise ValueError(plane.refused)
+                normal = plane.normal
+                sagittal = f"the central sacrum's symmetry plane (90% within {plane.self_symmetry_p90_mm:.1f} mm)"
+            except ValueError as exc:  # MirrorRefused is one; no L5 is another
+                canal = sacral_canal_mod.canal_mask(self.labels_volume, seg_mod.SACRUM,
+                                                    (seg_mod.HIP_R, seg_mod.HIP_L))
+                centres = anatomical_frame_mod.canal_centres(self.labels_volume, lm, canal)
+                bodies = [n for n in ("s1_body_center", "s2_body_center", "s3_body_center") if n in lm]
+                points = [lm[n].xyz for n in bodies] + list(centres.values())
+                sagittal = (f"the sacral midline points ({len(bodies)} bodies, {len(centres)} canal centres; "
+                            f"the symmetry plane was not usable: {exc})")
+            self.frame = anatomical_frame_mod.pelvic_frame(points, origin=lm["s1_body_center"].xyz,
+                                                           asis_pubis_pairs=pairs, adjust_deg=(0.0, 0.0, 0.0),
+                                                           sagittal_normal=normal, long_axis=long_axis)
+            # A cross-check: the sacral midline's left-right axis and the
+            # line between the two ASIS cannot disagree by much in a pelvis;
+            # if they do, a midline point is wrong (or a hemipelvis is badly
+            # displaced), and the midline is not trusted.
+            if "asis_right" in lm and "asis_left" in lm:
+                asis_axis = np.asarray(lm["asis_left"].xyz, float) - np.asarray(lm["asis_right"].xyz, float)
+                asis_axis -= float(asis_axis @ self.frame.y_hat) * self.frame.y_hat
+                off = float(np.degrees(np.arccos(np.clip(abs(float(
+                    asis_axis @ self.frame.x_hat)) / max(np.linalg.norm(asis_axis), 1e-9), -1.0, 1.0))))
+                if off > self.MAX_MIDLINE_DISAGREEMENT_DEG:
+                    raise ValueError(f"the sacral midline disagrees with the line between the ASIS by {off:.0f} "
+                                     "degrees")
+            # And the planes as built (before the surgeon's own turn) must be
+            # ones a patient can lie in on the table.
+            implausible = anatomical_frame_mod.implausible_turn(self.frame)
+            if implausible:
+                raise ValueError(implausible)
+            self.frame = anatomical_frame_mod.turned(self.frame, self.frame_adjust_deg)
+            used = [sagittal]
+            if pairs:
+                which = " and ".join(pairs_from)
+                used.append(f"the {which} anterior pelvic plane" + ("" if intact else " (no side intact)"))
+            else:
+                used.append("the sacrum's own long axis (no ASIS and pubic tubercle found)")
+            if any(self.frame_adjust_deg):
+                used.append("your turn of tilt {:+.1f}, roll {:+.1f}, yaw {:+.1f}".format(*self.frame_adjust_deg))
+            self.frame_anatomical = True
+            self.frame_info = anatomical_frame_mod.describe(self.frame, used)
+        except (ValueError, KeyError) as exc:
+            required = ("asis_right", "asis_left", "pubic_tubercle_right", "pubic_tubercle_left")
+            if not all(k in lm for k in required):
+                self.frame_info = f"no true planes: {exc}, and the anterior pelvic plane landmarks are missing"
+                return
+            # The surgeon's turn applies here too: these are the planes he
+            # is shown and the plan records his turn either way.
+            self.frame = anatomical_frame_mod.turned(
+                app_frame.build_app(lm["asis_right"].xyz, lm["asis_left"].xyz,
+                                    lm["pubic_tubercle_right"].xyz, lm["pubic_tubercle_left"].xyz),
+                self.frame_adjust_deg)
+            self.frame_info = (f"no true planes ({exc}); the anterior pelvic plane of both sides is used for the "
+                               "C-arm views, and the SI joints are measured on the scanner's slices, so left and "
+                               "right may not be cut symmetrically")
+            if any(self.frame_adjust_deg):
+                self.frame_info += "; your turn of tilt {:+.1f}, roll {:+.1f}, yaw {:+.1f}".format(
+                    *self.frame_adjust_deg)
+
+    def _measure_si(self) -> Dict[str, "si_joint_mod.JointWidth"]:
+        """Both SI joints, measured on the true axial planes when there are
+        any, so left and right are cut at the same level (the surgeon,
+        2026-10-05: 'make sure the cut was really symmetrical')."""
+        self.si_turned = []
+        if not (self.frame_anatomical and self.frame is not None):
+            return si_joint_mod.measure_joint_widths(self.labels_volume, self.landmarks)
+        vol = self.labels_volume
+
+        def measure(frame):
+            # The scan's own voxels, grouped into the true planes' levels:
+            # resampling a joint a few voxels wide moved its gap by 1-2 mm.
+            return si_joint_mod.measure_joint_widths(
+                vol, anatomical_frame_mod.anatomical_landmarks(frame, self.landmarks), frame=frame)
+
+        widths = measure(self.frame)
+        turned = [measure(anatomical_frame_mod.turned(self.frame, d))
+                  for d in anatomical_frame_mod.STEADINESS_TURNS_DEG]
+        self.si_turned = turned
+        # The up-or-down shift comes from matching the two margins' profiles,
+        # and it is not steady: shown only if a 3-degree turn of the planes
+        # either way moves it by no more than SI_SHIFT_STEADY_MM. It decides
+        # nothing either way (si_joint.in_level_step).
+        for side, width in widths.items():
+            if not width.cephalad_known:
+                continue
+            others = [t.get(side) for t in turned]
+            if any(o is None or not o.cephalad_known
+                   or abs(o.step_cephalad_mm - width.step_cephalad_mm) > self.SI_SHIFT_STEADY_MM for o in others):
+                widths[side] = si_joint_mod.without_cephalad(width)
+        return widths
+
+    SI_SHIFT_STEADY_MM = 2.0
+
+    def si_offer(self) -> Tuple[Optional[str], str]:
+        """The joint to offer as disrupted, and a note when the planes'
+        turns disagree about it (si_joint.steady_disrupted). On scanner
+        planes there are no turns, and the offer is looks_disrupted's."""
+        if not self.si_turned:
+            return si_joint_mod.looks_disrupted(self.si_widths), ""
+        return si_joint_mod.steady_disrupted(self.si_widths, self.si_turned)
+
+    def refresh_frame(self) -> None:
+        """Build the true planes again (the intact side or the surgeon's turn
+        changed), and everything measured on them: the C-arm views, the SI
+        joints (keeping his declaration) and the fields that use the sacral
+        midline."""
+        if not self.landmarks or self.labels_volume is None:
             return
-        self.frame = app_frame.build_app(
-            self.landmarks["asis_right"].xyz,
-            self.landmarks["asis_left"].xyz,
-            self.landmarks["pubic_tubercle_right"].xyz,
-            self.landmarks["pubic_tubercle_left"].xyz,
-        )
+        self._build_frame()
+        self._compute_views()
+        self.si_widths = self._measure_si()
+        disrupted = self.si_disrupted
+        self.si_bridge_mm = si_joint_mod.bridging_widths(self.si_widths, disrupted) if disrupted else {}
+        self._edt_cache, self._mask_cache, self._entry_area_cache, self._canal_cache = {}, {}, {}, {}
+        if self.plan is not None:
+            self.plan.frame = self._frame_record()
+
+    def set_frame_adjust(self, tilt: float, roll: float, yaw: float) -> None:
+        """The surgeon's own turn of the true planes, degrees."""
+        self.frame_adjust_deg = (float(tilt), float(roll), float(yaw))
+        self.refresh_frame()
+
+    def _frame_record(self) -> dict:
+        if self.frame is None:
+            return {}
+        return dict(plan_mod.frame_to_dict(self.frame), built_from=self.frame_info,
+                    adjust_deg=[float(a) for a in self.frame_adjust_deg])
 
     # ---- Corridor search -------------------------------------------------
 
@@ -886,6 +1065,8 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self._fracture_version += 1
         if self.plan is not None:
             self.plan.fracture_marks = self._fracture_marks_record()
+        if self.landmarks and self._frame_intact is not None and self.intact_hip_sides() != self._frame_intact:
+            self.refresh_frame()  # a hip bone fracture was marked: that side is no longer intact
 
     def set_fracture_sites(self, points) -> None:
         """All the marks as one fracture (kept for scripts; the panel keeps
@@ -1755,7 +1936,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     # ---- Plan / export -----------------------------------------------
 
     def new_plan(self, case_alias: str) -> "plan_mod.Plan":
-        frame_dict = plan_mod.frame_to_dict(self.frame) if self.frame else {}
+        frame_dict = self._frame_record()
         landmarks_dict = {name: {"xyz": list(lm.xyz), "source": lm.source} for name, lm in self.landmarks.items()}
         self.plan = plan_mod.Plan(
             case_alias=case_alias,
@@ -2093,6 +2274,32 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.landmarkWarningsLabel.setWordWrap(True)
         inputForm.addRow(_("Warnings:"), self.landmarkWarningsLabel)
 
+        # The true planes (DECISIONS.md 8.5): built from the sacral midline
+        # and the intact hemipelvis, turned by the surgeon if he wishes.
+        self.truePlanesCheck = qt.QCheckBox(_("Slice views on the true planes"))
+        self.truePlanesCheck.checked = True
+        self.truePlanesCheck.toolTip = _("Red = true axial, green = true coronal, yellow = true sagittal. Untick for "
+                                         "the scanner's planes.")
+        inputForm.addRow(self.truePlanesCheck)
+        adjustRow = qt.QWidget()
+        adjustLayout = qt.QHBoxLayout(adjustRow)
+        adjustLayout.setContentsMargins(0, 0, 0, 0)
+        self.tiltSpin, self.rollSpin, self.yawSpin = qt.QDoubleSpinBox(), qt.QDoubleSpinBox(), qt.QDoubleSpinBox()
+        for label, spin in ((_("Tilt"), self.tiltSpin), (_("Roll"), self.rollSpin), (_("Yaw"), self.yawSpin)):
+            spin.setRange(-30.0, 30.0)
+            spin.setSingleStep(0.5)
+            spin.setDecimals(1)
+            spin.setSuffix(" deg")
+            spin.setKeyboardTracking(False)
+            adjustLayout.addWidget(qt.QLabel(label))
+            adjustLayout.addWidget(spin)
+        self.frameResetButton = qt.QPushButton(_("Reset"))
+        adjustLayout.addWidget(self.frameResetButton)
+        inputForm.addRow(_("Turn the planes:"), adjustRow)
+        self.frameInfoLabel = qt.QLabel("")
+        self.frameInfoLabel.setWordWrap(True)
+        inputForm.addRow(_("True planes:"), self.frameInfoLabel)
+
         # --- Corridors ---
         corridorBox = ctk.ctkCollapsibleButton()
         corridorBox.text = _("2. Corridors")
@@ -2325,6 +2532,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # --- Signals ---
         self.segmentButton.clicked.connect(self.onSegment)
         self.detectLandmarksButton.clicked.connect(self.onDetectLandmarks)
+        self.truePlanesCheck.toggled.connect(self._applyTruePlanes)
+        for spin in (self.tiltSpin, self.rollSpin, self.yawSpin):
+            spin.valueChanged.connect(self.onFrameAdjusted)
+        self.frameResetButton.clicked.connect(self.onFrameReset)
         self.suggestButton.clicked.connect(self.onSuggest)
         self.addScrewButton.clicked.connect(self.onAddScrew)
         self.newPlanButton.clicked.connect(self.onNewPlan)
@@ -2586,6 +2797,9 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return False
         volume_node = self.logic.volume_node
         labels = np.zeros(slicer.util.arrayFromVolume(volume_node).shape, dtype=np.uint8)
+        # L5 is not shown for editing; it is kept as it was.
+        lumbar = engine_array_to_node_array(volume_node, self.logic.labels_volume.array) == seg_mod.LUMBAR
+        labels[lumbar] = seg_mod.LUMBAR
         segmentation = node.GetSegmentation()
         for label, name in seg_mod.LABEL_NAMES.items():
             if segmentation.GetSegment(name) is None:
@@ -2686,6 +2900,63 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         except Exception:
             logging.error(traceback.format_exc())
 
+    def _afterFrameChange(self) -> None:
+        self.frameInfoLabel.setText(self.logic.frame_info)
+        self._applyTruePlanes()
+
+    def _applyTruePlanes(self, *args) -> None:
+        """Turn the slice views to the true planes (red axial, green coronal,
+        yellow sagittal), or back to the scanner's."""
+        frame = self.logic.frame
+        presets = {"Red": "Axial", "Green": "Coronal", "Yellow": "Sagittal"}
+        on = bool(self.truePlanesCheck.checked) and frame is not None and self.logic.frame_anatomical
+        right, anterior, superior = ((-frame.x_hat, frame.y_hat, frame.z_hat) if frame is not None else
+                                     (np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0])))
+        q = np.stack([right, anterior, superior], axis=1)  # RAS basis -> the planes' basis
+        centre = (self.logic.landmarks["s1_body_center"].xyz if "s1_body_center" in self.logic.landmarks
+                  else (frame.origin if frame is not None else None))
+        for name, preset in presets.items():
+            node = slicer.mrmlScene.GetNodeByID(f"vtkMRMLSliceNode{name}")
+            if node is None:
+                continue
+            getattr(node, f"SetOrientationTo{preset}")()
+            if not on:
+                continue
+            m = node.GetSliceToRAS()
+            r0 = np.array([[m.GetElement(i, j) for j in range(3)] for i in range(3)])
+            r1 = q @ r0
+            for i in range(3):
+                for j in range(3):
+                    m.SetElement(i, j, float(r1[i, j]))
+            if centre is not None:
+                for i in range(3):
+                    m.SetElement(i, 3, float(centre[i]))
+            node.UpdateMatrices()
+
+    def onFrameAdjusted(self, *args) -> None:
+        if self.logic.landmarks:
+            try:
+                self.logic.set_frame_adjust(self.tiltSpin.value, self.rollSpin.value, self.yawSpin.value)
+            except Exception as exc:
+                logging.error(traceback.format_exc())
+                slicer.util.errorDisplay(str(exc), windowTitle=_("Corridor Finder"))
+                return
+            self._afterFrameChange()
+            self._syncSiWidths()
+            self._clearSuggestions()
+            self._updateCanalSegment()
+            if self.logic.plan is not None:
+                for screw in self.logic.plan.screws:
+                    self.logic._validate_plan_screw(screw, derived=True)
+                    self._updateScrewModel(screw)
+
+    def onFrameReset(self) -> None:
+        for spin in (self.tiltSpin, self.rollSpin, self.yawSpin):
+            spin.blockSignals(True)
+            spin.value = 0.0
+            spin.blockSignals(False)
+        self.onFrameAdjusted()
+
     def onDetectLandmarks(self):
         try:
             self._syncLabelsFromSegmentation()
@@ -2696,6 +2967,7 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         self._placeLandmarkFiducials()
+        self._afterFrameChange()
         self._updating_si = True
         try:
             self.siDisruptedCombo.setCurrentIndex(0)
@@ -2963,9 +3235,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.siLabel.setText(_("measured after Detect landmarks"))
             return
         if self.logic.si_disrupted is None:
-            suggestion = si_joint_mod.looks_disrupted(self.logic.si_widths)
+            suggestion, unsteady = self.logic.si_offer()
             prompt = _("say which joint is disrupted before suggesting a sacral corridor")
-            lines.append(prompt + (_(" — the {0} one looks disrupted").format(suggestion) if suggestion else ""))
+            lines.append(prompt + (_(" — the {0} one looks disrupted").format(suggestion) if suggestion else "")
+                         + (" — " + unsteady if unsteady else ""))
         self.siLabel.setText("\n".join(lines))
 
     def onSuggest(self):

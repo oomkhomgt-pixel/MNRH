@@ -179,8 +179,12 @@ def test_a_step_both_joints_share_is_anatomy_and_does_not_hide_a_gap():
     only a difference between the sides counts, by gap or by step."""
     from corridor_engine.si_joint import JointWidth, shared_step_sentence
 
-    def joint(side, gap, step):
-        return JointWidth(side=side, measured_mm=gap, n_samples=10, band_z_mm=(0.0, 10.0), step_mm=step)
+    def joint(side, gap, step, cephalad=0.0):
+        """``step`` within each level (front-back); ``cephalad`` the
+        up-or-down shift, which raises the overall step_mm only."""
+        return JointWidth(side=side, measured_mm=gap, n_samples=10, band_z_mm=(0.0, 10.0),
+                          steps_mm=np.full(10, step), step_mm=float(np.hypot(step, cephalad)),
+                          step_cephalad_mm=cephalad)
 
     same = {"right": joint("right", 3.0, 4.0), "left": joint("left", 3.0, 4.0)}
     assert looks_disrupted(same) is None
@@ -192,3 +196,42 @@ def test_a_step_both_joints_share_is_anatomy_and_does_not_hide_a_gap():
     slid = {"right": joint("right", 3.0, 1.0), "left": joint("left", 3.0, 4.5)}
     assert looks_disrupted(slid) == "left"
     assert shared_step_sentence(slid) is None
+
+
+def test_the_up_or_down_shift_does_not_offer_a_disrupted_side():
+    """The up-or-down shift, matched from the margins' profiles, read up to
+    10 mm on intact CLINIC joints on true planes, steady under a turn of the
+    plane. Until it is validated it decides nothing: the side is offered by
+    the gap and the front-back step only."""
+    from corridor_engine.si_joint import JointWidth, shared_step_sentence
+
+    def joint(side, gap, step, cephalad):
+        return JointWidth(side=side, measured_mm=gap, n_samples=10, band_z_mm=(0.0, 10.0),
+                          steps_mm=np.full(10, step), step_mm=float(np.hypot(step, cephalad)),
+                          step_anterior_mm=step, step_cephalad_mm=cephalad)
+
+    up = {"right": joint("right", 3.0, 0.5, -9.8), "left": joint("left", 3.0, 0.5, 0.0)}
+    assert looks_disrupted(up) is None
+    assert shared_step_sentence(up) is None
+    assert "not reliable" in up["right"].step_sentence()
+
+
+def test_an_offer_a_small_turn_of_the_planes_changes_is_not_made():
+    """CLINIC_0060: the front-back step read 5.6 against 8.4 mm on the true
+    planes, enough to offer the left joint, but 3-degree turns of the
+    planes offered left on some and nothing on others. Nothing is offered,
+    and the note says why."""
+    from corridor_engine.si_joint import JointWidth, steady_disrupted
+
+    def joints(r_step, l_step, r_gap=3.5, l_gap=3.0):
+        return {side: JointWidth(side=side, measured_mm=gap, n_samples=10, band_z_mm=(0.0, 10.0),
+                                 steps_mm=np.full(10, step))
+                for side, gap, step in (("right", r_gap, r_step), ("left", l_gap, l_step))}
+
+    base = joints(5.6, 8.4)
+    assert looks_disrupted(base) == "left"
+    side, note = steady_disrupted(base, [joints(6.3, 7.6), joints(6.2, 8.6), joints(5.3, 8.9)])
+    assert side is None and "left" in note and "yourself" in note
+    # A gap that holds under every turn is still offered.
+    wide = joints(3.6, 3.9, r_gap=3.6, l_gap=8.4)
+    assert steady_disrupted(wide, [joints(2.5, 3.6, 3.5, 8.8), joints(4.7, 2.9, 3.5, 7.9)]) == ("left", "")

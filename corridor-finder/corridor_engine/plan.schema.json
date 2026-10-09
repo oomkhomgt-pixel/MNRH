@@ -26,7 +26,9 @@
         "origin": { "$ref": "#/$defs/vec3" },
         "x_hat": { "$ref": "#/$defs/vec3" },
         "y_hat": { "$ref": "#/$defs/vec3" },
-        "z_hat": { "$ref": "#/$defs/vec3" }
+        "z_hat": { "$ref": "#/$defs/vec3" },
+        "built_from": { "type": "string", "description": "Which landmarks the true planes were built from, and how far they are turned from the scanner." },
+        "adjust_deg": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "The surgeon's own tilt, roll, yaw of the true planes, degrees." }
       }
     },
     "landmarks": { "type": "object" },

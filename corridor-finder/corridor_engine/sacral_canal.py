@@ -243,6 +243,20 @@ def _extend_front_to_back(labels: Volume, start, painted: np.ndarray, envelope: 
     return out & envelope
 
 
+def canal_mask(labels: Volume, sacrum_label: int, hip_labels=()) -> np.ndarray:
+    """Every hole the sacrum encloses on an axial slice, with no midline
+    known yet (the canal among them; anatomical_frame.canal_centres picks
+    it out behind each sacral body)."""
+    arr = labels.array
+    out = np.zeros(arr.shape, dtype=bool)
+    if not (arr == sacrum_label).any():
+        return out
+    box, crop, *_rest, widths = _parts(labels, sacrum_label, tuple(hip_labels), None)
+    canal = _rest[3]
+    out[box] = canal[crop]
+    return out
+
+
 def canal_and_foramina(labels: Volume, sacrum_label: int, hip_labels=()) -> np.ndarray:
     """The canal and foramina as the shape finds them, with no midline and
     no fracture known."""

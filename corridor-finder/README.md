@@ -79,9 +79,8 @@ This is under active development. What's implemented and unit tested today:
       - the **gap** across the joint at its anterior end;
       - the **step** along it, as a vector: how far the ilium's anterior
         cortex sits in front of or behind the sacrum's, and how far above
-        or below. Where the joint margin is too straight for an up-or-down
-        shift to leave any trace, the tool says so rather than reporting
-        zero.
+        or below. The up-or-down figure is shown but not yet reliable, and
+        nothing is decided on it (DECISIONS.md 8.5).
       The gap is what counts as bone across the joint, shown with how much
       of the joint that covers, capped at 4 mm, editable per side, and
       gated on the surgeon declaring which side is disrupted. It is what
@@ -99,6 +98,20 @@ This is under active development. What's implemented and unit tested today:
       fracture saved per case for the displacement measurement (7.18), the
       SI step judged side to side (2.4), and the screw stock 40-160 mm
       (7.5). Checked in the Slicer harness and on test volumes.
+- [x] True axial, coronal and sagittal planes (DECISIONS.md 8.5): the
+      mid-sagittal from the central sacrum's symmetry, the coronal parallel
+      to the intact side's anterior pelvic plane, tilt/roll/yaw of your own
+      in the panel, and the slice views turned to them (switch back
+      provided). The SI gap and step are measured on them without
+      resampling; the up-or-down shift is shown as not reliable and decides
+      nothing, and a disrupted side is offered only if 3-degree turns of the
+      planes agree. Checked on test volumes (a pelvis rolled 16 degrees reads
+      its two joints alike) and on the four CLINIC cases. In Slicer: built
+      from the sacral symmetry on pilot CTs 0012 and 0023, a 4-degree tilt in
+      the panel turns them 4 degrees and Reset restores them; the harness
+      checks the panel, the turn, the plan record and the refusal of planes
+      turned more than 25 degrees (the Panoramix sample, 52). Not checked
+      without a main window: the slice views turning (to be seen in the GUI).
 - [x] Zone II: with one side of the sacrum called fractured, its foramina are
       the intact side's, mirrored, so the fracture outside them can be crossed
       and the foramina cannot (DECISIONS.md 7.16). Checked on test sacra and,

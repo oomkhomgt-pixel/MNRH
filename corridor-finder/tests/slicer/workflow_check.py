@@ -233,8 +233,13 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         segmentation = seg_node.GetSegmentation() if seg_node else None
         ids = {segmentation.GetNthSegmentID(i) for i in range(segmentation.GetNumberOfSegments())} if segmentation else set()
         # The canal-and-foramina segment is shown beside the bones, not a bone.
-        check(ids - {w._CANAL_SEGMENT} == {seg.LABEL_NAMES[v] for v in present},
-              "'CF bones' segmentation shows exactly the engine's labels (plus the protected canal and foramina)")
+        check(ids - {w._CANAL_SEGMENT} == {seg.LABEL_NAMES[v] for v in present if v in seg.LABEL_NAMES},
+              "'CF bones' segmentation shows exactly the engine's bones (plus the protected canal and foramina)")
+        if seg.LUMBAR in present:
+            # L5 places the sacrum's symmetry plane (DECISIONS 8.5); it is kept
+            # in the labels, not shown, and survives the segmentation's sync.
+            w._syncLabelsFromSegmentation()
+            check((logic.labels_volume.array == seg.LUMBAR).any(), "L5 is kept in the labels through a sync")
         if "hip_right" in ids:
             shown_x = segment_centroid_ras(seg_node, "hip_right", ct)[0]
             check(abs(shown_x - xr) < 0.5, f"hip_right is displayed where the engine has it (x {shown_x:.1f} vs {xr:.1f} mm)")
@@ -256,12 +261,21 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             check(lms["asis_right"].xyz[0] > lms["asis_left"].xyz[0], "right ASIS lies to the patient's right of the left ASIS")
         # Drag a landmark: the frame must be rebuilt from the moved point.
         before = logic.frame.origin.copy()
+        frame_before = logic.frame
         idx = w._landmark_index_to_name.index("asis_left")
         p = [0.0, 0.0, 0.0]
         node.GetNthControlPointPosition(idx, p)
         node.SetNthControlPointPosition(idx, p[0] - 10.0, p[1], p[2])
         check(logic.landmarks["asis_left"].source == "manual", "dragged landmark recorded as manual")
-        check(np.allclose(logic.frame.origin, before + np.array([-5.0, 0.0, 0.0]), atol=1e-6), "APP origin moved by half the ASIS drag")
+        if logic.frame_anatomical:
+            # True planes (DECISIONS 8.5) are centred on the S1 body, and the
+            # ASIS is part of the intact side's anterior pelvic plane.
+            check(logic.frame is not frame_before
+                  and np.allclose(logic.frame.origin, logic.landmarks["s1_body_center"].xyz, atol=1e-6),
+                  "the true planes are built again, still centred on S1")
+        else:
+            check(np.allclose(logic.frame.origin, before + np.array([-5.0, 0.0, 0.0]), atol=1e-6),
+                  "APP origin moved by half the ASIS drag")
         node.SetNthControlPointPosition(idx, *p)  # put it back
 
     @step("Sacroiliac joint: measured, declared, and gating the sacral corridors")
@@ -813,6 +827,48 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         logic._validate_plan_screw(screw)
         check(screw.validation["min_clearance_mm"] == v0["min_clearance_mm"], "restored, nothing changed")
 
+    @step("True planes: built from the anatomy, turned by the surgeon, the slice views on them (DECISIONS 8.5)")
+    def true_planes():
+        frame = logic.frame
+        log(f"    {logic.frame_info}")
+        check(frame is not None and bool(logic.frame_info) and w.frameInfoLabel.text == logic.frame_info,
+              "the panel says what the true planes were built from")
+        axes = np.stack([frame.x_hat, frame.y_hat, frame.z_hat])
+        check(np.allclose(axes @ axes.T, np.eye(3), atol=1e-6), "the planes are square to each other")
+        red = slicer.mrmlScene.GetNodeByID("vtkMRMLSliceNodeRed")
+        if red is None:
+            log("    no slice views without a main window: the views' turn is not checked here")
+
+        def red_normal():
+            m = red.GetSliceToRAS()
+            return np.array([m.GetElement(i, 2) for i in range(3)])
+
+        if logic.frame_anatomical and red is not None:
+            w.truePlanesCheck.checked = True
+            w._applyTruePlanes()
+            check(abs(float(np.dot(red_normal(), frame.z_hat))) > 0.9999, "the red view is the true axial plane")
+        offer, note = logic.si_offer()
+        log(f"    SI offer: {offer}; {note or 'steady'}; {len(logic.si_turned)} turns of the planes measured")
+        check(offer in (None, "right", "left") and (logic.si_turned or not logic.frame_anatomical),
+              "the disrupted-side offer is checked against turns of the planes")
+        before = frame.z_hat.copy()
+        w.tiltSpin.value = 5.0
+        turned = logic.frame
+        angle = float(np.degrees(np.arccos(np.clip(float(np.dot(turned.z_hat, before)), -1.0, 1.0))))
+        check(abs(angle - 5.0) < 0.01 and abs(float(np.dot(turned.x_hat, frame.x_hat)) - 1.0) < 1e-9,
+              f"a 5-degree tilt in the panel tilts the planes 5 degrees about left-right ({angle:.2f})")
+        if logic.plan is not None:
+            check(list(logic.plan.frame.get("adjust_deg", [])) == [5.0, 0.0, 0.0], "and the plan keeps the turn")
+        check("your turn" in logic.frame_info, "and the panel says the planes carry your turn")
+        if logic.frame_anatomical and red is not None:
+            check(abs(float(np.dot(red_normal(), turned.z_hat))) > 0.9999, "and the red view follows it")
+        w.onFrameReset()
+        check(np.allclose(logic.frame.z_hat, before, atol=1e-9), "Reset gives back the planes as built")
+        if red is not None:
+            w.truePlanesCheck.checked = False
+            check(abs(float(red_normal()[2])) > 0.9999, "unticked, the red view is the scanner's axial again")
+            w.truePlanesCheck.checked = True
+
     @step("Display switches, and the sacral canal and foramina kept out of the bone")
     def display_and_canal():
         w.landmarksCheck.checked = False
@@ -873,7 +929,7 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
     # takes it out of bone, so it must.
     axis = np.asarray(screw.target_xyz) - np.asarray(screw.entry_xyz)
     shorten = tuple(-1.0 * axis / np.linalg.norm(axis))
-    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (fracture_gap, ()), (display_and_canal, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
+    for fn, args in ((guidance, ()), (virtual_reduction, ()), (navigation_export, ()), (pilot, ()), (fracture_gap, ()), (true_planes, ()), (display_and_canal, ()), (drag, (shorten, False)), (export, ("ok",)), (edit_segmentation, ()),
                      (drag, ((0.0, 80.0, 0.0), True)), (export, ("breach",))):
         try:
             fn(*args)

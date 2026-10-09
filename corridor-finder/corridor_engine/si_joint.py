@@ -35,8 +35,9 @@ covers, for the surgeon to check against the axial CT and correct.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -106,7 +107,7 @@ class JointWidth:
                     else "no step across the joint; up or down cannot be told from it")
         text = "the ilium " + " and ".join(parts) + " the sacrum" + unknown
         if self.cephalad_known and abs(self.step_cephalad_mm) >= 0.5:
-            text += "; the up-or-down figure reads about a quarter short"
+            text += "; the up-or-down figure is not reliable yet and is not used"
         return text
 
     def sentence(self, bridge_mm: Optional[float] = None) -> str:
@@ -121,16 +122,26 @@ class JointWidth:
         return text + (f" ({self.warning})" if self.warning else "")
 
 
-def measure_joint_widths(labels_vol: Volume, landmarks: Dict[str, object]) -> Dict[str, JointWidth]:
+def measure_joint_widths(labels_vol: Volume, landmarks: Dict[str, object], frame=None) -> Dict[str, JointWidth]:
     """Measure both SI joints at the S1-S2 level. ``landmarks`` is
     landmarks.detect_landmarks' result (it needs s1_body_center and
-    s2_body_center)."""
+    s2_body_center).
+
+    With ``frame`` (anatomical_frame's true planes), the levels are the true
+    axial planes and "anterior" and "lateral" are the patient's, so left and
+    right are cut at the same anatomical level (the surgeon, 2026-10-05);
+    ``landmarks`` must then be in the frame's anatomical mm
+    (anatomical_frame.anatomical_landmarks). The voxels are NOT resampled:
+    a joint is a few voxels across, and resampling it onto a new grid moved
+    its gap by 1-2 mm on CLINIC_0023 with no turn at all. The distances stay
+    those of the scan; only which level a voxel belongs to, and which way is
+    anterior, come from the frame."""
     labels = labels_vol.array
     sacrum = labels == seg.SACRUM
     band = _band_z(landmarks)
     out: Dict[str, JointWidth] = {}
     for side, hip_label in (("right", seg.HIP_R), ("left", seg.HIP_L)):
-        out[side] = _measure_one(labels_vol, sacrum, labels == hip_label, side, band)
+        out[side] = _measure_one(labels_vol, sacrum, labels == hip_label, side, band, frame)
     return out
 
 
@@ -139,6 +150,19 @@ def _band_z(landmarks) -> Optional[Tuple[float, float]]:
     if len(centres) < 2:
         return None
     return (min(centres) - BAND_PAD_MM, max(centres) + BAND_PAD_MM)
+
+
+def _front_cortex_points(points: np.ndarray, near_xy) -> Optional[np.ndarray]:
+    """_front_cortex for bone voxels given as (x, y, z) points of one level,
+    in the measuring frame's coordinates."""
+    if points.shape[0] == 0:
+        return None
+    near = np.hypot(points[:, 0] - near_xy[0], points[:, 1] - near_xy[1]) <= CORTEX_NEAR_JOINT_MM
+    if not near.any():
+        return None
+    x_mm, y_mm = points[near, 0], points[near, 1]
+    front = y_mm >= y_mm.max() - ANTERIOR_EDGE_MM
+    return np.array([float(x_mm[front].mean()), float(y_mm[front].mean())])
 
 
 def _front_cortex(bone_slice: np.ndarray, near_xy, box_origin, spacing) -> Optional[np.ndarray]:
@@ -231,7 +255,7 @@ def facing(to_a_vec: np.ndarray, to_b_vec: np.ndarray, to_a: np.ndarray, to_b: n
     return (to_a_vec * to_b_vec).sum(axis=0) <= FACING_COS * np.maximum(to_a * to_b, 1e-9)
 
 
-def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: str, band) -> JointWidth:
+def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: str, band, frame=None) -> JointWidth:
     if band is None:
         return JointWidth(side, float("nan"), 0, (float("nan"), float("nan")), "S1 and S2 body centres were not detected")
     if not sacrum.any() or not hip.any():
@@ -261,41 +285,61 @@ def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: 
     to_sacrum_vec = (at_sacrum - here) * sampling[:, None, None, None]
     to_hip_vec = (at_hip - here) * sampling[:, None, None, None]
     faces = facing(to_sacrum_vec, to_hip_vec, to_sacrum, to_hip)
+    del here, to_sacrum_vec, to_hip_vec, at_sacrum, at_hip
 
-    z_index = np.arange(lo[0], hi[0]) * sz + oz
-    in_band = (z_index >= band[0]) & (z_index <= band[1])
-    joint = (
-        (labels_vol.array[box] == 0)
-        & in_band[:, None, None]
-        & faces
-        & (to_hip <= AURICULAR_MAX_MM)
-        & (to_sacrum <= AURICULAR_MAX_MM)
-    )
+    def coords(idx3: np.ndarray) -> np.ndarray:
+        """Voxels (box indices) as (x, y, z) in the measuring frame: the
+        scan's own axes, or the true planes' anatomical mm."""
+        world = np.stack([box_origin[0] + idx3[:, 2] * sx, box_origin[1] + idx3[:, 1] * sy,
+                          box_origin[2] + idx3[:, 0] * sz], axis=1)
+        if frame is None:
+            return world
+        from .anatomical_frame import to_anatomical
+        return to_anatomical(frame, world).reshape(-1, 3)
+
+    joint = (labels_vol.array[box] == 0) & faces & (to_hip <= AURICULAR_MAX_MM) & (to_sacrum <= AURICULAR_MAX_MM)
     joint_idx = np.argwhere(joint)
+    joint_pts = coords(joint_idx) if joint_idx.shape[0] else np.zeros((0, 3))
+    keep = (joint_pts[:, 2] >= band[0]) & (joint_pts[:, 2] <= band[1])
+    joint_idx, joint_pts = joint_idx[keep], joint_pts[keep]
     if joint_idx.shape[0] == 0:
         return JointWidth(side, float("nan"), 0, band, "no joint surface found at the S1-S2 level")
-    joint_pts = np.stack([box_origin[0] + joint_idx[:, 2] * sx,
-                          box_origin[1] + joint_idx[:, 1] * sy,
-                          box_origin[2] + joint_idx[:, 0] * sz], axis=1)
-
-    # Level by level through the band: the joint's own front end gives the
-    # gap, and the two cortices beside it give the step.
-    sacrum_box, hip_box = sacrum[box], hip[box]
     gap_field = to_hip + to_sacrum
+    joint_gap = gap_field[tuple(joint_idx.T)]
+
+    # The bone beside the joint, for the two anterior cortices: the sacrum
+    # near the hip and the hip near the sacrum.
+    reach = AURICULAR_MAX_MM + CORTEX_NEAR_JOINT_MM + 2.0 * max(labels_vol.spacing)
+    s_idx = np.argwhere(sacrum[box] & (to_hip <= reach))
+    h_idx = np.argwhere(hip[box] & (to_sacrum <= reach))
+    s_pts, h_pts = coords(s_idx), coords(h_idx)
+
+    # Level by level through the band: on the scan's own axes a level is a
+    # slice; on the true planes it is a true axial slab as thick as a slice.
+    # The joint's own front end gives the gap, and the two cortices beside
+    # it give the step.
+    level = sz
+    # floor(x + 0.5), not np.round: rounding halves to even would put two
+    # neighbouring slices into one level.
+    j_bin = np.floor((joint_pts[:, 2] - band[0]) / level + 0.5).astype(int)
+    s_bin = np.floor((s_pts[:, 2] - band[0]) / level + 0.5).astype(int)
+    h_bin = np.floor((h_pts[:, 2] - band[0]) / level + 0.5).astype(int)
     toward_hip = 1.0 if side == "right" else -1.0  # the hip lies lateral to the sacrum
     gaps, steps, step_vectors = [], [], []
     levels_z, sacral_y, iliac_y = [], [], []
-    for k in np.flatnonzero(in_band):
-        joint_here = np.argwhere(joint[k])  # (y, x)
-        if joint_here.shape[0] == 0 or not (sacrum_box[k].any() and hip_box[k].any()):
+    for b_ in np.unique(j_bin):
+        here_j = j_bin == b_
+        here_s, here_h = s_bin == b_, h_bin == b_
+        if not (here_s.any() and here_h.any()):
             continue
-        front = joint_here[np.argmax(joint_here[:, 0])]  # the joint's anterior end
-        front_xy = (box_origin[0] + front[1] * sx, box_origin[1] + front[0] * sy)
-        s_edge = _front_cortex(sacrum_box[k], front_xy, box_origin, (sx, sy))
-        i_edge = _front_cortex(hip_box[k], front_xy, box_origin, (sx, sy))
+        pts = joint_pts[here_j]
+        front = pts[np.argmax(pts[:, 1])]  # the joint's anterior end
+        front_xy = (front[0], front[1])
+        s_edge = _front_cortex_points(s_pts[here_s], front_xy)
+        i_edge = _front_cortex_points(h_pts[here_h], front_xy)
         if s_edge is None or i_edge is None:
             continue
-        z_mm = box_origin[2] + k * sz
+        z_mm = float(pts[:, 2].mean())  # the level's own height (on the scan's axes, the slice's)
         s_point = np.array([s_edge[0], s_edge[1], z_mm])
         i_point = np.array([i_edge[0], i_edge[1], z_mm])
         normal = _joint_normal(joint_pts, np.array([front_xy[0], front_xy[1], z_mm]), toward_hip)
@@ -303,10 +347,8 @@ def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: 
         along = d - float(np.dot(d, normal)) * normal
         # The very tip of the joint space measures a corner, not a width, so
         # the gap is the middle of the joint over the front of it.
-        joint_y = box_origin[1] + joint_here[:, 0] * sy
-        joint_x = box_origin[0] + joint_here[:, 1] * sx
-        at_front = joint_here[np.hypot(joint_x - front_xy[0], joint_y - front_xy[1]) <= CORTEX_NEAR_JOINT_MM]
-        gaps.append(float(np.median(gap_field[k, at_front[:, 0], at_front[:, 1]])))
+        at_front = np.hypot(pts[:, 0] - front_xy[0], pts[:, 1] - front_xy[1]) <= CORTEX_NEAR_JOINT_MM
+        gaps.append(float(np.median(joint_gap[here_j][at_front])))
         steps.append(float(np.linalg.norm(along)))
         step_vectors.append(along)
         levels_z.append(z_mm)
@@ -339,6 +381,16 @@ def _measure_one(labels_vol: Volume, sacrum: np.ndarray, hip: np.ndarray, side: 
         step_cephalad_mm=float(cephalad),
         cephalad_known=bool(cephalad_known),
     )
+
+
+def without_cephalad(width: JointWidth) -> JointWidth:
+    """The joint with its up-or-down shift taken as unknown: when the shift
+    found by matching the margins' profiles moves by more than a couple of
+    millimetres for a few degrees' turn of the cutting plane, it is not a
+    measurement (seen on CLINIC_0025: 1 mm on the scanner's planes, 10 mm on
+    the true ones, the in-plane step and the gap unchanged)."""
+    in_level = float(np.median(width.steps_mm)) if width.steps_mm.size else 0.0
+    return dataclasses.replace(width, step_mm=in_level, step_cephalad_mm=0.0, cephalad_known=False)
 
 
 def bridging_widths(widths: Dict[str, JointWidth], disrupted: str) -> Dict[str, float]:
@@ -374,7 +426,7 @@ def looks_disrupted(widths: Dict[str, JointWidth]) -> Optional[str]:
     if not all(side in widths and np.isfinite(widths[side].measured_mm) for side in ("right", "left")):
         return None
     right, left = widths["right"], widths["left"]
-    steps = (right.step_mm, left.step_mm) if np.isfinite(right.step_mm) and np.isfinite(left.step_mm) else (0.0, 0.0)
+    steps = (in_level_step(right), in_level_step(left))
     gap = right.measured_mm - left.measured_mm
     step = steps[0] - steps[1]
     score = {"right": max(gap, step), "left": max(-gap, -step)}
@@ -382,14 +434,44 @@ def looks_disrupted(widths: Dict[str, JointWidth]) -> Optional[str]:
     return side if score[side] > ASYMMETRY_MM else None
 
 
+def steady_disrupted(widths: Dict[str, JointWidth],
+                     turned: Sequence[Dict[str, JointWidth]]) -> Tuple[Optional[str], str]:
+    """looks_disrupted, offered only if the planes turned a few degrees each
+    way (``turned``: the joints measured on anatomical_frame's
+    STEADINESS_TURNS_DEG) all offer the same side. The gap holds within
+    about half a millimetre under such turns on the CLINIC pelves, but the
+    front-back step moves by 1-2 mm, and on CLINIC_0060 the offer came and
+    went with the turn. When they disagree nothing is offered and the note
+    says so, so the surgeon looks at both joints rather than at an offer
+    that a 3-degree difference in setting up the planes would change.
+    Returns (side or None, note or "")."""
+    side = looks_disrupted(widths)
+    others = [looks_disrupted(t) for t in turned]
+    if all(o == side for o in others):
+        return side, ""
+    named = sorted({s for s in [side, *others] if s})
+    return None, (f"the {' or '.join(named)} joint reads out of place on some cuts and not on others "
+                  f"(turning the planes 3 degrees changes it): look at both joints yourself")
+
+
+def in_level_step(width: JointWidth) -> float:
+    """The step across the joint within each level (median over the band),
+    without the up-or-down shift: that shift, matched from the margins'
+    profiles, is not reliable (on intact CLINIC joints it read up to 10 mm,
+    steady or not under a turn of the cutting plane), so nothing is decided
+    on it."""
+    return float(np.median(width.steps_mm)) if width.steps_mm.size else 0.0
+
+
 def shared_step_sentence(widths: Dict[str, JointWidth]) -> Optional[str]:
     """When both joints show a similar step, say that it is taken as this
     patient's anatomy (the surgeon, 2026-10-05), so a step on its own does
     not read as an injury."""
     right, left = widths.get("right"), widths.get("left")
-    if right is None or left is None or not (np.isfinite(right.step_mm) and np.isfinite(left.step_mm)):
+    if right is None or left is None or right.n_samples == 0 or left.n_samples == 0:
         return None
-    if min(right.step_mm, left.step_mm) < 1.0 or abs(right.step_mm - left.step_mm) > ASYMMETRY_MM:
+    r, l = in_level_step(right), in_level_step(left)
+    if min(r, l) < 1.0 or abs(r - l) > ASYMMETRY_MM:
         return None
-    return (f"Both joints show a similar step (right {right.step_mm:.1f} mm, left {left.step_mm:.1f} mm): taken as "
+    return (f"Both joints show a similar step (right {r:.1f} mm, left {l:.1f} mm): taken as "
             f"this patient's anatomy, not an injury; only a difference between the sides counts.")

@@ -203,7 +203,9 @@ def split_pelvis_labels(volume_hu: np.ndarray, spacing) -> np.ndarray:
 
 
 # The lumbar spine, for the mirror plane of displacement-finder DECISIONS
-# 2.1 (L5 is what a pelvic injury has not displaced). CTPelvic1K labels it;
-# TotalSegmentator's vertebrae are not mapped onto it. 6, not 4: FEMUR_L and
-# FEMUR_R already hold 4 and 5.
+# 2.1 (L5 is what a pelvic injury has not displaced) and for the sacrum's
+# symmetry plane of corridor-finder DECISIONS 8.5, which is placed from it.
+# CTPelvic1K labels it; Corridor Finder maps TotalSegmentator's vertebrae_L5
+# onto it. It is not in LABEL_NAMES: not a bone a screw goes into, and not
+# shown. 6, not 4: FEMUR_L and FEMUR_R already hold 4 and 5.
 LUMBAR = 6
