@@ -383,6 +383,27 @@ sacral fracture read.
 | 7e.2 | **Surfaces lying along the junctions between fused sacral segments** (S1-S2, S2-S3 and so on: remnant disc spaces, present in every adult sacrum) are **flagged as a probable disc remnant** on the review sheet, **not dropped**: a true transverse sacral fracture can run there too, and the surgeon decides. | Dropping them (a transverse fracture at that level would vanish); reporting them as found (every adult sacrum would show fractures). |
 | 7e.3 | **The phantom bounds stop at 27-28 mm**, not the 30 mm of 7d.2: at 30 mm the phantom fits gave no usable number. Beyond the limit a region is unconstrained, with the reason. | Reworking the phantoms or the fit until 30 mm gives a number. |
 
+## 7f. True anatomical planes (the surgeon's rulings, given in the Corridor Finder session, 2026-10-09)
+
+Relayed by the Corridor Finder session under one engine (7a, corridor-finder
+8.4), in the surgeon's words:
+
+> "When you measured gap/stepping, make sure the cut was really
+> symmetrical, or it will be biased."
+>
+> "Always generate true axial, coronal, sagittal views using anatomical
+> landmarks (intact ones first), then create the correct cut from the first
+> generated plane."
+
+| # | Decision |
+| --- | --- |
+| 7f.1 | The **first plane is the mid-sagittal plane of the sacrum**: through the S1 and S2 vertebral body centres and the centre of the sacral canal at those levels. |
+| 7f.2 | The **true coronal** is then tilted parallel to the anterior pelvic plane of the **intact** hemipelvis (its ASIS and pubic tubercle; both sides when both are intact). The surgeon can shift the axes himself. |
+| 7f.3 | The **true axial** is perpendicular to both. |
+| 7f.4 | Scope: Corridor Finder's SI gap and step, its C-arm views and screw angles, and **this project's displacement measurement**. The frame is built once, in the shared engine (`corridor_engine/anatomical_frame.py`, being built by the Corridor Finder session), and every slice-based measurement and every reported direction (1.3) uses it. |
+| 7f.5 | **The outcome gap and step (1.5) is reported both ways, side by side** (this project's ruling, 2026-10-09): measured in 3D across each fracture surface, where no cut can tilt it, and measured slice by slice on the CT resliced into the true planes, as it is read on a film. The paper can then show how much slicing alone changes the number. Every direction is given in the true frame either way. Rejected: the frame for direction only; true-plane slices only. |
+| 7f.6 | **Two midlines are kept, each for its own question**, and the engine reports how far apart they are on every case: the **mirror plane** (2.1, 2.1a: L5, plus the central sacrum when it is intact) decides the symmetry of the bones, and the **frame's mid-sagittal plane** (7f.1: the S1 and S2 bodies and the canal) decides the orientation of the cuts. Rejected: one plane under the frame's rule; one plane under the mirror's rule. |
+
 ## 8. Data
 
 | # | Decision |
