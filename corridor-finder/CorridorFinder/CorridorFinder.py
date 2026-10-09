@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -344,6 +345,13 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.fractures: List["fracture_marks_mod.FractureMarks"] = []
         # Where each case's marks are written, outside the repository.
         self.marks_directory = os.path.join(os.path.expanduser("~"), "CorridorFinderData", "marks")
+        # Whether the labels are the surgeon's correction of the segmentation
+        # (displacement-finder 7g.1): then they are saved with the case.
+        self.labels_edited = False
+        # The central sacrum's symmetry plane (normal, offset) when it was
+        # fitted, and whether sacral fracture marks lay inside its strip.
+        self._sacral_plane: Optional[Tuple[np.ndarray, float]] = None
+        self._frame_central_hit = False
         self._fracture_version = 0
         self._gap_cache: Dict[tuple, Optional[np.ndarray]] = {}
         self._canal_cache: Dict[tuple, np.ndarray] = {}
@@ -526,7 +534,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
     # What differs between the scanned and the reduced anatomy: the bones,
     # the CT, everything measured on them, and every cache built from them.
     _ANATOMY_ATTRS = ("labels_volume", "hu_volume", "landmarks", "frame", "frame_info", "frame_anatomical",
-                      "si_widths", "si_turned", "si_bridge_mm",
+                      "si_widths", "si_turned", "si_bridge_mm", "_sacral_plane", "_frame_central_hit",
                       "patient_views", "_edt_cache", "_mask_cache", "_joint_cache", "_body_mask",
                       "_entry_area_cache", "_labels_version")
     # Where bone moves away in a virtual reduction, the CT reads soft tissue.
@@ -650,6 +658,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         self.hu_volume = volume_node_to_engine_volume(volume_node)
         self.volume_node = volume_node
         self.labels_volume = None
+        self.labels_edited = False
         self.landmarks = {}
         self.frame = None
         self._edt_cache = {}
@@ -758,11 +767,14 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             raise RuntimeError(f"TotalSegmentator's result is implausible: {reason}")
         return labels
 
-    def set_labels_from_node_array(self, labels_kji: np.ndarray) -> bool:
+    def set_labels_from_node_array(self, labels_kji: np.ndarray, edited: bool = False) -> bool:
         """Replace the labels with an array on the CT node's voxel grid (e.g.
-        read back from a segmentation the user corrected). Returns True if
-        anything changed; distance fields are then recomputed on next use."""
+        read back from a segmentation the user corrected: ``edited``; or a
+        case's corrected labels loaded again). Returns True if anything
+        changed; distance fields are then recomputed on next use."""
         new = node_array_to_engine_array(self.volume_node, labels_kji).astype(np.uint8)
+        if edited and (self.labels_volume is None or not np.array_equal(new, self.labels_volume.array)):
+            self.labels_edited = True
         if self.anatomy_state != "as scanned" or self._anatomies:
             # The segmentation node holds the scanned bones: compare with
             # those, and drop a reduction built from the old ones.
@@ -913,10 +925,20 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             # it came out 13 and 31 degrees off the pelvis on two of the four
             # CLINIC cases; the symmetry plane, 2.6-6.5 on all four.
             normal, points, sagittal = None, None, ""
+            self._sacral_plane, self._frame_central_hit = None, False
             try:
                 plane = mirror_mod.fit_plane(self.labels_volume, "central_sacrum")
                 if plane.refused:
                     raise ValueError(plane.refused)
+                self._sacral_plane = (np.asarray(plane.normal, dtype=float), float(plane.offset_mm))
+                inside = self._sacral_marks_in_strip()
+                self._frame_central_hit = bool(inside)
+                if inside:
+                    # A fracture through the strip the plane is fitted to
+                    # (body and canal) breaks the symmetry it relies on.
+                    raise ValueError(
+                        f"{inside} sacral fracture mark(s) lie within {mirror_mod.CENTRAL_SACRUM_HALF_WIDTH_MM:.0f} mm "
+                        "of the central sacrum's symmetry plane: the fracture crosses the part it is fitted to")
                 normal = plane.normal
                 sagittal = f"the central sacrum's symmetry plane (90% within {plane.self_symmetry_p90_mm:.1f} mm)"
             except ValueError as exc:  # MirrorRefused is one; no L5 is another
@@ -1067,6 +1089,19 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             self.plan.fracture_marks = self._fracture_marks_record()
         if self.landmarks and self._frame_intact is not None and self.intact_hip_sides() != self._frame_intact:
             self.refresh_frame()  # a hip bone fracture was marked: that side is no longer intact
+        elif (self.landmarks and self._sacral_plane is not None
+              and bool(self._sacral_marks_in_strip()) != self._frame_central_hit):
+            self.refresh_frame()  # a sacral fracture now crosses (or no longer crosses) the central sacrum
+
+    def _sacral_marks_in_strip(self) -> int:
+        """How many sacral fracture marks lie in the strip of the central
+        sacrum that its symmetry plane is fitted to (mirror's
+        CENTRAL_SACRUM_HALF_WIDTH_MM either side of the plane)."""
+        if self._sacral_plane is None:
+            return 0
+        normal, offset = self._sacral_plane
+        pts = [np.asarray(p, dtype=float) for f in self.fractures if f.bone == "sacrum" for p in f.points_ras_mm]
+        return int(sum(abs(float(normal @ p) - offset) <= mirror_mod.CENTRAL_SACRUM_HALF_WIDTH_MM for p in pts))
 
     def set_fracture_sites(self, points) -> None:
         """All the marks as one fracture (kept for scripts; the panel keeps
@@ -1127,6 +1162,57 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         if path is None:
             return None
         return fracture_marks_mod.save(path, self.plan.case_alias, self.fractures)
+
+    @staticmethod
+    def labels_file_name(case_alias: str) -> str:
+        return f"{case_alias}.labels.nii.gz"
+
+    def labels_path(self) -> Optional[str]:
+        """Where this case's corrected labels are written, beside its marks."""
+        if self.marks_path() is None:
+            return None
+        return os.path.join(self.marks_directory, self.labels_file_name(self.plan.case_alias))
+
+    def labels_record(self) -> dict:
+        """What the plan says about the labels it was measured on: every
+        number traces to these (displacement-finder 7g.1)."""
+        if self.labels_volume is None:
+            return {}
+        with self.anatomy("as scanned"):
+            arr = np.ascontiguousarray(self.labels_volume.array, dtype=np.uint8)
+        ids = {name: int(v) for v, name in seg_mod.LABEL_NAMES.items()}
+        ids["lumbar"] = int(seg_mod.LUMBAR)
+        record = {"source": self.segmentation_source, "corrected_by_surgeon": bool(self.labels_edited),
+                  "sha256": hashlib.sha256(arr.tobytes()).hexdigest(), "shape_zyx": [int(n) for n in arr.shape],
+                  "ids": ids}
+        path = self.labels_path()
+        if self.labels_edited and path is not None:
+            record["file"] = os.path.basename(path)
+        return record
+
+    def save_labels(self) -> Optional[str]:
+        """Write the surgeon's corrected labels with the case (NIfTI, engine
+        ids, on the CT's voxel grid) and record them in the plan. Labels he
+        has not corrected are not written: they are the segmentation's own,
+        kept where it was run. Returns the path written, or None."""
+        if self.plan is not None:
+            self.plan.labels = self.labels_record()
+        path = self.labels_path()
+        if path is None or not self.labels_edited or self.labels_volume is None or self.volume_node is None:
+            return None
+        with self.anatomy("as scanned"):
+            arr = self.labels_volume.array.astype(np.uint8)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        node = slicer.modules.volumes.logic().CreateAndAddLabelVolume(self.volume_node, "CF labels (saving)")
+        try:
+            slicer.util.updateVolumeFromArray(node, engine_array_to_node_array(self.volume_node, arr))
+            tmp = path[: -len(".nii.gz")] + ".saving.nii.gz"
+            if not slicer.util.saveNode(node, tmp):
+                raise OSError(f"could not write {tmp}")
+            os.replace(tmp, path)
+        finally:
+            slicer.mrmlScene.RemoveNode(node)
+        return path
 
     def protected_spaces(self) -> Optional[np.ndarray]:
         """The sacral canal and foramina (corridor_engine/sacral_canal.py):
@@ -1954,6 +2040,7 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
             si_joint=self.si_joint_record(),
             software={"name": "Corridor Finder", "version": "0.1.0"},
             fracture_marks=self._fracture_marks_record(),
+            labels=self.labels_record(),
         )
         return self.plan
 
@@ -2814,9 +2901,16 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             mask = slicer.util.arrayFromSegmentBinaryLabelmap(node, name, volume_node)
             labels[mask > 0] = label
-        if not self.logic.set_labels_from_node_array(labels):
+        if not self.logic.set_labels_from_node_array(labels, edited=True):
             return False
         logging.info("Corridor Finder: bone segmentation was edited; using the edited labels")
+        try:
+            self.logic.save_labels()
+        except OSError as exc:
+            logging.error(f"corrected labels not saved: {exc}")
+            slicer.util.warningDisplay(
+                _("Your corrected segmentation could not be saved with the case: {0}").format(exc),
+                windowTitle=_("Corridor Finder"))
         if self.logic.plan is not None and self.logic.plan.screws:
             self.logic.revalidate_plan()
             for screw in self.logic.plan.screws:
@@ -3527,6 +3621,10 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._screw_model_nodes = {}
         self._entry_area_nodes = {}
         self.logic.new_plan(alias)
+        try:
+            self.logic.save_labels()
+        except OSError as exc:
+            logging.error(f"corrected labels not saved: {exc}")
         self.screwsList.clear()
 
     def _promptSavePath(self, title: str, filter_str: str) -> Optional[str]:

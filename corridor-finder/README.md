@@ -112,6 +112,11 @@ This is under active development. What's implemented and unit tested today:
       checks the panel, the turn, the plan record and the refusal of planes
       turned more than 25 degrees (the Panoramix sample, 52). Not checked
       without a main window: the slice views turning (to be seen in the GUI).
+- [x] Your corrections to the segmentation are saved with the case
+      (`<case>.labels.nii.gz` beside its marks, engine ids) and named in the
+      plan with their hash, so every number traces to the labels it was
+      measured on. Checked in the Slicer harness: read back outside Slicer,
+      they are the engine's labels exactly.
 - [x] Zone II: with one side of the sacrum called fractured, its foramina are
       the intact side's, mirrored, so the fracture outside them can be crossed
       and the foramina cannot (DECISIONS.md 7.16). Checked on test sacra and,

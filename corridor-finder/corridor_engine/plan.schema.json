@@ -35,6 +35,7 @@
     "screw_library": { "type": "object" },
     "si_joint": { "type": "object", "description": "Per sacroiliac joint: what it measured, which side the surgeon declared disrupted, and how much of the joint was counted as bone (DECISIONS.md section 2)." },
     "fracture_marks": { "type": "array", "items": { "type": "object" }, "description": "The surgeon's fracture marks, one set per fracture: name, bone, side, points_ras_mm (RAS, mm)." },
+    "labels": { "type": "object", "description": "The bone labels the plan was measured on: source, corrected_by_surgeon, file (corrected labels, NIfTI in engine ids on the CT's grid), sha256 of the uint8 (z, y, x) engine array, shape_zyx, ids." },
     "pilot": { "type": "object", "description": "The blinded pilot (DECISIONS.md 4.3): when the surgeon planned without the tool's checks and when they were revealed, the corridors where he found no screw, and the comparison with the tool's suggestions." },
     "reduction": { "type": "object", "description": "The virtual reduction that screws tagged \"reduced\" were planned on: each moving unit's rigid transform (scanned to reduced world, 4x4), the remaining error per region in mm, and who proposed it (DECISIONS.md 3.4, 3.6). Empty when there is none." },
     "screws": {

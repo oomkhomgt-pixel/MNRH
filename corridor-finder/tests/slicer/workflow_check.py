@@ -595,10 +595,42 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
         check(logic.plan.audit[-1].action == "revalidate", "edit read back and the screw re-validated")
         check(screw.validation["breach"] is True, "screw is a breach once the bone around it is erased")
         check("b91c1c" in w.clearanceLabel.styleSheet, "clearance label turned red")
+        # displacement-finder 7g.1: the corrected labels are saved with the
+        # case, in engine ids on the CT's grid, and the plan names them.
+        labels_file = logic.labels_path()
+        check(labels_file is not None and os.path.exists(labels_file) and logic.plan.labels.get("corrected_by_surgeon"),
+              f"edited: the corrected labels are saved with the case ({labels_file})")
+        if labels_file and os.path.exists(labels_file):
+            import hashlib
+            from corridor_engine import nifti as nifti_mod
+            back = nifti_mod.load_volume(labels_file)
+            arr = np.rint(back.array).astype(np.uint8)
+            same = (arr.shape == logic.labels_volume.array.shape and np.array_equal(arr, logic.labels_volume.array)
+                    and np.allclose(back.origin, logic.labels_volume.origin, atol=1e-3)
+                    and np.allclose(back.spacing, logic.labels_volume.spacing, atol=1e-4))
+            check(same, "edited: read back outside Slicer (corridor_engine.nifti), they are the engine's labels exactly")
+            check(hashlib.sha256(arr.tobytes()).hexdigest() == logic.plan.labels.get("sha256"),
+                  "edited: and the plan's hash is theirs")
         for sid, arr in saved.items():
             slicer.util.updateSegmentBinaryLabelmapFromArray(arr, seg_node, sid, ct)
         w.exportPlanButton.click()
         check(screw.validation["breach"] is False, "restoring the bone restores the screw's clearance")
+        # displacement-finder 7g.1: the corrected labels are saved with the
+        # case, in engine ids on the CT's grid, and the plan names them.
+        labels_file = logic.labels_path()
+        check(labels_file is not None and os.path.exists(labels_file) and logic.plan.labels.get("corrected_by_surgeon"),
+              f"restored: the corrected labels are saved with the case ({labels_file})")
+        if labels_file and os.path.exists(labels_file):
+            import hashlib
+            from corridor_engine import nifti as nifti_mod
+            back = nifti_mod.load_volume(labels_file)
+            arr = np.rint(back.array).astype(np.uint8)
+            same = (arr.shape == logic.labels_volume.array.shape and np.array_equal(arr, logic.labels_volume.array)
+                    and np.allclose(back.origin, logic.labels_volume.origin, atol=1e-3)
+                    and np.allclose(back.spacing, logic.labels_volume.spacing, atol=1e-4))
+            check(same, "restored: read back outside Slicer (corridor_engine.nifti), they are the engine's labels exactly")
+            check(hashlib.sha256(arr.tobytes()).hexdigest() == logic.plan.labels.get("sha256"),
+                  "restored: and the plan's hash is theirs")
 
     @step("Virtual reduction: screws planned on it, checked on it, and tagged")
     def virtual_reduction():
