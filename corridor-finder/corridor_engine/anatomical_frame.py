@@ -143,6 +143,15 @@ def pelvic_frame(midline_points: Optional[Sequence[Sequence[float]]], origin, as
     return turned(Frame(origin=np.asarray(origin, dtype=float), x_hat=x_hat, y_hat=y_hat, z_hat=z_hat), adjust_deg)
 
 
+def mid_sagittal(frame: Frame) -> Tuple[np.ndarray, float]:
+    """The frame's mid-sagittal plane as (normal, offset), {x : normal . x =
+    offset}, the same form as mirror.MirrorPlane: through the frame's origin
+    (the S1 body centre), square to its left-right axis (normal toward the
+    patient's left)."""
+    normal = np.asarray(frame.x_hat, dtype=float)
+    return normal, float(normal @ np.asarray(frame.origin, dtype=float))
+
+
 def turned(frame: Frame, adjust_deg: Tuple[float, float, float]) -> Frame:
     """The frame turned about its own axes, in degrees: a tilt about its
     left-right axis, then a roll about its front-back axis, then a yaw about

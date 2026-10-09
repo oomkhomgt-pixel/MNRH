@@ -18,6 +18,13 @@ def test_too_few_marks_or_marks_on_one_line_give_no_plane():
     assert fit_plane([(10.0, 0.0, 0.0), (10.0, 10.0, 0.0), (10.0, 20.0, 0.5)]) is None
 
 
+def test_the_surgeon_is_told_why_marks_give_no_plane():
+    from corridor_engine.fracture import why_no_plane
+    assert why_no_plane(MARKS) is None
+    assert "mark 3 or more" in why_no_plane(MARKS[:2])
+    assert "one line" in why_no_plane([(10.0, 0.0, 0.0), (10.0, 10.0, 0.0), (10.0, 20.0, 0.5)])
+
+
 def test_the_part_of_the_screw_past_the_fracture_is_measured_from_the_crossing():
     plane = fit_plane(MARKS)
     assert past_fracture_mm(plane, (-30.0, 5.0, 5.0), (50.0, 5.0, 5.0)) == pytest.approx(40.0, abs=0.3)

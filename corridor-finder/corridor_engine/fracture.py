@@ -34,6 +34,18 @@ class FracturePlane:
     rms_mm: float  # how far the marks sit off the plane, root mean square
 
 
+def why_no_plane(points: Sequence[Sequence[float]]) -> Optional[str]:
+    """Why fit_plane gets no plane from these marks, in words the surgeon
+    can act on; None when it gets one. Three clicks along a fracture line
+    easily fall nearly on one line."""
+    marks = np.asarray(points, dtype=float).reshape(-1, 3)
+    if len(marks) < MIN_POINTS:
+        return f"{len(marks)} point{'s' if len(marks) != 1 else ''}: mark {MIN_POINTS} or more to define a plane"
+    if fit_plane(marks) is None:
+        return "the points lie nearly on one line: add one more, away from that line, to define a plane"
+    return None
+
+
 def fit_plane(points: Sequence[Sequence[float]]) -> Optional[FracturePlane]:
     """The plane through three or more marked points, or None when there
     are too few or they lie nearly on one line."""

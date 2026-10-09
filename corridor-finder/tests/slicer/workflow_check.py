@@ -815,6 +815,17 @@ def run_workflow(w, ct, name, *, expect_source, check_anatomy):
             case_, sets_ = fracture_marks_mod.load(path)
             check(len(sets_) == 2 and len({f.name for f in sets_}) == 2 and w.fractureCombo.count == 2,
                   f"a second fracture is its own set ({[f.name for f in sets_]})")
+            # Marks on nearly one line define no plane: the list says so.
+            line = w._newFractureNode()
+            for k in range(3):
+                line.AddControlPoint(vtk.vtkVector3d(*(np.asarray(marks[0]) + [0.0, 10.0 * k, 0.0])))
+            w.onFractureMoved(None, None)
+            texts = [w.fractureCombo.itemText(i) for i in range(w.fractureCombo.count)]
+            log(f"    fracture list: {texts}")
+            check(any("one line" in t for t in texts), "marks on one line are listed as not defining a plane yet")
+            w._fracture_node = line
+            w.onDeleteFracture()
+            w._fracture_node = second
             w.onDeleteFracture()
             w.loadFractureMarks(path)
             check(len(logic.fractures) == 1 and screw.validation["breach"] is False,

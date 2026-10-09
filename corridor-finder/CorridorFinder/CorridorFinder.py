@@ -1726,10 +1726,18 @@ class CorridorFinderLogic(ScriptedLoadableModuleLogic):
         need = float(self.corridor_defs[corridor_id]["short_tip"]["past_fracture_mm"])
         plane = self.fracture_plane(side)
         if plane is None:
-            self.suggestion_notes.append(
-                "Without the fracture marked, this screw has to reach the far cortex. Marking the fracture "
-                f"(3 or more points along it) would allow a shorter screw with its tip in bone, {need:.0f} mm "
-                "past the fracture.")
+            unplaned = [f"{f.name}: {fracture_mod.why_no_plane(f.points_ras_mm)}" for f in self._hip_fractures(side)
+                        if fracture_mod.why_no_plane(f.points_ras_mm)]
+            if unplaned:
+                self.suggestion_notes.append(
+                    "The fracture marks on this hip bone do not define a plane yet (" + "; ".join(unplaned)
+                    + f"), so this screw has to reach the far cortex. With a plane, a shorter screw with its tip "
+                    f"in bone, {need:.0f} mm past the fracture, would be allowed.")
+            else:
+                self.suggestion_notes.append(
+                    "Without the fracture marked, this screw has to reach the far cortex. Marking the fracture "
+                    f"(3 or more points along it) would allow a shorter screw with its tip in bone, {need:.0f} mm "
+                    "past the fracture.")
             return None
         if search_again is not None:
             # The widest corridors at any length in the corridor's range: a
@@ -3114,8 +3122,15 @@ class CorridorFinderWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.fractureCombo.blockSignals(True)
         self.fractureCombo.clear()
         for node in nodes:
+            points = []
+            for i in range(node.GetNumberOfControlPoints()):
+                ras = [0.0, 0.0, 0.0]
+                node.GetNthControlPointPosition(i, ras)
+                points.append(ras)  # spread does not depend on the frame
+            problem = fracture_mod.why_no_plane(points) if points else None
             self.fractureCombo.addItem(_("{0} ({1} points)").format(node.GetAttribute("CF.name") or node.GetName(),
-                                                                    node.GetNumberOfControlPoints()))
+                                                                    node.GetNumberOfControlPoints())
+                                       + (" — " + problem if problem else ""))
         if self._fracture_node in nodes:
             self.fractureCombo.setCurrentIndex(nodes.index(self._fracture_node))
         self.fractureCombo.blockSignals(False)

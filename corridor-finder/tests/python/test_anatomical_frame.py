@@ -90,6 +90,20 @@ def test_the_surgeon_can_turn_the_planes():
         assert np.allclose(a_, b_, atol=1e-9)
 
 
+def test_the_mid_sagittal_plane_comes_in_the_mirror_planes_form():
+    """(normal, offset) like mirror.MirrorPlane, so the two midlines can be
+    compared (displacement-finder 7f.6)."""
+    from corridor_engine.anatomical_frame import mid_sagittal
+    rot = _rotation(6.0, 4.0, -3.0)
+    world = _on_the_table(rot)
+    frame = pelvic_frame([world(p) for p in MIDLINE.values()], origin=world(MIDLINE["s1_body"]),
+                         asis_pubis_pairs=[(world(ASIS["left"]), world(PUBIS["left"]))])
+    normal, offset = mid_sagittal(frame)
+    for p in MIDLINE.values():
+        assert float(normal @ world(p) - offset) == pytest.approx(0.0, abs=1e-6), "the midline lies on it"
+    assert float(normal @ world(ASIS["left"]) - offset) == pytest.approx(110.0, abs=1e-6), "normal toward the left"
+
+
 def test_midline_points_on_one_line_are_refused():
     with pytest.raises(ValueError, match="one line"):
         pelvic_frame([(0, 0, 0), (0, 0, -25), (0, 0, -45)], origin=(0, 0, 0))
