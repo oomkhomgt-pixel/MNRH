@@ -37,7 +37,10 @@ def test_each_fracture_is_its_own_plane_and_a_short_set_is_reported_not_fitted(t
     assert sacral.plane is not None and hip.plane is not None
     # Two fractures on one side are two planes, not one.
     assert abs(float(sacral.plane.normal @ hip.plane.normal)) < 0.99
-    assert short.plane is None and "do not define a plane" in short.note
+    # Reported in the words Corridor Finder's panel uses (fracture.why_no_plane).
+    from corridor_engine import fracture
+
+    assert short.plane is None and short.note.startswith(fracture.why_no_plane([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]))
 
 
 @pytest.mark.parametrize("field, value, says", [

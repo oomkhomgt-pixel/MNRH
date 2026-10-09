@@ -73,8 +73,9 @@ def read_marks(path: str) -> Tuple[str, List[MarkedFracture]]:
     for s in sets:
         points = s.points_ras_mm
         plane = fracture.fit_plane(points) if len(points) >= fracture.MIN_POINTS else None
-        note = "" if plane is not None else (
-            f"{len(points)} points do not define a plane (at least {fracture.MIN_POINTS}, spread at least "
-            f"{fracture.MIN_SPREAD_MM:.0f} mm): not used")
+        # The reason in the same words Corridor Finder's panel shows him
+        # (fracture.why_no_plane), so the two never disagree.
+        why = fracture.why_no_plane(points) if plane is None else None
+        note = "" if plane is not None else f"{why or 'its points do not define a plane'}: not used"
         out.append(MarkedFracture(s.name, s.bone, s.side, plane, len(points), note))
     return case, out
