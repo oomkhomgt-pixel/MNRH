@@ -39,8 +39,10 @@ const CONFIG = {
     { key: 'or-fri',  title: 'OR',  day: 'FR', start: '08:00', end: '16:00', who: ['คงธัช', 'อดิศร'], skipHolidays: true }
   ],
   // งานที่วนกันสัปดาห์ละคน: คนแรกใน order ทำวันที่ firstDate แล้ววนตามลำดับทุกสัปดาห์
+  // ถ้าตรงวันหยุดราชการ สัปดาห์นั้นงด และ "คนนั้นเลื่อนไปสัปดาห์ถัดไป" (ทุกคนที่อยู่ถัดไปเลื่อนตาม)
+  // เวรแต่ละสัปดาห์ลงเป็นรายการเดี่ยว (ไม่ใช่รายการซ้ำ) สร้างในขั้นที่ 3 หลังรู้วันหยุด
   rotations: [
-    { key: 'wed', day: 'WE', firstDate: '2026-11-25', skipHolidays: true,
+    { key: 'wed', day: 'WE', firstDate: '2026-11-25',
       order: ['ชนกันต์', 'มานิตา', 'ศุภศักดิ์', 'อดิศร', 'คงธัช'],
       tasks: [
         { title: 'ER',       start: '08:00', end: '16:00' },
@@ -77,7 +79,7 @@ const CONFIG = {
 const TZ = 'Asia/Bangkok';
 const TZ_OFFSET = '+07:00';   // ไทยไม่มี daylight saving
 const PROP = {
-  CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS',
+  CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS', ROTATION: 'ROTATION_STATE',
   TOKEN: 'LINE_TOKEN', GROUP: 'LINE_GROUP_ID', HOOK_KEY: 'WEBHOOK_KEY', LAST_MORNING: 'LAST_MORNING_AT'
 };
 const HOLIDAY_ICS = 'https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -199,21 +201,25 @@ function routinePlan_(cfg, fromYmd) {
         intervalWeeks: 1, until: cfg.routineUntil, skipHolidays: r.skipHolidays !== false, location: r.location || '' });
     });
   });
-  (cfg.rotations || []).forEach(function (r) {
-    const n = r.order.length;
-    r.order.forEach(function (name, i) {
-      // วันของคนที่ i = firstDate + 7·(i + n·k) — หา k น้อยสุดที่ไม่ก่อนวันเริ่ม
-      let first = addDays_(r.firstDate, 7 * i);
-      while (first < from) first = addDays_(first, 7 * n);
-      if (first > cfg.routineUntil) return;
-      r.tasks.forEach(function (t, j) {
-        out.push({ key: r.key + '.' + j + '|' + name, calendar: name, title: t.title, first: first, start: t.start, end: t.end,
-          intervalWeeks: n, until: cfg.routineUntil, skipHolidays: r.skipHolidays !== false, location: t.location || '' });
-      });
-    });
-  });
   return out;
 }
+
+/**
+ * แผนเวรวน (ฟังก์ชันล้วน): ไล่ทีละสัปดาห์จาก firstDate — สัปดาห์ที่ตรงวันหยุดถูกข้ามและคิวไม่เดิน
+ * holidayDates = { 'yyyy-MM-dd': 1 } · คืน [{ date, name }] เฉพาะวันที่ >= from
+ */
+function rotationPlan_(rot, holidayDates, from, until) {
+  const out = [];
+  let i = 0;
+  for (let d = rot.firstDate; d <= until; d = addDays_(d, 7)) {
+    if (holidayDates[d]) continue;
+    const name = rot.order[i % rot.order.length];
+    i++;
+    if (d >= from) out.push({ date: d, name: name });
+  }
+  return out;
+}
+const ROT_TAG = 'sayfa';
 
 // ── ที่เก็บค่า (Script Properties) ──────────────────────────────────────────────
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -278,7 +284,7 @@ function step2_createRoutine() {
     console.log('➕ ' + calName_(s.calendar) + ': ' + s.title + ' ' + s.start + '–' + s.end + ' เริ่ม ' + thaiDate_(s.first) +
       (s.intervalWeeks > 1 ? ' ทุก ' + s.intervalWeeks + ' สัปดาห์' : ' ทุกสัปดาห์'));
   });
-  console.log('เสร็จ: สร้าง ' + created + ' ชุด · ข้าม (มีแล้ว) ' + skipped + ' ชุด · ต่อไปรัน step3_syncHolidays');
+  console.log('เสร็จ: สร้าง ' + created + ' ชุด · ข้าม (มีแล้ว) ' + skipped + ' ชุด · ต่อไปรัน step3_syncHolidays (ตัดวันหยุด + ลงเวรวน)');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -347,6 +353,8 @@ function step3_syncHolidays() {
   const adjusted = civilServiceAdjust_(fromGoogle, CONFIG);
   const hol = mergeHolidays_(adjusted.list, CONFIG, addDays_(today, -7), CONFIG.routineUntil);
   setJson_(PROP.HOLIDAYS, hol);
+  const firsts = (CONFIG.rotations || []).map(function (r) { return r.firstDate; }).sort();
+  const allHol = mergeHolidays_(adjusted.list, CONFIG, firsts[0] || today, CONFIG.routineUntil);
 
   const made = getJson_(PROP.ROUTINE, {});
   const skipIds = {};
@@ -381,7 +389,65 @@ function step3_syncHolidays() {
   adjusted.notes.forEach(function (n) { console.warn('⚠️ ' + n); });
   console.log('หมายเหตุ: รายการมาจาก Google แล้วปรับให้ใกล้วันหยุดราชการ (ตัด: ' + (CONFIG.notHolidayNames || []).join(', ') + ' · เติม: วันเข้าพรรษา) — โปรดเทียบกับประกาศวันหยุดราชการของปีนั้น');
   console.log('เสร็จ: ตัดงานประจำที่ตรงวันหยุดออก ' + removed + ' รายการ · ถ้ารายการวันหยุดไม่ตรง แก้ extraHolidays / notHolidays ใน CONFIG แล้วรันใหม่');
+  syncRotations_(allHol, today);
   ensureHolidayTrigger_();
+}
+
+/**
+ * ลง/จัดเวรวนใหม่ให้ตรงกับวันหยุดล่าสุด
+ * - ครั้งแรก: ลงตั้งแต่วันนี้ถึง routineUntil
+ * - ครั้งถัดไป: ถ้าวันหยุดที่ตรงวันเวรไม่เปลี่ยน ไม่แตะอะไรเลย (การแลกเวรที่ทำเองในปฏิทินยังอยู่)
+ *   ถ้าเปลี่ยน: จัดใหม่ตั้งแต่สัปดาห์แรกที่ลำดับเปลี่ยนเป็นต้นไป — การแลกเวรที่ทำเองหลังจุดนั้นจะถูกจัดทับ
+ */
+function syncRotations_(holidays, today) {
+  const state = getJson_(PROP.ROTATION, {});
+  const ids = getJson_(PROP.CAL_IDS, {});
+  (CONFIG.rotations || []).forEach(function (rot) {
+    const until = CONFIG.routineUntil;
+    const holSet = {};
+    holidays.forEach(function (h) { if (h.date >= rot.firstDate && h.date <= until && DAY_CODES[weekday_(h.date)] === rot.day) holSet[h.date] = 1; });
+    const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, until]);
+    const old = state[rot.key];
+    let from = today > rot.firstDate ? today : rot.firstDate;
+    if (old && old.cfg === cfgSig) {
+      const oldSet = {};
+      (old.hol || []).forEach(function (d) { oldSet[d] = 1; });
+      const a = rotationPlan_(rot, oldSet, from, until), b = rotationPlan_(rot, holSet, from, until);
+      const key = function (x) { return x ? x.date + '|' + x.name : ''; };
+      let k = 0;
+      while (k < Math.max(a.length, b.length) && key(a[k]) === key(b[k])) k++;
+      if (k >= Math.max(a.length, b.length)) { console.log('เวรวน "' + rot.key + '": วันหยุดไม่กระทบ ไม่เปลี่ยนอะไร'); return; }
+      const d1 = a[k] ? a[k].date : b[k].date, d2 = b[k] ? b[k].date : a[k].date;
+      from = d1 < d2 ? d1 : d2;
+    }
+    const want = {};   // 'date|title' → { name, task }
+    rotationPlan_(rot, holSet, from, until).forEach(function (p) {
+      rot.tasks.forEach(function (t) { want[p.date + '|' + t.title] = { date: p.date, name: p.name, task: t }; });
+    });
+    let kept = 0, removed = 0, created = 0;
+    rot.order.forEach(function (name) {
+      const cal = ids[name] ? CalendarApp.getCalendarById(ids[name]) : null;
+      if (!cal) throw new Error('ยังไม่มีปฏิทิน "' + calName_(name) + '" — รัน step1_createCalendars ก่อน');
+      cal.getEvents(at_(from, '00:00'), at_(addDays_(until, 1), '00:00')).forEach(function (ev) {
+        if (ev.getTag(ROT_TAG) !== 'rot:' + rot.key || ev.isAllDayEvent()) return;
+        const k = ymd_(ev.getStartTime()) + '|' + ev.getTitle();
+        if (want[k] && want[k].name === name && !want[k].found) { want[k].found = true; kept++; }
+        else { ev.deleteEvent(); removed++; }
+      });
+    });
+    Object.keys(want).sort().forEach(function (k) {
+      const w = want[k];
+      if (w.found) return;
+      const ev = CalendarApp.getCalendarById(ids[w.name]).createEvent(w.task.title, at_(w.date, w.task.start), at_(w.date, w.task.end));
+      ev.setTag(ROT_TAG, 'rot:' + rot.key);
+      created++;
+    });
+    state[rot.key] = { cfg: cfgSig, hol: Object.keys(holSet).sort() };
+    setJson_(PROP.ROTATION, state);
+    console.log('เวรวน "' + rot.key + '" ตั้งแต่ ' + thaiDate_(from, { short: true }) + ': ลงใหม่ ' + created + ' · ลบ ' + removed + ' · คงเดิม ' + kept +
+      ' (สัปดาห์ที่ตรงวันหยุดถูกข้าม คนนั้นเลื่อนไปสัปดาห์ถัดไป)');
+    rotationPlan_(rot, holSet, from, until).slice(0, 8).forEach(function (p) { console.log('   ' + thaiDate_(p.date, { short: true, year: false }) + ' — ' + p.name); });
+  });
 }
 /** ตั้งให้ตรวจวันหยุดใหม่เองทุกวันที่ 1 (ครม. ประกาศวันหยุดพิเศษระหว่างปีได้) — ไม่ขึ้นกับการตั้งค่า LINE */
 function ensureHolidayTrigger_() {
@@ -434,7 +500,7 @@ function toItem_(ev, dateYmd, now, routineIds) {
   const updated = ev.getLastUpdated(), created = ev.getDateCreated();
   const fresh = updated && (now.getTime() - updated.getTime()) < 24 * 3600 * 1000;
   // งานประจำที่เพิ่งถูกสร้างพร้อมกันทั้งชุดไม่นับว่า "ใหม่" — นับเฉพาะที่มีคนแก้ทีหลัง
-  const untouchedRoutine = routineIds[ev.getId()] && created && updated && Math.abs(updated.getTime() - created.getTime()) < 5 * 60 * 1000;
+  const untouchedRoutine = (routineIds[ev.getId()] || ev.getTag(ROT_TAG)) && created && updated && Math.abs(updated.getTime() - created.getTime()) < 5 * 60 * 1000;
   const isNew = !!fresh && !untouchedRoutine;
   if (ev.isAllDayEvent()) {
     const first = ymdAllDay_(ev.getAllDayStartDate());
@@ -498,7 +564,7 @@ function collectChanges_(todayYmd, sinceDate) {
       const upd = ev.getLastUpdated(), cre = ev.getDateCreated();
       if (!upd || upd.getTime() <= sinceDate.getTime()) return;
       const id = ev.getId();
-      if (routineIds[id] && cre && Math.abs(upd.getTime() - cre.getTime()) < 5 * 60 * 1000) return;   // งานประจำที่ไม่มีใครแตะ
+      if ((routineIds[id] || ev.getTag(ROT_TAG)) && cre && Math.abs(upd.getTime() - cre.getTime()) < 5 * 60 * 1000) return;   // งานประจำ/เวรวนที่ไม่มีใครแตะ
       const allDay = ev.isAllDayEvent();
       const first = allDay ? ymdAllDay_(ev.getAllDayStartDate()) : ymd_(ev.getStartTime());
       const last = allDay ? addDays_(ymdAllDay_(ev.getAllDayEndDate()), -1) : first;

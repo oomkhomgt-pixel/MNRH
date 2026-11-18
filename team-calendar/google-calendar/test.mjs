@@ -54,6 +54,8 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
     getLastUpdated() { return this.updated; }
     getDateCreated() { return this.created; }
     isRecurringEvent() { return !!this.seriesRef; }
+    getTag(k) { const o = this.ref || this.seriesRef || {}; return (o.tags && o.tags[k]) || null; }
+    setTag(k, v) { const o = this.ref || this.seriesRef; o.tags = o.tags || {}; o.tags[k] = v; return this; }
     deleteEvent() {
       if (this.seriesRef) this.seriesRef.deleted.add(fmt(this.start, TZ, "yyyy-MM-dd"));
       else this.cal.singles = this.cal.singles.filter(s => s.id !== this.id);
@@ -70,6 +72,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
       return { getId: () => s.id };
     }
     add(o) { const e = { id: "single" + (++w.seq) + "@google.com", created: w.now, updated: w.now, ...o }; this.singles.push(e); return e; }
+    createEvent(title, start, end, opt = {}) { const e = this.add({ title, start, end, location: opt.location }); return new Event(this, { ...e, ref: e }); }
     getEvents(from, to) {
       const out = [];
       for (const s of this.series) {
@@ -81,7 +84,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
             out.push(new Event(this, { id: s.id, title: s.title, start: st, end: en, location: s.location, created: s.created, updated: s.updated, seriesRef: s }));
         }
       }
-      for (const e of this.singles) if (e.start < to && e.end > from) out.push(new Event(this, e));
+      for (const e of this.singles) if (e.start < to && e.end > from) out.push(new Event(this, { ...e, ref: e }));
       return out;
     }
   }
@@ -141,16 +144,18 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
   w.pushes = () => w.fetches.filter(f => f.url.endsWith("/message/push"));
   w.replies = () => w.fetches.filter(f => f.url.endsWith("/message/reply"));
   w.linked = () => { w.props.set("LINE_TOKEN", "tok"); w.props.set("LINE_GROUP_ID", G1); return w; };
-  w.setup = () => { w.run("step1_createCalendars(); step2_createRoutine();"); return w; };
+  // ตั้งค่าครบ: ปฏิทิน + งานประจำ + เวรวน (ยังไม่รู้วันหยุด — step3 จะมาจัดใหม่เมื่อรู้)
+  w.setup = () => { w.run("step1_createCalendars(); step2_createRoutine(); syncRotations_([], today_());"); return w; };
+  w.erOn = ymd => PEOPLE.filter(p => w.titlesOn(p, ymd).includes("ER"));
   return w;
 }
 const PEOPLE = ["มานิตา", "ศุภศักดิ์", "คงธัช", "อดิศร", "ชนกันต์"];
 
-test("แผนงานประจำตรงกับที่ทีมกำหนด (เริ่ม 18 พ.ย. 2569)", () => {
+test("แผนงานประจำ (รายการซ้ำรายสัปดาห์) ตรงกับที่ทีมกำหนด (เริ่ม 18 พ.ย. 2569)", () => {
   const w = makeWorld();
   w.run("checkConfig_(CONFIG)");
   const plan = w.json('routinePlan_(CONFIG, "2026-11-18")');
-  assert.equal(plan.length, 16);   // OPD รวม 1 + OR อังคาร 2 + พฤหัส 1 + ศุกร์ 2 + เวรพุธ 5 คน × 2 งาน
+  assert.equal(plan.length, 6);   // OPD รวม 1 + OR อังคาร 2 + พฤหัส 1 + ศุกร์ 2 (เวรพุธลงแยกเป็นรายสัปดาห์)
   const pick = (title, cal) => plan.filter(s => s.title === title && s.calendar === cal).map(s => [s.first, s.start, s.end, s.intervalWeeks]);
   assert.deepEqual(pick("OPD", "ทุกคน"), [["2026-11-23", "09:00", "16:00", 1]]);
   assert.deepEqual(pick("OR", "มานิตา"), [["2026-11-24", "08:00", "16:00", 1]]);
@@ -158,18 +163,16 @@ test("แผนงานประจำตรงกับที่ทีมก�
   assert.deepEqual(pick("OR", "ชนกันต์"), [["2026-11-19", "08:00", "16:00", 1]]);
   assert.deepEqual(pick("OR", "คงธัช"), [["2026-11-20", "08:00", "16:00", 1]]);
   assert.deepEqual(pick("OR", "อดิศร"), [["2026-11-20", "08:00", "16:00", 1]]);
-  assert.deepEqual(PEOPLE.map(p => pick("ER", p)[0]), [
-    ["2026-12-02", "08:00", "16:00", 5], ["2026-12-09", "08:00", "16:00", 5], ["2026-12-23", "08:00", "16:00", 5],
-    ["2026-12-16", "08:00", "16:00", 5], ["2026-11-25", "08:00", "16:00", 5]]);
-  assert.deepEqual(PEOPLE.map(p => pick("OPD ปกส.", p)[0][0]), ["2026-12-02", "2026-12-09", "2026-12-23", "2026-12-16", "2026-11-25"]);
 });
 
-test("เริ่มกลางคัน เวรวันพุธยังวนถูกคน ไม่เลื่อนลำดับ", () => {
+test("เวรวันพุธ: ชนกันต์ → มานิตา → ศุภศักดิ์ → อดิศร → คงธัช · ตรงวันหยุด คนนั้นเลื่อนไปสัปดาห์ถัดไป", () => {
   const w = makeWorld();
-  const plan = w.json('routinePlan_(CONFIG, "2027-01-04")').filter(s => s.title === "ER");
-  const first = Object.fromEntries(plan.map(s => [s.calendar, s.first]));
-  // ลำดับเดิมนับจาก 25 พ.ย.: 30 ธ.ค. = มานิตา ดังนั้น 6 ม.ค. = ศุภศักดิ์, 13 = คงธัช, 20 = อดิศร, 27 = ชนกันต์, 3 ก.พ. = มานิตา
-  assert.deepEqual(first, { "มานิตา": "2027-01-06", "ศุภศักดิ์": "2027-01-13", "อดิศร": "2027-01-20", "คงธัช": "2027-01-27", "ชนกันต์": "2027-02-03" });
+  const plan = (hol, from) => w.json(`rotationPlan_(CONFIG.rotations[0], ${JSON.stringify(hol)}, "${from}", "2027-01-20")`).map(p => p.date.slice(5) + " " + p.name);
+  assert.deepEqual(plan({}, "2026-11-18"), ["11-25 ชนกันต์", "12-02 มานิตา", "12-09 ศุภศักดิ์", "12-16 อดิศร", "12-23 คงธัช", "12-30 ชนกันต์", "01-06 มานิตา", "01-13 ศุภศักดิ์", "01-20 อดิศร"]);
+  // 16 ธ.ค. เป็นวันหยุด: อดิศรเลื่อนไป 23 ธ.ค. และทุกคนถัดไปเลื่อนตาม
+  assert.deepEqual(plan({ "2026-12-16": 1 }, "2026-11-18"), ["11-25 ชนกันต์", "12-02 มานิตา", "12-09 ศุภศักดิ์", "12-23 อดิศร", "12-30 คงธัช", "01-06 ชนกันต์", "01-13 มานิตา", "01-20 ศุภศักดิ์"]);
+  // เริ่มดูกลางคัน ลำดับยังต่อเนื่องจากต้นทาง
+  assert.deepEqual(plan({ "2026-12-16": 1 }, "2027-01-01"), ["01-06 ชนกันต์", "01-13 มานิตา", "01-20 ศุภศักดิ์"]);
 });
 
 test("ตรวจ CONFIG: จับชื่อผิด วันไม่ตรง เวลาผิด", () => {
@@ -178,30 +181,28 @@ test("ตรวจ CONFIG: จับชื่อผิด วันไม่ต�
   assert.throws(() => w.run("checkConfig_(CONFIG)"), e => /ไม่รู้จัก "ไม่มีคนนี้"/.test(e.message) && /ไม่ตรงกับ day WE/.test(e.message) && /เวลาต้องเป็น HH:mm/.test(e.message));
 });
 
-test("ขั้น 1–2: สร้างปฏิทิน 6 อันและงานประจำ · รันซ้ำไม่สร้างซ้ำ", () => {
+test("ตั้งค่าครั้งแรก: ปฏิทิน 6 อัน งานประจำ และเวรพุธ · รันซ้ำไม่สร้างซ้ำ", () => {
   const w = makeWorld().setup();
   assert.deepEqual(w.calendars.map(c => c.name), [...PEOPLE.map(p => "สายฟ้า – " + p), "สายฟ้า – ทุกคน"]);
   assert.equal(w.cal("มานิตา").color, "#D50000");
-  const count = () => w.calendars.reduce((n, c) => n + c.series.length, 0);
-  assert.equal(count(), 16);
-  w.run("step1_createCalendars(); step2_createRoutine();");
+  const series = () => w.calendars.reduce((n, c) => n + c.series.length, 0);
+  const singles = () => w.calendars.reduce((n, c) => n + c.singles.length, 0);
+  assert.equal(series(), 6);
+  const n = singles();
+  assert.equal(n, 45 * 2);                                                    // พุธ 25 พ.ย. 2569 – 29 ก.ย. 2570 = 45 สัปดาห์ × 2 งาน
+  w.run("step1_createCalendars(); step2_createRoutine(); syncRotations_([], today_());");
   assert.equal(w.calendars.length, 6);
-  assert.equal(count(), 16);
+  assert.equal(series(), 6);
+  assert.equal(singles(), n);
 
   assert.deepEqual(w.titlesOn("ทุกคน", "2026-11-23"), ["OPD"]);
   assert.deepEqual(w.titlesOn("มานิตา", "2026-11-24"), ["OR"]);
-  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-11-25"), ["ER", "OPD ปกส."]);
-  assert.deepEqual(w.titlesOn("มานิตา", "2026-11-25"), []);
-  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-02"), ["ER", "OPD ปกส."]);
-  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-09"), ["ER", "OPD ปกส."]);
-  assert.deepEqual(w.titlesOn("คงธัช", "2026-12-23"), ["ER", "OPD ปกส."]);
-  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-30"), ["ER", "OPD ปกส."]);   // ครบ 5 สัปดาห์ วนกลับมา
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-11-25"), ["ER", "OPD ปกส."]);   // ER 08–16 และ OPD ปกส. 13–15 ซ้อนกันในวันเดียว
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-11-26"), ["OR"]);
   assert.deepEqual(w.titlesOn("ชนกันต์", "2027-09-30"), ["OR"]);               // วันสุดท้ายยังมี
   assert.deepEqual(w.titlesOn("ชนกันต์", "2027-10-07"), []);                   // เลยกำหนดแล้วไม่มี
-  // ทุกวันพุธมีคนเดียวเท่านั้น
-  for (const d of ["2026-11-25", "2026-12-02", "2026-12-09", "2026-12-23", "2026-12-30", "2027-03-17"])
-    assert.equal(PEOPLE.filter(p => w.titlesOn(p, d).includes("ER")).length, 1, d);
+  assert.deepEqual(["2026-11-25", "2026-12-02", "2026-12-09", "2026-12-16", "2026-12-23", "2026-12-30"].map(d => w.erOn(d).join()),
+    ["ชนกันต์", "มานิตา", "ศุภศักดิ์", "อดิศร", "คงธัช", "ชนกันต์"]);
 });
 
 test("ปฏิทินชื่อเดียวกันที่มีอยู่แล้วถูกนำมาใช้ ไม่สร้างซ้อน", () => {
@@ -240,37 +241,54 @@ test("ปรับรายการของ Google ให้ใกล้วั
   assert.deepEqual(w.json(`mergeHolidays_(civilServiceAdjust_(${JSON.stringify(google)}, CONFIG).list, CONFIG, "2027-07-01", "2027-07-31")`).map(h => h.date), ["2027-07-18", "2027-07-19", "2027-07-20"]);
 });
 
-test("ขั้น 3: ตัดงานประจำเฉพาะครั้งที่ตรงวันหยุด · งานที่คนลงเองไม่ถูกแตะ · รันซ้ำได้", () => {
+test("ขั้น 3: ตัดงานประจำเฉพาะครั้งที่ตรงวันหยุด · เวรพุธเลื่อนคน · งานที่คนลงเองไม่ถูกแตะ · รันซ้ำได้", () => {
   const w = makeWorld().setup();
   w.cal("ชนกันต์").add({ title: "OR เคสด่วน", start: bkk("2026-12-10", "08:00"), end: bkk("2026-12-10", "12:00") });
+  w.cal("อดิศร").add({ title: "เวรนอกเวลา", start: bkk("2026-12-16", "16:00"), end: bkk("2026-12-17", "08:00") });
   w.run("step3_syncHolidays()");
   assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-07"), []);                     // จันทร์ ชดเชย → OPD งด
   assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-14"), ["OPD"]);                // จันทร์ปกติยังอยู่
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-10"), ["OR เคสด่วน"]);        // OR ประจำงด แต่ที่ลงเองยังอยู่
-  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-16"), []);                     // พุธ วันหยุดพิเศษ → ER/OPD ปกส. ของคนเวรงด
+  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-16"), ["เวรนอกเวลา"]);          // พุธ วันหยุดพิเศษ: ER/OPD ปกส. งด เวรนอกเวลายังอยู่
+  // อดิศรเลื่อนไปพุธถัดไป และทุกคนถัดไปเลื่อนตาม · ก่อนวันหยุดไม่ถูกแตะ
+  assert.deepEqual(["2026-11-25", "2026-12-02", "2026-12-09", "2026-12-16", "2026-12-23", "2026-12-30", "2027-01-06", "2027-01-13"].map(d => w.erOn(d).join()),
+    ["ชนกันต์", "มานิตา", "ศุภศักดิ์", "", "อดิศร", "คงธัช", "ชนกันต์", "มานิตา"]);
+  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-23"), ["ER", "OPD ปกส."]);
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-31"), []);
   assert.deepEqual(w.titlesOn("คงธัช", "2027-01-01"), []);
   assert.deepEqual(w.titlesOn("คงธัช", "2027-01-08"), ["OR"]);
   assert.deepEqual(w.titlesOn("คงธัช", "2026-12-25"), ["OR"]);                 // ศุกร์ 25 ธ.ค. คริสต์มาสเป็น "วันสำคัญ" ไม่ใช่วันหยุดราชการ
-  assert.equal(w.calendars.reduce((n, c) => n + c.series.length, 0), 16);      // ไม่มีชุดไหนถูกลบทั้งชุด
+  assert.equal(w.calendars.reduce((n, c) => n + c.series.length, 0), 6);       // ไม่มีชุดไหนถูกลบทั้งชุด
+  for (let d = "2026-11-25", i = 0; i < 44; i++, d = new Date(Date.parse(d) + 7 * 864e5).toISOString().slice(0, 10))
+    assert.equal(w.erOn(d).length, d === "2026-12-16" ? 0 : 1, d);             // ทุกพุธมีคนเดียว ยกเว้นวันหยุด
+
+  // แลกเวรเองในปฏิทิน: คงธัช (30 ธ.ค.) ให้มานิตาอยู่แทน — รันตรวจวันหยุดรอบถัดไปต้องไม่จัดทับ
+  const kc = w.cal("คงธัช"); kc.singles = kc.singles.filter(e => !(e.title === "ER" && e.start.getTime() === bkk("2026-12-30", "08:00").getTime()));
+  w.cal("มานิตา").add({ title: "ER", start: bkk("2026-12-30", "08:00"), end: bkk("2026-12-30", "16:00") });
   w.run("step3_syncHolidays()");
+  assert.deepEqual(w.erOn("2026-12-30"), ["มานิตา"]);
   assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-14"), ["OPD"]);
   // ตั้งตรวจวันหยุดรายเดือนให้เอง ครั้งเดียว แม้ยังไม่ได้ตั้งค่า LINE
   assert.deepEqual(w.triggers.map(t => [t.fn, t.monthDay, t.hour]), [["step3_syncHolidays", 1, 5]]);
   assert.ok(new TextEncoder().encode(w.props.get("HOLIDAYS")).length < 9000);
+
+  // ครม. ประกาศวันหยุดพิเศษเพิ่ม พุธ 13 ม.ค. 2570: จัดใหม่ตั้งแต่สัปดาห์นั้น ก่อนหน้าคงเดิม (รวมที่แลกเวรไว้)
+  w.run('CONFIG.extraHolidays = [{ date: "2027-01-13", name: "วันหยุดพิเศษ" }]; step3_syncHolidays();');
+  assert.deepEqual(["2026-12-30", "2027-01-06", "2027-01-13", "2027-01-20", "2027-01-27"].map(d => w.erOn(d).join()), ["มานิตา", "ชนกันต์", "", "มานิตา", "ศุภศักดิ์"]);
 });
 
 test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {
   const w = makeWorld();
-  w.run("CONFIG.rotations[0].skipHolidays = false;");
+  w.run("CONFIG.routine[2].skipHolidays = false;");                            // OR พฤหัสของชนกันต์
   w.setup();
   w.run("step3_syncHolidays()");
-  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-16"), ["ER", "OPD ปกส."]);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-10"), ["OR"]);
 
   const w2 = makeWorld().setup();
   w2.holidayIcs = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
   assert.throws(() => w2.run("step3_syncHolidays()"), /น้อยผิดปกติ/);
   assert.deepEqual(w2.titlesOn("ทุกคน", "2026-12-07"), ["OPD"]);
+  assert.deepEqual(w2.erOn("2026-12-16"), ["อดิศร"]);
 });
 
 test("ข้อความ LINE: งานรายคน · เวรสองงานขึ้นเป็นหัวข้อย่อย · งานรวม · วันว่าง", () => {
