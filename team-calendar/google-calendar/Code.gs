@@ -41,7 +41,7 @@ const CONFIG = {
   // งานที่วนกันสัปดาห์ละคน: คนแรกใน order ทำวันที่ firstDate แล้ววนตามลำดับทุกสัปดาห์
   rotations: [
     { key: 'wed', day: 'WE', firstDate: '2026-11-25', skipHolidays: true,
-      order: ['มานิตา', 'ศุภศักดิ์', 'คงธัช', 'อดิศร', 'ชนกันต์'],
+      order: ['ชนกันต์', 'มานิตา', 'ศุภศักดิ์', 'อดิศร', 'คงธัช'],
       tasks: [
         { title: 'ER',       start: '08:00', end: '16:00' },
         { title: 'OPD ปกส.', start: '13:00', end: '15:00' }
