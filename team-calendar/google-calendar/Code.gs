@@ -49,6 +49,7 @@ const CONFIG = {
         { title: 'OPD ปกส.', start: '13:00', end: '15:00' }
       ] },
     // พฤหัสบดี: ER และ OPD วนกันระหว่างสาย — สายฟ้าได้ทุก 4 สัปดาห์ (everyWeeks: 4) แล้ววนคนในสายตามลำดับชื่อเดิม
+    // พฤหัสที่ตรงวันหยุด: ทั้งคิวเลื่อนไปสัปดาห์ถัดไป (ไม่ใช่รออีก 4 สัปดาห์)
     { key: 'thu-er', day: 'TH', firstDate: '2026-12-03', everyWeeks: 4,
       order: ['คงธัช', 'ชนกันต์', 'มานิตา', 'ศุภศักดิ์', 'อดิศร'],
       tasks: [{ title: 'ER', start: '08:00', end: '16:00' }] },
@@ -214,17 +215,20 @@ function routinePlan_(cfg, fromYmd) {
 
 /**
  * แผนเวรวน (ฟังก์ชันล้วน): ไล่ทีละสัปดาห์จาก firstDate — สัปดาห์ที่ตรงวันหยุดถูกข้ามและคิวไม่เดิน
+ * (ใช้กับคิวระหว่างสายด้วย: วันหยุดเลื่อนทั้งคิวไปหนึ่งสัปดาห์ สายเราจึงได้สัปดาห์ถัดไป ไม่ใช่รออีกรอบ)
  * holidayDates = { 'yyyy-MM-dd': 1 } · คืน [{ date, name }] เฉพาะวันที่ >= from
  */
 function rotationPlan_(rot, holidayDates, from, until) {
   const out = [];
-  let i = 0;
-  const step = 7 * (rot.everyWeeks || 1);   // everyWeeks: 4 = สายนี้ได้ทุก 4 สัปดาห์
-  for (let d = rot.firstDate; d <= until; d = addDays_(d, step)) {
+  const every = rot.everyWeeks || 1;   // everyWeeks: 4 = สายนี้ได้ทุกรอบที่ 4 ของ "สัปดาห์ที่ไม่ใช่วันหยุด"
+  let slot = 0;                         // นับเฉพาะสัปดาห์ที่ไม่ตรงวันหยุด — วันหยุดทำให้ทุกรอบถัดไปเลื่อนหนึ่งสัปดาห์
+  for (let d = rot.firstDate; d <= until; d = addDays_(d, 7)) {
     if (holidayDates[d]) continue;
-    const name = rot.order[i % rot.order.length];
-    i++;
-    if (d >= from) out.push({ date: d, name: name });
+    if (slot % every === 0) {
+      const name = rot.order[(slot / every) % rot.order.length];
+      if (d >= from) out.push({ date: d, name: name });
+    }
+    slot++;
   }
   return out;
 }
