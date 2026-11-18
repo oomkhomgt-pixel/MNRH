@@ -88,6 +88,7 @@ const TZ = 'Asia/Bangkok';
 const TZ_OFFSET = '+07:00';   // ไทยไม่มี daylight saving
 const PROP = {
   CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS', ROTATION: 'ROTATION_STATE',
+  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE',
   TOKEN: 'LINE_TOKEN', GROUP: 'LINE_GROUP_ID', HOOK_KEY: 'WEBHOOK_KEY', LAST_MORNING: 'LAST_MORNING_AT'
 };
 const HOLIDAY_ICS = 'https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -297,7 +298,7 @@ function step2_createRoutine() {
     console.log('➕ ' + calName_(s.calendar) + ': ' + s.title + ' ' + s.start + '–' + s.end + ' เริ่ม ' + thaiDate_(s.first) +
       (s.intervalWeeks > 1 ? ' ทุก ' + s.intervalWeeks + ' สัปดาห์' : ' ทุกสัปดาห์'));
   });
-  console.log('เสร็จ: สร้าง ' + created + ' ชุด · ข้าม (มีแล้ว) ' + skipped + ' ชุด · ต่อไปรัน step3_syncHolidays (ตัดวันหยุด + ลงเวรวน)');
+  console.log('เสร็จ: สร้าง ' + created + ' ชุด · ข้าม (มีแล้ว) ' + skipped + ' ชุด · ต่อไปรัน step3a_previewHolidays (ดูวันหยุดและลำดับเวรก่อน ยังไม่แก้อะไร)');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -356,54 +357,133 @@ function mergeHolidays_(fromGoogle, cfg, from, to) {
   });
   return Object.keys(map).sort().map(function (d) { return { date: d, name: map[d] }; });
 }
-function step3_syncHolidays() {
-  checkConfig_(CONFIG);
-  const today = today_();
+/** ดึงและปรับรายการวันหยุด · คืน { hol (แสดงผล/LINE), allHol (ตั้งแต่เวรวนแรก), notes } — ผิดปกติให้ throw ไม่แก้อะไร */
+function loadHolidays_(today) {
   const res = UrlFetchApp.fetch(HOLIDAY_ICS, { muteHttpExceptions: true });
   if (res.getResponseCode() !== 200) throw new Error('ดึงปฏิทินวันหยุดของ Google ไม่ได้ (HTTP ' + res.getResponseCode() + ') — ลองรันใหม่ภายหลัง');
   const fromGoogle = parseHolidayIcs_(res.getContentText('UTF-8'));
   if (fromGoogle.length < 5) throw new Error('ปฏิทินวันหยุดของ Google อ่านได้ ' + fromGoogle.length + ' วัน ซึ่งน้อยผิดปกติ — ไม่แก้อะไร เพื่อความปลอดภัย');
   const adjusted = civilServiceAdjust_(fromGoogle, CONFIG);
-  const hol = mergeHolidays_(adjusted.list, CONFIG, addDays_(today, -7), CONFIG.routineUntil);
-  setJson_(PROP.HOLIDAYS, hol);
   const firsts = (CONFIG.rotations || []).map(function (r) { return r.firstDate; }).sort();
-  const allHol = mergeHolidays_(adjusted.list, CONFIG, firsts[0] || today, CONFIG.routineUntil);
-
+  return {
+    hol: mergeHolidays_(adjusted.list, CONFIG, addDays_(today, -7), CONFIG.routineUntil),
+    allHol: mergeHolidays_(adjusted.list, CONFIG, firsts[0] || today, CONFIG.routineUntil),
+    notes: adjusted.notes.filter(function (n) { return Number(/ปี (\d{4})/.exec(n)[1]) - 543 >= Number(today.slice(0, 4)); })
+  };
+}
+/** ลายเซ็นของรายการวันหยุดตั้งแต่วันนี้ — ใช้ยืนยันว่า "ที่จะลบ" ตรงกับ "ที่เจ้าของตรวจแล้ว" */
+function holidaySig_(hol, today) { return hol.filter(function (h) { return h.date >= today; }).map(function (h) { return h.date; }).join(','); }
+/** งานประจำ (รายการซ้ำ) ที่ตรงวันหยุด และยังอยู่ในปฏิทิน → [{ cal, date, ev }] */
+function routineOnHolidays_(hol, today) {
   const made = getJson_(PROP.ROUTINE, {});
   const skipIds = {};
   Object.keys(made).forEach(function (k) { if (made[k].skip) skipIds[made[k].id] = 1; });
   const ids = getJson_(PROP.CAL_IDS, {});
+  const out = [];
+  hol.filter(function (h) { return h.date >= today; }).forEach(function (h) {
+    allCalNames_().forEach(function (n) {
+      const cal = ids[n] ? CalendarApp.getCalendarById(ids[n]) : null;
+      if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(n) + '" ไม่ได้ — ตรวจว่ายังไม่ถูกลบ แล้วรัน step1_createCalendars');
+      cal.getEvents(at_(h.date, '00:00'), at_(addDays_(h.date, 1), '00:00')).forEach(function (ev) {
+        if (!skipIds[ev.getId()] || ev.isAllDayEvent() || ymd_(ev.getStartTime()) !== h.date) return;
+        out.push({ calName: n, cal: cal, date: h.date, ev: ev });
+      });
+    });
+  });
+  return out;
+}
+
+/**
+ * ขั้นที่ 3ก — ดูก่อน ไม่แก้อะไรในปฏิทิน: แสดงรายการวันหยุด งานประจำที่จะถูกงด และลำดับเวรวน
+ * ตรวจแล้วถูก จึงรัน step3b_applyHolidays · ไม่ถูก แก้ extraHolidays / notHolidays ใน CONFIG แล้วรันขั้นนี้ใหม่
+ */
+function step3a_previewHolidays() {
+  checkConfig_(CONFIG);
+  const today = today_();
+  const h = loadHolidays_(today);
+  const future = h.hol.filter(function (x) { return x.date >= today; });
+  console.log('วันหยุดราชการถึง ' + thaiDate_(CONFIG.routineUntil) + ' (' + future.length + ' วัน) — โปรดเทียบกับประกาศวันหยุดราชการ:');
+  future.forEach(function (x) { console.log('  🎌 ' + thaiDate_(x.date, { short: true }) + ' — ' + x.name); });
+  h.notes.forEach(function (n) { console.warn('⚠️ ' + n); });
+  console.log('(รายการมาจาก Google แล้วปรับ: ตัด ' + (CONFIG.notHolidayNames || []).join(', ') + ' · เติม วันเข้าพรรษา)');
+  const hits = routineOnHolidays_(h.hol, today);
+  console.log('งานประจำที่จะถูกงด ' + hits.length + ' รายการ:');
+  hits.forEach(function (x) { console.log('  ✂️ ' + thaiDate_(x.date, { short: true, year: false }) + ' ' + calName_(x.calName) + ': ' + x.ev.getTitle()); });
+  const holSet = {};
+  h.allHol.forEach(function (x) { holSet[x.date] = 1; });
+  (CONFIG.rotations || []).forEach(function (rot) {
+    const from = today > rot.firstDate ? today : rot.firstDate;
+    console.log('เวรวน "' + rot.key + '" (' + rot.tasks.map(function (t) { return t.title; }).join(' + ') + ') 8 รอบแรก: ' +
+      rotationPlan_(rot, holSet, from, CONFIG.routineUntil).slice(0, 8).map(function (p) { return thaiDate_(p.date, { day: false, year: false }) + ' ' + p.name; }).join(' · '));
+  });
+  props_().setProperty(PROP.HOL_SEEN, holidaySig_(h.hol, today));
+  console.log('ยังไม่ได้แก้อะไรในปฏิทิน · ถ้ารายการถูกต้อง รัน step3b_applyHolidays · ถ้าไม่ถูก แก้ extraHolidays / notHolidays แล้วรันขั้นนี้ใหม่');
+}
+
+/** ขั้นที่ 3ข — ลงมือ: งดงานประจำในวันหยุด คืนงานของวันที่ไม่หยุดแล้ว และลง/จัดเวรวน (ทำได้เฉพาะรายการวันหยุดที่ดูแล้วในขั้น 3ก) */
+function step3b_applyHolidays() {
+  checkConfig_(CONFIG);
+  const today = today_();
+  const h = loadHolidays_(today);
+  const sig = holidaySig_(h.hol, today);
+  if (props_().getProperty(PROP.HOL_SEEN) !== sig) {
+    throw new Error('รายการวันหยุดตอนนี้ไม่ตรงกับที่ดูไว้ในขั้น 3ก (หรือยังไม่ได้รันขั้น 3ก) — รัน step3a_previewHolidays ตรวจรายการก่อน แล้วค่อยรันขั้นนี้');
+  }
+  const ids = getJson_(PROP.CAL_IDS, {});
+  const isHol = {};
+  h.hol.forEach(function (x) { isHol[x.date] = 1; });
+
+  // คืนงานประจำของวันที่เคยงดไว้ แต่ตอนนี้ไม่ใช่วันหยุดแล้ว (เช่น ใส่ notHolidays ทีหลัง)
+  let log = getJson_(PROP.REMOVED, []).filter(function (r) { return r.d >= today; });
+  let restored = 0;
+  log = log.filter(function (r) {
+    if (isHol[r.d]) return true;
+    const cal = ids[r.c] ? CalendarApp.getCalendarById(ids[r.c]) : null;
+    if (cal) { cal.createEvent(r.t, at_(r.d, r.s), at_(r.d, r.e)).setTag(ROT_TAG, 'restored'); restored++; }
+    return false;
+  });
+
   let removed = 0, checked = false;
   const countSeries = function (cal, id, fromYmd) {   // นับครั้งที่เหลือของชุดนั้นใน 200 วันข้างหน้า
     return cal.getEvents(at_(fromYmd, '00:00'), at_(addDays_(fromYmd, 200), '00:00')).filter(function (e) { return e.getId() === id; }).length;
   };
-  hol.filter(function (h) { return h.date >= today; }).forEach(function (h) {
-    allCalNames_().forEach(function (n) {
-      const cal = ids[n] ? CalendarApp.getCalendarById(ids[n]) : null;
-      if (!cal) return;
-      cal.getEvents(at_(h.date, '00:00'), at_(addDays_(h.date, 1), '00:00')).forEach(function (ev) {
-        if (!skipIds[ev.getId()] || ev.isAllDayEvent() || ymd_(ev.getStartTime()) !== h.date) return;
-        const id = ev.getId();
-        const before = checked ? 0 : countSeries(cal, id, h.date);
-        ev.deleteEvent();   // ลบเฉพาะครั้งของวันนั้น ไม่ใช่ทั้งชุด
-        removed++;
-        if (!checked) {
-          // ตรวจครั้งแรกของทุกรอบว่าการลบ "ครั้งเดียว" ไม่ได้ทำให้ครั้งอื่นของชุดหายไปด้วย — ถ้าหาย หยุดทันทีก่อนเสียหายเพิ่ม
-          checked = true;
-          const after = countSeries(cal, id, h.date);
-          if (after < before - 1) throw new Error('หยุด: ลบงานประจำของวันหยุด ' + h.date + ' แล้วครั้งอื่นของชุดเดียวกันหายไปด้วย (' + before + ' → ' + after +
-            ') — ไม่ทำต่อ กรุณาแจ้งผู้พัฒนา · กู้คืนได้จากถังขยะของปฏิทิน "' + calName_(n) + '"');
-        }
-      });
-    });
+  routineOnHolidays_(h.hol, today).forEach(function (x) {
+    const id = x.ev.getId();
+    const before = checked ? 0 : countSeries(x.cal, id, x.date);
+    log.push({ c: x.calName, d: x.date, t: x.ev.getTitle(), s: hm_(x.ev.getStartTime()), e: hm_(x.ev.getEndTime()) });
+    x.ev.deleteEvent();   // ลบเฉพาะครั้งของวันนั้น ไม่ใช่ทั้งชุด
+    removed++;
+    setJson_(PROP.REMOVED, log);
+    if (!checked) {
+      // ตรวจครั้งแรกของทุกรอบว่าการลบ "ครั้งเดียว" ไม่ได้ทำให้ครั้งอื่นของชุดหายไปด้วย — ถ้าหาย หยุดทันทีก่อนเสียหายเพิ่ม
+      checked = true;
+      const after = countSeries(x.cal, id, x.date);
+      if (after < before - 1) throw new Error('หยุด: ลบงานประจำของวันหยุด ' + x.date + ' แล้วครั้งอื่นของชุดเดียวกันหายไปด้วย (' + before + ' → ' + after +
+        ') — ไม่ทำต่อ กรุณาแจ้งผู้พัฒนา · กู้คืนได้จากถังขยะของปฏิทิน "' + calName_(x.calName) + '"');
+    }
   });
-  console.log('วันหยุดราชการถึง ' + thaiDate_(CONFIG.routineUntil) + ' (' + hol.filter(function (h) { return h.date >= today; }).length + ' วัน):');
-  hol.filter(function (h) { return h.date >= today; }).forEach(function (h) { console.log('  🎌 ' + thaiDate_(h.date, { short: true }) + ' — ' + h.name); });
-  adjusted.notes.forEach(function (n) { console.warn('⚠️ ' + n); });
-  console.log('หมายเหตุ: รายการมาจาก Google แล้วปรับให้ใกล้วันหยุดราชการ (ตัด: ' + (CONFIG.notHolidayNames || []).join(', ') + ' · เติม: วันเข้าพรรษา) — โปรดเทียบกับประกาศวันหยุดราชการของปีนั้น');
-  console.log('เสร็จ: ตัดงานประจำที่ตรงวันหยุดออก ' + removed + ' รายการ · ถ้ารายการวันหยุดไม่ตรง แก้ extraHolidays / notHolidays ใน CONFIG แล้วรันใหม่');
-  syncRotations_(allHol, today);
+  setJson_(PROP.REMOVED, log);
+  setJson_(PROP.HOLIDAYS, h.hol);
+  console.log('งดงานประจำที่ตรงวันหยุด ' + removed + ' รายการ · คืนงานของวันที่ไม่หยุดแล้ว ' + restored + ' รายการ');
+  syncRotations_(h.allHol, today);
+  props_().setProperty(PROP.HOL_APPLIED, sig);
   ensureHolidayTrigger_();
+}
+
+/**
+ * รันเองทุกวันที่ 1 — "ตรวจอย่างเดียว ไม่ลบอะไร": ถ้ารายการวันหยุดเปลี่ยนจากที่ลงมือไว้ จะแจ้งเจ้าของทางอีเมล
+ * (ผ่านอีเมลแจ้งข้อผิดพลาดของ Google) ให้เข้ามารันขั้น 3ก และ 3ข เอง
+ */
+function monthlyHolidayCheck() {
+  const applied = props_().getProperty(PROP.HOL_APPLIED);
+  if (applied === null) return;
+  const today = today_();
+  const now = holidaySig_(loadHolidays_(today).hol, today).split(',').filter(String);
+  const was = applied.split(',').filter(function (d) { return d >= today; });
+  const added = now.filter(function (d) { return was.indexOf(d) < 0; }), gone = was.filter(function (d) { return now.indexOf(d) < 0; });
+  if (!added.length && !gone.length) { console.log('วันหยุดไม่เปลี่ยน'); return; }
+  throw new Error('รายการวันหยุดราชการเปลี่ยน — ยังไม่ได้แก้อะไรในปฏิทิน · เพิ่ม: ' + (added.join(', ') || '-') + ' · หายไป: ' + (gone.join(', ') || '-') +
+    ' · เปิดสคริปต์ปฏิทิน' + CONFIG.prefix + ' แล้วรัน step3a_previewHolidays ตรวจรายการ ตามด้วย step3b_applyHolidays');
 }
 
 /**
@@ -421,6 +501,11 @@ function syncRotations_(holidays, today) {
     holidays.forEach(function (h) { if (h.date >= rot.firstDate && h.date <= until && DAY_CODES[weekday_(h.date)] === rot.day) holSet[h.date] = 1; });
     const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, until, rot.everyWeeks || 1]);
     const old = state[rot.key];
+    if (old && old.cfg === cfgSig) {
+      // สัปดาห์ที่ผ่านไปแล้วยึดตามที่เคยบันทึก — ถ้ารายการของ Google ตกหล่นวันหยุดเก่า คิวปัจจุบันต้องไม่เลื่อน
+      Object.keys(holSet).forEach(function (d) { if (d < today) delete holSet[d]; });
+      (old.hol || []).forEach(function (d) { if (d < today) holSet[d] = 1; });
+    }
     let from = today > rot.firstDate ? today : rot.firstDate;
     if (old && old.cfg === cfgSig) {
       const oldSet = {};
@@ -464,9 +549,9 @@ function syncRotations_(holidays, today) {
 }
 /** ตั้งให้ตรวจวันหยุดใหม่เองทุกวันที่ 1 (ครม. ประกาศวันหยุดพิเศษระหว่างปีได้) — ไม่ขึ้นกับการตั้งค่า LINE */
 function ensureHolidayTrigger_() {
-  const has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'step3_syncHolidays'; });
+  const has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'monthlyHolidayCheck'; });
   if (has) return;
-  ScriptApp.newTrigger('step3_syncHolidays').timeBased().onMonthDay(1).atHour(5).inTimezone(TZ).create();
+  ScriptApp.newTrigger('monthlyHolidayCheck').timeBased().onMonthDay(1).atHour(5).inTimezone(TZ).create();
   console.log('ตั้งให้ตรวจวันหยุดใหม่เองทุกวันที่ 1 ของเดือนแล้ว');
 }
 
@@ -671,7 +756,7 @@ function clip_(text) { return text.length > 4900 ? text.slice(0, 4850) + '\n… 
 /** ส่งเข้ากลุ่ม · คืน true ถ้าส่งแล้ว false ถ้าโควตาหมด · ผิดพลาดอย่างอื่น throw (Google จะส่งอีเมลแจ้งเจ้าของ) */
 function linePush_(text) {
   const group = props_().getProperty(PROP.GROUP);
-  if (!group) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ข้อความอะไรก็ได้ 1 ครั้ง (ดู README)');
+  if (!group) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ "เชื่อมปฏิทิน <รหัสจากขั้นที่ 5>" (ดู README)');
   const token = props_().getProperty(PROP.TOKEN);
   if (!token) throw new Error('ยังไม่ได้ใส่ LINE_TOKEN ใน Project Settings → Script properties (ดู README ขั้น LINE)');
   // กุญแจกันส่งซ้ำ: ถ้าครั้งแรกส่งถึงแล้วแต่เราไม่ได้คำตอบ การลองใหม่ด้วยกุญแจเดิมจะไม่ถูกนับโควตาซ้ำ (LINE ตอบ 409)
@@ -729,7 +814,7 @@ function canAfford_(budget, mode, todayYmd) {
 }
 
 function sendDigest_(offsetDays, mode) {
-  if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ข้อความอะไรก็ได้ 1 ครั้ง (ดู README)');
+  if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ "เชื่อมปฏิทิน <รหัสจากขั้นที่ 5>" (ดู README)');
   const today = today_();
   const d = digestText_(offsetDays, mode);
   if (d.isEmpty && CONFIG.line.skipEmptyDays) { console.log('ไม่มีรายการ — ไม่ส่ง'); return; }
@@ -769,7 +854,15 @@ function step5_prepareLine() {
   console.log('✅ token ใช้ได้ — บอท: ' + (info.json.displayName || '?') + ' (' + (info.json.basicId || '?') + ')');
   console.log('ต่อไป: Deploy → New deployment → Web app แล้วนำ URL ที่ได้ (ลงท้าย /exec) ต่อท้ายด้วยข้อความข้างล่างนี้ ไปใส่เป็น Webhook URL ใน LINE:');
   console.log('?k=' + key);
+  if (props_().getProperty(PROP.GROUP)) console.log('เชื่อมกลุ่มไว้แล้ว (ย้ายกลุ่ม: รัน resetLineGroup)');
+  else console.log('หลังตั้ง Webhook และเชิญบอทเข้ากลุ่มแล้ว ให้พิมพ์ข้อความนี้ในกลุ่มเพื่อเชื่อม (ใช้ได้ครั้งเดียว):  ' + LINK_WORD + ' ' + newLinkCode_());
   checkLineQuota();
+}
+const LINK_WORD = 'เชื่อมปฏิทิน';
+function newLinkCode_() {
+  const code = String(Math.floor(Math.random() * 900000) + 100000);
+  props_().setProperty(PROP.LINK_CODE, code);
+  return code;
 }
 function checkLineQuota() {
   const q = lineCall_('get', '/message/quota'), used = lineCall_('get', '/message/quota/consumption');
@@ -795,7 +888,10 @@ function listCalendars() {
   });
 }
 /** ถ้าต้องการย้ายไปกลุ่มอื่น: รันฟังก์ชันนี้ แล้วเชิญบอทเข้ากลุ่มใหม่และพิมพ์ข้อความ 1 ครั้ง */
-function resetLineGroup() { props_().deleteProperty(PROP.GROUP); console.log('ล้างกลุ่มที่เชื่อมไว้แล้ว'); }
+function resetLineGroup() {
+  props_().deleteProperty(PROP.GROUP);
+  console.log('ล้างกลุ่มที่เชื่อมไว้แล้ว · เชิญบอทเข้ากลุ่มใหม่ แล้วพิมพ์ในกลุ่มนั้น:  ' + LINK_WORD + ' ' + newLinkCode_());
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Webhook ของ LINE — ใช้ (1) จำกลุ่มให้เองตอนเชิญบอท (2) ตอบเมื่อมีคนพิมพ์ "วันนี้" "พรุ่งนี้" "สัปดาห์นี้"
@@ -839,7 +935,11 @@ function handleLineEvent_(ev) {
   }
   let linked = props_().getProperty(PROP.GROUP);
   if (!linked) {
-    if (ev.type !== 'join' && ev.type !== 'message') return;
+    // เชื่อมได้เฉพาะเมื่อมีคนพิมพ์ "เชื่อมปฏิทิน <รหัส 6 หลัก>" ในกลุ่ม — รหัสอยู่ใน log ของเจ้าของเท่านั้น
+    // กลุ่มอื่นที่บอทถูกเชิญเข้าไปก่อนจึงเชื่อมไม่ได้ และตารางจะไม่ไปออกผิดกลุ่ม
+    const code = props_().getProperty(PROP.LINK_CODE);
+    if (!code || ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
+    if (String(ev.message.text || '').replace(/\s+/g, ' ').trim() !== LINK_WORD + ' ' + code) return;
     // ยืนยันกับ LINE ว่าบอทอยู่ในกลุ่มนี้จริงก่อนจำ — กันคำขอปลอมที่แอบอ้าง group ID
     if (lineCall_('get', '/group/' + src.groupId + '/summary').code !== 200) return;
     const lock = LockService.getScriptLock();
@@ -848,6 +948,7 @@ function handleLineEvent_(ev) {
       linked = props_().getProperty(PROP.GROUP);
       if (!linked) {
         props_().setProperty(PROP.GROUP, src.groupId);
+        props_().deleteProperty(PROP.LINK_CODE);   // รหัสใช้ได้ครั้งเดียว
         if (ev.replyToken) lineReply_(ev.replyToken, '✅ เชื่อมกลุ่มนี้กับปฏิทิน' + CONFIG.prefix + 'แล้ว\n\n' + COMMANDS['ปฏิทิน']());
         return;
       }
@@ -866,7 +967,7 @@ function handleLineEvent_(ev) {
 function step6_startDailyLine() {
   // ตรวจก่อนสร้างตัวตั้งเวลา — ถ้าเปิดทั้งที่ LINE ยังไม่พร้อม จะได้อีเมลแจ้งล้มเหลวทุกวัน
   if (!props_().getProperty(PROP.TOKEN)) throw new Error('ยังไม่ได้ใส่ LINE_TOKEN — ทำขั้นที่ 5 ก่อน');
-  if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ข้อความอะไรก็ได้ 1 ครั้ง จนบอทตอบว่า "เชื่อมกลุ่มนี้แล้ว" ก่อน');
+  if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ "เชื่อมปฏิทิน <รหัสจากขั้นที่ 5>" จนบอทตอบว่าเชื่อมแล้วก่อน');
   const mine = { sendMorning: 1, sendEvening: 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) { if (mine[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t); });
   const m = CONFIG.line.morning, ev = CONFIG.line.evening;

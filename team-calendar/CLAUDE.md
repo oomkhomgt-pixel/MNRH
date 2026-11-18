@@ -16,7 +16,7 @@
 Google Calendar ที่แชร์กัน (เจ้าของ = เฮีย) + Google Apps Script ส่งสรุปเข้ากลุ่ม LINE เหตุผล: ทุกท่านลงข้อมูลเอง
 มีทั้ง iPhone และ Android ทุกท่านมี Gmail และทุกท่านแก้รายการของกันและกันได้
 
-- `google-calendar/Code.gs` — สคริปต์ที่เฮียคัดลอกไปวางใน script.google.com แล้วรันทีละขั้น (`step1_…` ถึง `step6_…`)
+- `google-calendar/Code.gs` — สคริปต์ที่เฮียคัดลอกไปวางใน script.google.com แล้วรันทีละขั้น (`step1_…` ถึง `step6_…` · ขั้นวันหยุดแยกเป็น `step3a_previewHolidays` ดูก่อน และ `step3b_applyHolidays` ลงมือ · กลุ่ม LINE เชื่อมด้วยรหัส 6 หลัก)
   **Claude แก้สคริปต์ในบัญชี Google ของเฮียโดยตรงไม่ได้** แก้ได้แค่ไฟล์นี้ แล้วเฮียต้องวางทับเอง
 - `google-calendar/README.md` — คู่มือตั้งค่าภาษาไทย ต้องแก้ให้ตรงกับโค้ดทุกครั้ง
 - `google-calendar/test.mjs` — `node --test team-calendar/google-calendar/test.mjs` จำลอง CalendarApp และ LINE ในเครื่อง
