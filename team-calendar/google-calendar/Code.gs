@@ -77,7 +77,7 @@ const CONFIG = {
     changesLookAheadDays: 60              // รอบเช้าแจ้งรายการที่เพิ่ง​เพิ่ม/แก้ ที่อยู่ในช่วงกี่วันข้างหน้า
   },
   // รายการ "ทั้งวัน" ที่ชื่อขึ้นต้น/มีคำเหล่านี้ นับว่า "ไม่อยู่"
-  absentStartsWith: ['ลา'],
+  absentStartsWith: ['ลาพัก', 'ลากิจ', 'ลาป่วย', 'ลาคลอด', 'ลาบวช', 'ลาศึกษา', 'ลาไป', 'ลา ', 'ลา('],   // และชื่อ "ลา" คำเดียว
   absentContains: ['ประชุม', 'อบรม', 'สัมมนา', 'ดูงาน', 'conference', 'meeting', 'leave']
 };
 
@@ -269,7 +269,15 @@ function step1_createCalendars() {
       cal = CalendarApp.createCalendar(full, { timeZone: TZ, color: w.color });
       how = 'สร้างใหม่';
     }
-    try { cal.setColor(w.color); } catch (e) { console.warn('ตั้งสี ' + full + ' ไม่ได้: ' + e.message); }
+    if (how === 'สร้างใหม่' && ids[w.name]) {
+      // ปฏิทินเดิมหายไป (ถูกลบ): ล้างบันทึกงานประจำ/เวรของปฏิทินนั้น เพื่อให้ขั้นที่ 2 และ 3 ลงให้ใหม่
+      const made = getJson_(PROP.ROUTINE, {});
+      Object.keys(made).forEach(function (k) { if (made[k].cal === w.name) delete made[k]; });
+      setJson_(PROP.ROUTINE, made);
+      props_().deleteProperty(PROP.ROTATION);
+      props_().deleteProperty(PROP.HOL_SEEN);
+      how = 'ปฏิทินเดิมหาย สร้างใหม่ — รัน step2 และ step3a/3b อีกครั้งเพื่อลงงานคืน';
+    }
     ids[w.name] = cal.getId();
     console.log('✅ ' + full + ' — ' + how);
   });
@@ -279,7 +287,8 @@ function step1_createCalendars() {
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  ขั้นที่ 2 — ลงงานประจำเป็นรายการซ้ำ (รันซ้ำได้: ชุดที่สร้างแล้วจะถูกข้าม)
-//  หลังจากนี้ การเปลี่ยนงานประจำให้แก้ในแอปปฏิทินได้เลย (เลือก "รายการนี้และรายการต่อจากนี้")
+//  ข้อควรรู้: ถ้าแก้งานประจำในแอปปฏิทินด้วย "รายการนี้และรายการต่อจากนี้" Google จะแตกเป็นชุดใหม่ที่สคริปต์ไม่รู้จัก
+//  ชุดใหม่นั้นจะไม่ถูกงดในวันหยุดเอง (ขั้น 3ก จะเตือนให้เห็น) — เปลี่ยนถาวรให้แก้ CONFIG.routine ด้วย key ใหม่แล้วรันขั้น 2
 // ══════════════════════════════════════════════════════════════════════════════
 function step2_createRoutine() {
   checkConfig_(CONFIG);
@@ -307,7 +316,7 @@ function step2_createRoutine() {
 /** อ่านไฟล์ปฏิทินวันหยุดของ Google → [{date, name}] เฉพาะ "วันหยุดนักขัตฤกษ์" (ฟังก์ชันล้วน) */
 function parseHolidayIcs_(text) {
   const out = [];
-  const unfolded = String(text).replace(/\r\n[ \t]/g, '').replace(/\r\n/g, '\n');
+  const unfolded = String(text).replace(/\r?\n[ \t]/g, '').replace(/\r\n/g, '\n');
   unfolded.split('BEGIN:VEVENT').slice(1).forEach(function (blk) {
     const get = function (name) { const m = new RegExp('^' + name + '[^:\\n]*:(.*)$', 'm').exec(blk); return m ? m[1] : ''; };
     const start = get('DTSTART'), end = get('DTEND');
@@ -409,6 +418,25 @@ function step3a_previewHolidays() {
   const hits = routineOnHolidays_(h.hol, today);
   console.log('งานประจำที่จะถูกงด ' + hits.length + ' รายการ:');
   hits.forEach(function (x) { console.log('  ✂️ ' + thaiDate_(x.date, { short: true, year: false }) + ' ' + calName_(x.calName) + ': ' + x.ev.getTitle()); });
+  // รายการซ้ำอื่นที่ตรงวันหยุด (เช่น งานประจำที่ถูกแก้ด้วย "รายการนี้และรายการต่อจากนี้" หรือที่ลงเอง) — สคริปต์ไม่รู้จัก จึงไม่งดให้
+  const known = {};
+  hits.forEach(function (x) { known[x.calName + '|' + x.date + '|' + x.ev.getId()] = 1; });
+  const idsAll = getJson_(PROP.CAL_IDS, {});
+  const others = [];
+  future.forEach(function (x) {
+    allCalNames_().forEach(function (n) {
+      const cal = idsAll[n] ? CalendarApp.getCalendarById(idsAll[n]) : null;
+      if (!cal) return;
+      cal.getEvents(at_(x.date, '00:00'), at_(addDays_(x.date, 1), '00:00')).forEach(function (ev) {
+        if (ev.isAllDayEvent() || !ev.isRecurringEvent() || ymd_(ev.getStartTime()) !== x.date || known[n + '|' + x.date + '|' + ev.getId()]) return;
+        others.push('  ❗ ' + thaiDate_(x.date, { short: true, year: false }) + ' ' + calName_(n) + ': ' + ev.getTitle());
+      });
+    });
+  });
+  if (others.length) {
+    console.warn('รายการซ้ำที่ตรงวันหยุดแต่สคริปต์ "ไม่ได้งดให้" ' + others.length + ' รายการ — ถ้าวันนั้นไม่ทำจริง ลบเองในปฏิทิน (เลือกเฉพาะรายการนี้):');
+    others.forEach(function (l) { console.warn(l); });
+  }
   const holSet = {};
   h.allHol.forEach(function (x) { holSet[x.date] = 1; });
   (CONFIG.rotations || []).forEach(function (rot) {
@@ -495,11 +523,29 @@ function monthlyHolidayCheck() {
 function syncRotations_(holidays, today) {
   const state = getJson_(PROP.ROTATION, {});
   const ids = getJson_(PROP.CAL_IDS, {});
+  // เวรของชุดที่ถูกลบ/เปลี่ยนชื่อ key ใน CONFIG: ลบของอนาคตทิ้ง ไม่ให้มีสองคนในเวรเดียว
+  const liveKeys = {};
+  (CONFIG.rotations || []).forEach(function (r) { liveKeys['rot:' + r.key] = 1; });
+  Object.keys(state).forEach(function (k) {
+    if (liveKeys['rot:' + k]) return;
+    let n = 0;
+    CONFIG.people.forEach(function (p) {
+      const cal = ids[p.name] ? CalendarApp.getCalendarById(ids[p.name]) : null;
+      if (!cal) return;
+      cal.getEvents(at_(today, '00:00'), at_(addDays_(state[k].until || CONFIG.routineUntil, 1), '00:00')).forEach(function (ev) {
+        if (ev.getTag(ROT_TAG) === 'rot:' + k) { ev.deleteEvent(); n++; }
+      });
+    });
+    delete state[k];
+    setJson_(PROP.ROTATION, state);
+    console.log('เวรวน "' + k + '" ไม่อยู่ใน CONFIG แล้ว — ลบเวรที่เหลือ ' + n + ' รายการ');
+  });
   (CONFIG.rotations || []).forEach(function (rot) {
     const until = CONFIG.routineUntil;
     const holSet = {};
     holidays.forEach(function (h) { if (h.date >= rot.firstDate && h.date <= until && DAY_CODES[weekday_(h.date)] === rot.day) holSet[h.date] = 1; });
-    const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, until, rot.everyWeeks || 1]);
+    // ไม่รวม routineUntil ในลายเซ็น: การต่ออายุปีถัดไปต้องไม่จัดเวรที่ลงไว้แล้ว (และที่แลกกันเอง) ใหม่ทั้งหมด
+    const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, rot.everyWeeks || 1]);
     const old = state[rot.key];
     if (old && old.cfg === cfgSig) {
       // สัปดาห์ที่ผ่านไปแล้วยึดตามที่เคยบันทึก — ถ้ารายการของ Google ตกหล่นวันหยุดเก่า คิวปัจจุบันต้องไม่เลื่อน
@@ -510,7 +556,7 @@ function syncRotations_(holidays, today) {
     if (old && old.cfg === cfgSig) {
       const oldSet = {};
       (old.hol || []).forEach(function (d) { oldSet[d] = 1; });
-      const a = rotationPlan_(rot, oldSet, from, until), b = rotationPlan_(rot, holSet, from, until);
+      const a = rotationPlan_(rot, oldSet, from, old.until || until), b = rotationPlan_(rot, holSet, from, until);
       const key = function (x) { return x ? x.date + '|' + x.name : ''; };
       let k = 0;
       while (k < Math.max(a.length, b.length) && key(a[k]) === key(b[k])) k++;
@@ -523,13 +569,15 @@ function syncRotations_(holidays, today) {
       rot.tasks.forEach(function (t) { want[p.date + '|' + t.title] = { date: p.date, name: p.name, task: t }; });
     });
     let kept = 0, removed = 0, created = 0;
-    rot.order.forEach(function (name) {
+    CONFIG.people.forEach(function (p) {   // ทุกคน ไม่ใช่เฉพาะคนใน order — คนที่ถูกถอดออกจากเวรต้องไม่เหลือเวรค้าง
+      const name = p.name;
       const cal = ids[name] ? CalendarApp.getCalendarById(ids[name]) : null;
-      if (!cal) throw new Error('ยังไม่มีปฏิทิน "' + calName_(name) + '" — รัน step1_createCalendars ก่อน');
+      if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(name) + '" ไม่ได้ — ตรวจว่ายังไม่ถูกลบ แล้วรัน step1_createCalendars');
       cal.getEvents(at_(from, '00:00'), at_(addDays_(until, 1), '00:00')).forEach(function (ev) {
         if (ev.getTag(ROT_TAG) !== 'rot:' + rot.key || ev.isAllDayEvent()) return;
         const k = ymd_(ev.getStartTime()) + '|' + ev.getTitle();
-        if (want[k] && want[k].name === name && !want[k].found) { want[k].found = true; kept++; }
+        const w = want[k];
+        if (w && w.name === name && !w.found && hm_(ev.getStartTime()) === w.task.start && hm_(ev.getEndTime()) === w.task.end) { w.found = true; kept++; }
         else { ev.deleteEvent(); removed++; }
       });
     });
@@ -537,10 +585,13 @@ function syncRotations_(holidays, today) {
       const w = want[k];
       if (w.found) return;
       const ev = CalendarApp.getCalendarById(ids[w.name]).createEvent(w.task.title, at_(w.date, w.task.start), at_(w.date, w.task.end));
-      ev.setTag(ROT_TAG, 'rot:' + rot.key);
+      // ป้ายคือสิ่งเดียวที่บอกว่ารายการนี้เป็นของสคริปต์ — ติดไม่สำเร็จให้ลบทิ้ง ไม่ปล่อยรายการไร้ป้ายค้างไว้ (รันซ้ำแล้วจะซ้อน)
+      try { ev.setTag(ROT_TAG, 'rot:' + rot.key); }
+      catch (e) { try { ev.deleteEvent(); } catch (e2) { /* ลบไม่ได้ก็รายงานข้อผิดพลาดแรก */ } throw new Error('ลงเวรไม่สำเร็จที่ ' + w.date + ' — รันขั้นนี้ซ้ำได้ ปลอดภัย: ' + e.message); }
       created++;
+      if (created % 10 === 0) Utilities.sleep(1000);   // เว้นจังหวะ กัน Google ตัดเพราะเรียกถี่เกิน
     });
-    state[rot.key] = { cfg: cfgSig, hol: Object.keys(holSet).sort() };
+    state[rot.key] = { cfg: cfgSig, hol: Object.keys(holSet).sort(), until: until };
     setJson_(PROP.ROTATION, state);
     console.log('เวรวน "' + rot.key + '" ตั้งแต่ ' + thaiDate_(from, { short: true }) + ': ลงใหม่ ' + created + ' · ลบ ' + removed + ' · คงเดิม ' + kept +
       ' (สัปดาห์ที่ตรงวันหยุดถูกข้าม คนนั้นเลื่อนไปสัปดาห์ถัดไป)');
@@ -587,6 +638,7 @@ function step4_shareCalendars() {
 // ══════════════════════════════════════════════════════════════════════════════
 function isAbsentTitle_(title) {
   const t = String(title || '').trim().toLowerCase();
+  if (t === 'ลา') return true;
   return (CONFIG.absentStartsWith || []).some(function (w) { return t.indexOf(w.toLowerCase()) === 0; }) ||
     (CONFIG.absentContains || []).some(function (w) { return t.indexOf(w.toLowerCase()) >= 0; });
 }
@@ -596,7 +648,7 @@ function toItem_(ev, dateYmd, now, routineIds) {
   const title = String(ev.getTitle() || '(ไม่มีชื่อ)').trim();
   const location = String(ev.getLocation() || '').trim();
   const updated = ev.getLastUpdated(), created = ev.getDateCreated();
-  const fresh = updated && (now.getTime() - updated.getTime()) < 24 * 3600 * 1000;
+  const fresh = updated && updated.getTime() > FRESH_SINCE_.t;
   // งานประจำที่เพิ่งถูกสร้างพร้อมกันทั้งชุดไม่นับว่า "ใหม่" — นับเฉพาะที่มีคนแก้ทีหลัง
   const untouchedRoutine = (routineIds[ev.getId()] || ev.getTag(ROT_TAG)) && created && updated && Math.abs(updated.getTime() - created.getTime()) < 5 * 60 * 1000;
   const isNew = !!fresh && !untouchedRoutine;
@@ -607,12 +659,23 @@ function toItem_(ev, dateYmd, now, routineIds) {
     return { allDay: true, title: title, first: first, last: last, location: location, isNew: isNew };
   }
   const s = ev.getStartTime(), e = ev.getEndTime();
-  if (ymd_(s) !== dateYmd) return null;   // เวรข้ามคืนที่เริ่มเมื่อวาน ไม่นับซ้ำ
+  if (ymd_(s) < dateYmd) {
+    // เริ่มก่อนวันนี้: เวรข้ามคืนที่จบเช้านี้ไม่นับซ้ำ — แต่รายการหลายวัน (เช่น ไปประชุม 3 วันแบบมีเวลา) ต้องขึ้นทุกวันที่คร่อม
+    const long = e.getTime() - s.getTime() >= 24 * 3600 * 1000;
+    if (ymd_(e) > dateYmd) return { allDay: false, cont: 'ต่อเนื่องทั้งวัน', title: title, start: '00:00', end: '', plusDays: 0, location: location, isNew: isNew };
+    if (long && ymd_(e) === dateYmd && hm_(e) !== '00:00') return { allDay: false, cont: 'ต่อเนื่องถึง ' + hm_(e), title: title, start: '00:00', end: hm_(e), plusDays: 0, location: location, isNew: isNew };
+    return null;
+  }
+  if (ymd_(s) !== dateYmd) return null;
   return { allDay: false, title: title, start: hm_(s), end: hm_(e), plusDays: daysBetween_(ymd_(s), ymd_(e)), location: location, isNew: isNew };
 }
 
 /** อ่านทุกปฏิทินของวันนั้น → { date, holiday, team:[item], people:[{name,dot,items}] } */
+const FRESH_SINCE_ = { t: 0 };   // 🆕 = แก้หลังรอบเช้าที่ส่งครั้งก่อน (อย่างน้อย 24 ชม.) — วันที่ไม่ได้ส่งจะไม่ทำให้ของใหม่ตกหล่น
 function collectDay_(dateYmd) {
+  const lastSent = props_().getProperty(PROP.LAST_MORNING);
+  const dayAgo = new Date().getTime() - 24 * 3600 * 1000;
+  FRESH_SINCE_.t = lastSent ? Math.min(dayAgo, new Date(lastSent).getTime()) : dayAgo;
   const ids = getJson_(PROP.CAL_IDS, {});
   const made = getJson_(PROP.ROUTINE, {});
   const routineIds = {};
@@ -620,7 +683,8 @@ function collectDay_(dateYmd) {
   const now = new Date();
   const read = function (shortName) {
     const cal = ids[shortName] ? CalendarApp.getCalendarById(ids[shortName]) : null;
-    if (!cal) return [];
+    // เงียบแล้วแสดงว่า "ว่าง" อันตรายกว่าล้มให้เห็น — ปฏิทินหายต้องรู้
+    if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(shortName) + '" ไม่ได้ (ถูกลบ หรือยังไม่ได้รัน step1_createCalendars) — ตารางไม่ครบ จึงไม่ส่ง');
     return cal.getEvents(at_(dateYmd, '00:00'), at_(addDays_(dateYmd, 1), '00:00'))
       .map(function (ev) { return toItem_(ev, dateYmd, now, routineIds); })
       .filter(function (x) { return x; })
@@ -695,6 +759,7 @@ function formatChanges_(changes) {
 function itemLabel_(it, dateYmd) {
   let s;
   if (it.allDay) s = 'ทั้งวัน ' + it.title + (it.last > dateYmd ? ' (ถึง ' + thaiDate_(it.last, { short: true, year: false }) + ')' : '');
+  else if (it.cont) s = it.cont + ' ' + it.title;
   else s = it.start + '–' + it.end + (it.plusDays > 0 ? ' (+' + it.plusDays + ')' : '') + ' ' + it.title;
   return s + (it.location ? ' @' + it.location : '') + (it.isNew ? ' 🆕' : '');
 }
@@ -713,8 +778,9 @@ function formatDigest_(day, mode) {
     const rest = p.items.filter(function (it) { return absent.indexOf(it) < 0; });
     count += p.items.length;
     if (absent.length) {
-      const a = absent[0];
-      away.push(p.dot + ' ' + p.name + ' — ' + a.title + (a.last > day.date ? ' (ถึง ' + thaiDate_(a.last, { short: true, year: false }) + ')' : '') + (a.isNew ? ' 🆕' : ''));
+      away.push(p.dot + ' ' + p.name + ' — ' + absent.map(function (a) {
+        return a.title + (a.last > day.date ? ' (ถึง ' + thaiDate_(a.last, { short: true, year: false }) + ')' : '') + (a.isNew ? ' 🆕' : '');
+      }).join(' · '));
       if (rest.length) away.push('   ⚠️ ยังมีงานในตาราง: ' + rest.map(function (it) { return itemLabel_(it, day.date); }).join(' · '));
       return;
     }
@@ -752,7 +818,10 @@ function lineCall_(method, path, body) {
   try { json = JSON.parse(res.getContentText() || '{}'); } catch (e) { json = {}; }
   return { code: code, json: json, text: res.getContentText() };
 }
-function clip_(text) { return text.length > 4900 ? text.slice(0, 4850) + '\n… (ยาวเกิน ดูต่อในปฏิทิน)' : text; }
+function clip_(text) {
+  if (text.length <= 4900) return text;
+  return Array.from(text).slice(0, 4400).join('') + '\n… (ยาวเกิน ดูต่อในปฏิทิน)';   // ตัดทีละตัวอักษรเต็ม ไม่ผ่ากลาง emoji
+}
 /** ส่งเข้ากลุ่ม · คืน true ถ้าส่งแล้ว false ถ้าโควตาหมด · ผิดพลาดอย่างอื่น throw (Google จะส่งอีเมลแจ้งเจ้าของ) */
 function linePush_(text) {
   const group = props_().getProperty(PROP.GROUP);
@@ -776,6 +845,7 @@ function linePush_(text) {
     if (code !== 0 && code < 500) break;   // 4xx ไม่ลองใหม่
     Utilities.sleep(1500);
   }
+  if (code === 429 && !/monthly limit/i.test(body)) throw new Error('LINE ปฏิเสธเพราะเรียกถี่เกิน (HTTP 429 ไม่ใช่โควตาเดือน): ' + body);
   if (code === 429) {   // โควตาข้อความฟรีของเดือนนี้หมด — ไม่ถือว่าสคริปต์พัง
     console.warn('LINE แจ้งว่าโควตาข้อความของเดือนนี้หมดแล้ว — ข้ามการส่งครั้งนี้ (ยังพิมพ์ "วันนี้" ในกลุ่มให้บอทตอบได้): ' + body);
     return false;
@@ -814,6 +884,9 @@ function canAfford_(budget, mode, todayYmd) {
 }
 
 function sendDigest_(offsetDays, mode) {
+  if (props_().getProperty(PROP.TOKEN) && !props_().getProperty(PROP.GROUP) && ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'sendMorning'; }) && props_().getProperty(PROP.LAST_MORNING)) {
+    console.warn('ไม่มีกลุ่ม LINE ที่เชื่อมไว้ (บอทอาจถูกนำออกจากกลุ่ม) — ไม่ส่ง · รัน resetLineGroup เพื่อเชื่อมใหม่'); return;
+  }
   if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ "เชื่อมปฏิทิน <รหัสจากขั้นที่ 5>" (ดู README)');
   const today = today_();
   const d = digestText_(offsetDays, mode);
@@ -955,6 +1028,11 @@ function handleLineEvent_(ev) {
     } finally { lock.releaseLock(); }
   }
   if (src.groupId !== linked) return;                 // กลุ่มอื่นที่ไม่ได้เชื่อมไว้ — ไม่ตอบ
+  if (ev.type === 'leave') {                          // บอทถูกเอาออกจากกลุ่มที่เชื่อมไว้: หยุดส่ง ไม่ปล่อยให้ล้มทุกเช้า
+    props_().deleteProperty(PROP.GROUP);
+    console.warn('บอทถูกนำออกจากกลุ่ม LINE ที่เชื่อมไว้ — หยุดส่งจนกว่าจะเชื่อมกลุ่มใหม่ (รัน resetLineGroup เพื่อรับรหัส)');
+    return;
+  }
   if (!CONFIG.line.replyCommands) return;
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !ev.replyToken) return;
   const cmd = COMMANDS[String(ev.message.text || '').trim()];

@@ -92,7 +92,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
 
   const NowDate = class extends Date { constructor(...a) { if (a.length) super(...a); else super(w.now.getTime()); } static now() { return w.now.getTime(); } };
   const ctx = vm.createContext({
-    Date: NowDate, JSON, Math, console: { log() {}, warn() {}, error() {} },
+    Date: NowDate, JSON, Math, console: { log() {}, warn(m) { if (w.onWarn) w.onWarn(String(m)); }, error() {} },
     CalendarApp: {
       getAllOwnedCalendars: () => w.calendars.slice(),
       getCalendarById: id => w.calendars.find(c => c.id === id) || null,
@@ -121,7 +121,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
         let code = w.pushScript.length ? w.pushScript.shift() : (w.quota.type === "limited" && w.quota.used + w.members > w.quota.value ? 429 : 200);
         if (code === "throw") throw new Error("Address unavailable");
         if (code === 200) w.quota.used += w.members;
-        return reply(code, code === 429 ? { message: "You have reached your monthly limit." } : {});
+        return reply(code, code === 429 ? { message: w.rateLimited ? "The API rate limit has been exceeded." : "You have reached your monthly limit." } : {});
       }
       return reply(404, {});
     } },
@@ -596,6 +596,78 @@ test("webhook: ปิด replyCommands แล้วยังจำกลุ่�
   assert.equal(w.props.get("LINE_GROUP_ID"), G1);
   post({ type: "message", replyToken: "b", source: { type: "group", groupId: G1 }, message: { type: "text", text: "วันนี้" } });
   assert.equal(w.replies().length, 1);                            // มีแค่ข้อความยืนยันการเชื่อมกลุ่ม
+});
+
+test("แก้ตามผลตรวจโค้ด: รายการหลายวันแบบมีเวลา · ปฏิทินหายต้องล้มให้เห็น · เวลาเวรเปลี่ยน · ถอดเวรชุดเก่า · ต่ออายุไม่ทับการแลกเวร", () => {
+  const w = makeWorld("2026-11-23T06:30:00+07:00").setup();
+  // ไปประชุม 3 วันแบบมีเวลา: ต้องขึ้นทุกวันที่คร่อม ไม่ใช่วันแรกวันเดียว · เวรข้ามคืนธรรมดายังไม่ขึ้นซ้ำเช้าวันถัดไป
+  w.cal("อดิศร").add({ title: "ประชุมวิชาการ", start: bkk("2026-11-24", "09:00"), end: bkk("2026-11-26", "16:00"), updated: bkk("2026-11-01"), created: bkk("2026-11-01") });
+  w.cal("คงธัช").add({ title: "เวรนอกเวลา", start: bkk("2026-11-24", "16:00"), end: bkk("2026-11-25", "08:00"), updated: bkk("2026-11-01"), created: bkk("2026-11-01") });
+  const day = d => w.run(`formatDigest_(collectDay_("${d}"), "today").text`);
+  assert.match(day("2026-11-24"), /🟠 อดิศร · 09:00–16:00 \(\+2\) ประชุมวิชาการ/);
+  assert.match(day("2026-11-25"), /🟠 อดิศร · ต่อเนื่องทั้งวัน ประชุมวิชาการ/);
+  assert.match(day("2026-11-26"), /🟠 อดิศร · ต่อเนื่องถึง 16:00 ประชุมวิชาการ/);
+  assert.doesNotMatch(day("2026-11-25"), /เวรนอกเวลา/);
+  assert.doesNotMatch(day("2026-11-27"), /ประชุมวิชาการ/);
+
+  // ชื่อที่ขึ้นต้นด้วย "ลา" แต่ไม่ใช่การลา ไม่นับว่าไม่อยู่ · ลาสองรายการแสดงครบ
+  w.cal("มานิตา").add({ title: "ลาดพร้าว ออกหน่วย", allDay: true, start: bkk("2026-11-27"), end: bkk("2026-11-28") });
+  w.cal("ศุภศักดิ์").add({ title: "ลากิจ", allDay: true, start: bkk("2026-11-27"), end: bkk("2026-11-28") });
+  w.cal("ศุภศักดิ์").add({ title: "ไปประชุม กทม.", allDay: true, start: bkk("2026-11-27"), end: bkk("2026-11-28") });
+  assert.match(day("2026-11-27"), /🔴 มานิตา · ทั้งวัน ลาดพร้าว ออกหน่วย/);
+  assert.match(day("2026-11-27"), /🔵 ศุภศักดิ์ — (ลากิจ 🆕 · ไปประชุม กทม\. 🆕|ไปประชุม กทม\. 🆕 · ลากิจ 🆕)/);
+
+  // ปฏิทินของท่านหนึ่งหาย: ต้องล้มพร้อมข้อความ ไม่ใช่แสดงว่าว่าง · step1 สร้างใหม่แล้วขั้นถัดไปลงงานคืน
+  const lost = w.cal("คงธัช");
+  w.calendars = w.calendars.filter(c => c !== lost);
+  assert.throws(() => day("2026-11-27"), /เข้าปฏิทิน "สายฟ้า – คงธัช" ไม่ได้/);
+  w.run("step1_createCalendars(); step2_createRoutine(); step3a_previewHolidays(); step3b_applyHolidays();");
+  assert.deepEqual(w.titlesOn("คงธัช", "2026-11-27"), ["OR"]);
+  assert.deepEqual(w.erOn("2026-12-30"), ["คงธัช"]);
+  assert.equal(w.cal("มานิตา").color, "#D50000");
+
+  // เจ้าของเปลี่ยนสีเอง แล้วรัน step1 ซ้ำ: สีไม่ถูกตั้งกลับ
+  w.cal("มานิตา").setColor("#F6BF26");
+  w.run("step1_createCalendars()");
+  assert.equal(w.cal("มานิตา").color, "#F6BF26");
+
+  // แลกเวร 6 ม.ค. (ชนกันต์ → มานิตา) แล้วต่ออายุ routineUntil: เวรที่ลงไว้และที่แลกไว้ต้องคงเดิม มีแต่ของใหม่ต่อท้าย
+  const cc = w.cal("ชนกันต์"); const moved = cc.singles.filter(e => e.start.getTime() >= bkk("2027-01-06").getTime() && e.start.getTime() < bkk("2027-01-07").getTime());
+  cc.singles = cc.singles.filter(e => !moved.includes(e));
+  w.cal("มานิตา").add({ title: "ER", start: bkk("2027-01-06", "08:00"), end: bkk("2027-01-06", "16:00") });
+  w.run('CONFIG.routineUntil = "2027-10-31"; step3a_previewHolidays(); step3b_applyHolidays();');
+  assert.deepEqual(w.erOn("2027-01-06"), ["มานิตา"]);
+  assert.equal(w.erOn("2027-10-06").length, 1);
+
+  // เปลี่ยนเวลา OPD ปกส.: รายการเดิมถูกแทนด้วยเวลาใหม่ (เปลี่ยนการตั้งค่าเวร = จัดใหม่ตั้งแต่วันนี้)
+  w.run('CONFIG.rotations[0].tasks[1].end = "16:00"; step3a_previewHolidays(); step3b_applyHolidays();');
+  const pks = w.cal("มานิตา").getEvents(bkk("2026-12-02"), bkk("2026-12-03")).filter(e => e.title === "OPD ปกส.");
+  assert.equal(pks.length, 1);
+  assert.equal(pks[0].end.getTime(), bkk("2026-12-02", "16:00").getTime());
+
+  // ถอดเวรพฤหัส OPD ออกจาก CONFIG: เวรที่เหลือของชุดนั้นถูกลบ ไม่ค้างเป็นเวรผี
+  w.run("CONFIG.rotations.pop(); step3a_previewHolidays(); step3b_applyHolidays();");
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-17"), []);
+  assert.deepEqual(w.titlesOn("คงธัช", "2026-12-03"), ["ER"]);
+});
+
+test("แก้ตามผลตรวจโค้ด: ขั้น 3ก เตือนรายการซ้ำที่สคริปต์ไม่ได้งด · 429 ที่ไม่ใช่โควตาเดือนต้องล้ม · บอทถูกนำออกจากกลุ่ม", () => {
+  const w = makeWorld("2026-11-24T06:30:00+07:00").setup().linked();
+  // งานประจำที่ถูกแก้แบบ "รายการนี้และรายการต่อจากนี้" = ชุดใหม่ที่สคริปต์ไม่รู้จัก
+  w.run('CalendarApp.getCalendarById(' + JSON.stringify(w.cal("ทุกคน").id) + ').createEventSeries("OPD (เวลาใหม่)", new Date("2026-11-30T09:00:00+07:00"), new Date("2026-11-30T15:00:00+07:00"), CalendarApp.newRecurrence().addWeeklyRule().until(new Date("2027-09-30T23:59:00+07:00")))');
+  const warns = [];
+  w.run("0"); w.onWarn = m => warns.push(m);
+  w.run("step3a_previewHolidays()");
+  assert.ok(warns.some(m => /ไม่ได้งดให้/.test(m)));
+  assert.ok(warns.some(m => /จ\. 7 ธ\.ค\. สายฟ้า – ทุกคน: OPD \(เวลาใหม่\)/.test(m)));
+
+  w.pushScript = [429];
+  const realFetch = w.rateLimited = true;
+  assert.throws(() => w.run("sendMorning()"), /เรียกถี่เกิน/);
+
+  const key = (w.run("step5_prepareLine()"), w.props.get("WEBHOOK_KEY"));
+  w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "leave", source: { type: "group", groupId: G1 } }] }) } })})`);
+  assert.equal(w.props.get("LINE_GROUP_ID"), undefined);
 });
 
 test("ขั้น 4: แชร์ทุกปฏิทินให้ทุกคน · ผู้ช่วยได้สิทธิ์จัดการ · ข้ามอีเมลของเจ้าของ", () => {
