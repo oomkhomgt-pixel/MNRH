@@ -1,0 +1,81 @@
+{
+  "$comment": "ไฟล์นี้คือต้นฉบับเดียวของปฏิทินทีม — แก้ที่นี่ที่เดียว แล้ว GitHub Actions จะสร้างไฟล์ปฏิทิน (.ics) ให้ใหม่เอง วิธีแก้แต่ละส่วนดู team-calendar/README.md · ชื่อทุกคนในไฟล์ตัวอย่างนี้เป็นชื่อสมมติ ให้แทนด้วยรายชื่อจริงของทีม · ห้ามใส่ชื่อผู้ป่วย HN หรือข้อมูลผู้ป่วยใด ๆ ในไฟล์นี้ เพราะไฟล์ปฏิทินเปิดได้ทุกคนที่มีลิงก์",
+
+  "team": {
+    "id": "ortho-blue",
+    "name": "Ortho Blue Team · รพ.มหาราชนครราชสีมา",
+    "short": "Ortho Blue",
+    "color": "blue",
+    "page_url": "https://oomkhomgt-pixel.github.io/MNRH/team-calendar/",
+    "skip_holidays_default": true
+  },
+
+  "members": [
+    { "id": "staff-a", "name": "อ.นพ. ตัวอย่าง หนึ่ง", "short": "อ.หนึ่ง", "role": "Staff",  "color": "blue" },
+    { "id": "staff-b", "name": "อ.พญ. ตัวอย่าง สอง",  "short": "อ.สอง",  "role": "Staff",  "color": "purple" },
+    { "id": "r4",      "name": "นพ. ตัวอย่าง สาม",    "short": "R4 สาม", "role": "R4",     "color": "red" },
+    { "id": "r3",      "name": "พญ. ตัวอย่าง สี่",     "short": "R3 สี่",  "role": "R3",     "color": "orange" },
+    { "id": "r2",      "name": "นพ. ตัวอย่าง ห้า",     "short": "R2 ห้า", "role": "R2",     "color": "green" },
+    { "id": "r1",      "name": "พญ. ตัวอย่าง หก",     "short": "R1 หก",  "role": "R1",     "color": "yellow" },
+    { "id": "intern",  "name": "นพ. ตัวอย่าง เจ็ด",    "short": "Int เจ็ด", "role": "Intern", "color": "brown" }
+  ],
+
+  "task_types": {
+    "or":    { "label": "ผ่าตัด (OR)", "remind_min": 30 },
+    "opd":   { "label": "OPD", "remind_min": 30 },
+    "ward":  { "label": "ราวด์วอร์ด" },
+    "call":  { "label": "เวร", "remind_min": 60 },
+    "conf":  { "label": "Conference", "remind_min": 15 },
+    "leave": { "label": "ลา" },
+    "other": { "label": "อื่น ๆ" }
+  },
+
+  "holidays": [
+    { "date": "2026-12-05", "name": "วันพ่อแห่งชาติ" },
+    { "date": "2026-12-07", "name": "ชดเชยวันพ่อแห่งชาติ" },
+    { "date": "2026-12-10", "name": "วันรัฐธรรมนูญ" },
+    { "date": "2026-12-31", "name": "วันสิ้นปี" },
+    { "date": "2027-01-01", "name": "วันขึ้นปีใหม่" }
+  ],
+
+  "recurring": [
+    { "id": "ward-weekday", "type": "ward", "title": "ราวด์วอร์ดเช้า", "who": ["all"],
+      "weekly": ["MO", "TU", "WE", "TH", "FR"], "start": "07:00", "end": "08:00",
+      "location": "หอผู้ป่วยออร์โธปิดิกส์", "from": "2026-11-02", "until": "2027-03-31" },
+
+    { "id": "or-mon-thu", "type": "or", "title": "OR ทีมฟ้า (ห้อง 5)", "who": ["staff-a", "r4", "r2"],
+      "weekly": ["MO", "TH"], "start": "08:30", "end": "16:30",
+      "location": "ห้องผ่าตัด 5", "from": "2026-11-02", "until": "2027-03-31" },
+
+    { "id": "or-wed", "type": "or", "title": "OR ทีมฟ้า (ห้อง 6)", "who": ["staff-b", "r3", "r1"],
+      "weekly": ["WE"], "start": "08:30", "end": "16:30",
+      "location": "ห้องผ่าตัด 6", "from": "2026-11-02", "until": "2027-03-31", "cancel": ["2026-12-23"] },
+
+    { "id": "opd-tue", "type": "opd", "title": "OPD ออร์โธ", "who": ["staff-a", "r3", "r1"],
+      "weekly": ["TU"], "start": "09:00", "end": "12:00",
+      "location": "OPD ศัลยกรรมกระดูก", "from": "2026-11-02", "until": "2027-03-31" },
+
+    { "id": "opd-fri", "type": "opd", "title": "OPD ออร์โธ", "who": ["staff-b", "r2", "intern"],
+      "weekly": ["FR"], "start": "09:00", "end": "12:00",
+      "location": "OPD ศัลยกรรมกระดูก", "from": "2026-11-02", "until": "2027-03-31" },
+
+    { "id": "fracture-clinic", "type": "opd", "title": "Fracture clinic (สัปดาห์เว้นสัปดาห์)", "who": ["r4", "intern"],
+      "weekly": ["TU"], "every": 2, "start": "13:00", "end": "16:00",
+      "location": "OPD ศัลยกรรมกระดูก", "from": "2026-11-03", "until": "2027-03-31" },
+
+    { "id": "mm-monthly", "type": "conf", "title": "M&M conference ทีม", "who": ["all"],
+      "monthly": { "nth": -1, "day": "FR" }, "start": "13:00", "end": "15:00",
+      "location": "ห้องประชุมกลุ่มงานออร์โธปิดิกส์", "from": "2026-11-01", "until": "2027-03-31" }
+  ],
+
+  "events": [
+    { "type": "call", "title": "เวรนอก (ER)", "who": ["r2"], "date": "2026-11-18", "start": "16:00", "end": "08:00", "location": "ER" },
+    { "type": "call", "title": "เวรนอก (ER)", "who": ["r1"], "date": "2026-11-19", "start": "16:00", "end": "08:00", "location": "ER" },
+    { "type": "call", "title": "เวรนอก (ER)", "who": ["intern"], "date": "2026-11-20", "start": "16:00", "end": "08:00", "location": "ER" },
+    { "type": "ward", "title": "ราวด์วอร์ดวันหยุด", "who": ["staff-a", "r4"], "date": "2026-11-21", "start": "08:00", "end": "10:00", "location": "หอผู้ป่วยออร์โธปิดิกส์" },
+    { "type": "call", "title": "Staff on call", "who": ["staff-b"], "date": "2026-11-21", "all_day": true },
+    { "type": "or", "title": "Elective OR เพิ่ม (ห้อง 3)", "who": ["staff-b", "r4", "r3"], "date": "2026-11-24", "start": "13:00", "end": "17:00", "location": "ห้องผ่าตัด 3", "note": "ห้องว่างจากสายอื่น — ยืนยันเคสกับ OR ก่อน 12:00 วันจันทร์" },
+    { "type": "leave", "title": "ลาพักร้อน", "who": ["r3"], "date": "2026-12-14", "end_date": "2026-12-18", "all_day": true },
+    { "type": "conf", "title": "ประชุมวิชาการ RCOST (ไปกลุ่ม)", "who": ["staff-a", "r4"], "date": "2026-11-25", "end_date": "2026-11-27", "all_day": true, "location": "กรุงเทพฯ" }
+  ]
+}
