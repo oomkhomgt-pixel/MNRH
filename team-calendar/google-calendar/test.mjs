@@ -624,5 +624,5 @@ test("ขั้น 6: ตั้งเวลา 3 ตัว · รันซ้ำ
   w.run("stopDailyLine()");
   assert.deepEqual(w.triggers.map(t => t.fn), ["monthlyHolidayCheck"]);
   w.run("CONFIG.line.evening = null; step6_startDailyLine();");   // ปิดรอบเย็น
-  assert.deepEqual(w.triggers.map(t => t.fn).sort(), ["sendMorning", "monthlyHolidayCheck"]);
+  assert.deepEqual(w.triggers.map(t => t.fn).sort(), ["monthlyHolidayCheck", "sendMorning"]);
 });
