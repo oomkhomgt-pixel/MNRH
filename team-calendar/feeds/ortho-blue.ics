@@ -3,10 +3,12 @@ VERSION:2.0
 PRODID:-//MNRH Ortho//Team calendar//TH
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
-X-WR-CALNAME:Ortho Blue Team · รพ.มหาราชนครราช
- สีมา
-X-WR-CALDESC:ปฏิทินรวมของ Ortho Blue Team · รพ
- .มหาราชนครราชสีมา
+X-WR-CALNAME:อาจารย์ออร์โธปิดิกส์ 
+ สายฟ้า · รพ.มหาราชนครราชสีม
+ า
+X-WR-CALDESC:ปฏิทินรวมของ อาจารย์อ
+ อร์โธปิดิกส์ สายฟ้า · รพ.มห
+ าราชนครราชสีมา
 X-WR-TIMEZONE:Asia/Bangkok
 X-APPLE-CALENDAR-COLOR:#2F6FDB
 REFRESH-INTERVAL;VALUE=DURATION:PT1H
@@ -22,86 +24,93 @@ DTSTART:19700101T000000
 END:STANDARD
 END:VTIMEZONE
 BEGIN:VEVENT
-UID:ward-weekday.ortho-blue@ortho-blue.mnrh-ortho
+UID:grand-round.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261102T070000
-DTEND;TZID=Asia/Bangkok:20261102T080000
-RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=MO,TU,WE,TH,FR;UNTIL=20270331T165959Z
-EXDATE;TZID=Asia/Bangkok:20261207T070000,20261210T070000,20261231T070000,20
- 270101T070000
-SUMMARY:👥 ราวด์วอร์ดเช้า
+DTSTART;TZID=Asia/Bangkok:20261102T073000
+DTEND;TZID=Asia/Bangkok:20261102T083000
+RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=MO;UNTIL=20270331T165959Z
+EXDATE;TZID=Asia/Bangkok:20261207T073000
+SUMMARY:👥 Grand round สายฟ้า
 LOCATION:หอผู้ป่วยออร์โธปิดิกส์
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🟣 อ.พญ. ตัวอ
- ย่าง สอง (Staff)\, 🔴 นพ. ตัวอย่าง ส
- าม (R4)\, 🟠 พญ. ตัวอย่าง สี่ (R3)\, 🟢 
- นพ. ตัวอย่าง ห้า (R2)\, 🟡 พญ. ตัว
- อย่าง หก (R1)\, 🟤 นพ. ตัวอย่าง เ
- จ็ด (Intern)\nปฏิทินทีม: https://oomkhomgt-pixel.g
- ithub.io/MNRH/team-calendar/
-CATEGORIES:ราวด์วอร์ด
+ วอย่าง หนึ่ง (Staff)\, 🟠 อ.พญ. ตัวอ
+ ย่าง สอง (Staff)\, 🟢 อ.นพ. ตัวอย่าง
+  สาม (Staff)
+CATEGORIES:ราวด์
 COLOR:royalblue
 TRANSP:OPAQUE
 END:VEVENT
 BEGIN:VEVENT
-UID:or-mon-thu.ortho-blue@ortho-blue.mnrh-ortho
+UID:or-a.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261102T083000
 DTEND;TZID=Asia/Bangkok:20261102T163000
 RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=MO,TH;UNTIL=20270331T165959Z
-EXDATE;TZID=Asia/Bangkok:20261207T083000,20261210T083000,20261231T083000
-SUMMARY:🔵🔴🟢 OR ทีมฟ้า (ห้อง 5)
+EXDATE;TZID=Asia/Bangkok:20261126T083000,20261207T083000,20261210T083000,20
+ 261231T083000
+SUMMARY:🔵 OR (ห้อง 5) — อ.หนึ่ง
 LOCATION:ห้องผ่าตัด 5
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🔴 นพ. ตัวอ
- ย่าง สาม (R4)\, 🟢 นพ. ตัวอย่าง ห้
- า (R2)\nปฏิทินทีม: https://oomkhomgt-pixel.github.io/M
- NRH/team-calendar/
+ วอย่าง หนึ่ง (Staff)
 CATEGORIES:ผ่าตัด (OR)
 COLOR:royalblue
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:OR ทีมฟ้า (ห้อง 5)
+DESCRIPTION:OR (ห้อง 5)
 TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:or-wed.ortho-blue@ortho-blue.mnrh-ortho
+UID:or-b.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261104T083000
 DTEND;TZID=Asia/Bangkok:20261104T163000
 RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=WE;UNTIL=20270331T165959Z
-EXDATE;TZID=Asia/Bangkok:20261223T083000
-SUMMARY:🟣🟠🟡 OR ทีมฟ้า (ห้อง 6)
+EXDATE;TZID=Asia/Bangkok:20261216T083000
+SUMMARY:🟠 OR (ห้อง 6) — อ.สอง
 LOCATION:ห้องผ่าตัด 6
-DESCRIPTION:ผู้รับผิดชอบ: 🟣 อ.พญ. ตั
- วอย่าง สอง (Staff)\, 🟠 พญ. ตัวอย่า
- ง สี่ (R3)\, 🟡 พญ. ตัวอย่าง หก (R1)\n
- ปฏิทินทีม: https://oomkhomgt-pixel.github.io/MNRH/team-c
- alendar/
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
 CATEGORIES:ผ่าตัด (OR)
-COLOR:mediumpurple
+COLOR:darkorange
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:OR ทีมฟ้า (ห้อง 6)
+DESCRIPTION:OR (ห้อง 6)
 TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:opd-tue.ortho-blue@ortho-blue.mnrh-ortho
+UID:or-c.ortho-blue@ortho-blue.mnrh-ortho
+DTSTAMP:20260101T000000Z
+DTSTART;TZID=Asia/Bangkok:20261103T083000
+DTEND;TZID=Asia/Bangkok:20261103T163000
+RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=TU,FR;UNTIL=20270331T165959Z
+EXDATE;TZID=Asia/Bangkok:20270101T083000
+SUMMARY:🟢 OR (ห้อง 5) — อ.สาม
+LOCATION:ห้องผ่าตัด 5
+DESCRIPTION:ผู้รับผิดชอบ: 🟢 อ.นพ. ตั
+ วอย่าง สาม (Staff)
+CATEGORIES:ผ่าตัด (OR)
+COLOR:seagreen
+TRANSP:OPAQUE
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:OR (ห้อง 5)
+TRIGGER:-PT30M
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:opd-a.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261103T090000
 DTEND;TZID=Asia/Bangkok:20261103T120000
 RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=TU;UNTIL=20270331T165959Z
-SUMMARY:🔵🟠🟡 OPD ออร์โธ
+SUMMARY:🔵 OPD ออร์โธ — อ.หนึ่ง
 LOCATION:OPD ศัลยกรรมกระดูก
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🟠 พญ. ตัวอ
- ย่าง สี่ (R3)\, 🟡 พญ. ตัวอย่าง หก
-  (R1)\nปฏิทินทีม: https://oomkhomgt-pixel.github.io/MNRH
- /team-calendar/
+ วอย่าง หนึ่ง (Staff)
 CATEGORIES:OPD
 COLOR:royalblue
 TRANSP:OPAQUE
@@ -112,21 +121,18 @@ TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:opd-fri.ortho-blue@ortho-blue.mnrh-ortho
+UID:opd-b.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261106T090000
 DTEND;TZID=Asia/Bangkok:20261106T120000
 RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=FR;UNTIL=20270331T165959Z
 EXDATE;TZID=Asia/Bangkok:20270101T090000
-SUMMARY:🟣🟢🟤 OPD ออร์โธ
+SUMMARY:🟠 OPD ออร์โธ — อ.สอง
 LOCATION:OPD ศัลยกรรมกระดูก
-DESCRIPTION:ผู้รับผิดชอบ: 🟣 อ.พญ. ตั
- วอย่าง สอง (Staff)\, 🟢 นพ. ตัวอย่า
- ง ห้า (R2)\, 🟤 นพ. ตัวอย่าง เจ็ด (I
- ntern)\nปฏิทินทีม: https://oomkhomgt-pixel.github.io/MNR
- H/team-calendar/
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
 CATEGORIES:OPD
-COLOR:mediumpurple
+COLOR:darkorange
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
@@ -135,25 +141,42 @@ TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:fracture-clinic.ortho-blue@ortho-blue.mnrh-ortho
+UID:opd-c.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261103T130000
-DTEND;TZID=Asia/Bangkok:20261103T160000
-RRULE:FREQ=WEEKLY;WKST=MO;INTERVAL=2;BYDAY=TU;UNTIL=20270331T165959Z
-SUMMARY:🔴🟤 Fracture clinic (สัปดาห์เว้นสั
- ปดาห์) — R4 สาม\, Int เจ็ด
+DTSTART;TZID=Asia/Bangkok:20261104T090000
+DTEND;TZID=Asia/Bangkok:20261104T120000
+RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=WE;UNTIL=20270331T165959Z
+SUMMARY:🟢 OPD ออร์โธ — อ.สาม
 LOCATION:OPD ศัลยกรรมกระดูก
-DESCRIPTION:ผู้รับผิดชอบ: 🔴 นพ. ตัวอ
- ย่าง สาม (R4)\, 🟤 นพ. ตัวอย่าง เ
- จ็ด (Intern)\nปฏิทินทีม: https://oomkhomgt-pixel.g
- ithub.io/MNRH/team-calendar/
+DESCRIPTION:ผู้รับผิดชอบ: 🟢 อ.นพ. ตั
+ วอย่าง สาม (Staff)
 CATEGORIES:OPD
-COLOR:crimson
+COLOR:seagreen
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:Fracture clinic (สัปดาห์เว้นสัปด
- าห์)
+DESCRIPTION:OPD ออร์โธ
+TRIGGER:-PT30M
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:clinic-a.ortho-blue@ortho-blue.mnrh-ortho
+DTSTAMP:20260101T000000Z
+DTSTART;TZID=Asia/Bangkok:20261104T130000
+DTEND;TZID=Asia/Bangkok:20261104T160000
+RRULE:FREQ=WEEKLY;WKST=MO;INTERVAL=2;BYDAY=WE;UNTIL=20270331T165959Z
+SUMMARY:🔵 คลินิกเฉพาะทาง (สัปดา
+ ห์เว้นสัปดาห์) — อ.หนึ่ง
+LOCATION:OPD ศัลยกรรมกระดูก
+DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
+ วอย่าง หนึ่ง (Staff)
+CATEGORIES:OPD
+COLOR:royalblue
+TRANSP:OPAQUE
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:คลินิกเฉพาะทาง (สัปดา
+ ห์เว้นสัปดาห์)
 TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
@@ -163,163 +186,129 @@ DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261127T130000
 DTEND;TZID=Asia/Bangkok:20261127T150000
 RRULE:FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20270331T165959Z
-SUMMARY:👥 M&M conference ทีม
+SUMMARY:👥 M&M conference
 LOCATION:ห้องประชุมกลุ่มงานออร์
  โธปิดิกส์
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🟣 อ.พญ. ตัวอ
- ย่าง สอง (Staff)\, 🔴 นพ. ตัวอย่าง ส
- าม (R4)\, 🟠 พญ. ตัวอย่าง สี่ (R3)\, 🟢 
- นพ. ตัวอย่าง ห้า (R2)\, 🟡 พญ. ตัว
- อย่าง หก (R1)\, 🟤 นพ. ตัวอย่าง เ
- จ็ด (Intern)\nปฏิทินทีม: https://oomkhomgt-pixel.g
- ithub.io/MNRH/team-calendar/
-CATEGORIES:Conference
+ วอย่าง หนึ่ง (Staff)\, 🟠 อ.พญ. ตัวอ
+ ย่าง สอง (Staff)\, 🟢 อ.นพ. ตัวอย่าง
+  สาม (Staff)
+CATEGORIES:สอน / conference ในแผนก
 COLOR:royalblue
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:M&M conference ทีม
+DESCRIPTION:M&M conference
 TRIGGER:-PT15M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:ev-2026-11-18-ngcmri.ortho-blue@ortho-blue.mnrh-ortho
+UID:ev-2026-11-18-yxt5m2.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261118T160000
-DTEND;TZID=Asia/Bangkok:20261119T080000
-SUMMARY:🟢 เวรนอก (ER) — R2 ห้า
-LOCATION:ER
-DESCRIPTION:ผู้รับผิดชอบ: 🟢 นพ. ตัวอ
- ย่าง ห้า (R2)\nปฏิทินทีม: https://oomkhomg
- t-pixel.github.io/MNRH/team-calendar/
+DTSTART;VALUE=DATE:20261118
+DTEND;VALUE=DATE:20261119
+SUMMARY:🟠 Staff on call — อ.สอง
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
+CATEGORIES:เวร
+COLOR:darkorange
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+UID:ev-2026-11-19-9nv1hw.ortho-blue@ortho-blue.mnrh-ortho
+DTSTAMP:20260101T000000Z
+DTSTART;VALUE=DATE:20261119
+DTEND;VALUE=DATE:20261120
+SUMMARY:🟢 Staff on call — อ.สาม
+DESCRIPTION:ผู้รับผิดชอบ: 🟢 อ.นพ. ตั
+ วอย่าง สาม (Staff)
 CATEGORIES:เวร
 COLOR:seagreen
 TRANSP:OPAQUE
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:เวรนอก (ER)
-TRIGGER:-PT60M
-END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:ev-2026-11-19-byoijc.ortho-blue@ortho-blue.mnrh-ortho
+UID:ev-2026-11-20-1j2mrr2.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261119T160000
-DTEND;TZID=Asia/Bangkok:20261120T080000
-SUMMARY:🟡 เวรนอก (ER) — R1 หก
-LOCATION:ER
-DESCRIPTION:ผู้รับผิดชอบ: 🟡 พญ. ตัวอ
- ย่าง หก (R1)\nปฏิทินทีม: https://oomkhomgt-p
- ixel.github.io/MNRH/team-calendar/
-CATEGORIES:เวร
-COLOR:gold
-TRANSP:OPAQUE
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:เวรนอก (ER)
-TRIGGER:-PT60M
-END:VALARM
-END:VEVENT
-BEGIN:VEVENT
-UID:ev-2026-11-20-1pec985.ortho-blue@ortho-blue.mnrh-ortho
-DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261120T160000
-DTEND;TZID=Asia/Bangkok:20261121T080000
-SUMMARY:🟤 เวรนอก (ER) — Int เจ็ด
-LOCATION:ER
-DESCRIPTION:ผู้รับผิดชอบ: 🟤 นพ. ตัวอ
- ย่าง เจ็ด (Intern)\nปฏิทินทีม: https://o
- omkhomgt-pixel.github.io/MNRH/team-calendar/
-CATEGORIES:เวร
-COLOR:sienna
-TRANSP:OPAQUE
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:เวรนอก (ER)
-TRIGGER:-PT60M
-END:VALARM
-END:VEVENT
-BEGIN:VEVENT
-UID:ev-2026-11-21-38mit9.ortho-blue@ortho-blue.mnrh-ortho
-DTSTAMP:20260101T000000Z
-DTSTART;TZID=Asia/Bangkok:20261121T080000
-DTEND;TZID=Asia/Bangkok:20261121T100000
-SUMMARY:🔵🔴 ราวด์วอร์ดวันหยุด — 
- อ.หนึ่ง\, R4 สาม
-LOCATION:หอผู้ป่วยออร์โธปิดิกส์
+DTSTART;VALUE=DATE:20261120
+DTEND;VALUE=DATE:20261121
+SUMMARY:🔵 Staff on call — อ.หนึ่ง
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🔴 นพ. ตัวอ
- ย่าง สาม (R4)\nปฏิทินทีม: https://oomkhomg
- t-pixel.github.io/MNRH/team-calendar/
-CATEGORIES:ราวด์วอร์ด
+ วอย่าง หนึ่ง (Staff)
+CATEGORIES:เวร
 COLOR:royalblue
 TRANSP:OPAQUE
 END:VEVENT
 BEGIN:VEVENT
-UID:ev-2026-11-21-1ct8hem.ortho-blue@ortho-blue.mnrh-ortho
+UID:ev-2026-11-21-1028hp2.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;VALUE=DATE:20261121
-DTEND;VALUE=DATE:20261122
-SUMMARY:🟣 Staff on call — อ.สอง
-DESCRIPTION:ผู้รับผิดชอบ: 🟣 อ.พญ. ตั
- วอย่าง สอง (Staff)\nปฏิทินทีม: https:/
- /oomkhomgt-pixel.github.io/MNRH/team-calendar/
+DTEND;VALUE=DATE:20261123
+SUMMARY:🟠 Staff on call (เสาร์–อาทิตย์) — 
+ อ.สอง
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
 CATEGORIES:เวร
-COLOR:mediumpurple
+COLOR:darkorange
 TRANSP:OPAQUE
 END:VEVENT
 BEGIN:VEVENT
-UID:ev-2026-11-24-1vtphov.ortho-blue@ortho-blue.mnrh-ortho
+UID:ev-2026-11-24-16q6hgr.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;TZID=Asia/Bangkok:20261124T130000
 DTEND;TZID=Asia/Bangkok:20261124T170000
-SUMMARY:🟣🔴🟠 Elective OR เพิ่ม (ห้อง 3)
+SUMMARY:🟠 OR เพิ่ม (ห้อง 3) — อ.สอง
 LOCATION:ห้องผ่าตัด 3
-DESCRIPTION:ผู้รับผิดชอบ: 🟣 อ.พญ. ตั
- วอย่าง สอง (Staff)\, 🔴 นพ. ตัวอย่า
- ง สาม (R4)\, 🟠 พญ. ตัวอย่าง สี่ (R3)\
- nห้องว่างจากสายอื่น — ยืน
- ยันเคสกับ OR ก่อน 12:00 วันจันท
- ร์\nปฏิทินทีม: https://oomkhomgt-pixel.github.io/MNR
- H/team-calendar/
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
 CATEGORIES:ผ่าตัด (OR)
-COLOR:mediumpurple
+COLOR:darkorange
 TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:Elective OR เพิ่ม (ห้อง 3)
+DESCRIPTION:OR เพิ่ม (ห้อง 3)
 TRIGGER:-PT30M
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
-UID:ev-2026-12-14-10nvano.ortho-blue@ortho-blue.mnrh-ortho
-DTSTAMP:20260101T000000Z
-DTSTART;VALUE=DATE:20261214
-DTEND;VALUE=DATE:20261219
-SUMMARY:🟠 ลาพักร้อน — R3 สี่
-DESCRIPTION:ผู้รับผิดชอบ: 🟠 พญ. ตัวอ
- ย่าง สี่ (R3)\nปฏิทินทีม: https://oomkhomg
- t-pixel.github.io/MNRH/team-calendar/
-CATEGORIES:ลา
-COLOR:darkorange
-TRANSP:TRANSPARENT
-END:VEVENT
-BEGIN:VEVENT
-UID:ev-2026-11-25-10eytr9.ortho-blue@ortho-blue.mnrh-ortho
+UID:ev-2026-11-25-f17ebb.ortho-blue@ortho-blue.mnrh-ortho
 DTSTAMP:20260101T000000Z
 DTSTART;VALUE=DATE:20261125
 DTEND;VALUE=DATE:20261128
-SUMMARY:🔵🔴 ประชุมวิชาการ RCOST (ไปก
- ลุ่ม) — อ.หนึ่ง\, R4 สาม
+SUMMARY:🔵 ประชุมวิชาการ RCOST — อ.ห
+ นึ่ง
 LOCATION:กรุงเทพฯ
 DESCRIPTION:ผู้รับผิดชอบ: 🔵 อ.นพ. ตั
- วอย่าง หนึ่ง (Staff)\, 🔴 นพ. ตัวอ
- ย่าง สาม (R4)\nปฏิทินทีม: https://oomkhomg
- t-pixel.github.io/MNRH/team-calendar/
-CATEGORIES:Conference
+ วอย่าง หนึ่ง (Staff)
+CATEGORIES:ไปประชุม / อบรม
 COLOR:royalblue
 TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+UID:ev-2026-11-23-12454lh.ortho-blue@ortho-blue.mnrh-ortho
+DTSTAMP:20260101T000000Z
+DTSTART;TZID=Asia/Bangkok:20261123T133000
+DTEND;TZID=Asia/Bangkok:20261123T153000
+SUMMARY:🟢 ประชุมคณะกรรมการ รพ. — 
+ อ.สาม
+LOCATION:ห้องประชุมชั้น 2 อาคารอำ
+ นวยการ
+DESCRIPTION:ผู้รับผิดชอบ: 🟢 อ.นพ. ตั
+ วอย่าง สาม (Staff)
+CATEGORIES:ไปประชุม / อบรม
+COLOR:seagreen
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+UID:ev-2026-12-14-tegx9k.ortho-blue@ortho-blue.mnrh-ortho
+DTSTAMP:20260101T000000Z
+DTSTART;VALUE=DATE:20261214
+DTEND;VALUE=DATE:20261219
+SUMMARY:🟠 ลาพักร้อน — อ.สอง
+DESCRIPTION:ผู้รับผิดชอบ: 🟠 อ.พญ. ตั
+ วอย่าง สอง (Staff)
+CATEGORIES:ลา
+COLOR:darkorange
+TRANSP:TRANSPARENT
 END:VEVENT
 BEGIN:VEVENT
 UID:hol-2026-12-05.ortho-blue@ortho-blue.mnrh-ortho

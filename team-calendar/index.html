@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ปฏิทินทีม Ortho Blue</title>
-<meta name="description" content="ปฏิทินงานของทีมออร์โธปิดิกส์ (ทีมฟ้า) รพ.มหาราชนครราชสีมา — สมัครรับใน Apple Calendar หรือ Google Calendar ได้">
-<link rel="icon" href="../brand/favicon-32.png">
-<link rel="apple-touch-icon" href="../brand/apple-touch-icon-180.png">
+<title>ปฏิทินอาจารย์สายฟ้า</title>
+<meta name="description" content="ปฏิทินงาน วันลา และการไปประชุมของอาจารย์ออร์โธปิดิกส์สายฟ้า — สมัครรับใน Apple Calendar หรือ Google Calendar ได้">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232F6FDB'/%3E%3Crect x='14' y='18' width='36' height='32' rx='5' fill='%23fff'/%3E%3Crect x='14' y='18' width='36' height='9' rx='4' fill='%23BBD2F7'/%3E%3Ccircle cx='24' cy='36' r='3' fill='%232F6FDB'/%3E%3Ccircle cx='32' cy='36' r='3' fill='%23E8790C'/%3E%3Ccircle cx='40' cy='36' r='3' fill='%232E9E4F'/%3E%3Crect x='21' y='12' width='4' height='10' rx='2' fill='%23fff'/%3E%3Crect x='39' y='12' width='4' height='10' rx='2' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#f6f7f9;--card:#fff;--ink:#12181f;--muted:#5f6e7c;--line:#e2e7ec;
@@ -102,7 +101,7 @@ details li{margin:3px 0}
 <body>
 <div class="wrap">
   <header>
-    <img src="../brand/or-system-icon-192.png" alt="">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232F6FDB'/%3E%3Crect x='14' y='18' width='36' height='32' rx='5' fill='%23fff'/%3E%3Crect x='14' y='18' width='36' height='9' rx='4' fill='%23BBD2F7'/%3E%3Ccircle cx='24' cy='36' r='3' fill='%232F6FDB'/%3E%3Ccircle cx='32' cy='36' r='3' fill='%23E8790C'/%3E%3Ccircle cx='40' cy='36' r='3' fill='%232E9E4F'/%3E%3Crect x='21' y='12' width='4' height='10' rx='2' fill='%23fff'/%3E%3Crect x='39' y='12' width='4' height='10' rx='2' fill='%23fff'/%3E%3C/svg%3E" alt="">
     <div>
       <h1 id="teamName">ปฏิทินทีม</h1>
       <div class="sub" id="teamSub">กำลังโหลด…</div>
@@ -133,7 +132,7 @@ details li{margin:3px 0}
 
   <section class="card" aria-label="สมัครรับปฏิทิน">
     <h2>เพิ่มลงปฏิทินในมือถือ</h2>
-    <p class="sub" style="margin:-4px 0 10px">แนะนำให้แต่ละคนเพิ่ม <b>ปฏิทินของตัวเอง</b> — แต่ละปฏิทินมีสีประจำตัว ถ้าเพิ่มหลายคน (เช่นของ staff และ resident ในสาย) จะเห็นงานแยกสีตามคนในแอปเดียว · ปฏิทินรวมมีจุดสีของแต่ละคนอยู่หน้าชื่องาน</p>
+    <p class="sub" style="margin:-4px 0 10px">แต่ละคนมีปฏิทินของตัวเองหนึ่งอัน สีประจำตัว — <b>เพิ่มของอาจารย์ทุกท่าน</b> จะเห็นงาน วันลา และการไปประชุมของทุกคนแยกสีในแอปปฏิทินของเครื่อง · หรือเพิ่มปฏิทินรวมอันเดียว (มีจุดสีของแต่ละคนหน้าชื่องาน)</p>
     <div class="feeds" id="feeds"></div>
     <details>
       <summary>วิธีเพิ่ม และข้อควรรู้</summary>
@@ -310,9 +309,9 @@ async function main() {
   if (errors.length) { $("#teamSub").textContent = "schedule.json มีข้อผิดพลาด " + errors.length + " จุด"; console.error(errors); return; }
   MM = memberMap(S);
   if (person !== "all" && !MM.has(person)) person = "all";
-  $("#teamName").textContent = "ปฏิทินทีม " + (S.team.short || S.team.name);
+  $("#teamName").textContent = S.team.title || "ปฏิทิน " + (S.team.short || S.team.name);
   $("#teamSub").textContent = S.team.name + " · วันนี้ " + thaiDate(today, { long: true });
-  document.title = "ปฏิทินทีม " + (S.team.short || S.team.name);
+  document.title = S.team.title || "ปฏิทิน " + (S.team.short || S.team.name);
   renderPeople(); renderFeeds(); renderConflicts();
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { view = b.dataset.view; store.set("view", view); anchor = today; selected = today; render(); });
   $("#prev").onclick = () => shift(-1);

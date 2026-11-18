@@ -1,26 +1,21 @@
-# ปฏิทินทีมออร์โธ (ทีมฟ้า) — ดู team-calendar/README.md
+# ปฏิทินอาจารย์ออร์โธปิดิกส์สายฟ้า — ดู team-calendar/README.md
 #
-# งานสองอย่างในไฟล์เดียว:
-#   1. build  — ทุกครั้งที่แก้ team-calendar/schedule.json (แก้บนหน้าเว็บ GitHub ได้เลย) จะตรวจไฟล์ สร้างไฟล์ปฏิทิน .ics ใหม่
-#               แล้ว commit กลับเข้า branch เดิมให้เอง — ผู้ประสานงานไม่ต้องติดตั้งอะไรในเครื่อง
-#   2. notify — ส่งสรุปงานของแต่ละคนเข้ากลุ่ม LINE วันละสองรอบ: 06:45 (งานวันนี้) และ 18:45 (งานพรุ่งนี้) เวลาไทย
-#               ตารางเวลา (schedule) ของ GitHub ทำงานเฉพาะบน branch หลัก (main) เท่านั้น
-name: ปฏิทินทีมออร์โธ
+# งานเดียวที่ทำอัตโนมัติ: ทุกครั้งที่แก้ team-calendar/schedule.json (แก้บนหน้าเว็บ GitHub ได้เลย)
+# จะตรวจไฟล์ สร้างไฟล์ปฏิทิน .ics ใหม่ แล้ว commit กลับเข้า branch เดิมให้เอง
+#
+# ★ ไม่ผูกกับระบบอื่นของแผนก — ไม่ใช้ secret ร่วม ไม่แตะไฟล์นอก team-calendar/
+# ★ การแจ้งเตือน LINE ปิดไว้ก่อน: ไม่มีตารางเวลา (schedule) ส่งอัตโนมัติ เหลือเฉพาะปุ่มสั่งเองเพื่อทดสอบข้อความ
+name: ปฏิทินอาจารย์สายฟ้า
 
 on:
   push:
     paths:
       - "team-calendar/schedule.json"
       - "team-calendar/*.mjs"
-  schedule:
-    # ไทยเป็น UTC+7 ตลอดปี: 23:45 UTC = 06:45 น. · 11:45 UTC = 18:45 น.
-    # ไม่ใช้นาทีที่ 0 เพราะ GitHub มักเลื่อนรอบตรงชั่วโมงออกไป 10–30 นาทีช่วงคนใช้เยอะ
-    - cron: "45 23 * * *"
-    - cron: "45 11 * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "ส่งของวันไหน"
+        description: "ทดสอบข้อความ LINE ของวันไหน"
         type: choice
         options: [auto, today, tomorrow]
         default: auto
@@ -68,7 +63,7 @@ jobs:
 
   notify:
     if: github.event_name != 'push'
-    name: ส่งงานของแต่ละคนเข้ากลุ่ม LINE
+    name: ทดสอบข้อความ LINE (สั่งเองเท่านั้น)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
@@ -83,10 +78,9 @@ jobs:
         run: node --test team-calendar/test.mjs
       - name: ส่ง
         env:
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          TEAM_LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.TEAM_LINE_CHANNEL_ACCESS_TOKEN }}
           TEAM_LINE_GROUP_ID: ${{ secrets.TEAM_LINE_GROUP_ID }}
           TEAM_LINE_USER_IDS: ${{ secrets.TEAM_LINE_USER_IDS }}
-          # inputs มีเฉพาะตอนสั่งเอง — รอบตามตารางเวลาเป็นค่าว่าง จึงได้ mode=auto และส่งจริง
           MODE: ${{ github.event.inputs.mode || 'auto' }}
           DATE: ${{ github.event.inputs.date }}
           DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
@@ -96,9 +90,8 @@ jobs:
           if [ "$DRY_RUN_INPUT" = "true" ]; then
             echo "สั่งทดสอบ (dry-run) — ไม่ส่งเข้า LINE จริง"
             ARGS="$ARGS --dry-run"
-          elif [ -z "$LINE_CHANNEL_ACCESS_TOKEN" ] || [ -z "$TEAM_LINE_GROUP_ID" ]; then
-            # ยังไม่ได้ตั้งค่า LINE — ไม่ทำให้รอบตามตารางเวลาแดงทุกวัน แค่แสดงข้อความตัวอย่าง
-            echo "::notice::ยังไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN / TEAM_LINE_GROUP_ID ใน GitHub Secrets — แสดงข้อความตัวอย่างแทน (ดู team-calendar/README.md)"
+          elif [ -z "$TEAM_LINE_CHANNEL_ACCESS_TOKEN" ] || [ -z "$TEAM_LINE_GROUP_ID" ]; then
+            echo "::notice::ยังไม่ได้ตั้ง TEAM_LINE_CHANNEL_ACCESS_TOKEN / TEAM_LINE_GROUP_ID ใน GitHub Secrets — แสดงข้อความตัวอย่างแทน"
             ARGS="$ARGS --dry-run"
           fi
           node team-calendar/notify.mjs $ARGS

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /* ส่งสรุปงานของแต่ละคนเข้ากลุ่ม LINE ของทีม
+   ★ ส่วนนี้ปิดไว้ก่อน — ไม่มีตารางเวลาส่งอัตโนมัติ (ดู README) ใช้ได้เฉพาะสั่งเองเพื่อทดสอบ
    ใช้:  node notify.mjs [--mode=today|tomorrow|auto] [--date=YYYY-MM-DD] [--dry-run]
      --mode=auto (ค่าเริ่มต้น)  ก่อนเที่ยงตามเวลาไทย = งานวันนี้ · หลังเที่ยง = งานพรุ่งนี้
      --date=...                 ส่งของวันที่ระบุ (ใช้ทดสอบ)
      --dry-run                  ไม่ส่งจริง พิมพ์ข้อความออกมาดู
 
    ค่าลับมาจาก environment variable เท่านั้น (GitHub Secrets) ห้ามเขียนลงไฟล์ใดในโปรเจกต์:
-     LINE_CHANNEL_ACCESS_TOKEN   token ของบอท (ใช้ตัวเดียวกับ line-alert/ ได้ — บอทเดียวอยู่ได้หลายกลุ่ม)
-     TEAM_LINE_GROUP_ID          group ID ของกลุ่ม LINE ทีมฟ้า
+     TEAM_LINE_CHANNEL_ACCESS_TOKEN   token ของบอท LINE ของปฏิทินนี้เอง (แยกจากระบบอื่นของแผนก)
+     TEAM_LINE_GROUP_ID               group ID ของกลุ่ม LINE ที่จะให้ส่ง
      TEAM_LINE_USER_IDS          (ไม่บังคับ) JSON จับคู่ id สมาชิก → LINE userId เพื่อ @แท็กชื่อ
                                  เช่น {"r2":"U1234...","staff-a":"Uabcd..."} — คนที่ถูกแท็กได้แจ้งเตือนแม้ปิดเสียงกลุ่ม */
 import { fileURLToPath } from "node:url";
@@ -82,7 +83,7 @@ export function lineMessage({ text, substitution }) {
 }
 
 export async function push({ token, groupId, message }) {
-  if (!token) throw new Error("ไม่มี LINE_CHANNEL_ACCESS_TOKEN — ตั้งค่าใน GitHub Secrets ก่อน (ดู team-calendar/README.md)");
+  if (!token) throw new Error("ไม่มี TEAM_LINE_CHANNEL_ACCESS_TOKEN — ตั้งค่าใน GitHub Secrets ก่อน (ดู team-calendar/README.md)");
   if (!groupId) throw new Error("ไม่มี TEAM_LINE_GROUP_ID — ตั้งค่าใน GitHub Secrets ก่อน (ดู team-calendar/README.md)");
   const res = await fetch(LINE_PUSH_URL, {
     method: "POST",
@@ -118,7 +119,7 @@ async function main() {
   console.log("== " + mode + " " + date + " · แท็ก " + Object.keys(msg.substitution).length + " คน ==\n" + msg.text + "\n== จบ (" + msg.text.length + " ตัวอักษร) ==");
   if (msg.isEmpty) { console.log("ไม่มีงานของใครในวันนั้น — ไม่ส่งข้อความ (กันกลุ่มรก)"); return; }
   if (dryRun) { console.log("[dry-run] ไม่ได้ส่งเข้า LINE จริง"); return; }
-  await push({ token: process.env.LINE_CHANNEL_ACCESS_TOKEN, groupId: process.env.TEAM_LINE_GROUP_ID, message: lineMessage(msg) });
+  await push({ token: process.env.TEAM_LINE_CHANNEL_ACCESS_TOKEN, groupId: process.env.TEAM_LINE_GROUP_ID, message: lineMessage(msg) });
   console.log("✅ ส่งเข้ากลุ่ม LINE แล้ว");
 }
 
