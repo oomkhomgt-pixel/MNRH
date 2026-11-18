@@ -181,6 +181,18 @@ test("ตรวจ CONFIG: จับชื่อผิด วันไม่ต�
   assert.throws(() => w.run("checkConfig_(CONFIG)"), e => /ไม่รู้จัก "ไม่มีคนนี้"/.test(e.message) && /ไม่ตรงกับ day WE/.test(e.message) && /เวลาต้องเป็น HH:mm/.test(e.message));
 });
 
+test("พฤหัสบดี: ER และ OPD ของสายฟ้าทุก 4 สัปดาห์ วนคนตามลำดับ · รอบที่ตรงวันหยุด คนนั้นเลื่อนไปรอบถัดไป", () => {
+  const w = makeWorld().setup();
+  const on = (title, ymd) => PEOPLE.filter(p => w.cal(p).getEvents(bkk(ymd), bkk(ymd, "23:59")).some(e => e.title === title && e.getTag("sayfa"))).join();
+  assert.deepEqual(["2026-12-03", "2026-12-10", "2026-12-31", "2027-01-28", "2027-02-25"].map(d => on("ER", d)), ["คงธัช", "", "ชนกันต์", "มานิตา", "ศุภศักดิ์"]);
+  assert.deepEqual(["2026-12-17", "2026-12-24", "2027-01-14", "2027-02-11", "2027-03-11", "2027-04-08"].map(d => on("OPD", d)), ["มานิตา", "", "ศุภศักดิ์", "อดิศร", "คงธัช", "ชนกันต์"]);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-31").sort(), ["ER", "OR"]);     // ซ้อนกับ OR ประจำวันพฤหัสของชนกันต์
+  w.run("step3_syncHolidays()");                                                   // 31 ธ.ค. เป็นวันหยุด: รอบนั้นงด ชนกันต์ไปรอบ 28 ม.ค.
+  assert.deepEqual(["2026-12-03", "2026-12-31", "2027-01-28", "2027-02-25"].map(d => on("ER", d)), ["คงธัช", "", "ชนกันต์", "มานิตา"]);
+  assert.deepEqual(["2026-12-17", "2027-01-14"].map(d => on("OPD", d)), ["มานิตา", "ศุภศักดิ์"]);
+  assert.match(w.run('formatDigest_(collectDay_("2026-12-03"), "today").text'), /🟢 คงธัช · 08:00–16:00 ER\n🟣 ชนกันต์ · 08:00–16:00 OR/);
+});
+
 test("ตั้งค่าครั้งแรก: ปฏิทิน 6 อัน งานประจำ และเวรพุธ · รันซ้ำไม่สร้างซ้ำ", () => {
   const w = makeWorld().setup();
   assert.deepEqual(w.calendars.map(c => c.name), [...PEOPLE.map(p => "สายฟ้า – " + p), "สายฟ้า – ทุกคน"]);
@@ -189,7 +201,7 @@ test("ตั้งค่าครั้งแรก: ปฏิทิน 6 อั
   const singles = () => w.calendars.reduce((n, c) => n + c.singles.length, 0);
   assert.equal(series(), 6);
   const n = singles();
-  assert.equal(n, 45 * 2);                                                    // พุธ 25 พ.ย. 2569 – 29 ก.ย. 2570 = 45 สัปดาห์ × 2 งาน
+  assert.equal(n, 45 * 2 + 11 + 11);                                          // พุธ 45 สัปดาห์ × 2 งาน + ER พฤหัส 11 รอบ + OPD พฤหัส 11 รอบ (ทุก 4 สัปดาห์)
   w.run("step1_createCalendars(); step2_createRoutine(); syncRotations_([], today_());");
   assert.equal(w.calendars.length, 6);
   assert.equal(series(), 6);

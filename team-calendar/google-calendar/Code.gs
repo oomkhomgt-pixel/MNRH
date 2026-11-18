@@ -47,7 +47,14 @@ const CONFIG = {
       tasks: [
         { title: 'ER',       start: '08:00', end: '16:00' },
         { title: 'OPD ปกส.', start: '13:00', end: '15:00' }
-      ] }
+      ] },
+    // พฤหัสบดี: ER และ OPD วนกันระหว่างสาย — สายฟ้าได้ทุก 4 สัปดาห์ (everyWeeks: 4) แล้ววนคนในสายตามลำดับชื่อเดิม
+    { key: 'thu-er', day: 'TH', firstDate: '2026-12-03', everyWeeks: 4,
+      order: ['คงธัช', 'ชนกันต์', 'มานิตา', 'ศุภศักดิ์', 'อดิศร'],
+      tasks: [{ title: 'ER', start: '08:00', end: '16:00' }] },
+    { key: 'thu-opd', day: 'TH', firstDate: '2026-12-17', everyWeeks: 4,
+      order: ['มานิตา', 'ศุภศักดิ์', 'อดิศร', 'คงธัช', 'ชนกันต์'],
+      tasks: [{ title: 'OPD', start: '09:00', end: '16:00' }] }
   ],
 
   // ── วันหยุดราชการ ───────────────────────────────────────────────────────────
@@ -181,6 +188,7 @@ function checkConfig_(cfg) {
     else r.order.forEach(function (n, j) { if (names.indexOf(n) < 0) errs.push(w + ': ไม่รู้จัก "' + n + '"'); if (r.order.indexOf(n) !== j) errs.push(w + ': "' + n + '" ซ้ำใน order'); });
     (r.tasks || []).forEach(function (t, j) { if (!t.title) errs.push(w + '.tasks[' + j + ']: ไม่มี title'); checkTime(w + ' ' + (t.title || ''), t); });
     if (!r.tasks || !r.tasks.length) errs.push(w + ': tasks ว่าง');
+    if (r.everyWeeks != null && !(r.everyWeeks >= 1 && r.everyWeeks <= 12 && Math.floor(r.everyWeeks) === r.everyWeeks)) errs.push(w + ': everyWeeks ต้องเป็นจำนวนเต็ม 1–12');
   });
   if (errs.length) throw new Error('CONFIG มีจุดที่ต้องแก้:\n• ' + errs.join('\n• '));
 }
@@ -211,7 +219,8 @@ function routinePlan_(cfg, fromYmd) {
 function rotationPlan_(rot, holidayDates, from, until) {
   const out = [];
   let i = 0;
-  for (let d = rot.firstDate; d <= until; d = addDays_(d, 7)) {
+  const step = 7 * (rot.everyWeeks || 1);   // everyWeeks: 4 = สายนี้ได้ทุก 4 สัปดาห์
+  for (let d = rot.firstDate; d <= until; d = addDays_(d, step)) {
     if (holidayDates[d]) continue;
     const name = rot.order[i % rot.order.length];
     i++;
@@ -406,7 +415,7 @@ function syncRotations_(holidays, today) {
     const until = CONFIG.routineUntil;
     const holSet = {};
     holidays.forEach(function (h) { if (h.date >= rot.firstDate && h.date <= until && DAY_CODES[weekday_(h.date)] === rot.day) holSet[h.date] = 1; });
-    const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, until]);
+    const cfgSig = JSON.stringify([rot.firstDate, rot.order, rot.tasks, until, rot.everyWeeks || 1]);
     const old = state[rot.key];
     let from = today > rot.firstDate ? today : rot.firstDate;
     if (old && old.cfg === cfgSig) {
