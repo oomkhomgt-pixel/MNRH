@@ -1,0 +1,554 @@
+/* ทดสอบ Code.gs โดยจำลองบริการของ Google Apps Script (CalendarApp, UrlFetchApp, PropertiesService ฯลฯ) ในเครื่อง
+   ไม่แตะบัญชี Google หรือ LINE จริง ไม่ยิง network:  node --test team-calendar/google-calendar/test.mjs
+   สิ่งที่ชุดนี้พิสูจน์ได้คือ "ตรรกะของสคริปต์" (วันที่ การวนเวร การตัดวันหยุด ข้อความ การจำกลุ่ม)
+   สิ่งที่พิสูจน์ไม่ได้คือพฤติกรรมจริงของ Google/LINE — ต้องทดสอบบนบัญชีจริงตาม README */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SOURCE = readFileSync(join(here, "Code.gs"), "utf8");
+const TZ = "Asia/Bangkok";
+const bkk = (ymd, hm = "00:00") => new Date(`${ymd}T${hm}:00+07:00`);
+const fmt = (date, tz, pattern) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(date).map(x => [x.type, x.value]));
+  if (pattern === "yyyy-MM-dd") return `${p.year}-${p.month}-${p.day}`;
+  if (pattern === "HH:mm") return `${p.hour}:${p.minute}`;
+  throw new Error("mock formatDate: รูปแบบที่ไม่รองรับ " + pattern);
+};
+
+const G1 = "C" + "a1".repeat(16), G2 = "C" + "b2".repeat(16);   // รูปแบบ group ID ของ LINE: C + เลขฐานสิบหก 32 ตัว
+
+const HOLIDAY_FIXTURE = [
+  "BEGIN:VCALENDAR", "VERSION:2.0",
+  ...[["20261205", "20261206", "วันคล้ายวันพระบรมราชสมภพ ร.9", "วันหยุดนักขัตฤกษ์"],
+    ["20261207", "20261208", "วันหยุดชดเชยวันคล้ายวันพระบรมราช\r\n สมภพ ร.9", "วันหยุดนักขัตฤกษ์"],
+    ["20261210", "20261211", "​วันรัฐธรรมนูญ", "วันหยุดนักขัตฤกษ์"],
+    ["20261216", "20261217", "พระราชพิธีฯ", "วันหยุดนักขัตฤกษ์"],
+    ["20261225", "20261226", "วันคริสต์มาส", "วันสำคัญ\\nหากต้องการซ่อนวันสำคัญ ให้ไปที่การตั้งค่า"],
+    ["20261231", "20270101", "วันสิ้นปี", "วันหยุดนักขัตฤกษ์"],
+    ["20270101", "20270102", "วันขื้นปีใหม่", "วันหยุดนักขัตฤกษ์"]]
+    .flatMap(([s, e, sum, desc]) => ["BEGIN:VEVENT", `DTSTART;VALUE=DATE:${s}`, `DTEND;VALUE=DATE:${e}`, `DESCRIPTION:${desc}`, `SUMMARY:${sum}`, "END:VEVENT"]),
+  "END:VCALENDAR"
+].join("\r\n");
+
+/* สร้าง "บัญชี Google จำลอง" หนึ่งบัญชี แล้วโหลด Code.gs เข้าไป */
+function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
+  const w = { now: new Date(nowIso), props: new Map(), calendars: [], fetches: [], triggers: [], acl: [], seq: 0, cache: new Map(),
+    quota: { type: "limited", value: 300, used: 0 }, members: 5, botGroups: new Set([G1]), pushScript: [], tokenOk: true };
+
+  class Event {
+    constructor(cal, o) { Object.assign(this, o); this.cal = cal; }
+    getId() { return this.id; }
+    getTitle() { return this.title; }
+    getLocation() { return this.location || ""; }
+    isAllDayEvent() { return !!this.allDay; }
+    getStartTime() { return this.start; }
+    getEndTime() { return this.end; }
+    getAllDayStartDate() { if (!this.allDay) throw new Error("not all-day"); return this.start; }
+    getAllDayEndDate() { if (!this.allDay) throw new Error("not all-day"); return this.end; }   // วันถัดจากวันสุดท้าย เหมือนของจริง
+    getLastUpdated() { return this.updated; }
+    getDateCreated() { return this.created; }
+    isRecurringEvent() { return !!this.seriesRef; }
+    deleteEvent() {
+      if (this.seriesRef) this.seriesRef.deleted.add(fmt(this.start, TZ, "yyyy-MM-dd"));
+      else this.cal.singles = this.cal.singles.filter(s => s.id !== this.id);
+    }
+  }
+  class Cal {
+    constructor(name, opt = {}) { this.name = name; this.id = "cal" + (++w.seq) + "@group.calendar.google.com"; this.color = opt.color; this.series = []; this.singles = []; }
+    getName() { return this.name; } getId() { return this.id; }
+    getColor() { return this.color; } getTimeZone() { return TZ; }
+    setColor(c) { this.color = c; return this; }
+    createEventSeries(title, start, end, rule, opt = {}) {
+      const s = { id: "series" + (++w.seq) + "@google.com", title, start, end, interval: rule._interval || 1, until: rule._until, location: opt.location, deleted: new Set(), created: w.now, updated: w.now };
+      this.series.push(s);
+      return { getId: () => s.id };
+    }
+    add(o) { const e = { id: "single" + (++w.seq) + "@google.com", created: w.now, updated: w.now, ...o }; this.singles.push(e); return e; }
+    getEvents(from, to) {
+      const out = [];
+      for (const s of this.series) {
+        for (let k = 0; k < 400; k++) {
+          const st = new Date(s.start.getTime() + k * s.interval * 7 * 86400000);
+          if (s.until && st > s.until) break;
+          const en = new Date(s.end.getTime() + k * s.interval * 7 * 86400000);
+          if (st < to && en > from && !s.deleted.has(fmt(st, TZ, "yyyy-MM-dd")))
+            out.push(new Event(this, { id: s.id, title: s.title, start: st, end: en, location: s.location, created: s.created, updated: s.updated, seriesRef: s }));
+        }
+      }
+      for (const e of this.singles) if (e.start < to && e.end > from) out.push(new Event(this, e));
+      return out;
+    }
+  }
+  const rule = () => ({ _interval: 1, addWeeklyRule() { return this; }, interval(n) { this._interval = n; return this; }, until(d) { this._until = d; return this; } });
+
+  const NowDate = class extends Date { constructor(...a) { if (a.length) super(...a); else super(w.now.getTime()); } static now() { return w.now.getTime(); } };
+  const ctx = vm.createContext({
+    Date: NowDate, JSON, Math, console: { log() {}, warn() {}, error() {} },
+    CalendarApp: {
+      getAllOwnedCalendars: () => w.calendars.slice(),
+      getCalendarById: id => w.calendars.find(c => c.id === id) || null,
+      createCalendar: (name, opt) => { const c = new Cal(name, opt); w.calendars.push(c); return c; },
+      newRecurrence: rule
+    },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (w.props.has(k) ? w.props.get(k) : null), setProperty: (k, v) => { w.props.set(k, String(v)); }, deleteProperty: k => { w.props.delete(k); } }) },
+    Utilities: { formatDate: fmt, getUuid: () => "11111111-2222-3333-4444-" + String(++w.seq).padStart(12, "0"), sleep() {} },
+    Infinity, Number, String, parseInt,
+    Session: { getScriptTimeZone: () => TZ, getEffectiveUser: () => ({ getEmail: () => "owner@example.com" }) },
+    UrlFetchApp: { fetch: (url, opt = {}) => {
+      w.fetches.push({ url, method: opt.method || "get", body: opt.payload ? JSON.parse(opt.payload) : null,
+        auth: opt.headers && opt.headers.Authorization, retryKey: opt.headers && opt.headers["X-Line-Retry-Key"] });
+      const reply = (code, obj) => ({ getResponseCode: () => code, getContentText: () => (typeof obj === "string" ? obj : JSON.stringify(obj)) });
+      if (url.includes("calendar.google.com/calendar/ical")) return reply(200, w.holidayIcs ?? HOLIDAY_FIXTURE);
+      const path = url.replace("https://api.line.me/v2/bot", "");
+      if (!w.tokenOk) return reply(401, { message: "Authentication failed" });
+      if (path === "/info") return reply(200, { displayName: "ปฏิทินสายฟ้า", basicId: "@000test" });
+      if (path === "/message/quota") return reply(200, w.quota.type === "limited" ? { type: "limited", value: w.quota.value } : { type: "none" });
+      if (path === "/message/quota/consumption") return reply(200, { totalUsage: w.quota.used });
+      const g = /^\/group\/([^/]+)\/(summary|members\/count)$/.exec(path);
+      if (g) return !w.botGroups.has(g[1]) ? reply(404, { message: "Not found" }) : reply(200, g[2] === "summary" ? { groupId: g[1], groupName: "อ.สายฟ้า" } : { count: w.members });
+      if (path === "/message/reply") return reply(200, {});
+      if (path === "/message/push") {
+        let code = w.pushScript.length ? w.pushScript.shift() : (w.quota.type === "limited" && w.quota.used + w.members > w.quota.value ? 429 : 200);
+        if (code === "throw") throw new Error("Address unavailable");
+        if (code === 200) w.quota.used += w.members;
+        return reply(code, code === 429 ? { message: "You have reached your monthly limit." } : {});
+      }
+      return reply(404, {});
+    } },
+    ScriptApp: {
+      getProjectTriggers: () => w.triggers.slice(),
+      deleteTrigger: t => { w.triggers = w.triggers.filter(x => x !== t); },
+      newTrigger: fn => { const t = { fn, getHandlerFunction: () => fn }; const b = { timeBased: () => b, atHour: h => (t.hour = h, b), nearMinute: m => (t.minute = m, b), everyDays: () => b, onMonthDay: d => (t.monthDay = d, b), inTimezone: z => (t.tz = z, b), create: () => { w.triggers.push(t); return t; } }; return b; }
+    },
+    LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
+    CacheService: { getScriptCache: () => ({ get: k => (w.cache.has(k) ? w.cache.get(k) : null), put: (k, v) => { w.cache.set(k, v); } }) },
+    HtmlService: { createHtmlOutput: t => ({ html: t }) },
+    Calendar: { Acl: { insert: (res, calId, opt) => { w.acl.push({ ...res, calId, opt }); } } }
+  });
+  vm.runInContext(SOURCE, ctx, { filename: "Code.gs" });
+  w.run = code => vm.runInContext(code, ctx);
+  w.json = code => JSON.parse(vm.runInContext(`JSON.stringify(${code})`, ctx));
+  w.cal = short => w.calendars.find(c => c.name === "สายฟ้า – " + short);
+  w.titlesOn = (short, ymd) => w.cal(short).getEvents(bkk(ymd), bkk(ymd, "23:59")).map(e => e.title).sort();
+  w.lineCalls = () => w.fetches.filter(f => f.url.includes("api.line.me"));
+  w.pushes = () => w.fetches.filter(f => f.url.endsWith("/message/push"));
+  w.replies = () => w.fetches.filter(f => f.url.endsWith("/message/reply"));
+  w.linked = () => { w.props.set("LINE_TOKEN", "tok"); w.props.set("LINE_GROUP_ID", G1); return w; };
+  w.setup = () => { w.run("step1_createCalendars(); step2_createRoutine();"); return w; };
+  return w;
+}
+const PEOPLE = ["มานิตา", "ศุภศักดิ์", "คงธัช", "อดิศร", "ชนกันต์"];
+
+test("แผนงานประจำตรงกับที่ทีมกำหนด (เริ่ม 18 พ.ย. 2569)", () => {
+  const w = makeWorld();
+  w.run("checkConfig_(CONFIG)");
+  const plan = w.json('routinePlan_(CONFIG, "2026-11-18")');
+  assert.equal(plan.length, 16);   // OPD รวม 1 + OR อังคาร 2 + พฤหัส 1 + ศุกร์ 2 + เวรพุธ 5 คน × 2 งาน
+  const pick = (title, cal) => plan.filter(s => s.title === title && s.calendar === cal).map(s => [s.first, s.start, s.end, s.intervalWeeks]);
+  assert.deepEqual(pick("OPD", "ทุกคน"), [["2026-11-23", "09:00", "16:00", 1]]);
+  assert.deepEqual(pick("OR", "มานิตา"), [["2026-11-24", "08:00", "16:00", 1]]);
+  assert.deepEqual(pick("OR", "ศุภศักดิ์"), [["2026-11-24", "08:00", "16:00", 1]]);
+  assert.deepEqual(pick("OR", "ชนกันต์"), [["2026-11-19", "08:00", "16:00", 1]]);
+  assert.deepEqual(pick("OR", "คงธัช"), [["2026-11-20", "08:00", "16:00", 1]]);
+  assert.deepEqual(pick("OR", "อดิศร"), [["2026-11-20", "08:00", "16:00", 1]]);
+  assert.deepEqual(PEOPLE.map(p => pick("ER", p)[0]), [
+    ["2026-11-25", "08:00", "16:00", 5], ["2026-12-02", "08:00", "16:00", 5], ["2026-12-09", "08:00", "16:00", 5],
+    ["2026-12-16", "08:00", "16:00", 5], ["2026-12-23", "08:00", "16:00", 5]]);
+  assert.deepEqual(PEOPLE.map(p => pick("OPD ปกส.", p)[0][0]), ["2026-11-25", "2026-12-02", "2026-12-09", "2026-12-16", "2026-12-23"]);
+});
+
+test("เริ่มกลางคัน เวรวันพุธยังวนถูกคน ไม่เลื่อนลำดับ", () => {
+  const w = makeWorld();
+  const plan = w.json('routinePlan_(CONFIG, "2027-01-04")').filter(s => s.title === "ER");
+  const first = Object.fromEntries(plan.map(s => [s.calendar, s.first]));
+  // ลำดับเดิมนับจาก 25 พ.ย.: 30 ธ.ค. = มานิตา ดังนั้น 6 ม.ค. = ศุภศักดิ์, 13 = คงธัช, 20 = อดิศร, 27 = ชนกันต์, 3 ก.พ. = มานิตา
+  assert.deepEqual(first, { "ศุภศักดิ์": "2027-01-06", "คงธัช": "2027-01-13", "อดิศร": "2027-01-20", "ชนกันต์": "2027-01-27", "มานิตา": "2027-02-03" });
+});
+
+test("ตรวจ CONFIG: จับชื่อผิด วันไม่ตรง เวลาผิด", () => {
+  const w = makeWorld();
+  w.run('CONFIG.routine[1].who = ["มานิตา", "ไม่มีคนนี้"]; CONFIG.rotations[0].firstDate = "2026-11-26"; CONFIG.routine[0].start = "9:00";');
+  assert.throws(() => w.run("checkConfig_(CONFIG)"), e => /ไม่รู้จัก "ไม่มีคนนี้"/.test(e.message) && /ไม่ตรงกับ day WE/.test(e.message) && /เวลาต้องเป็น HH:mm/.test(e.message));
+});
+
+test("ขั้น 1–2: สร้างปฏิทิน 6 อันและงานประจำ · รันซ้ำไม่สร้างซ้ำ", () => {
+  const w = makeWorld().setup();
+  assert.deepEqual(w.calendars.map(c => c.name), [...PEOPLE.map(p => "สายฟ้า – " + p), "สายฟ้า – ทุกคน"]);
+  assert.equal(w.cal("มานิตา").color, "#D50000");
+  const count = () => w.calendars.reduce((n, c) => n + c.series.length, 0);
+  assert.equal(count(), 16);
+  w.run("step1_createCalendars(); step2_createRoutine();");
+  assert.equal(w.calendars.length, 6);
+  assert.equal(count(), 16);
+
+  assert.deepEqual(w.titlesOn("ทุกคน", "2026-11-23"), ["OPD"]);
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-11-24"), ["OR"]);
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-11-25"), ["ER", "OPD ปกส."]);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-11-25"), []);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-02"), ["ER", "OPD ปกส."]);
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-30"), ["ER", "OPD ปกส."]);   // ครบ 5 สัปดาห์ วนกลับมา
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-11-26"), ["OR"]);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2027-09-30"), ["OR"]);               // วันสุดท้ายยังมี
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2027-10-07"), []);                   // เลยกำหนดแล้วไม่มี
+  // ทุกวันพุธมีคนเดียวเท่านั้น
+  for (const d of ["2026-11-25", "2026-12-02", "2026-12-09", "2026-12-23", "2026-12-30", "2027-03-17"])
+    assert.equal(PEOPLE.filter(p => w.titlesOn(p, d).includes("ER")).length, 1, d);
+});
+
+test("ปฏิทินชื่อเดียวกันที่มีอยู่แล้วถูกนำมาใช้ ไม่สร้างซ้อน", () => {
+  const w = makeWorld();
+  w.run('CalendarApp.createCalendar("สายฟ้า – มานิตา", {})');
+  w.run("step1_createCalendars()");
+  assert.equal(w.calendars.filter(c => c.name === "สายฟ้า – มานิตา").length, 1);
+  assert.equal(w.calendars.length, 6);
+});
+
+test("ขั้น 3: อ่านวันหยุดของ Google ถูก (ไม่นับวันสำคัญ · ต่อบรรทัดที่พับ · ตัดอักขระล่องหน)", () => {
+  const w = makeWorld();
+  const hol = w.json(`parseHolidayIcs_(${JSON.stringify(HOLIDAY_FIXTURE)})`);
+  assert.deepEqual(hol.map(h => h.date), ["2026-12-05", "2026-12-07", "2026-12-10", "2026-12-16", "2026-12-31", "2027-01-01"]);
+  assert.equal(hol[1].name, "วันหยุดชดเชยวันคล้ายวันพระบรมราชสมภพ ร.9");
+  assert.equal(hol[2].name, "วันรัฐธรรมนูญ");
+  w.run('CONFIG.extraHolidays = [{ date: "2027-01-04", name: "หยุดพิเศษ" }]; CONFIG.notHolidays = ["2026-12-31"];');
+  const merged = w.json(`mergeHolidays_(parseHolidayIcs_(${JSON.stringify(HOLIDAY_FIXTURE)}), CONFIG, "2026-12-08", "2027-09-30")`);
+  assert.deepEqual(merged.map(h => h.date), ["2026-12-10", "2026-12-16", "2027-01-01", "2027-01-04"]);
+});
+
+test("ปรับรายการของ Google ให้ใกล้วันหยุดราชการ: ตัดวันแรงงาน · เติมวันเข้าพรรษา · ไม่เดาวันชดเชยที่เลื่อน แต่เตือน", () => {
+  const w = makeWorld();
+  const google = [
+    { date: "2027-05-01", name: "วันแรงงานแห่งชาติ" }, { date: "2027-05-03", name: "วันหยุดชดเชยวันแรงงานแห่งชาติ" }, { date: "2027-05-04", name: "วันฉัตรมงคล" },
+    { date: "2027-07-18", name: "วันอาสาฬหบูชา" }, { date: "2027-07-19", name: "วันหยุดชดเชยวันอาสาฬหบูชา" },   // อาทิตย์ + จันทร์ (ตามแบบธนาคาร)
+    { date: "2026-07-29", name: "วันอาสาฬหบูชา" }                                                                // พุธ → เข้าพรรษาพฤหัส ไม่ชนอะไร
+  ];
+  const r = w.json(`civilServiceAdjust_(${JSON.stringify(google)}, CONFIG)`);
+  const byDate = Object.fromEntries(r.list.map(h => [h.date, h.name]));
+  assert.deepEqual(byDate, { "2027-05-04": "วันฉัตรมงคล", "2027-07-18": "วันอาสาฬหบูชา", "2027-07-19": "วันเข้าพรรษา", "2026-07-29": "วันอาสาฬหบูชา", "2026-07-30": "วันเข้าพรรษา" });
+  assert.equal(byDate["2027-07-20"], undefined);            // ไม่เดาวันชดเชยที่เลื่อนไปวันอังคาร
+  assert.equal(r.notes.length, 1);
+  assert.match(r.notes[0], /ปี 2570.*ตรวจประกาศ ครม\./);
+  w.run('CONFIG.extraHolidays = [{ date: "2027-07-20", name: "ชดเชยวันอาสาฬหบูชา" }];');   // เจ้าของเติมเองหลังตรวจประกาศ
+  assert.deepEqual(w.json(`mergeHolidays_(civilServiceAdjust_(${JSON.stringify(google)}, CONFIG).list, CONFIG, "2027-07-01", "2027-07-31")`).map(h => h.date), ["2027-07-18", "2027-07-19", "2027-07-20"]);
+});
+
+test("ขั้น 3: ตัดงานประจำเฉพาะครั้งที่ตรงวันหยุด · งานที่คนลงเองไม่ถูกแตะ · รันซ้ำได้", () => {
+  const w = makeWorld().setup();
+  w.cal("ชนกันต์").add({ title: "OR เคสด่วน", start: bkk("2026-12-10", "08:00"), end: bkk("2026-12-10", "12:00") });
+  w.run("step3_syncHolidays()");
+  assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-07"), []);                     // จันทร์ ชดเชย → OPD งด
+  assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-14"), ["OPD"]);                // จันทร์ปกติยังอยู่
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-10"), ["OR เคสด่วน"]);        // OR ประจำงด แต่ที่ลงเองยังอยู่
+  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-16"), []);                     // พุธ วันหยุดพิเศษ → ER/OPD ปกส. ของคนเวรงด
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-31"), []);
+  assert.deepEqual(w.titlesOn("คงธัช", "2027-01-01"), []);
+  assert.deepEqual(w.titlesOn("คงธัช", "2027-01-08"), ["OR"]);
+  assert.deepEqual(w.titlesOn("คงธัช", "2026-12-25"), ["OR"]);                 // ศุกร์ 25 ธ.ค. คริสต์มาสเป็น "วันสำคัญ" ไม่ใช่วันหยุดราชการ
+  assert.equal(w.calendars.reduce((n, c) => n + c.series.length, 0), 16);      // ไม่มีชุดไหนถูกลบทั้งชุด
+  w.run("step3_syncHolidays()");
+  assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-14"), ["OPD"]);
+  // ตั้งตรวจวันหยุดรายเดือนให้เอง ครั้งเดียว แม้ยังไม่ได้ตั้งค่า LINE
+  assert.deepEqual(w.triggers.map(t => [t.fn, t.monthDay, t.hour]), [["step3_syncHolidays", 1, 5]]);
+  assert.ok(new TextEncoder().encode(w.props.get("HOLIDAYS")).length < 9000);
+});
+
+test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {
+  const w = makeWorld();
+  w.run("CONFIG.rotations[0].skipHolidays = false;");
+  w.setup();
+  w.run("step3_syncHolidays()");
+  assert.deepEqual(w.titlesOn("อดิศร", "2026-12-16"), ["ER", "OPD ปกส."]);
+
+  const w2 = makeWorld().setup();
+  w2.holidayIcs = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
+  assert.throws(() => w2.run("step3_syncHolidays()"), /น้อยผิดปกติ/);
+  assert.deepEqual(w2.titlesOn("ทุกคน", "2026-12-07"), ["OPD"]);
+});
+
+test("ข้อความ LINE: งานรายคน · เวรสองงานขึ้นเป็นหัวข้อย่อย · งานรวม · วันว่าง", () => {
+  const w = makeWorld().setup();
+  assert.equal(w.run('formatDigest_(collectDay_("2026-11-24"), "today").text'),
+    "📅 วันนี้ อังคาร 24 พ.ย. 2569\n🔴 มานิตา · 08:00–16:00 OR\n🔵 ศุภศักดิ์ · 08:00–16:00 OR");
+  assert.equal(w.run('formatDigest_(collectDay_("2026-11-25"), "tomorrow").text'),
+    "🗓 พรุ่งนี้ พุธ 25 พ.ย. 2569\n🔴 มานิตา\n   • 08:00–16:00 ER\n   • 13:00–15:00 OPD ปกส.");
+  assert.equal(w.run('formatDigest_(collectDay_("2026-11-23"), "today").text'), "📅 วันนี้ จันทร์ 23 พ.ย. 2569\n👥 ทุกคน · 09:00–16:00 OPD");
+  assert.equal(w.run('formatDigest_(collectDay_("2026-11-28"), "today").isEmpty'), true);
+});
+
+test("ข้อความ LINE: ลาหลายวัน · เตือนเมื่อยังมีงานค้าง · ประชุมแบบมีเวลาไม่นับว่าไม่อยู่ · เวรข้ามคืนไม่นับซ้ำ", () => {
+  const w = makeWorld().setup();
+  w.cal("คงธัช").add({ title: "ลาพักร้อน", allDay: true, start: bkk("2026-11-25"), end: bkk("2026-11-28") });   // 25–27 พ.ย. (วันจบเป็นวันถัดไป)
+  w.cal("อดิศร").add({ title: "ประชุมกรรมการ", start: bkk("2026-11-26", "13:30"), end: bkk("2026-11-26", "15:00"), location: "ห้องประชุม 2" });
+  w.cal("มานิตา").add({ title: "Staff on call", start: bkk("2026-11-26", "16:00"), end: bkk("2026-11-27", "08:00") });
+  w.cal("ศุภศักดิ์").add({ title: "ไปประชุมวิชาการ", allDay: true, start: bkk("2026-11-26"), end: bkk("2026-11-27") });
+
+  assert.equal(w.run('formatDigest_(collectDay_("2026-11-26"), "today").text'), [
+    "📅 วันนี้ พฤหัสบดี 26 พ.ย. 2569",
+    "🔴 มานิตา · 16:00–08:00 (+1) Staff on call 🆕",
+    "🟠 อดิศร · 13:30–15:00 ประชุมกรรมการ @ห้องประชุม 2 🆕",
+    "🟣 ชนกันต์ · 08:00–16:00 OR",
+    "🏖 ไม่อยู่",
+    "🔵 ศุภศักดิ์ — ไปประชุมวิชาการ 🆕",
+    "🟢 คงธัช — ลาพักร้อน (ถึง ศ. 27 พ.ย.) 🆕"].join("\n"));
+
+  const fri = w.run('formatDigest_(collectDay_("2026-11-27"), "today").text');
+  assert.match(fri, /🟢 คงธัช — ลาพักร้อน 🆕\n   ⚠️ ยังมีงานในตาราง: 08:00–16:00 OR/);
+  assert.doesNotMatch(fri, /Staff on call/);                                    // เวรที่เริ่มเมื่อวานไม่ขึ้นซ้ำ
+  assert.doesNotMatch(w.run('formatDigest_(collectDay_("2026-11-28"), "today").text'), /คงธัช/);   // วันถัดจากวันสุดท้ายไม่นับ
+});
+
+test("🆕 ขึ้นเฉพาะรายการที่มีคนเพิ่ม/แก้ใน 24 ชม. ไม่ใช่งานประจำที่สร้างพร้อมกันทั้งชุด", () => {
+  const w = makeWorld().setup();
+  assert.doesNotMatch(w.run('formatDigest_(collectDay_("2026-11-24"), "today").text'), /🆕/);
+  w.now = new Date("2026-11-23T18:30:00+07:00");
+  w.cal("ศุภศักดิ์").series[0].updated = new Date("2026-11-23T12:00:00+07:00");   // มีคนแก้งานประจำเมื่อเที่ยง
+  w.cal("มานิตา").add({ title: "สอน นศพ.", start: bkk("2026-11-24", "13:00"), end: bkk("2026-11-24", "15:00"), updated: new Date("2026-11-20T09:00:00+07:00"), created: new Date("2026-11-20T09:00:00+07:00") });
+  const t = w.run('formatDigest_(collectDay_("2026-11-24"), "tomorrow").text');
+  assert.match(t, /🔵 ศุภศักดิ์ · 08:00–16:00 OR 🆕/);
+  assert.match(t, /🔴 มานิตา\n   • 08:00–16:00 OR\n   • 13:00–15:00 สอน นศพ\./);
+  assert.doesNotMatch(t, /สอน นศพ\. 🆕/);
+});
+
+test("ส่ง LINE: เช้า=วันนี้ เย็น=พรุ่งนี้ · วันว่างไม่ส่ง · ยังไม่ตั้งค่าแจ้งชัด", () => {
+  const w = makeWorld("2026-11-24T06:30:00+07:00").setup();
+  assert.throws(() => w.run("sendMorning()"), /เชื่อมกลุ่ม/);
+  w.props.set("LINE_GROUP_ID", G1);
+  assert.throws(() => w.run("sendMorning()"), /LINE_TOKEN/);
+  w.props.set("LINE_TOKEN", "tok");
+  w.run("sendMorning()");
+  let c = w.pushes();
+  assert.equal(c.length, 1);
+  assert.equal(c[0].url, "https://api.line.me/v2/bot/message/push");
+  assert.equal(c[0].auth, "Bearer tok");
+  assert.match(c[0].retryKey, /^[0-9a-f-]{36}$/);
+  assert.equal(c[0].body.to, G1);
+  assert.equal(c[0].body.messages[0].text, "📅 วันนี้ อังคาร 24 พ.ย. 2569\n🔴 มานิตา · 08:00–16:00 OR\n🔵 ศุภศักดิ์ · 08:00–16:00 OR");
+  assert.equal(w.quota.used, 5);                    // กลุ่ม 5 คน = 5 ข้อความ
+  w.run("sendEvening()");
+  assert.match(w.pushes()[1].body.messages[0].text, /^🗓 พรุ่งนี้ พุธ 25 พ\.ย\. 2569/);
+
+  w.now = new Date("2026-11-28T06:30:00+07:00");   // เสาร์ ไม่มีงาน
+  w.run("sendMorning()");
+  assert.equal(w.pushes().length, 2);
+  w.now = new Date("2026-11-27T18:30:00+07:00");   // ศุกร์เย็น: พรุ่งนี้ (เสาร์) ว่าง
+  w.run("sendEvening()");
+  assert.equal(w.pushes().length, 2);
+});
+
+test("ส่ง LINE: ลองใหม่เมื่อ LINE ล่มชั่วคราวด้วยกุญแจเดิม · 409 = ส่งถึงแล้ว · 4xx ไม่ลองใหม่", () => {
+  const w = makeWorld("2026-11-24T06:30:00+07:00").setup().linked();
+  w.pushScript = [500, 200];
+  w.run("sendMorning()");
+  assert.equal(w.pushes().length, 2);
+  assert.equal(w.pushes()[0].retryKey, w.pushes()[1].retryKey);   // กุญแจเดิม → LINE ไม่นับโควตาซ้ำ
+
+  w.pushScript = ["throw", 409];
+  w.run("sendEvening()");                                          // 409 = ครั้งแรกถึงแล้ว ถือว่าสำเร็จ
+  assert.equal(w.pushes().length, 4);
+
+  w.pushScript = [400];
+  assert.throws(() => w.run("sendMorning()"), /HTTP 400.*บอทไม่ได้อยู่ในกลุ่ม/s);
+  assert.equal(w.pushes().length, 5);
+  w.pushScript = [500, 500];
+  assert.throws(() => w.run("sendMorning()"), /HTTP 500/);
+  w.pushScript = [429];
+  w.run("sendMorning()");                                          // โควตาหมด: ไม่ throw
+});
+
+test("คุมโควตา: เย็นถูกงดก่อนเมื่อเหลือน้อย เช้ายังส่ง · หมดจริงไม่ยิง · บัญชีไม่จำกัดส่งปกติ", () => {
+  const w = makeWorld("2026-11-24T18:30:00+07:00").setup().linked();   // อังคาร 24 พ.ย.: เหลือวันทำการอีก 4 วัน (25, 26, 27, 30)
+  assert.equal(w.run('weekdaysLeftInMonth_("2026-11-24")'), 4);
+  w.quota.used = 300 - 34;                                             // เหลือ 34: หลังส่งเหลือ 29 < กันไว้ 5×(4+2)=30
+  w.run("sendEvening()");
+  assert.equal(w.pushes().length, 0);
+  w.quota.used = 300 - 35;                                             // เหลือ 35: พอดี ส่งได้
+  w.run("sendEvening()");
+  assert.equal(w.pushes().length, 1);
+
+  w.now = new Date("2026-11-25T06:30:00+07:00");
+  w.quota.used = 300 - 5;                                              // เหลือ 5: เช้ายังส่งได้
+  w.run("sendMorning()");
+  assert.equal(w.pushes().length, 2);
+  w.now = new Date("2026-11-26T06:30:00+07:00");
+  w.run("sendMorning()");                                              // เหลือ 0: ไม่ยิง push เลย
+  assert.equal(w.pushes().length, 2);
+
+  w.members = 12; w.quota.used = 0;                                    // กลุ่มใหญ่: ครั้งละ 12
+  w.run("sendMorning()");
+  assert.equal(w.quota.used, 12);
+  w.quota = { type: "none", value: 0, used: 0 };
+  w.run("sendMorning()");
+  assert.equal(w.pushes().length, 4);
+});
+
+test("จำลองทั้งเดือน 31 วัน (ธ.ค. 2569) ส่งเช้า+เย็น กลุ่ม 5 คน: ไม่เกิน 300 และรอบเช้าไม่เคยถูกงด", () => {
+  const w = makeWorld("2026-11-30T12:00:00+07:00").setup().linked();
+  w.run("step3_syncHolidays()");
+  let mornings = 0, evenings = 0, morningsWanted = 0;
+  for (let d = 1; d <= 31; d++) {
+    const ymd = "2026-12-" + String(d).padStart(2, "0");
+    w.now = bkk(ymd, "06:30");
+    const wanted = !w.run(`formatDigest_(collectDay_("${ymd}"), "today").isEmpty`);
+    let n = w.pushes().length; w.run("sendMorning()");
+    if (wanted) morningsWanted++;
+    if (w.pushes().length > n) mornings++;
+    w.now = bkk(ymd, "18:30");
+    n = w.pushes().length; w.run("sendEvening()");
+    if (w.pushes().length > n) evenings++;
+  }
+  assert.equal(mornings, morningsWanted);
+  assert.ok(mornings >= 18 && evenings >= 15, `เช้า ${mornings} เย็น ${evenings}`);
+  assert.ok(w.quota.used <= 300, "ใช้ไป " + w.quota.used);
+  // กลุ่ม 7 คน: เกินโควตาถ้าส่งครบ — ต้องงดเย็นบางวัน แต่เช้าครบ
+  const w7 = makeWorld("2026-11-30T12:00:00+07:00").setup().linked();
+  w7.members = 7; w7.run("step3_syncHolidays()");
+  let m7 = 0, want7 = 0;
+  for (let d = 1; d <= 31; d++) {
+    const ymd = "2026-12-" + String(d).padStart(2, "0");
+    w7.now = bkk(ymd, "06:30");
+    if (!w7.run(`formatDigest_(collectDay_("${ymd}"), "today").isEmpty`)) want7++;
+    const n = w7.pushes().length; w7.run("sendMorning()"); if (w7.pushes().length > n) m7++;
+    w7.now = bkk(ymd, "18:30"); w7.run("sendEvening()");
+  }
+  assert.equal(m7, want7);
+  assert.ok(w7.quota.used <= 300, "ใช้ไป " + w7.quota.used);
+});
+
+test("รอบเช้าแจ้งรายการที่เพิ่ง​เพิ่ม/แก้ (เช่น วันลาเดือนหน้า) ครั้งเดียว ไม่แจ้งซ้ำ", () => {
+  const w = makeWorld("2026-11-23T06:30:00+07:00").setup().linked();
+  w.run("sendMorning()");                                               // จันทร์: ยังไม่มีอะไรใหม่
+  assert.doesNotMatch(w.pushes()[0].body.messages[0].text, /เพิ่ม\/แก้ไขล่าสุด/);
+
+  w.now = new Date("2026-11-23T14:00:00+07:00");                        // บ่ายวันจันทร์ มีคนลงวันลาและนัดสอน
+  w.cal("คงธัช").add({ title: "ลาพักร้อน", allDay: true, start: bkk("2026-12-14"), end: bkk("2026-12-19") });
+  w.cal("อดิศร").add({ title: "สอน นศพ.", start: bkk("2026-12-03", "13:00"), end: bkk("2026-12-03", "15:00") });
+  w.cal("ศุภศักดิ์").series[0].updated = w.now;                           // แก้ OR ประจำทั้งชุด
+  w.now = new Date("2026-11-24T06:30:00+07:00");
+  w.run("sendMorning()");
+  const t = w.pushes()[1].body.messages[0].text;
+  assert.match(t, /\n\n🆕 เพิ่ม\/แก้ไขล่าสุด\n🔵 ศุภศักดิ์ · อ\. 1 ธ\.ค\. 08:00–16:00 OR \(รายการซ้ำ\)\n🟠 อดิศร · พฤ\. 3 ธ\.ค\. 13:00–15:00 สอน นศพ\.\n🟢 คงธัช · 14 ธ\.ค\.–18 ธ\.ค\. ลาพักร้อน$/);
+  assert.equal(t.match(/ศุภศักดิ์ · อ\./g).length, 1);                   // รายการซ้ำขึ้นครั้งเดียว ไม่ใช่ทุกสัปดาห์
+
+  w.now = new Date("2026-11-25T06:30:00+07:00");
+  w.run("sendMorning()");
+  assert.doesNotMatch(w.pushes()[2].body.messages[0].text, /เพิ่ม\/แก้ไขล่าสุด/);   // แจ้งไปแล้ว ไม่ซ้ำ
+});
+
+test("จุดสีตามสีปฏิทิน: ครบชุดสีของ Google Calendar · เปลี่ยนสีปฏิทินแล้วข้อความเปลี่ยนตาม", () => {
+  const w = makeWorld().setup();
+  const dots = Object.fromEntries(Object.entries({
+    Tomato: "#D50000", Flamingo: "#E67C73", Tangerine: "#F4511E", Pumpkin: "#EF6C00", Mango: "#F09300", Banana: "#F6BF26", Citron: "#E4C441",
+    Avocado: "#C0CA33", Pistachio: "#7CB342", Basil: "#0B8043", Sage: "#33B679", Eucalyptus: "#009688", Peacock: "#039BE5", Cobalt: "#4285F4",
+    Blueberry: "#3F51B5", Lavender: "#7986CB", Wisteria: "#B39DDB", Amethyst: "#9E69AF", Grape: "#8E24AA", Radicchio: "#AD1457",
+    CherryBlossom: "#D81B60", Cocoa: "#795548", Graphite: "#616161", Birch: "#A79B8E", bad: "blue"
+  }).map(([k, v]) => [k, w.run(`dotForHex_("${v}")`)]));
+  assert.deepEqual(dots, {
+    Tomato: "🔴", Flamingo: "🔴", Tangerine: "🟠", Pumpkin: "🟠", Mango: "🟠", Banana: "🟡", Citron: "🟡", Avocado: "🟡", Pistachio: "🟢",
+    Basil: "🟢", Sage: "🟢", Eucalyptus: "🟢", Peacock: "🔵", Cobalt: "🔵", Blueberry: "🔵", Lavender: "🔵", Wisteria: "🟣", Amethyst: "🟣",
+    Grape: "🟣", Radicchio: "🔴", CherryBlossom: "🔴", Cocoa: "🟤", Graphite: "⚫", Birch: "⚫", bad: "⚪" });
+  w.cal("มานิตา").setColor("#F6BF26");              // เจ้าของเปลี่ยนสีปฏิทินของมานิตาเป็นเหลืองในหน้า Google Calendar
+  assert.match(w.run('formatDigest_(collectDay_("2026-11-24"), "today").text'), /🟡 มานิตา · 08:00–16:00 OR/);
+  w.run('CONFIG.people[0].dot = "🩷";');             // กำหนดเองใน CONFIG ชนะ
+  assert.match(w.run('formatDigest_(collectDay_("2026-11-24"), "today").text'), /🩷 มานิตา/);
+});
+
+test("เวลาเที่ยงคืน–7 โมงเช้าไทยยังนับเป็นวันไทย ไม่ใช่วัน UTC", () => {
+  const w = makeWorld("2026-11-23T17:30:00Z").setup();   // = 00:30 น. วันอังคาร 24 พ.ย. เวลาไทย
+  assert.equal(w.run("today_()"), "2026-11-24");
+  assert.match(w.run('digestText_(0, "today").text'), /อังคาร 24 พ\.ย\./);
+});
+
+test("webhook: กุญแจผิดถูกทิ้ง · จำกลุ่มเมื่อ LINE ยืนยันว่าบอทอยู่จริง · กลุ่มอื่นไม่ตอบ · ตอบเฉพาะคำสั่ง", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  w.props.set("LINE_TOKEN", "tok");
+  w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY");
+  assert.match(key, /^[0-9a-f]{32}$/);
+  let seq = 0;
+  const post = (k, events) => w.run(`doPost(${JSON.stringify({ parameter: { k }, postData: { contents: JSON.stringify({ events }) } })})`);
+  const msg = (groupId, text, type = "group") => ({ type: "message", mode: "active", webhookEventId: "E" + (++seq), replyToken: "rt" + seq, source: { type, groupId, userId: "U1" }, message: { type: "text", text } });
+
+  post("wrong", [msg(G1, "วันนี้")]);
+  post(key, [msg(undefined, "วันนี้", "user")]);                  // แชต 1:1 ไม่ใช้
+  post(key, [msg("Cg1", "วันนี้")]);                              // group ID รูปแบบผิด
+  post(key, [msg(G2, "สวัสดี")]);                                 // คำขอปลอม: LINE บอกว่าบอทไม่ได้อยู่ในกลุ่มนี้
+  post(key, [{ ...msg(G1, "สวัสดี"), mode: "standby" }]);
+  assert.equal(w.props.get("LINE_GROUP_ID"), undefined);
+  assert.equal(w.replies().length, 0);
+
+  post(key, [{ type: "join", mode: "active", webhookEventId: "J1", replyToken: "rtj", source: { type: "group", groupId: G1 } }]);
+  assert.equal(w.props.get("LINE_GROUP_ID"), G1);
+  assert.equal(w.replies().length, 1);
+  assert.match(w.replies()[0].body.messages[0].text, /เชื่อมกลุ่มนี้/);
+  assert.equal(w.replies()[0].retryKey, undefined);               // reply ห้ามมี X-Line-Retry-Key
+
+  w.botGroups.add(G2);
+  post(key, [msg(G2, "วันนี้")]);                                 // กลุ่มอื่นที่บอทถูกเชิญทีหลัง: ไม่เปลี่ยนกลุ่ม ไม่ตอบ
+  post(key, [msg(G1, "เดี๋ยวเจอกันที่ OR นะ")]);                   // คุยกันปกติ
+  post(key, [{ type: "message", mode: "active", replyToken: "x", source: { type: "group", groupId: G1 }, message: { type: "image" } }]);
+  assert.equal(w.props.get("LINE_GROUP_ID"), G1);
+  assert.equal(w.replies().length, 1);
+
+  const today = msg(G1, " วันนี้ ");
+  post(key, [today, msg(G1, "พรุ่งนี้")]);                         // หลายเหตุการณ์ในคำขอเดียว
+  assert.equal(w.replies().length, 3);
+  assert.equal(w.replies()[1].body.replyToken, today.replyToken);
+  assert.match(w.replies()[1].body.messages[0].text, /^📅 วันนี้ อังคาร 24 พ\.ย\. 2569\n🔴 มานิตา/);
+  assert.match(w.replies()[2].body.messages[0].text, /^🗓 พรุ่งนี้ พุธ 25 พ\.ย\./);
+  post(key, [today]);                                             // LINE ส่งเหตุการณ์เดิมซ้ำ: ไม่ตอบซ้ำ
+  assert.equal(w.replies().length, 3);
+  post(key, [msg(G1, "สัปดาห์นี้")]);
+  assert.match(w.replies()[3].body.messages[0].text, /^🗓 7 วันข้างหน้า\n\n▪️ อ\. 24 พ\.ย\.\n🔴 มานิตา · 08:00–16:00 OR/);
+  assert.equal(w.pushes().length, 0);                             // webhook ไม่เคยใช้ push (ไม่กินโควตา)
+
+  assert.equal(w.run("doPost(undefined)"), undefined);            // ไม่คืน ContentService (จะกลายเป็น HTTP 302)
+  assert.equal(w.run(`doPost({ parameter: { k: "${key}" }, postData: { contents: "not json" } })`), undefined);
+  assert.equal(w.run(`doPost({ parameter: { k: "${key}" }, postData: { contents: '{"events":[]}' } })`), undefined);   // ปุ่ม Verify ของ LINE
+  assert.doesNotMatch(SOURCE.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""), /ContentService/);
+});
+
+test("webhook: ปิด replyCommands แล้วยังจำกลุ่มได้ แต่ไม่ตอบคำสั่ง", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine(); CONFIG.line.replyCommands = false;");
+  const key = w.props.get("WEBHOOK_KEY");
+  const post = ev => w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [ev] }) } })})`);
+  post({ type: "message", replyToken: "a", source: { type: "group", groupId: G1 }, message: { type: "text", text: "hi" } });
+  assert.equal(w.props.get("LINE_GROUP_ID"), G1);
+  post({ type: "message", replyToken: "b", source: { type: "group", groupId: G1 }, message: { type: "text", text: "วันนี้" } });
+  assert.equal(w.replies().length, 1);                            // มีแค่ข้อความยืนยันการเชื่อมกลุ่ม
+});
+
+test("ขั้น 4: แชร์ทุกปฏิทินให้ทุกคน · ผู้ช่วยได้สิทธิ์จัดการ · ข้ามอีเมลของเจ้าของ", () => {
+  const w = makeWorld().setup();
+  assert.throws(() => w.run("step4_shareCalendars()"), /ยังไม่ได้ใส่ email/);
+  w.run('CONFIG.people[0].email = "Owner@Example.com"; CONFIG.people[1].email = "b@example.com"; CONFIG.people[2].email = " c@example.com "; CONFIG.deputy = "คงธัช";');
+  w.run("step4_shareCalendars()");
+  assert.equal(w.acl.length, 12);   // 6 ปฏิทิน × 2 คน (ไม่รวมเจ้าของ)
+  assert.ok(w.acl.every(a => a.scope.type === "user" && a.opt.sendNotifications === true));
+  assert.deepEqual([...new Set(w.acl.filter(a => a.scope.value === "b@example.com").map(a => a.role))], ["writer"]);
+  assert.deepEqual([...new Set(w.acl.filter(a => a.scope.value === "c@example.com").map(a => a.role))], ["owner"]);
+  assert.equal(w.acl.filter(a => a.scope.value.includes("owner@")).length, 0);
+});
+
+test("ขั้น 6: ตั้งเวลา 3 ตัว · รันซ้ำไม่ซ้อน · หยุดได้", () => {
+  const w = makeWorld();
+  assert.throws(() => w.run("step6_startDailyLine()"), /LINE_TOKEN/);
+  w.props.set("LINE_TOKEN", "tok");
+  assert.throws(() => w.run("step6_startDailyLine()"), /เชื่อมกลุ่ม/);
+  assert.equal(w.triggers.length, 0);              // LINE ยังไม่พร้อม: ไม่สร้างตัวตั้งเวลา (กันอีเมลแจ้งล้มเหลวทุกวัน)
+  w.linked();
+  w.run("step6_startDailyLine(); step6_startDailyLine();");
+  assert.deepEqual(w.triggers.map(t => [t.fn, t.hour, t.minute ?? null, t.tz]).sort(), [
+    ["sendEvening", 18, 30, TZ], ["sendMorning", 6, 30, TZ], ["step3_syncHolidays", 5, null, TZ]]);
+  assert.equal(w.triggers.find(t => t.fn === "step3_syncHolidays").monthDay, 1);
+  w.run("stopDailyLine()");
+  assert.deepEqual(w.triggers.map(t => t.fn), ["step3_syncHolidays"]);
+  w.run("CONFIG.line.evening = null; step6_startDailyLine();");   // ปิดรอบเย็น
+  assert.deepEqual(w.triggers.map(t => t.fn).sort(), ["sendMorning", "step3_syncHolidays"]);
+});
