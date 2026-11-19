@@ -72,6 +72,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
       return { getId: () => s.id };
     }
     add(o) { const e = { id: "single" + (++w.seq) + "@google.com", created: w.now, updated: w.now, ...o }; this.singles.push(e); return e; }
+    createAllDayEvent(title, date, opt = {}) { const d = fmt(date, TZ, "yyyy-MM-dd"); const e = this.add({ title, allDay: true, start: bkk(d), end: new Date(bkk(d).getTime() + 864e5), description: opt.description }); return new Event(this, { ...e, ref: e }); }
     createEvent(title, start, end, opt = {}) { const e = this.add({ title, start, end, location: opt.location }); return new Event(this, { ...e, ref: e }); }
     getEvents(from, to) {
       const out = [];
@@ -109,6 +110,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
         auth: opt.headers && opt.headers.Authorization, retryKey: opt.headers && opt.headers["X-Line-Retry-Key"] });
       const reply = (code, obj) => ({ getResponseCode: () => code, getContentText: () => (typeof obj === "string" ? obj : JSON.stringify(obj)) });
       if (url.includes("calendar.google.com/calendar/ical")) return reply(200, w.holidayIcs ?? HOLIDAY_FIXTURE);
+      if (url.includes("generativelanguage.googleapis.com")) { w.geminiReq = { key: opt.headers["x-goog-api-key"], body: JSON.parse(opt.payload) }; return reply(w.geminiStatus || 200, w.gemini); }
       const path = url.replace("https://api.line.me/v2/bot", "");
       if (!w.tokenOk) return reply(401, { message: "Authentication failed" });
       if (path === "/info") return reply(200, { displayName: "ปฏิทินสายฟ้า", basicId: "@000test" });
@@ -128,7 +130,8 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
     ScriptApp: {
       getProjectTriggers: () => w.triggers.slice(),
       deleteTrigger: t => { w.triggers = w.triggers.filter(x => x !== t); },
-      newTrigger: fn => { const t = { fn, getHandlerFunction: () => fn }; const b = { timeBased: () => b, atHour: h => (t.hour = h, b), nearMinute: m => (t.minute = m, b), everyDays: () => b, onMonthDay: d => (t.monthDay = d, b), inTimezone: z => (t.tz = z, b), create: () => { w.triggers.push(t); return t; } }; return b; }
+      WeekDay: { MONDAY: "MONDAY" },
+      newTrigger: fn => { const t = { fn, getHandlerFunction: () => fn }; const b = { onWeekDay: d => (t.weekDay = d, b), timeBased: () => b, atHour: h => (t.hour = h, b), nearMinute: m => (t.minute = m, b), everyDays: () => b, onMonthDay: d => (t.monthDay = d, b), inTimezone: z => (t.tz = z, b), create: () => { w.triggers.push(t); return t; } }; return b; }
     },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: k => (w.cache.has(k) ? w.cache.get(k) : null), put: (k, v) => { w.cache.set(k, v); } }) },
@@ -354,6 +357,56 @@ test("เพิ่มวันหยุดโดยไม่แก้โค้�
   const day = w.run('formatDigest_(collectDay_("2027-01-13"), "today").text');
   assert.match(day, /🎌 วันหยุดราชการ: วันหยุดพิเศษตามมติ ครม\./);
   assert.doesNotMatch(day, /ทั้งวัน วันหยุดราชการ/);                              // ไม่ขึ้นซ้ำเป็นงานของทุกคน
+});
+
+test("Gemini เช็กข่าววันหยุด: เสนอในกลุ่ม LINE ก่อน · คนยืนยันจึงลง · คำตอบผิดรูปแบบหรือมากผิดปกติไม่ทำอะไร", () => {
+  const w = makeWorld("2026-11-23T05:00:00+07:00").setup();
+  w.run("step3a_previewHolidays(); step3b_applyHolidays();");
+  const answer = arr => ({ steps: [{ type: "thought" }, { type: "model_output", content: [{ type: "text", text: "```json\n" + JSON.stringify(arr) + "\n```" }] }] });
+  assert.throws(() => w.run("geminiHolidayCheck()"), /GEMINI_API_KEY/);
+  assert.throws(() => w.run("step7_startGeminiCheck()"), /GEMINI_API_KEY/);
+  w.props.set("GEMINI_API_KEY", "gk");
+  w.run("step7_startGeminiCheck(); step7_startGeminiCheck();");
+  assert.deepEqual(w.triggers.filter(t => t.fn === "geminiHolidayCheck").map(t => [t.weekDay, t.hour]), [["MONDAY", 5]]);
+
+  // 10 ธ.ค. รู้อยู่แล้ว (ไม่เสนอซ้ำ) · 13 ม.ค. ใหม่ · วันที่ผ่านไปแล้วและรูปแบบผิดถูกทิ้ง
+  w.gemini = answer([{ date: "2026-12-10", name: "วันรัฐธรรมนูญ", source: "https://a" }, { date: "2027-01-13", name: "วันหยุดพิเศษ", source: "https://thaigov.go.th/x" }, { date: "2026-01-01", name: "เก่า" }, { date: "13/01/2570", name: "ผิดรูปแบบ" }]);
+  w.run("geminiHolidayCheck()");
+  assert.equal(w.geminiReq.key, "gk");
+  assert.deepEqual(w.geminiReq.body.tools, [{ type: "google_search" }]);
+  assert.equal(w.geminiReq.body.model, "gemini-4-hydrogen");
+  assert.match(w.props.get("HOLIDAY_NOTICE"), /Gemini พบข่าววันหยุดราชการประกาศเพิ่ม \(ยังไม่ได้ปรับตาราง\):\n• พ\. 13 ม\.ค\. 2570 วันหยุดพิเศษ\n  https:\/\/thaigov\.go\.th\/x\nถ้าถูกต้อง พิมพ์: ยืนยันวันหยุด 13 ม\.ค\./);
+  assert.equal(w.erOn("2027-01-13").length, 1);                                  // ยังไม่ปรับตาราง
+  assert.deepEqual(w.titlesOn("ทุกคน", "2027-01-13"), []);
+  w.props.delete("HOLIDAY_NOTICE"); w.run("geminiHolidayCheck()");               // สัปดาห์ถัดไปตอบเหมือนเดิม: ไม่ถามซ้ำ
+  assert.equal(w.props.get("HOLIDAY_NOTICE"), undefined);
+
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY"); let n = 0;
+  const say = text => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "G" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: "Ua" }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
+  assert.match(say("ยืนยันวันหยุด 20 ม.ค."), /ไม่มีวันนี้ในรายการที่รอยืนยัน — ที่รออยู่: 13 ม\.ค\./);
+  assert.match(say("ยืนยันวันหยุด 13 ม.ค."), /บันทึก พ\. 13 ม\.ค\. 2570 วันหยุดพิเศษ เป็นวันหยุดราชการแล้ว/);
+  assert.deepEqual(w.titlesOn("ทุกคน", "2027-01-13"), ["วันหยุดราชการ: วันหยุดพิเศษ"]);
+  const before = w.erOn("2027-01-13");
+  w.run("holidayWatch()");                                                       // เช้าวันถัดไป: กฎวันหยุดประกาศเพิ่มทำงาน
+  assert.deepEqual(w.erOn("2027-01-13"), []);
+  assert.deepEqual(w.erOn("2027-01-20"), before);
+
+  // ไม่ใช่วันหยุด: ทิ้ง ไม่ลงอะไร
+  w.gemini = answer([{ date: "2027-02-03", name: "ข่าวลือ", source: "" }]);
+  w.run("geminiHolidayCheck()");
+  assert.match(say("ไม่ใช่วันหยุด 3 ก.พ."), /ไม่นับ พ\. 3 ก\.พ\. 2570 เป็นวันหยุด/);
+  assert.deepEqual(w.titlesOn("ทุกคน", "2027-02-03"), []);
+
+  // คำตอบเพี้ยน: ไม่ทำอะไร แจ้งเจ้าของ
+  w.gemini = { steps: [{ type: "model_output", content: [{ type: "text", text: "ขออภัย ไม่พบข้อมูล" }] }] };
+  assert.throws(() => w.run("geminiHolidayCheck()"), /ไม่ได้ตอบเป็นรายการ/);
+  w.gemini = answer(["2027-03-01", "2027-03-02", "2027-03-03", "2027-03-04"].map(d => ({ date: d, name: "x" })));
+  assert.throws(() => w.run("geminiHolidayCheck()"), /มากผิดปกติ/);
+  w.geminiStatus = 429;
+  assert.throws(() => w.run("geminiHolidayCheck()"), /Gemini ตอบ HTTP 429/);
+  assert.deepEqual(w.titlesOn("ทุกคน", "2027-03-01"), ["OPD"]);                   // จันทร์ปกติ: OPD ยังอยู่ ไม่มีรายการวันหยุดถูกลง
 });
 
 test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {

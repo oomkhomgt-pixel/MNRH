@@ -67,6 +67,11 @@ const CONFIG = {
   notHolidays: [],           // วันที่ไม่หยุดจริง เช่น ['2026-12-31']
   // กฎ: ตรวจทุกเช้า ถ้ามีวันหยุดประกาศเพิ่ม ให้งดงานประจำและเลื่อนคิวเวรพุธ/พฤหัสไปสัปดาห์ถัดไปเอง แล้วแจ้งใน LINE (false = แจ้งเจ้าของอย่างเดียว)
   autoApplyNewHolidays: true,
+  // ── Gemini เช็กข่าววันหยุด (ไม่บังคับ) — ต้องใส่ GEMINI_API_KEY ใน Script properties แล้วรัน step7_startGeminiCheck ──
+  gemini: {
+    model: 'gemini-4-hydrogen',   // ชื่อรุ่นตามเอกสาร Gemini API (พ.ย. 2569) — เปลี่ยนได้ถ้า Google เลิกรุ่นนี้
+    autoConfirm: false            // false = ถามในกลุ่ม LINE ก่อน ให้คนพิมพ์ "ยืนยันวันหยุด <วันที่>" · true = เชื่อ Gemini แล้วลงเลย (ไม่แนะนำ)
+  },
 
   // ── LINE ───────────────────────────────────────────────────────────────────
   // โควตา: บัญชี LINE ฟรีส่งได้ 300 ข้อความ/เดือน และการส่งเข้ากลุ่มนับ "ตามจำนวนคนในกลุ่ม" (กลุ่ม 5 คน = ครั้งละ 5)
@@ -90,7 +95,7 @@ const TZ = 'Asia/Bangkok';
 const TZ_OFFSET = '+07:00';   // ไทยไม่มี daylight saving
 const PROP = {
   CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS', ROTATION: 'ROTATION_STATE',
-  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE', SWAP_PENDING: 'SWAP_PENDING', LINE_USERS: 'LINE_USERS', NOTICE: 'HOLIDAY_NOTICE',
+  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE', SWAP_PENDING: 'SWAP_PENDING', LINE_USERS: 'LINE_USERS', NOTICE: 'HOLIDAY_NOTICE', GEMINI_KEY: 'GEMINI_API_KEY', CANDIDATES: 'HOLIDAY_CANDIDATES',
   TOKEN: 'LINE_TOKEN', GROUP: 'LINE_GROUP_ID', HOOK_KEY: 'WEBHOOK_KEY', LAST_MORNING: 'LAST_MORNING_AT'
 };
 const HOLIDAY_ICS = 'https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -403,6 +408,109 @@ function markedHolidays_(today) {
   });
   return out;
 }
+// ══════════════════════════════════════════════════════════════════════════════
+//  Gemini เช็กข่าววันหยุดราชการประกาศเพิ่ม (ทุกวันจันทร์) — ทางเลือก ทำงานในบัญชี Google ของเจ้าของทั้งหมด
+//  Gemini ค้นเว็บแล้วตอบเป็นรายการวันหยุด · คำตอบของโมเดลผิดได้ จึงไม่ลบงานตามทันที:
+//  เก็บเป็น "รอยืนยัน" แล้วถามในข้อความ LINE รอบเช้า ให้คนในทีมพิมพ์ยืนยันก่อน
+// ══════════════════════════════════════════════════════════════════════════════
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+const CONFIRM_WORD = 'ยืนยันวันหยุด', REJECT_WORD = 'ไม่ใช่วันหยุด';
+
+function geminiPrompt_(today, until) {
+  return 'วันนี้คือ ' + today + ' (ค.ศ.) ค้นข่าวและประกาศทางการของไทย แล้วตอบว่า คณะรัฐมนตรีไทยมีมติ "เห็นชอบแล้ว" ให้วันใดเป็นวันหยุดราชการเพิ่มเติมเป็นกรณีพิเศษ ' +
+    '(วันหยุดพิเศษ หรือวันหยุดชดเชยที่กำหนดเป็นพิเศษ) ที่อยู่ระหว่าง ' + today + ' ถึง ' + until + ' บ้าง\n' +
+    'เงื่อนไข: นับเฉพาะวันหยุดราชการทั่วประเทศ ไม่นับวันหยุดธนาคาร/เอกชน/เฉพาะจังหวัด ไม่นับข้อเสนอที่ยังไม่ผ่านมติ และไม่นับวันหยุดประจำปีตามปกติ ' +
+    '(ปีใหม่ สงกรานต์ วันสำคัญทางศาสนา วันเฉลิมพระชนมพรรษา ฯลฯ) ถ้าไม่แน่ใจให้ไม่ใส่\n' +
+    'ตอบเป็น JSON array อย่างเดียว ไม่มีข้อความอื่น รูปแบบ: [{"date":"YYYY-MM-DD","name":"ชื่อวันหยุดสั้น ๆ","source":"URL ของแหล่งข่าวหรือประกาศ"}] ถ้าไม่มีให้ตอบ []';
+}
+/** ดึงข้อความคำตอบจากผลของ Gemini (Interactions API) แล้วแปลงเป็นรายการ · อ่านไม่ออกคืน null (ฟังก์ชันล้วน) */
+function parseGeminiHolidays_(json) {
+  let text = '';
+  ((json && json.steps) || []).forEach(function (st) {
+    if (st.type !== 'model_output') return;
+    (st.content || []).forEach(function (c) { if (c.type === 'text' && c.text) text += c.text; });
+  });
+  const m = /\[[\s\S]*\]/.exec(text);
+  if (!m) return null;
+  let arr;
+  try { arr = JSON.parse(m[0]); } catch (e) { return null; }
+  if (!Array.isArray(arr)) return null;
+  return arr.filter(function (x) { return x && isYmd_(x.date); })
+    .map(function (x) { return { date: x.date, name: String(x.name || 'วันหยุดพิเศษ').replace(/\s+/g, ' ').trim().slice(0, 45), source: String(x.source || '').slice(0, 200) }; });
+}
+/** รันเองทุกวันจันทร์ (หรือกด Run เพื่อลอง) */
+function geminiHolidayCheck() {
+  const key = props_().getProperty(PROP.GEMINI_KEY);
+  if (!key) throw new Error('ยังไม่ได้ใส่ GEMINI_API_KEY ใน Project Settings → Script properties');
+  const today = today_();
+  const until = addDays_(today, 370) < CONFIG.routineUntil ? addDays_(today, 370) : CONFIG.routineUntil;
+  const res = UrlFetchApp.fetch(GEMINI_URL, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { 'x-goog-api-key': key, 'Api-Revision': '2026-05-20' },
+    payload: JSON.stringify({ model: CONFIG.gemini.model, input: geminiPrompt_(today, until), tools: [{ type: 'google_search' }] })
+  });
+  if (res.getResponseCode() !== 200) throw new Error('Gemini ตอบ HTTP ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 300));
+  let json;
+  try { json = JSON.parse(res.getContentText()); } catch (e) { throw new Error('อ่านคำตอบของ Gemini ไม่ได้'); }
+  const found = parseGeminiHolidays_(json);
+  if (found === null) throw new Error('Gemini ไม่ได้ตอบเป็นรายการตามรูปแบบ — ไม่ทำอะไร ลองรันใหม่ภายหลัง');
+  const known = {};
+  loadHolidays_(today).hol.forEach(function (h) { known[h.date] = 1; });
+  const cand = getJson_(PROP.CANDIDATES, {});
+  Object.keys(cand).forEach(function (d) { if (d < today || known[d]) delete cand[d]; });
+  const fresh = found.filter(function (x) { return x.date >= today && x.date <= until && !known[x.date] && !cand[x.date]; });
+  console.log('Gemini พบ ' + found.length + ' วัน · ใหม่ ' + fresh.length + ' วัน: ' + fresh.map(function (x) { return x.date + ' ' + x.name; }).join(' · '));
+  if (fresh.length > 3) throw new Error('Gemini รายงานวันหยุดใหม่ ' + fresh.length + ' วันในครั้งเดียว ซึ่งมากผิดปกติ — ไม่ทำอะไร โปรดตรวจเอง: ' + fresh.map(function (x) { return x.date; }).join(', '));
+  if (!fresh.length) { setJson_(PROP.CANDIDATES, cand); return; }
+  if (CONFIG.gemini.autoConfirm) {
+    fresh.forEach(function (x) { markHoliday_(x.date, x.name, 'Gemini: ' + x.source); });
+    console.log('ลงเป็นวันหยุดในปฏิทินรวมแล้ว — กฎวันหยุดประกาศเพิ่มจะจัดการต่อเช้าวันถัดไป');
+    return;
+  }
+  fresh.forEach(function (x) { cand[x.date] = { name: x.name, source: x.source }; });
+  setJson_(PROP.CANDIDATES, cand);
+  const lines = fresh.map(function (x) { return '• ' + thaiDate_(x.date, { short: true }) + ' ' + x.name + (x.source ? '\n  ' + x.source : ''); });
+  const old = props_().getProperty(PROP.NOTICE);
+  props_().setProperty(PROP.NOTICE, (old ? old + '\n\n' : '') + '🔎 Gemini พบข่าววันหยุดราชการประกาศเพิ่ม (ยังไม่ได้ปรับตาราง):\n' + lines.join('\n') +
+    '\nถ้าถูกต้อง พิมพ์: ' + CONFIRM_WORD + ' ' + thaiDate_(fresh[0].date, { day: false, year: false }) + '\nถ้าไม่ใช่ พิมพ์: ' + REJECT_WORD + ' ' + thaiDate_(fresh[0].date, { day: false, year: false }));
+}
+/** ลงรายการ "วันหยุดราชการ: …" ในปฏิทินรวม (ถ้ายังไม่มี) — กฎวันหยุดประกาศเพิ่มจะเห็นในเช้าวันถัดไป */
+function markHoliday_(ymd, name, note) {
+  const ids = getJson_(PROP.CAL_IDS, {});
+  const cal = ids[CONFIG.teamName] ? CalendarApp.getCalendarById(ids[CONFIG.teamName]) : null;
+  if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(CONFIG.teamName) + '" ไม่ได้');
+  const has = cal.getEvents(at_(ymd, '00:00'), at_(addDays_(ymd, 1), '00:00')).some(function (ev) {
+    return ev.isAllDayEvent() && String(ev.getTitle() || '').indexOf(HOLIDAY_MARK) === 0 && ymdAllDay_(ev.getAllDayStartDate()) === ymd;
+  });
+  if (!has) cal.createAllDayEvent(HOLIDAY_MARK + ': ' + name, at_(ymd, '12:00'), { description: note || '' });
+  return !has;
+}
+/** คำสั่งในกลุ่ม: "ยืนยันวันหยุด 13 ม.ค." / "ไม่ใช่วันหยุด 13 ม.ค." — ใช้ได้กับวันที่ Gemini เสนอไว้เท่านั้น */
+function answerCandidate_(text, yes) {
+  const word = yes ? CONFIRM_WORD : REJECT_WORD;
+  const ymd = parseThaiDate_(text.slice(word.length).trim(), today_());
+  const cand = getJson_(PROP.CANDIDATES, {});
+  const list = Object.keys(cand).sort().map(function (d) { return thaiDate_(d, { day: false, year: false }); }).join(', ');
+  if (!ymd || !cand[ymd]) return '❌ ไม่มีวันนี้ในรายการที่รอยืนยัน' + (list ? ' — ที่รออยู่: ' + list : '');
+  const c = cand[ymd];
+  delete cand[ymd];
+  setJson_(PROP.CANDIDATES, cand);
+  if (!yes) return '🚫 ไม่นับ ' + thaiDate_(ymd, { short: true }) + ' เป็นวันหยุด ตารางไม่เปลี่ยน';
+  markHoliday_(ymd, c.name, 'ยืนยันในกลุ่ม LINE · ที่มา: ' + c.source);
+  return '🎌 บันทึก ' + thaiDate_(ymd, { short: true }) + ' ' + c.name + ' เป็นวันหยุดราชการแล้ว\nเช้าวันถัดไประบบจะงดงานประจำวันนั้น และเลื่อนเวรพุธ/พฤหัสให้';
+}
+/** ขั้นที่ 7 (ไม่บังคับ) — เปิดให้ Gemini เช็กข่าววันหยุดทุกวันจันทร์ */
+function step7_startGeminiCheck() {
+  if (!props_().getProperty(PROP.GEMINI_KEY)) throw new Error('ยังไม่ได้ใส่ GEMINI_API_KEY ใน Project Settings → Script properties (สร้างกุญแจได้ที่ aistudio.google.com)');
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'geminiHolidayCheck') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('geminiHolidayCheck').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(5).inTimezone(TZ).create();
+  console.log('เปิดแล้ว: Gemini เช็กข่าววันหยุดทุกวันจันทร์ราว 05:00 น. · ลองเดี๋ยวนี้ได้โดย Run geminiHolidayCheck');
+}
+function stopGeminiCheck() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'geminiHolidayCheck') ScriptApp.deleteTrigger(t); });
+  console.log('หยุด Gemini เช็กข่าวแล้ว');
+}
+
 /** ลายเซ็นของรายการวันหยุดตั้งแต่วันนี้ — ใช้ยืนยันว่า "ที่จะลบ" ตรงกับ "ที่เจ้าของตรวจแล้ว" */
 function holidaySig_(hol, today) { return hol.filter(function (h) { return h.date >= today; }).map(function (h) { return h.date; }).join(','); }
 /** งานประจำ (รายการซ้ำ) ที่ตรงวันหยุด และยังอยู่ในปฏิทิน → [{ cal, date, ev }] */
@@ -1238,6 +1346,8 @@ function handleLineEvent_(ev) {
     else if (said === YES_WORD) out = answerSwap_(true, uid);                  // อีกฝ่ายตอบรับ — ย้ายจริง
     else if (said === NO_WORD) out = answerSwap_(false, uid);
     else if (said.indexOf(IAM_WORD + ' ') === 0) out = registerUser_(said, uid);
+    else if (said.indexOf(CONFIRM_WORD + ' ') === 0) out = answerCandidate_(said, true);
+    else if (said.indexOf(REJECT_WORD + ' ') === 0) out = answerCandidate_(said, false);
     else handled = false;
   } catch (err) { out = '❌ ทำรายการไม่สำเร็จ: ' + (err && err.message); }
   if (handled) { if (out) lineReply_(ev.replyToken, out); return; }
