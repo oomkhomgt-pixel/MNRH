@@ -1168,7 +1168,7 @@ const COMMANDS = {
   'วันนี้':     function () { return digestText_(0, 'today').text; },
   'พรุ่งนี้':   function () { return digestText_(1, 'tomorrow').text; },
   'สัปดาห์นี้': function () { return weekText_(); },
-  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ลา 14-18 ธ.ค. คงธัช พักร้อน\n   (ลงวันลา + งด OR ของตัวเอง · ยกเลิกลา … เพื่อถอน)\n• ฉันคือ <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
+  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ลา 14-18 ธ.ค. คงธัช พักร้อน\n   (ลงวันลา + งด OR ของตัวเอง · ยกเลิกลา … เพื่อถอน)\n• ตั้งชื่อ @บัญชี <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
 };
 
 // ── แลกเวรผ่าน LINE ─────────────────────────────────────────────────────────────
@@ -1307,6 +1307,26 @@ function answerSwap_(yes, uid) {
     if (plan.fromB.length) moveDuties_(plan.fromB, plan.r.a, plan.ids);
     return '✅ แลกเวรแล้ว' + (who ? ' (' + who + ' ตอบรับ)' : '') + '\n' + plan.lines.join('\n') + '\nปฏิทินอัปเดตแล้ว';
   } finally { lock.releaseLock(); }
+}
+/**
+ * "ตั้งชื่อ @ชื่อในไลน์ มานิตา" — คนหนึ่ง (เช่น เจ้าของ) ตั้งให้ทุกท่านได้ โดยแท็ก (@) บัญชีของท่านนั้นในข้อความ
+ * LINE ส่งรหัสผู้ใช้ของคนที่ถูกแท็กมากับข้อความ · ถ้าไม่ส่งมา (ท่านนั้นยังไม่เคยยอมรับเงื่อนไขของบัญชีทางการ) ต้องให้เจ้าตัวพิมพ์ "ฉันคือ …" เอง
+ */
+const NAME_WORD = 'ตั้งชื่อ';
+function registerByMention_(text, message) {
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  const name = String(text).replace(/\s+/g, ' ').trim().split(' ').pop();
+  const usage = 'พิมพ์: ' + NAME_WORD + ' แล้วแท็ก (@) บัญชีของท่านนั้น ตามด้วยชื่อ เช่น\n' + NAME_WORD + ' @ชื่อในไลน์ มานิตา';
+  if (names.indexOf(name) < 0) return '❌ คำสุดท้ายต้องเป็นชื่อตามปฏิทิน: ' + names.join(', ') + '\n' + usage;
+  const ms = ((message && message.mention && message.mention.mentionees) || []).filter(function (m) { return m.type === 'user'; });
+  if (ms.length !== 1) return '❌ ต้องแท็ก (@) หนึ่งบัญชีในข้อความ — เลือกจากรายชื่อที่ขึ้นตอนพิมพ์ @ ไม่ใช่พิมพ์ชื่อเอง\n' + usage;
+  if (!ms[0].userId) return '❌ LINE ไม่ส่งรหัสของบัญชีที่แท็กมา — ให้ท่านนั้นพิมพ์เองครั้งเดียวว่า: ' + IAM_WORD + ' ' + name;
+  const users = getJson_(PROP.LINE_USERS, {});
+  Object.keys(users).forEach(function (k) { if (users[k] === name) delete users[k]; });
+  users[ms[0].userId] = name;
+  setJson_(PROP.LINE_USERS, users);
+  const left = names.filter(function (n) { return Object.keys(users).every(function (k) { return users[k] !== n; }); });
+  return '👤 จำแล้ว: บัญชีที่แท็กคือ ' + name + (left.length ? '\nยังไม่ได้ตั้ง: ' + left.join(', ') : '\nตั้งครบทุกท่านแล้ว');
 }
 /** "ฉันคือ มานิตา" — จำว่าบัญชี LINE นี้คือใคร เพื่อให้ระบบรู้ว่าใครต้องเป็นผู้ตอบรับ */
 function registerUser_(text, uid) {
@@ -1501,6 +1521,7 @@ function handleLineEvent_(ev) {
     else if (said === YES_WORD) out = answerSwap_(true, uid);                  // อีกฝ่ายตอบรับ — ย้ายจริง
     else if (said === NO_WORD) out = answerSwap_(false, uid);
     else if (said.indexOf(IAM_WORD + ' ') === 0) out = registerUser_(said, uid);
+    else if (said.indexOf(NAME_WORD + ' ') === 0) out = registerByMention_(said, ev.message);
     else if (said.indexOf(UNLEAVE_WORD + ' ') === 0) { out = unleaveCommand_(said); handled = out !== null; }
     else if (said.indexOf(LEAVE_WORD + ' ') === 0) { out = leaveCommand_(said); handled = out !== null; }
     else if (CONFIG.gemini && CONFIG.gemini.chat && said.indexOf(ASK_WORD + ' ') === 0) out = askGemini_(said.slice(ASK_WORD.length));

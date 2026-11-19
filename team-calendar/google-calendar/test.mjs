@@ -886,6 +886,24 @@ test("คำสั่ง LINE แลกเวร: อ่านวันที่
   assert.deepEqual(w.erOn("2026-12-23"), ["อดิศร"]);                             // ตามคิวใหม่ (อดิศรเลื่อนมาจาก 16 ธ.ค.)
 });
 
+test("ตั้งชื่อด้วยการแท็ก: คนเดียวตั้งให้ทุกท่านได้ · ไม่แท็ก/ไม่มีรหัส ได้คำแนะนำ", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY"); let n = 0;
+  const say = (text, mentionees) => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "N" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: "Uowner" }, message: { type: "text", text, ...(mentionees ? { mention: { mentionees } } : {}) } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
+  assert.match(say("ตั้งชื่อ @Manita มานิตา", [{ index: 9, length: 7, type: "user", userId: "Um" }]), /จำแล้ว: บัญชีที่แท็กคือ มานิตา\nยังไม่ได้ตั้ง: ศุภศักดิ์, คงธัช, อดิศร, ชนกันต์/);
+  assert.match(say("ตั้งชื่อ @Chon ชนกันต์", [{ index: 9, length: 5, type: "user", userId: "Uc" }]), /ชนกันต์/);
+  assert.deepEqual(JSON.parse(w.props.get("LINE_USERS")), { Um: "มานิตา", Uc: "ชนกันต์" });
+  assert.match(say("ตั้งชื่อ มานิตา"), /ต้องแท็ก \(@\) หนึ่งบัญชี/);
+  assert.match(say("ตั้งชื่อ @X หมอใหม่", [{ type: "user", userId: "Ux" }]), /คำสุดท้ายต้องเป็นชื่อตามปฏิทิน/);
+  assert.match(say("ตั้งชื่อ @Y อดิศร", [{ type: "user" }]), /LINE ไม่ส่งรหัสของบัญชีที่แท็กมา.*ฉันคือ อดิศร/);
+  // ผลต่อการแลกเวร: มานิตา (Um) ขอ → ต้องเป็นชนกันต์ (Uc) ตอบรับ
+  const as = (uid, text) => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "N" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: uid }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  assert.match(as("Um", "แลกเวร 2 ธ.ค. มานิตา ชนกันต์"), /รอ ชนกันต์ พิมพ์ "ตกลง"/);
+  assert.match(as("Uowner", "ตกลง"), /แลกเวรแล้ว/);                             // บัญชีที่ยังไม่ได้ตั้งชื่อ: ระบบยังรับ (ตรวจได้แค่ว่าไม่ใช่ผู้ขอ)
+});
+
 test("ขั้น 4: แชร์ทุกปฏิทินให้ทุกคน · ผู้ช่วยได้สิทธิ์จัดการ · ข้ามอีเมลของเจ้าของ", () => {
   const w = makeWorld().setup();
   assert.throws(() => w.run("step4_shareCalendars()"), /ยังไม่ได้ใส่ email/);
