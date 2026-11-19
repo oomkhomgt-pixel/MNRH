@@ -97,7 +97,7 @@ const TZ = 'Asia/Bangkok';
 const TZ_OFFSET = '+07:00';   // ไทยไม่มี daylight saving
 const PROP = {
   CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS', ROTATION: 'ROTATION_STATE',
-  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE', SWAP_PENDING: 'SWAP_PENDING', LINE_USERS: 'LINE_USERS', NOTICE: 'HOLIDAY_NOTICE', GEMINI_KEY: 'GEMINI_API_KEY', CANDIDATES: 'HOLIDAY_CANDIDATES',
+  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE', SWAP_PENDING: 'SWAP_PENDING', LINE_USERS: 'LINE_USERS', NOTICE: 'HOLIDAY_NOTICE', LEAVE_LOG: 'LEAVE_LOG', GEMINI_KEY: 'GEMINI_API_KEY', CANDIDATES: 'HOLIDAY_CANDIDATES',
   TOKEN: 'LINE_TOKEN', GROUP: 'LINE_GROUP_ID', HOOK_KEY: 'WEBHOOK_KEY', LAST_MORNING: 'LAST_MORNING_AT'
 };
 const HOLIDAY_ICS = 'https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -1168,7 +1168,7 @@ const COMMANDS = {
   'วันนี้':     function () { return digestText_(0, 'today').text; },
   'พรุ่งนี้':   function () { return digestText_(1, 'tomorrow').text; },
   'สัปดาห์นี้': function () { return weekText_(); },
-  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ฉันคือ <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
+  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ลา 14-18 ธ.ค. คงธัช พักร้อน\n   (ลงวันลา + งด OR ของตัวเอง · ยกเลิกลา … เพื่อถอน)\n• ฉันคือ <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
 };
 
 // ── แลกเวรผ่าน LINE ─────────────────────────────────────────────────────────────
@@ -1321,6 +1321,120 @@ function registerUser_(text, uid) {
   return '👤 จำแล้ว: บัญชีนี้คือ ' + name;
 }
 
+// ── ลงวันลาผ่าน LINE ────────────────────────────────────────────────────────────
+//   ลา 14-18 ธ.ค. คงธัช พักร้อน      ลา 14 ธ.ค. คงธัช      ลา 30 ธ.ค. - 2 ม.ค. คงธัช
+//   ยกเลิกลา 14-18 ธ.ค. คงธัช
+// ทำรอบเดียว: ลงวันลาในปฏิทินของท่านนั้น + ลบ OR/งานประจำของตัวเองในช่วงนั้น
+// เวรวน (ER, OPD ปกส., ER/OPD พฤหัส) "ไม่ลบ" เพราะต้องมีคนอยู่แทน — แจ้งให้หาคนแทนด้วยคำสั่งแลกเวร
+// OPD วันจันทร์ (รายการรวม) และงานที่ลงเอง ไม่ถูกแตะ
+const LEAVE_WORD = 'ลา', UNLEAVE_WORD = 'ยกเลิกลา';
+/** → { d1, d2, name, reason } หรือ { error } หรือ null ถ้าไม่ใช่คำสั่ง (ฟังก์ชันล้วน) */
+function parseLeave_(text, word, todayYmd, names) {
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  if (!new RegExp('^' + word + ' \\d').test(t)) return null;   // "ลา ก่อนนะ" ไม่ใช่คำสั่ง
+  const usage = 'พิมพ์แบบนี้:\n• ' + word + ' 14 ธ.ค. คงธัช\n• ' + word + ' 14-18 ธ.ค. คงธัช' + (word === LEAVE_WORD ? ' พักร้อน' : '') + '\n• ' + word + ' 30 ธ.ค. - 2 ม.ค. คงธัช';
+  const rest = t.slice(word.length + 1);
+  let m, d1, d2, tail;
+  if ((m = new RegExp('^(\\d{1,2}) ?[-–] ?' + DATE_RE_SRC + ' (.+)$').exec(rest)) && /^\d{1,2}\s*[^\d\s\/-]/.test(m[2])) {
+    d2 = parseThaiDate_(m[2], todayYmd);                         // "14-18 ธ.ค." = วันที่ 14 ถึง 18 เดือนเดียวกัน
+    d1 = d2 ? d2.slice(0, 8) + ('0' + m[1]).slice(-2) : null;
+    if (d1 && !isYmd_(d1)) d1 = null;
+    tail = m[3];
+  } else if ((m = new RegExp('^' + DATE_RE_SRC + ' ?(?:[-–]|ถึง) ?' + DATE_RE_SRC + ' (.+)$').exec(rest))) {
+    d1 = parseThaiDate_(m[1], todayYmd); d2 = d1 ? parseThaiDate_(m[2], d1) : null; tail = m[3];
+  } else if ((m = new RegExp('^' + DATE_RE_SRC + ' (.+)$').exec(rest))) {
+    d1 = parseThaiDate_(m[1], todayYmd); d2 = d1; tail = m[2];
+  } else return { error: usage };
+  if (!d1 || !d2) return { error: 'อ่านวันที่ไม่ออก หรือเป็นวันที่ผ่านไปแล้ว\n' + usage };
+  if (d2 < d1) return { error: 'วันสิ้นสุดมาก่อนวันเริ่ม\n' + usage };
+  if (d1 < todayYmd) return { error: 'ลงได้เฉพาะวันนี้หรือวันข้างหน้า' };
+  if (daysBetween_(d1, d2) > 60) return { error: 'ช่วงลายาวเกิน 60 วัน — ลงเองในปฏิทิน' };
+  const parts = tail.split(' ');
+  const name = parts.shift();
+  if (names.indexOf(name) < 0) return { error: 'ไม่รู้จักชื่อ "' + name + '" — ใช้ชื่อตามปฏิทิน: ' + names.join(', ') + '\n' + usage };
+  return { d1: d1, d2: d2, name: name, reason: parts.join(' ').slice(0, 40) };
+}
+function leaveKey_(r) { return r.name + '|' + r.d1 + '|' + r.d2; }
+function leaveCommand_(text) {
+  const today = today_();
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  const r = parseLeave_(text, LEAVE_WORD, today, names);
+  if (!r) return null;
+  if (r.error) return '❌ ' + r.error;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return '❌ ระบบกำลังทำรายการอื่นอยู่ ลองใหม่อีกครั้ง';
+  try {
+    const log = getJson_(PROP.LEAVE_LOG, {});
+    Object.keys(log).forEach(function (k) { if (k.split('|')[2] < today) delete log[k]; });
+    if (log[leaveKey_(r)]) return '❌ ลงวันลาช่วงนี้ของ' + r.name + 'ไว้แล้ว — ถ้าจะแก้ พิมพ์ ' + UNLEAVE_WORD + ' ก่อน';
+    const ids = getJson_(PROP.CAL_IDS, {});
+    const cal = ids[r.name] ? CalendarApp.getCalendarById(ids[r.name]) : null;
+    if (!cal) return '❌ เข้าปฏิทิน "' + calName_(r.name) + '" ไม่ได้';
+    const made = getJson_(PROP.ROUTINE, {});
+    const routineIds = {};
+    Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
+    let title = !r.reason ? 'ลา' : r.reason.indexOf('ลา') === 0 ? r.reason : 'ลา' + r.reason;
+    if (!isAbsentTitle_(title)) title = 'ลา ' + r.reason;
+    const removed = [], cover = [], other = [];
+    cal.getEvents(at_(r.d1, '00:00'), at_(addDays_(r.d2, 1), '00:00')).forEach(function (ev) {
+      if (ev.isAllDayEvent()) return;
+      const d = ymd_(ev.getStartTime());
+      if (d < r.d1 || d > r.d2) return;
+      const tag = ev.getTag(ROT_TAG) || '';
+      const label = thaiDate_(d, { short: true, year: false }) + ' ' + hm_(ev.getStartTime()) + '–' + hm_(ev.getEndTime()) + ' ' + ev.getTitle();
+      if (tag.indexOf('rot:') === 0 || tag.indexOf('swap:rot:') === 0) { cover.push(label); return; }   // เวรวน: ต้องมีคนแทน ไม่ลบ
+      if (routineIds[ev.getId()] || tag === 'restored' || tag === 'swap:routine') {                          // OR/งานประจำของตัวเอง: ลบ และจำไว้เผื่อยกเลิกลา
+        removed.push({ d: d, t: ev.getTitle(), s: hm_(ev.getStartTime()), e: hm_(ev.getEndTime()), label: label });
+        ev.deleteEvent();
+        return;
+      }
+      other.push(label);
+    });
+    const leave = cal.createAllDayEvent(title, at_(r.d1, '12:00'), at_(addDays_(r.d2, 1), '12:00'));
+    leave.setTag(ROT_TAG, 'leave:' + r.d1 + ':' + r.d2);
+    log[leaveKey_(r)] = removed.map(function (x) { return { d: x.d, t: x.t, s: x.s, e: x.e }; });
+    setJson_(PROP.LEAVE_LOG, log);
+    const span = r.d1 === r.d2 ? thaiDate_(r.d1, { short: true }) : thaiDate_(r.d1, { day: false, year: false }) + ' – ' + thaiDate_(r.d2, { day: false });
+    const lines = ['🏖 ลงวันลาแล้ว: ' + r.name + ' · ' + title + ' · ' + span];
+    if (removed.length) { lines.push('งดงานของตัวเอง ' + removed.length + ' รายการ:'); removed.forEach(function (x) { lines.push('  ✂️ ' + x.label); }); }
+    if (cover.length) { lines.push('⚠️ เวรที่ต้องหาคนแทน (ยังอยู่ในตาราง):'); cover.forEach(function (l) { lines.push('  • ' + l); }); lines.push('ใช้คำสั่ง: ' + SWAP_WORD + ' <วันที่> ' + r.name + ' <ชื่อคนแทน>'); }
+    if (other.length) { lines.push('รายการที่ลงเอง ยังค้างอยู่ (จัดการเองในปฏิทิน):'); other.forEach(function (l) { lines.push('  • ' + l); }); }
+    lines.push('ยกเลิก: ' + UNLEAVE_WORD + ' ' + (r.d1 === r.d2 ? thaiDate_(r.d1, { day: false, year: false }) : thaiDate_(r.d1, { day: false, year: false }) + ' - ' + thaiDate_(r.d2, { day: false, year: false })) + ' ' + r.name);
+    return lines.join('\n');
+  } finally { lock.releaseLock(); }
+}
+function unleaveCommand_(text) {
+  const today = today_();
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  const r = parseLeave_(text, UNLEAVE_WORD, today, names);
+  if (!r) return null;
+  if (r.error) return '❌ ' + r.error;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return '❌ ระบบกำลังทำรายการอื่นอยู่ ลองใหม่อีกครั้ง';
+  try {
+    const log = getJson_(PROP.LEAVE_LOG, {});
+    const key = leaveKey_(r);
+    if (!log[key]) return '❌ ไม่พบวันลาช่วงนี้ของ' + r.name + 'ที่ลงผ่านคำสั่ง (ถ้าลงเองในปฏิทิน ให้ลบเองในปฏิทิน)';
+    const ids = getJson_(PROP.CAL_IDS, {});
+    const cal = ids[r.name] ? CalendarApp.getCalendarById(ids[r.name]) : null;
+    if (!cal) return '❌ เข้าปฏิทิน "' + calName_(r.name) + '" ไม่ได้';
+    cal.getEvents(at_(r.d1, '00:00'), at_(addDays_(r.d2, 1), '00:00')).forEach(function (ev) {
+      if (ev.getTag(ROT_TAG) === 'leave:' + r.d1 + ':' + r.d2) ev.deleteEvent();
+    });
+    const hol = {};
+    getJson_(PROP.HOLIDAYS, []).forEach(function (h) { hol[h.date] = 1; });
+    let back = 0;
+    log[key].forEach(function (x) {
+      if (x.d < today || hol[x.d]) return;   // ผ่านไปแล้ว หรือกลายเป็นวันหยุด: ไม่คืน
+      cal.createEvent(x.t, at_(x.d, x.s), at_(x.d, x.e)).setTag(ROT_TAG, 'restored');
+      back++;
+    });
+    delete log[key];
+    setJson_(PROP.LEAVE_LOG, log);
+    return '↩️ ยกเลิกวันลาของ' + r.name + 'แล้ว · คืนงานของตัวเอง ' + back + ' รายการ';
+  } finally { lock.releaseLock(); }
+}
+
 /**
  * ห้ามคืนค่าด้วย ContentService — Apps Script จะตอบเป็น HTTP 302 ซึ่ง LINE นับเป็นข้อผิดพลาด
  * ฟังก์ชันนี้จึงจบโดยไม่คืนค่าอะไร (Apps Script ตอบ 200 ให้เอง)
@@ -1387,6 +1501,8 @@ function handleLineEvent_(ev) {
     else if (said === YES_WORD) out = answerSwap_(true, uid);                  // อีกฝ่ายตอบรับ — ย้ายจริง
     else if (said === NO_WORD) out = answerSwap_(false, uid);
     else if (said.indexOf(IAM_WORD + ' ') === 0) out = registerUser_(said, uid);
+    else if (said.indexOf(UNLEAVE_WORD + ' ') === 0) { out = unleaveCommand_(said); handled = out !== null; }
+    else if (said.indexOf(LEAVE_WORD + ' ') === 0) { out = leaveCommand_(said); handled = out !== null; }
     else if (CONFIG.gemini && CONFIG.gemini.chat && said.indexOf(ASK_WORD + ' ') === 0) out = askGemini_(said.slice(ASK_WORD.length));
     else if (said.indexOf(CONFIRM_WORD + ' ') === 0) out = answerCandidate_(said, true);
     else if (said.indexOf(REJECT_WORD + ' ') === 0) out = answerCandidate_(said, false);
