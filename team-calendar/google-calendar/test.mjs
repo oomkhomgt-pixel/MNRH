@@ -922,6 +922,45 @@ test("แลกเวรระบุงาน: เฉพาะ ER · ER + OPD �
   assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-02"), ["OPD ปกส.", "ลา", "สอน นศพ."]);
 });
 
+test("คำสั่ง LINE เวร: ลงเวรนอกเวลาทั้งเดือน · ลงซ้ำข้ามของเดิม · วันชนกันเตือน · ลบเวร · คุยธรรมดาไม่ตอบ", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  const names = "CONFIG.people.map(x => x.name)";
+  assert.deepEqual(w.json(`parseCall_("เวร ธ.ค. มานิตา 1,8,15 คงธัช 2, 9 · ชนกันต์ 30-31", "2026-11-24", ${names})`),
+    { ym: "2026-12", list: [{ name: "มานิตา", days: [1, 8, 15] }, { name: "คงธัช", days: [2, 9] }, { name: "ชนกันต์", days: [30, 31] }] });
+  assert.equal(w.json(`parseCall_("เวร ม.ค. อดิศร 5", "2026-11-24", ${names})`).ym, "2027-01");
+  assert.equal(w.json(`parseCall_("เวร 12/2569 อดิศร 5", "2026-11-24", ${names})`).ym, "2026-12");
+  assert.equal(w.json(`parseCall_("เวร วันนี้ใครอยู่", "2026-11-24", ${names})`), null);
+  assert.match(w.json(`parseCall_("เวร ธ.ค. หมอใหม่ 1", "2026-11-24", ${names})`).error, /ไม่เข้าใจ "หมอใหม่"/);
+  assert.match(w.json(`parseCall_("เวร ก.พ. อดิศร 30", "2026-11-24", ${names})`).error, /ไม่มีวันที่ 30/);
+
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY"); let n = 0;
+  const say = text => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "C" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: "Ua" }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
+  const nRep = w.replies().length; say("เวร วันนี้ใครอยู่"); assert.equal(w.replies().length, nRep);
+
+  const out = say("เวร ธ.ค. มานิตา 1,8 คงธัช 2 ชนกันต์ 5");
+  assert.match(out, /^🌙 ลงเวรนอกเวลา ธ\.ค\. 2569 แล้ว 4 เวร \(08:00–08:00 วันถัดไป\)\nมานิตา: 1, 8\nคงธัช: 2\nชนกันต์: 5/);
+  const duty = w.cal("มานิตา").getEvents(bkk("2026-12-01"), bkk("2026-12-02")).find(e => e.title === "เวรนอกเวลา");
+  assert.equal(duty.start.getTime(), bkk("2026-12-01", "08:00").getTime());
+  assert.equal(duty.end.getTime(), bkk("2026-12-02", "08:00").getTime());
+  assert.match(w.run('formatDigest_(collectDay_("2026-12-01"), "today").text'), /🔴 มานิตา\n   • 08:00–16:00 OR\n   • 08:00–08:00 \(\+1\) เวรนอกเวลา\n/);
+  assert.doesNotMatch(w.run('formatDigest_(collectDay_("2026-12-06"), "today").text'), /เวรนอกเวลา/);   // เช้าวันถัดไปไม่ขึ้นซ้ำ
+
+  // ลงซ้ำ + เพิ่มของใหม่ + วันชนกัน + วันที่ผ่านไปแล้วในเดือนนี้
+  const again = say("เวร ธ.ค. มานิตา 1,8,15 อดิศร 2");
+  assert.match(again, /แล้ว 2 เวร/); assert.match(again, /มีอยู่แล้ว ข้าม 2 เวร/); assert.match(again, /⚠️ วันเดียวกันมีมากกว่าหนึ่งท่าน:\n  พ\. 2 ธ\.ค\. มีทั้ง คงธัช และ อดิศร/);
+  assert.match(say("เวร พ.ย. ศุภศักดิ์ 20,30"), /แล้ว 1 เวร[\s\S]*วันที่ผ่านไปแล้ว ไม่ลง 1 เวร/);
+
+  // แลกเวรนอกเวลาแบบระบุงาน แล้วลบทั้งเดือน: เวรที่แลกไปแล้วไม่ถูกลบ
+  say("แลกเวร 5 ธ.ค. ชนกันต์ ศุภศักดิ์ เวรนอกเวลา"); w.run('answerSwap_(true, "Ub")');
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-05"), ["เวรนอกเวลา"]);
+  assert.match(say("ลบเวร ธ.ค."), /ลบเวรนอกเวลาที่ลงด้วยคำสั่ง ของ ธ\.ค\. 2569 ตั้งแต่วันนี้ 5 เวร/);
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-01"), ["OR"]);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-05"), ["เวรนอกเวลา"]);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-11-30"), ["เวรนอกเวลา"]);                  // เดือนอื่นไม่ถูกแตะ
+});
+
 test("ตั้งชื่อด้วยการแท็ก: คนเดียวตั้งให้ทุกท่านได้ · ไม่แท็ก/ไม่มีรหัส ได้คำแนะนำ", () => {
   const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
   w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");

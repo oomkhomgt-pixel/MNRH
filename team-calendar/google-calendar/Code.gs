@@ -67,6 +67,8 @@ const CONFIG = {
   notHolidays: [],           // วันที่ไม่หยุดจริง เช่น ['2026-12-31']
   // กฎ: ตรวจทุกเช้า ถ้ามีวันหยุดประกาศเพิ่ม ให้งดงานประจำและเลื่อนคิวเวรพุธ/พฤหัสไปสัปดาห์ถัดไปเอง แล้วแจ้งใน LINE (false = แจ้งเจ้าของอย่างเดียว)
   autoApplyNewHolidays: true,
+  // ── เวรนอกเวลา: ลงทั้งเดือนด้วยคำสั่งในกลุ่ม LINE  "เวร ธ.ค. มานิตา 1,8,15 คงธัช 2,9" ──
+  call: { title: 'เวรนอกเวลา', start: '08:00', end: '08:00' },   // end ไม่มากกว่า start = จบวันถัดไป
   // ── Gemini เช็กข่าววันหยุด (ไม่บังคับ) — ต้องใส่ GEMINI_API_KEY ใน Script properties แล้วรัน step7_startGeminiCheck ──
   gemini: {
     model: 'gemini-4-hydrogen',   // ชื่อรุ่นตามเอกสาร Gemini API (พ.ย. 2569) — เปลี่ยนได้ถ้า Google เลิกรุ่นนี้
@@ -852,7 +854,7 @@ function toItem_(ev, dateYmd, now, routineIds) {
   const s = ev.getStartTime(), e = ev.getEndTime();
   if (ymd_(s) < dateYmd) {
     // เริ่มก่อนวันนี้: เวรข้ามคืนที่จบเช้านี้ไม่นับซ้ำ — แต่รายการหลายวัน (เช่น ไปประชุม 3 วันแบบมีเวลา) ต้องขึ้นทุกวันที่คร่อม
-    const long = e.getTime() - s.getTime() >= 24 * 3600 * 1000;
+    const long = e.getTime() - s.getTime() > 24 * 3600 * 1000;   // เวร 24 ชม. พอดี (08:00–08:00) ไม่นับ: ไม่ขึ้นซ้ำเช้าวันถัดไป
     if (ymd_(e) > dateYmd) return { allDay: false, cont: 'ต่อเนื่องทั้งวัน', title: title, start: '00:00', end: '', plusDays: 0, location: location, isNew: isNew };
     if (long && ymd_(e) === dateYmd && hm_(e) !== '00:00') return { allDay: false, cont: 'ต่อเนื่องถึง ' + hm_(e), title: title, start: '00:00', end: hm_(e), plusDays: 0, location: location, isNew: isNew };
     return null;
@@ -1168,7 +1170,7 @@ const COMMANDS = {
   'วันนี้':     function () { return digestText_(0, 'today').text; },
   'พรุ่งนี้':   function () { return digestText_(1, 'tomorrow').text; },
   'สัปดาห์นี้': function () { return weekText_(); },
-  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ลา 14-18 ธ.ค. คงธัช พักร้อน\n   (ลงวันลา + งด OR ของตัวเอง · ยกเลิกลา … เพื่อถอน)\n• ตั้งชื่อ @บัญชี <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
+  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• เวร ธ.ค. มานิตา 1,8,15 คงธัช 2,9\n   (ลงเวรนอกเวลาทั้งเดือน)\n• ลา 14-18 ธ.ค. คงธัช พักร้อน\n   (ลงวันลา + งด OR ของตัวเอง · ยกเลิกลา … เพื่อถอน)\n• ตั้งชื่อ @บัญชี <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
 };
 
 // ── แลกเวรผ่าน LINE ─────────────────────────────────────────────────────────────
@@ -1469,6 +1471,114 @@ function unleaveCommand_(text) {
   } finally { lock.releaseLock(); }
 }
 
+// ── ลงเวรนอกเวลาทั้งเดือนผ่าน LINE ───────────────────────────────────────────────
+//   เวร ธ.ค. มานิตา 1,8,15 คงธัช 2,9,16 ชนกันต์ 3,10      (ลงซ้ำได้ ของที่มีแล้วข้าม)
+//   ลบเวร ธ.ค.                                              (ลบเวรที่ลงด้วยคำสั่งนี้ ตั้งแต่วันนี้ถึงสิ้นเดือนนั้น)
+const CALL_WORD = 'เวร', UNCALL_WORD = 'ลบเวร';
+/** "ธ.ค." "ธค 70" "12" "12/2569" → 'yyyy-MM' (เดือนนั้นครั้งถัดไป ถ้าไม่ใส่ปี) หรือ null (ฟังก์ชันล้วน) */
+function parseThaiMonth_(tok, yearTok, todayYmd) {
+  let m = TH_MONTH_KEYS.indexOf(String(tok).replace(/\./g, '')) + 1, y = yearTok || null;
+  const mm = /^(\d{1,2})(?:\/(\d{2,4}))?$/.exec(tok);
+  if (!m && mm) { m = Number(mm[1]); y = mm[2] || y; }
+  if (!(m >= 1 && m <= 12)) return null;
+  const pad = function (n) { return ('0' + n).slice(-2); };
+  if (y) { let yy = Number(y); if (yy < 100) yy += 2500; if (yy > 2400) yy -= 543; return yy + '-' + pad(m); }
+  const ty = Number(todayYmd.slice(0, 4)), tm = Number(todayYmd.slice(5, 7));
+  return (m >= tm ? ty : ty + 1) + '-' + pad(m);
+}
+/** → { ym, list: [{ name, days:[..] }] } · { error } · null ถ้าไม่ใช่คำสั่ง (ฟังก์ชันล้วน) */
+function parseCall_(text, todayYmd, names) {
+  const toks = String(text).replace(/[·•,;:\/|]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ');
+  if (toks.shift() !== CALL_WORD || !toks.length) return null;
+  const usage = 'พิมพ์แบบนี้:\n' + CALL_WORD + ' ธ.ค. มานิตา 1,8,15 คงธัช 2,9,16';
+  let ym = parseThaiMonth_(toks[0], null, todayYmd);
+  if (!ym) return null;                                  // "เวร วันนี้ใครอยู่" = คุยธรรมดา
+  toks.shift();
+  if (toks.length && /^\d{2,4}$/.test(toks[0]) && Number(toks[0]) > 31) ym = parseThaiMonth_(ym.slice(5), toks.shift(), todayYmd);
+  const list = [];
+  let cur = null;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (names.indexOf(t) >= 0) { cur = { name: t, days: [] }; list.push(cur); continue; }
+    const r = /^(\d{1,2})(?:-(\d{1,2}))?$/.exec(t);
+    if (!r) return { error: 'ไม่เข้าใจ "' + t + '" — ชื่อต้องตรงกับปฏิทิน: ' + names.join(', ') + '\n' + usage };
+    if (!cur) return { error: 'ต้องขึ้นด้วยชื่อก่อนวันที่\n' + usage };
+    const a = Number(r[1]), b = r[2] ? Number(r[2]) : a;
+    for (let d = a; d <= b; d++) cur.days.push(d);
+  }
+  if (!list.length || list.some(function (x) { return !x.days.length; })) return { error: 'ทุกชื่อต้องมีวันที่ตามหลัง\n' + usage };
+  for (let i = 0; i < list.length; i++) for (let j = 0; j < list[i].days.length; j++) {
+    if (!isYmd_(ym + '-' + ('0' + list[i].days[j]).slice(-2))) return { error: 'ไม่มีวันที่ ' + list[i].days[j] + ' ในเดือนนั้น' };
+  }
+  return { ym: ym, list: list };
+}
+function callCommand_(text) {
+  const today = today_();
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  const r = parseCall_(text, today, names);
+  if (!r) return null;
+  if (r.error) return '❌ ' + r.error;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return '❌ ระบบกำลังทำรายการอื่นอยู่ ลองใหม่อีกครั้ง';
+  try {
+    const ids = getJson_(PROP.CAL_IDS, {});
+    const c = CONFIG.call;
+    const nextDay = c.end <= c.start;
+    const taken = {};   // วันที่ → ชื่อ (ไว้เตือนถ้าวันเดียวมีสองท่าน)
+    names.forEach(function (n) {
+      const cal = ids[n] ? CalendarApp.getCalendarById(ids[n]) : null;
+      if (!cal) return;
+      cal.getEvents(at_(r.ym + '-01', '00:00'), at_(addDays_(r.ym + '-28', 5), '00:00')).forEach(function (ev) {
+        if (!ev.isAllDayEvent() && ev.getTitle() === c.title) (taken[ymd_(ev.getStartTime())] = taken[ymd_(ev.getStartTime())] || []).push(n);
+      });
+    });
+    const lines = [], dup = [];
+    let made = 0, had = 0, past = 0;
+    r.list.forEach(function (x) {
+      const cal = ids[x.name] ? CalendarApp.getCalendarById(ids[x.name]) : null;
+      if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(x.name) + '" ไม่ได้');
+      const done = [];
+      x.days.forEach(function (d) {
+        const ymd = r.ym + '-' + ('0' + d).slice(-2);
+        if (ymd < today) { past++; return; }
+        const who = taken[ymd] || [];
+        if (who.indexOf(x.name) >= 0) { had++; return; }
+        if (who.length) dup.push(thaiDate_(ymd, { short: true, year: false }) + ' มีทั้ง ' + who.concat([x.name]).join(' และ '));
+        cal.createEvent(c.title, at_(ymd, c.start), at_(nextDay ? addDays_(ymd, 1) : ymd, c.end)).setTag(ROT_TAG, 'call:' + r.ym);
+        (taken[ymd] = who).push(x.name);
+        done.push(d); made++;
+        if (made % 10 === 0) Utilities.sleep(1000);
+      });
+      if (done.length) lines.push(x.name + ': ' + done.join(', '));
+    });
+    const mName = TH_MONTHS[Number(r.ym.slice(5)) - 1] + ' ' + (Number(r.ym.slice(0, 4)) + 543);
+    const out = ['🌙 ลง' + c.title + ' ' + mName + ' แล้ว ' + made + ' เวร (' + c.start + '–' + c.end + (nextDay ? ' วันถัดไป' : '') + ')'].concat(lines);
+    if (had) out.push('มีอยู่แล้ว ข้าม ' + had + ' เวร');
+    if (past) out.push('วันที่ผ่านไปแล้ว ไม่ลง ' + past + ' เวร');
+    if (dup.length) out.push('⚠️ วันเดียวกันมีมากกว่าหนึ่งท่าน:\n  ' + dup.join('\n  '));
+    out.push('ลบทั้งเดือน: ' + UNCALL_WORD + ' ' + TH_MONTHS[Number(r.ym.slice(5)) - 1]);
+    return out.join('\n');
+  } finally { lock.releaseLock(); }
+}
+function uncallCommand_(text) {
+  const toks = String(text).replace(/\s+/g, ' ').trim().split(' ');
+  if (toks[0] !== UNCALL_WORD || toks.length < 2) return null;
+  const today = today_();
+  const ym = parseThaiMonth_(toks[1], toks[2], today);
+  if (!ym) return '❌ พิมพ์: ' + UNCALL_WORD + ' ธ.ค.';
+  const ids = getJson_(PROP.CAL_IDS, {});
+  const from = ym + '-01' > today ? ym + '-01' : today;
+  let n = 0;
+  CONFIG.people.forEach(function (p) {
+    const cal = ids[p.name] ? CalendarApp.getCalendarById(ids[p.name]) : null;
+    if (!cal) return;
+    cal.getEvents(at_(from, '00:00'), at_(addDays_(ym + '-28', 5), '00:00')).forEach(function (ev) {
+      if (ev.getTag(ROT_TAG) === 'call:' + ym && ymd_(ev.getStartTime()).slice(0, 7) === ym && ymd_(ev.getStartTime()) >= today) { ev.deleteEvent(); n++; }
+    });
+  });
+  return '🗑 ลบ' + CONFIG.call.title + 'ที่ลงด้วยคำสั่ง ของ ' + TH_MONTHS[Number(ym.slice(5)) - 1] + ' ' + (Number(ym.slice(0, 4)) + 543) + ' ตั้งแต่วันนี้ ' + n + ' เวร (เวรที่ลงเองหรือแลกไปแล้วไม่ถูกลบ)';
+}
+
 /**
  * ห้ามคืนค่าด้วย ContentService — Apps Script จะตอบเป็น HTTP 302 ซึ่ง LINE นับเป็นข้อผิดพลาด
  * ฟังก์ชันนี้จึงจบโดยไม่คืนค่าอะไร (Apps Script ตอบ 200 ให้เอง)
@@ -1536,6 +1646,8 @@ function handleLineEvent_(ev) {
     else if (said === NO_WORD) out = answerSwap_(false, uid);
     else if (said.indexOf(IAM_WORD + ' ') === 0) out = registerUser_(said, uid);
     else if (said.indexOf(NAME_WORD + ' ') === 0) out = registerByMention_(said, ev.message);
+    else if (said.indexOf(UNCALL_WORD + ' ') === 0) { out = uncallCommand_(said); handled = out !== null; }
+    else if (said.indexOf(CALL_WORD + ' ') === 0) { out = callCommand_(said); handled = out !== null; }
     else if (said.indexOf(UNLEAVE_WORD + ' ') === 0) { out = unleaveCommand_(said); handled = out !== null; }
     else if (said.indexOf(LEAVE_WORD + ' ') === 0) { out = leaveCommand_(said); handled = out !== null; }
     else if (CONFIG.gemini && CONFIG.gemini.chat && said.indexOf(ASK_WORD + ' ') === 0) out = askGemini_(said.slice(ASK_WORD.length));
