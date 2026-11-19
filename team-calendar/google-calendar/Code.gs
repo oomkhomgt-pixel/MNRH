@@ -376,11 +376,32 @@ function loadHolidays_(today) {
   if (fromGoogle.length < 5) throw new Error('ปฏิทินวันหยุดของ Google อ่านได้ ' + fromGoogle.length + ' วัน ซึ่งน้อยผิดปกติ — ไม่แก้อะไร เพื่อความปลอดภัย');
   const adjusted = civilServiceAdjust_(fromGoogle, CONFIG);
   const firsts = (CONFIG.rotations || []).map(function (r) { return r.firstDate; }).sort();
+  // วันหยุดที่ "ลงไว้ในปฏิทินรวม" นับเป็นวันหยุดเพิ่มด้วย — เพิ่มวันหยุดได้โดยไม่ต้องแก้โค้ด
+  const cfg = Object.assign({}, CONFIG, { extraHolidays: (CONFIG.extraHolidays || []).concat(markedHolidays_(today)) });
   return {
-    hol: mergeHolidays_(adjusted.list, CONFIG, addDays_(today, -7), CONFIG.routineUntil),
-    allHol: mergeHolidays_(adjusted.list, CONFIG, firsts[0] || today, CONFIG.routineUntil),
+    hol: mergeHolidays_(adjusted.list, cfg, addDays_(today, -7), CONFIG.routineUntil),
+    allHol: mergeHolidays_(adjusted.list, cfg, firsts[0] || today, CONFIG.routineUntil),
     notes: adjusted.notes.filter(function (n) { return Number(/ปี (\d{4})/.exec(n)[1]) - 543 >= Number(today.slice(0, 4)); })
   };
+}
+/**
+ * รายการ "ทั้งวัน" ในปฏิทินรวม (สายฟ้า – ทุกคน) ที่ชื่อขึ้นต้นว่า "วันหยุดราชการ" = วันหยุดเพิ่ม
+ * ใครในทีม (หรือบอทเช็กข่าว) ลงรายการแบบนี้ได้จากแอปปฏิทิน แล้วกฎวันหยุดประกาศเพิ่มจะจัดการต่อเองในเช้าวันถัดไป
+ */
+const HOLIDAY_MARK = 'วันหยุดราชการ';
+function markedHolidays_(today) {
+  const ids = getJson_(PROP.CAL_IDS, {});
+  const cal = ids[CONFIG.teamName] ? CalendarApp.getCalendarById(ids[CONFIG.teamName]) : null;
+  if (!cal) return [];
+  const out = [];
+  cal.getEvents(at_(today, '00:00'), at_(addDays_(CONFIG.routineUntil, 1), '00:00')).forEach(function (ev) {
+    const title = String(ev.getTitle() || '').trim();
+    if (!ev.isAllDayEvent() || title.indexOf(HOLIDAY_MARK) !== 0) return;
+    const name = title.slice(HOLIDAY_MARK.length).replace(/^[\s:：\-–]+/, '').trim() || 'วันหยุดพิเศษ';
+    const last = addDays_(ymdAllDay_(ev.getAllDayEndDate()), -1);
+    for (let d = ymdAllDay_(ev.getAllDayStartDate()), i = 0; d <= last && i < 10; d = addDays_(d, 1), i++) out.push({ date: d, name: name });
+  });
+  return out;
 }
 /** ลายเซ็นของรายการวันหยุดตั้งแต่วันนี้ — ใช้ยืนยันว่า "ที่จะลบ" ตรงกับ "ที่เจ้าของตรวจแล้ว" */
 function holidaySig_(hol, today) { return hol.filter(function (h) { return h.date >= today; }).map(function (h) { return h.date; }).join(','); }
@@ -708,7 +729,7 @@ function collectDay_(dateYmd) {
     if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(shortName) + '" ไม่ได้ (ถูกลบ หรือยังไม่ได้รัน step1_createCalendars) — ตารางไม่ครบ จึงไม่ส่ง');
     return cal.getEvents(at_(dateYmd, '00:00'), at_(addDays_(dateYmd, 1), '00:00'))
       .map(function (ev) { return toItem_(ev, dateYmd, now, routineIds); })
-      .filter(function (x) { return x; })
+      .filter(function (x) { return x && !(x.allDay && x.title.indexOf(HOLIDAY_MARK) === 0); })
       .sort(function (a, b) { return (a.allDay === b.allDay ? 0 : a.allDay ? -1 : 1) || String(a.start || '').localeCompare(String(b.start || '')) || a.title.localeCompare(b.title); });
   };
   const hol = getJson_(PROP.HOLIDAYS, []).filter(function (h) { return h.date === dateYmd; })[0];

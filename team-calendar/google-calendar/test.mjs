@@ -340,6 +340,22 @@ test("ขั้น 3ก ดูอย่างเดียวไม่แก้�
   assert.equal(snap(), s3);
 });
 
+test("เพิ่มวันหยุดโดยไม่แก้โค้ด: ลงรายการทั้งวัน 'วันหยุดราชการ: …' ในปฏิทินรวม แล้วกฎจัดการต่อเอง", () => {
+  const w = makeWorld().setup();
+  w.run("step3a_previewHolidays(); step3b_applyHolidays();");
+  const before = w.erOn("2027-01-13");
+  assert.equal(before.length, 1);
+  w.cal("ทุกคน").add({ title: "วันหยุดราชการ: วันหยุดพิเศษตามมติ ครม.", allDay: true, start: bkk("2027-01-13"), end: bkk("2027-01-14") });
+  w.cal("ทุกคน").add({ title: "ประชุมสาย", allDay: true, start: bkk("2027-01-20"), end: bkk("2027-01-21") });   // ชื่ออื่นไม่นับ
+  w.run("holidayWatch()");
+  assert.deepEqual(w.erOn("2027-01-13"), []);
+  assert.deepEqual(w.erOn("2027-01-20"), before);
+  assert.match(w.props.get("HOLIDAY_NOTICE"), /พ\. 13 ม\.ค\. 2570 วันหยุดพิเศษตามมติ ครม\./);
+  const day = w.run('formatDigest_(collectDay_("2027-01-13"), "today").text');
+  assert.match(day, /🎌 วันหยุดราชการ: วันหยุดพิเศษตามมติ ครม\./);
+  assert.doesNotMatch(day, /ทั้งวัน วันหยุดราชการ/);                              // ไม่ขึ้นซ้ำเป็นงานของทุกคน
+});
+
 test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {
   const w = makeWorld();
   w.run("CONFIG.routine[2].skipHolidays = false;");                            // OR พฤหัสของชนกันต์
