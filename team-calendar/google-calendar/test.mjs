@@ -409,6 +409,31 @@ test("Gemini เช็กข่าววันหยุด: เสนอใน�
   assert.deepEqual(w.titlesOn("ทุกคน", "2027-03-01"), ["OPD"]);                   // จันทร์ปกติ: OPD ยังอยู่ ไม่มีรายการวันหยุดถูกลง
 });
 
+test("ถาม Gemini ในกลุ่ม: ปิดไว้เป็นค่าเริ่มต้น · เปิดแล้วส่งตารางให้ ไม่ให้ค้นเว็บ ไม่แก้ปฏิทิน · ล้มแล้วตอบสุภาพ", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY"); let n = 0;
+  const say = text => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "Q" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: "Ua" }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
+  const nRep = w.replies().length;
+  say("ถาม พุธนี้ใครอยู่ ER");
+  assert.equal(w.replies().length, nRep);                                        // ปิดอยู่: เป็นข้อความคุยธรรมดา ไม่ตอบ ไม่เรียก Gemini
+  assert.equal(w.geminiReq, undefined);
+
+  w.run("CONFIG.gemini.chat = true;");
+  assert.match(say("ถาม พุธนี้ใครอยู่ ER"), /ยังไม่ได้ตั้งค่า Gemini/);
+  w.props.set("GEMINI_API_KEY", "gk");
+  w.gemini = { steps: [{ type: "model_output", content: [{ type: "text", text: "พุธ 25 พ.ย. ชนกันต์อยู่ ER 08:00–16:00" }] }] };
+  const snap = JSON.stringify(w.calendars.map(c => [c.singles.length, c.series.length]));
+  assert.equal(say("ถาม พุธนี้ใครอยู่ ER"), "🤖 พุธ 25 พ.ย. ชนกันต์อยู่ ER 08:00–16:00\n(คำตอบจาก Gemini อาจผิดได้ — ยืนยันกับปฏิทิน)");
+  assert.equal(w.geminiReq.body.tools, undefined);                               // ไม่ให้ค้นเว็บ
+  assert.match(w.geminiReq.body.input, /▪️ พ\. 25 พ\.ย\.\n🟣 ชนกันต์\n   • 08:00–16:00 ER/);
+  assert.match(w.geminiReq.body.input, /คำถาม: พุธนี้ใครอยู่ ER$/);
+  assert.equal(JSON.stringify(w.calendars.map(c => [c.singles.length, c.series.length])), snap);
+  w.geminiStatus = 500;
+  assert.match(say("ถาม อะไรก็ได้"), /Gemini ไม่ตอบ \(HTTP 500\)/);
+});
+
 test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {
   const w = makeWorld();
   w.run("CONFIG.routine[2].skipHolidays = false;");                            // OR พฤหัสของชนกันต์
