@@ -72,6 +72,7 @@ const CONFIG = {
   // ── Gemini เช็กข่าววันหยุด (ไม่บังคับ) — ต้องใส่ GEMINI_API_KEY ใน Script properties แล้วรัน step7_startGeminiCheck ──
   gemini: {
     model: 'gemini-4-hydrogen',   // ชื่อรุ่นตามเอกสาร Gemini API (พ.ย. 2569) — เปลี่ยนได้ถ้า Google เลิกรุ่นนี้
+    everyWeeks: 2,                // เช็กข่าววันหยุดทุกกี่สัปดาห์ (วันจันทร์)
     chat: false,                  // true = เปิดให้พิมพ์ "ถาม <คำถาม>" ในกลุ่ม แล้ว Gemini อ่านตารางมาตอบ (ส่งตารางงานไปให้ Gemini ทุกครั้งที่ถาม)
     chatDays: 21,                 // ให้ Gemini เห็นตารางกี่วันข้างหน้า
     autoConfirm: false            // false = ถามในกลุ่ม LINE ก่อน ให้คนพิมพ์ "ยืนยันวันหยุด <วันที่>" · true = เชื่อ Gemini แล้วลงเลย (ไม่แนะนำ)
@@ -413,7 +414,7 @@ function markedHolidays_(today) {
   return out;
 }
 // ══════════════════════════════════════════════════════════════════════════════
-//  Gemini เช็กข่าววันหยุดราชการประกาศเพิ่ม (ทุกวันจันทร์) — ทางเลือก ทำงานในบัญชี Google ของเจ้าของทั้งหมด
+//  Gemini เช็กข่าววันหยุดราชการประกาศเพิ่ม (วันจันทร์ ทุก 2 สัปดาห์) — ทางเลือก ทำงานในบัญชี Google ของเจ้าของทั้งหมด
 //  Gemini ค้นเว็บแล้วตอบเป็นรายการวันหยุด · คำตอบของโมเดลผิดได้ จึงไม่ลบงานตามทันที:
 //  เก็บเป็น "รอยืนยัน" แล้วถามในข้อความ LINE รอบเช้า ให้คนในทีมพิมพ์ยืนยันก่อน
 // ══════════════════════════════════════════════════════════════════════════════
@@ -481,7 +482,7 @@ function askGemini_(question) {
   return '🤖 ' + Array.from(text).slice(0, 900).join('') + '\n(คำตอบจาก Gemini อาจผิดได้ — ยืนยันกับปฏิทิน)';
 }
 
-/** รันเองทุกวันจันทร์ (หรือกด Run เพื่อลอง) */
+/** รันเองวันจันทร์ทุก 2 สัปดาห์ (หรือกด Run เพื่อลอง) */
 function geminiHolidayCheck() {
   const key = props_().getProperty(PROP.GEMINI_KEY);
   if (!key) throw new Error('ยังไม่ได้ใส่ GEMINI_API_KEY ใน Project Settings → Script properties');
@@ -546,8 +547,9 @@ function answerCandidate_(text, yes) {
 function step7_startGeminiCheck() {
   if (!props_().getProperty(PROP.GEMINI_KEY)) throw new Error('ยังไม่ได้ใส่ GEMINI_API_KEY ใน Project Settings → Script properties (สร้างกุญแจได้ที่ aistudio.google.com)');
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'geminiHolidayCheck') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('geminiHolidayCheck').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(5).inTimezone(TZ).create();
-  console.log('เปิดแล้ว: Gemini เช็กข่าววันหยุดทุกวันจันทร์ราว 05:00 น. · ลองเดี๋ยวนี้ได้โดย Run geminiHolidayCheck');
+  const wk = Math.max(1, Math.floor(CONFIG.gemini.everyWeeks || 1));
+  ScriptApp.newTrigger('geminiHolidayCheck').timeBased().everyWeeks(wk).onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(5).inTimezone(TZ).create();
+  console.log('เปิดแล้ว: Gemini เช็กข่าววันหยุดวันจันทร์ราว 05:00 น. ทุก ' + wk + ' สัปดาห์ · ลองเดี๋ยวนี้ได้โดย Run geminiHolidayCheck');
 }
 function stopGeminiCheck() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'geminiHolidayCheck') ScriptApp.deleteTrigger(t); });

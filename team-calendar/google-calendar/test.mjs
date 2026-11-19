@@ -133,7 +133,7 @@ function makeWorld(nowIso = "2026-11-18T10:00:00+07:00") {
       getProjectTriggers: () => w.triggers.slice(),
       deleteTrigger: t => { w.triggers = w.triggers.filter(x => x !== t); },
       WeekDay: { MONDAY: "MONDAY" },
-      newTrigger: fn => { const t = { fn, getHandlerFunction: () => fn }; const b = { onWeekDay: d => (t.weekDay = d, b), timeBased: () => b, atHour: h => (t.hour = h, b), nearMinute: m => (t.minute = m, b), everyDays: () => b, onMonthDay: d => (t.monthDay = d, b), inTimezone: z => (t.tz = z, b), create: () => { w.triggers.push(t); return t; } }; return b; }
+      newTrigger: fn => { const t = { fn, getHandlerFunction: () => fn }; const b = { everyWeeks: n => (t.weeks = n, b), onWeekDay: d => (t.weekDay = d, b), timeBased: () => b, atHour: h => (t.hour = h, b), nearMinute: m => (t.minute = m, b), everyDays: () => b, onMonthDay: d => (t.monthDay = d, b), inTimezone: z => (t.tz = z, b), create: () => { w.triggers.push(t); return t; } }; return b; }
     },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: k => (w.cache.has(k) ? w.cache.get(k) : null), put: (k, v) => { w.cache.set(k, v); } }) },
@@ -369,7 +369,7 @@ test("Gemini เช็กข่าววันหยุด: เสนอใน�
   assert.throws(() => w.run("step7_startGeminiCheck()"), /GEMINI_API_KEY/);
   w.props.set("GEMINI_API_KEY", "gk");
   w.run("step7_startGeminiCheck(); step7_startGeminiCheck();");
-  assert.deepEqual(w.triggers.filter(t => t.fn === "geminiHolidayCheck").map(t => [t.weekDay, t.hour]), [["MONDAY", 5]]);
+  assert.deepEqual(w.triggers.filter(t => t.fn === "geminiHolidayCheck").map(t => [t.weekDay, t.hour, t.weeks]), [["MONDAY", 5, 2]]);
 
   // 10 ธ.ค. รู้อยู่แล้ว (ไม่เสนอซ้ำ) · 13 ม.ค. ใหม่ · วันที่ผ่านไปแล้วและรูปแบบผิดถูกทิ้ง
   w.gemini = answer([{ date: "2026-12-10", name: "วันรัฐธรรมนูญ", source: "https://a" }, { date: "2027-01-13", name: "วันหยุดพิเศษ", source: "https://thaigov.go.th/x" }, { date: "2026-01-01", name: "เก่า" }, { date: "13/01/2570", name: "ผิดรูปแบบ" }]);
