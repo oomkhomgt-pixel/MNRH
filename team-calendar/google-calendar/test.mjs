@@ -670,6 +670,52 @@ test("แก้ตามผลตรวจโค้ด: ขั้น 3ก เต
   assert.equal(w.props.get("LINE_GROUP_ID"), undefined);
 });
 
+test("คำสั่ง LINE แลกเวร: อ่านวันที่ไทย · อยู่แทนวันเดียว · แลกสองวัน · งานที่ลงเองไม่ถูกแตะ · ข้อความผิดได้คำแนะนำ", () => {
+  const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
+  const d = s => w.run(`parseThaiDate_(${JSON.stringify(s)}, "2026-11-24")`);
+  assert.deepEqual(["2 ธ.ค.", "2ธค", "2 ธ.ค. 69", "2 ธ.ค. 2569", "2/12", "02/12/2569", "2026-12-02", "5 ม.ค.", "5 มี.ค.", "24 พ.ย.", "23 พ.ย.", "31 ก.พ.", "2 xx"].map(d),
+    ["2026-12-02", "2026-12-02", "2026-12-02", "2026-12-02", "2026-12-02", "2026-12-02", "2026-12-02", "2027-01-05", "2027-03-05", "2026-11-24", "2027-11-23", null, null]);
+
+  w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
+  const key = w.props.get("WEBHOOK_KEY"); let n = 0;
+  const say = text => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "S" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1 }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
+  w.cal("มานิตา").add({ title: "สอน นศพ.", start: bkk("2026-12-02", "13:00"), end: bkk("2026-12-02", "15:00") });
+
+  // อยู่แทนวันเดียว: พุธ 2 ธ.ค. เวรของมานิตา (ER + OPD ปกส.) ไปอยู่กับชนกันต์ · งานสอนที่ลงเองอยู่ที่เดิม
+  const r1 = say("แลกเวร 2 ธ.ค. มานิตา ชนกันต์");
+  assert.match(r1, /^✅ แลกเวรแล้ว\nพ\. 2 ธ\.ค\. · มานิตา → ชนกันต์: 08:00–16:00 ER, 13:00–15:00 OPD ปกส\./);
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-02"), ["สอน นศพ."]);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), ["ER", "OPD ปกส."]);
+  assert.equal(w.pushes().length, 0);                                           // ตอบด้วย reply ไม่กินโควตา
+  // ยกเลิก: พิมพ์คำสั่งเดิมสลับชื่อ
+  say("แลกเวร 2 ธ.ค. ชนกันต์ มานิตา");
+  assert.deepEqual(w.titlesOn("มานิตา", "2026-12-02"), ["ER", "OPD ปกส.", "สอน นศพ."]);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), []);
+
+  // แลกสองวัน: OR อังคาร 1 ธ.ค. ของศุภศักดิ์ (รายการซ้ำ) ↔ OR ศุกร์ 4 ธ.ค. ของอดิศร — สัปดาห์อื่นไม่กระทบ
+  const r2 = say("แลกเวร 1/12 ศุภศักดิ์ 4/12 อดิศร");
+  assert.match(r2, /อ\. 1 ธ\.ค\. · ศุภศักดิ์ → อดิศร: 08:00–16:00 OR\nศ\. 4 ธ\.ค\. · อดิศร → ศุภศักดิ์: 08:00–16:00 OR/);
+  assert.deepEqual([w.titlesOn("ศุภศักดิ์", "2026-12-01"), w.titlesOn("อดิศร", "2026-12-01"), w.titlesOn("อดิศร", "2026-12-04"), w.titlesOn("ศุภศักดิ์", "2026-12-04")], [[], ["OR"], [], ["OR"]]);
+  assert.deepEqual([w.titlesOn("ศุภศักดิ์", "2026-12-08"), w.titlesOn("อดิศร", "2026-12-11")], [["OR"], ["OR"]]);
+  assert.match(w.run('formatDigest_(collectDay_("2026-12-01"), "today").text'), /🟠 อดิศร · 08:00–16:00 OR/);
+
+  // ข้อความผิด: ได้คำแนะนำ ไม่แก้อะไร
+  assert.match(say("แลกเวร"), /พิมพ์แบบนี้/);
+  assert.match(say("แลกเวร 2 ธ.ค. มานิตา หมอใหม่"), /ไม่รู้จักชื่อ "หมอใหม่"/);
+  assert.match(say("แลกเวร 2 ธ.ค. มานิตา มานิตา"), /ต้องไม่ซ้ำกัน/);
+  assert.match(say("แลกเวร 5 ธ.ค. มานิตา ชนกันต์"), /ไม่พบเวรที่ระบบลงให้/);                    // เสาร์ ไม่มีเวร
+  assert.match(say("แลกเวร 9 ธ.ค. ศุภศักดิ์ 12 ธ.ค. อดิศร"), /อดิศร ส\. 12 ธ\.ค\. ไม่มีเวรที่ระบบลงให้/);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-09"), ["ER", "OPD ปกส."]);
+
+  // วันหยุดประกาศใหม่ทำให้คิวพุธต้องจัดใหม่: เวรที่แลกผ่าน LINE หลังจุดนั้นถูกจัดตามคิวใหม่ ไม่ค้างซ้อน
+  say("แลกเวร 23 ธ.ค. คงธัช อดิศร");
+  assert.deepEqual(w.erOn("2026-12-23"), ["อดิศร"]);
+  w.run("step3a_previewHolidays(); step3b_applyHolidays();");                    // 16 ธ.ค. เป็นวันหยุด → คิวเลื่อน
+  for (const day of ["2026-12-23", "2026-12-30", "2027-01-06"]) assert.equal(w.erOn(day).length, 1, day);
+  assert.deepEqual(w.erOn("2026-12-23"), ["อดิศร"]);                             // ตามคิวใหม่ (อดิศรเลื่อนมาจาก 16 ธ.ค.)
+});
+
 test("ขั้น 4: แชร์ทุกปฏิทินให้ทุกคน · ผู้ช่วยได้สิทธิ์จัดการ · ข้ามอีเมลของเจ้าของ", () => {
   const w = makeWorld().setup();
   assert.throws(() => w.run("step4_shareCalendars()"), /ยังไม่ได้ใส่ email/);

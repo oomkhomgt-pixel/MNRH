@@ -574,7 +574,10 @@ function syncRotations_(holidays, today) {
       const cal = ids[name] ? CalendarApp.getCalendarById(ids[name]) : null;
       if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(name) + '" ไม่ได้ — ตรวจว่ายังไม่ถูกลบ แล้วรัน step1_createCalendars');
       cal.getEvents(at_(from, '00:00'), at_(addDays_(until, 1), '00:00')).forEach(function (ev) {
-        if (ev.getTag(ROT_TAG) !== 'rot:' + rot.key || ev.isAllDayEvent()) return;
+        const tag = ev.getTag(ROT_TAG);
+        // เวรที่แลกผ่าน LINE (ป้าย swap:) ในช่วงที่ต้องจัดคิวใหม่: ลบทิ้ง แล้วลงตามคิวใหม่ — ต้องแลกกันใหม่
+        if (tag === 'swap:rot:' + rot.key) { ev.deleteEvent(); removed++; return; }
+        if (tag !== 'rot:' + rot.key || ev.isAllDayEvent()) return;
         const k = ymd_(ev.getStartTime()) + '|' + ev.getTitle();
         const w = want[k];
         if (w && w.name === name && !w.found && hm_(ev.getStartTime()) === w.task.start && hm_(ev.getEndTime()) === w.task.end) { w.found = true; kept++; }
@@ -974,8 +977,112 @@ const COMMANDS = {
   'วันนี้':     function () { return digestText_(0, 'today').text; },
   'พรุ่งนี้':   function () { return digestText_(1, 'tomorrow').text; },
   'สัปดาห์นี้': function () { return weekText_(); },
-  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
+  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
 };
+
+// ── แลกเวรผ่าน LINE ─────────────────────────────────────────────────────────────
+//   แลกเวร 2 ธ.ค. มานิตา ชนกันต์              → วันนั้น เวรของสองท่านสลับกัน (ท่านที่ไม่มีเวรวันนั้น = มาอยู่แทนเฉย ๆ)
+//   แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์      → เวร 2 ธ.ค. ของมานิตา ↔ เวร 9 ธ.ค. ของศุภศักดิ์
+// ย้ายเฉพาะ "เวร/งานประจำที่สคริปต์ลงให้" (ER, OPD ปกส., OPD พฤหัส, OR, OPD) — วันลา ประชุม งานที่ลงเองไม่ถูกแตะ
+const SWAP_WORD = 'แลกเวร';
+const TH_MONTH_KEYS = ['มค', 'กพ', 'มีค', 'เมย', 'พค', 'มิย', 'กค', 'สค', 'กย', 'ตค', 'พย', 'ธค'];
+const DATE_RE_SRC = '(\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?|\\d{1,2}\\s*(?:ม\\.?ค\\.?|ก\\.?พ\\.?|มี\\.?ค\\.?|เม\\.?ย\\.?|พ\\.?ค\\.?|มิ\\.?ย\\.?|ก\\.?ค\\.?|ส\\.?ค\\.?|ก\\.?ย\\.?|ต\\.?ค\\.?|พ\\.?ย\\.?|ธ\\.?ค\\.?)(?:\\s*\\d{2,4})?)';
+
+/** "2 ธ.ค." "2 ธค 70" "2/12" "2/12/2569" "2026-12-02" → 'yyyy-MM-dd' หรือ null · ไม่ใส่ปี = วันนั้นครั้งถัดไปนับจากวันนี้ (ฟังก์ชันล้วน) */
+function parseThaiDate_(text, todayYmd) {
+  const t = String(text).trim();
+  if (isYmd_(t)) return t;
+  let d, m, y = null, mm;
+  if ((mm = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(t))) { d = Number(mm[1]); m = Number(mm[2]); y = mm[3] || null; }
+  else if ((mm = /^(\d{1,2})\s*([^\d\s]+?)(?:\s*(\d{2,4}))?$/.exec(t))) {
+    d = Number(mm[1]); m = TH_MONTH_KEYS.indexOf(mm[2].replace(/\./g, '')) + 1; y = mm[3] || null;
+  } else return null;
+  if (!(m >= 1 && m <= 12)) return null;
+  const pad = function (n) { return ('0' + n).slice(-2); };
+  if (y !== null) {
+    let yy = Number(y);
+    if (yy < 100) yy += 2500;        // 69 → 2569
+    if (yy > 2400) yy -= 543;        // พ.ศ. → ค.ศ.
+    const out = yy + '-' + pad(m) + '-' + pad(d);
+    return isYmd_(out) ? out : null;
+  }
+  const thisYear = Number(todayYmd.slice(0, 4));
+  for (let k = 0; k < 2; k++) {
+    const out = (thisYear + k) + '-' + pad(m) + '-' + pad(d);
+    if (isYmd_(out) && out >= todayYmd) return out;
+  }
+  return null;
+}
+/** แยกคำสั่ง → { d1, a, d2, b } หรือ { error } (ฟังก์ชันล้วน) */
+function parseSwap_(text, todayYmd, names) {
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  const usage = 'พิมพ์แบบนี้:\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา ชนกันต์\n   (วันเดียวกัน สลับเวรของสองท่าน หรืออยู่แทน)\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (เวรคนละวัน แลกกัน)';
+  let m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) ' + DATE_RE_SRC + ' (\\S+)$').exec(t);
+  let r;
+  if (m) r = { d1: m[1], a: m[2], d2: m[3], b: m[4] };
+  else if ((m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) (\\S+)$').exec(t))) r = { d1: m[1], a: m[2], d2: m[1], b: m[3] };
+  else return { error: usage };
+  r.d1 = parseThaiDate_(r.d1, todayYmd); r.d2 = parseThaiDate_(r.d2, todayYmd);
+  if (!r.d1 || !r.d2) return { error: 'อ่านวันที่ไม่ออก หรือเป็นวันที่ผ่านไปแล้ว\n' + usage };
+  if (r.d1 < todayYmd || r.d2 < todayYmd) return { error: 'แลกได้เฉพาะวันนี้หรือวันข้างหน้า' };
+  const bad = [r.a, r.b].filter(function (n) { return names.indexOf(n) < 0; });
+  if (bad.length) return { error: 'ไม่รู้จักชื่อ "' + bad.join('", "') + '" — ใช้ชื่อตามปฏิทิน: ' + names.join(', ') };
+  if (r.a === r.b) return { error: 'ชื่อสองท่านต้องไม่ซ้ำกัน' };
+  return r;
+}
+/** เวร/งานประจำที่สคริปต์ลงให้ ของคนนั้นในวันนั้น */
+function dutiesOn_(name, ymd, ids, routineIds) {
+  const cal = ids[name] ? CalendarApp.getCalendarById(ids[name]) : null;
+  if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(name) + '" ไม่ได้');
+  return cal.getEvents(at_(ymd, '00:00'), at_(addDays_(ymd, 1), '00:00')).filter(function (ev) {
+    if (ev.isAllDayEvent() || ymd_(ev.getStartTime()) !== ymd) return false;
+    return !!ev.getTag(ROT_TAG) || !!routineIds[ev.getId()];
+  });
+}
+function moveDuties_(events, toName, ids) {
+  const toCal = CalendarApp.getCalendarById(ids[toName]);
+  if (!toCal) throw new Error('เข้าปฏิทิน "' + calName_(toName) + '" ไม่ได้');
+  return events.map(function (ev) {
+    const tag = ev.getTag(ROT_TAG);
+    const origin = !tag ? 'routine' : tag.indexOf('swap:') === 0 ? tag.slice(5) : tag;
+    // ลงของใหม่ก่อน แล้วค่อยลบของเดิม — ถ้าล้มกลางทาง เวรไม่หาย (อย่างมากซ้ำ ซึ่งเห็นได้)
+    const made = toCal.createEvent(ev.getTitle(), ev.getStartTime(), ev.getEndTime(), ev.getLocation() ? { location: ev.getLocation() } : {});
+    made.setTag(ROT_TAG, 'swap:' + origin);
+    const label = hm_(ev.getStartTime()) + '–' + hm_(ev.getEndTime()) + ' ' + ev.getTitle();
+    ev.deleteEvent();   // รายการซ้ำ: ลบเฉพาะวันนั้น
+    return label;
+  });
+}
+/** ทำการแลก แล้วคืนข้อความตอบกลับ */
+function swapCommand_(text) {
+  const today = today_();
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  const r = parseSwap_(text, today, names);
+  if (r.error) return '❌ ' + r.error;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return '❌ ระบบกำลังแลกเวรรายการอื่นอยู่ ลองใหม่อีกครั้ง';
+  try {
+    const ids = getJson_(PROP.CAL_IDS, {});
+    const made = getJson_(PROP.ROUTINE, {});
+    const routineIds = {};
+    Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
+    const fromA = dutiesOn_(r.a, r.d1, ids, routineIds), fromB = dutiesOn_(r.b, r.d2, ids, routineIds);
+    const day = function (d) { return thaiDate_(d, { short: true, year: false }); };
+    if (!fromA.length && !fromB.length) {
+      return '❌ ไม่พบเวรที่ระบบลงให้ ของ' + r.a + ' ' + day(r.d1) + (r.d1 === r.d2 ? ' และ' + r.b : ' และของ' + r.b + ' ' + day(r.d2)) +
+        '\n(งานที่ลงเองในปฏิทิน ให้ย้ายเองในแอป)';
+    }
+    if (r.d1 !== r.d2 && (!fromA.length || !fromB.length)) {
+      const none = !fromA.length ? r.a + ' ' + day(r.d1) : r.b + ' ' + day(r.d2);
+      return '❌ ' + none + ' ไม่มีเวรที่ระบบลงให้ จึงแลกสองวันไม่ได้\nถ้าต้องการให้อยู่แทนวันเดียว พิมพ์: ' + SWAP_WORD + ' <วันที่> <ชื่อเดิม> <ชื่อคนแทน>';
+    }
+    const lines = ['✅ แลกเวรแล้ว'];
+    if (fromA.length) lines.push(day(r.d1) + ' · ' + r.a + ' → ' + r.b + ': ' + moveDuties_(fromA, r.b, ids).join(', '));
+    if (fromB.length) lines.push(day(r.d2) + ' · ' + r.b + ' → ' + r.a + ': ' + moveDuties_(fromB, r.a, ids).join(', '));
+    lines.push('ปฏิทินอัปเดตแล้ว · ถ้าจะยกเลิก พิมพ์คำสั่งเดิมโดยสลับชื่อ');
+    return lines.join('\n');
+  } finally { lock.releaseLock(); }
+}
 
 /**
  * ห้ามคืนค่าด้วย ContentService — Apps Script จะตอบเป็น HTTP 302 ซึ่ง LINE นับเป็นข้อผิดพลาด
@@ -1035,7 +1142,14 @@ function handleLineEvent_(ev) {
   }
   if (!CONFIG.line.replyCommands) return;
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !ev.replyToken) return;
-  const cmd = COMMANDS[String(ev.message.text || '').trim()];
+  const said = String(ev.message.text || '').trim();
+  if (said.indexOf(SWAP_WORD) === 0) {   // แลกเวร … — ตอบผลหรือวิธีพิมพ์ที่ถูก (ข้อความไม่ถูกบันทึก)
+    let out;
+    try { out = swapCommand_(said); } catch (err) { out = '❌ แลกไม่สำเร็จ: ' + (err && err.message); }
+    lineReply_(ev.replyToken, out);
+    return;
+  }
+  const cmd = COMMANDS[said];
   if (cmd) lineReply_(ev.replyToken, cmd());           // ข้อความอื่นถูกทิ้ง ไม่บันทึก
 }
 
