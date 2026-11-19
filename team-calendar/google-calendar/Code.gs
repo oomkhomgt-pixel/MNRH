@@ -65,6 +65,8 @@ const CONFIG = {
   notHolidayNames: ['วันแรงงาน'],   // ราชการไม่หยุดวันแรงงาน
   extraHolidays: [],         // เพิ่มเอง เช่น [{ date: '2027-07-20', name: 'ชดเชยวันอาสาฬหบูชา' }]
   notHolidays: [],           // วันที่ไม่หยุดจริง เช่น ['2026-12-31']
+  // กฎ: ตรวจทุกเช้า ถ้ามีวันหยุดประกาศเพิ่ม ให้งดงานประจำและเลื่อนคิวเวรพุธ/พฤหัสไปสัปดาห์ถัดไปเอง แล้วแจ้งใน LINE (false = แจ้งเจ้าของอย่างเดียว)
+  autoApplyNewHolidays: true,
 
   // ── LINE ───────────────────────────────────────────────────────────────────
   // โควตา: บัญชี LINE ฟรีส่งได้ 300 ข้อความ/เดือน และการส่งเข้ากลุ่มนับ "ตามจำนวนคนในกลุ่ม" (กลุ่ม 5 คน = ครั้งละ 5)
@@ -88,7 +90,7 @@ const TZ = 'Asia/Bangkok';
 const TZ_OFFSET = '+07:00';   // ไทยไม่มี daylight saving
 const PROP = {
   CAL_IDS: 'CAL_IDS', ROUTINE: 'ROUTINE_SERIES', HOLIDAYS: 'HOLIDAYS', ROTATION: 'ROTATION_STATE',
-  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE',
+  HOL_SEEN: 'HOLIDAYS_SEEN', HOL_APPLIED: 'HOLIDAYS_APPLIED', REMOVED: 'ROUTINE_REMOVED', LINK_CODE: 'LINE_LINK_CODE', SWAP_PENDING: 'SWAP_PENDING', LINE_USERS: 'LINE_USERS', NOTICE: 'HOLIDAY_NOTICE',
   TOKEN: 'LINE_TOKEN', GROUP: 'LINE_GROUP_ID', HOOK_KEY: 'WEBHOOK_KEY', LAST_MORNING: 'LAST_MORNING_AT'
 };
 const HOLIDAY_ICS = 'https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -499,17 +501,33 @@ function step3b_applyHolidays() {
 }
 
 /**
- * รันเองทุกวันที่ 1 — "ตรวจอย่างเดียว ไม่ลบอะไร": ถ้ารายการวันหยุดเปลี่ยนจากที่ลงมือไว้ จะแจ้งเจ้าของทางอีเมล
- * (ผ่านอีเมลแจ้งข้อผิดพลาดของ Google) ให้เข้ามารันขั้น 3ก และ 3ข เอง
+ * กฎวันหยุดประกาศเพิ่ม — รันเองทุกเช้า: เทียบรายการวันหยุดกับที่ลงมือไว้ครั้งก่อน
+ *  • มีวันหยุด "เพิ่ม" ไม่เกิน 3 วัน: งดงานประจำวันนั้น และเลื่อนคิวเวรพุธ/พฤหัสไปสัปดาห์ถัดไปให้เอง แล้วแจ้งในข้อความ LINE รอบเช้าถัดไป
+ *  • วันหยุด "หายไป" จากรายการ, เพิ่มทีเดียวเกิน 3 วัน, หรือไฟล์ผิดปกติ: ไม่แตะปฏิทิน แจ้งเจ้าของทางอีเมลให้ตรวจเอง (กันข้อมูลต้นทางเพี้ยน)
+ * แหล่งข้อมูลคือปฏิทิน "วันหยุดในไทย" ของ Google — สคริปต์อ่านข่าวเองไม่ได้ ถ้ารู้ข่าวก่อน ให้เติมวันที่ใน extraHolidays
  */
-function monthlyHolidayCheck() {
+function holidayWatch() {
   const applied = props_().getProperty(PROP.HOL_APPLIED);
   if (applied === null) return;
   const today = today_();
-  const now = holidaySig_(loadHolidays_(today).hol, today).split(',').filter(String);
+  const h = loadHolidays_(today);
+  const sig = holidaySig_(h.hol, today);
+  const now = sig.split(',').filter(String);
   const was = applied.split(',').filter(function (d) { return d >= today; });
   const added = now.filter(function (d) { return was.indexOf(d) < 0; }), gone = was.filter(function (d) { return now.indexOf(d) < 0; });
   if (!added.length && !gone.length) { console.log('วันหยุดไม่เปลี่ยน'); return; }
+  if (CONFIG.autoApplyNewHolidays !== false && !gone.length && added.length <= 3) {
+    props_().setProperty(PROP.HOL_SEEN, sig);
+    step3b_applyHolidays();
+    const names = added.map(function (d) {
+      const x = h.hol.filter(function (y) { return y.date === d; })[0];
+      return thaiDate_(d, { short: true }) + (x ? ' ' + x.name : '');
+    });
+    props_().setProperty(PROP.NOTICE, '🎌 วันหยุดราชการประกาศเพิ่ม: ' + names.join(' · ') +
+      '\nงดงานประจำวันนั้น และเลื่อนเวรพุธ/พฤหัสไปสัปดาห์ถัดไปแล้ว — เวรที่แลกกันไว้หลังวันนั้นต้องแลกใหม่ โปรดดูปฏิทิน');
+    console.log('วันหยุดเพิ่ม ' + added.join(', ') + ' — ปรับปฏิทินให้แล้ว');
+    return;
+  }
   throw new Error('รายการวันหยุดราชการเปลี่ยน — ยังไม่ได้แก้อะไรในปฏิทิน · เพิ่ม: ' + (added.join(', ') || '-') + ' · หายไป: ' + (gone.join(', ') || '-') +
     ' · เปิดสคริปต์ปฏิทิน' + CONFIG.prefix + ' แล้วรัน step3a_previewHolidays ตรวจรายการ ตามด้วย step3b_applyHolidays');
 }
@@ -603,10 +621,10 @@ function syncRotations_(holidays, today) {
 }
 /** ตั้งให้ตรวจวันหยุดใหม่เองทุกวันที่ 1 (ครม. ประกาศวันหยุดพิเศษระหว่างปีได้) — ไม่ขึ้นกับการตั้งค่า LINE */
 function ensureHolidayTrigger_() {
-  const has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'monthlyHolidayCheck'; });
+  const has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'holidayWatch'; });
   if (has) return;
-  ScriptApp.newTrigger('monthlyHolidayCheck').timeBased().onMonthDay(1).atHour(5).inTimezone(TZ).create();
-  console.log('ตั้งให้ตรวจวันหยุดใหม่เองทุกวันที่ 1 ของเดือนแล้ว');
+  ScriptApp.newTrigger('holidayWatch').timeBased().atHour(5).everyDays(1).inTimezone(TZ).create();
+  console.log('ตั้งให้ตรวจวันหยุดประกาศเพิ่มเองทุกเช้าแล้ว');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -893,8 +911,10 @@ function sendDigest_(offsetDays, mode) {
   if (!props_().getProperty(PROP.GROUP)) throw new Error('ยังไม่ได้เชื่อมกลุ่ม LINE — เชิญบอทเข้ากลุ่มแล้วพิมพ์ "เชื่อมปฏิทิน <รหัสจากขั้นที่ 5>" (ดู README)');
   const today = today_();
   const d = digestText_(offsetDays, mode);
-  if (d.isEmpty && CONFIG.line.skipEmptyDays) { console.log('ไม่มีรายการ — ไม่ส่ง'); return; }
+  if (d.isEmpty && CONFIG.line.skipEmptyDays && !(mode === 'today' && props_().getProperty(PROP.NOTICE))) { console.log('ไม่มีรายการ — ไม่ส่ง'); return; }
   let text = d.text;
+  const notice = mode === 'today' ? props_().getProperty(PROP.NOTICE) : null;
+  if (notice) text = notice + '\n\n' + text;
   const startedAt = new Date();
   if (mode === 'today') {
     const last = props_().getProperty(PROP.LAST_MORNING);
@@ -906,6 +926,7 @@ function sendDigest_(offsetDays, mode) {
   if (!afford.ok) { console.warn(afford.why + ' — ไม่ส่ง'); return; }
   if (linePush_(text)) {
     if (mode === 'today') props_().setProperty(PROP.LAST_MORNING, startedAt.toISOString());
+    if (notice) props_().deleteProperty(PROP.NOTICE);
     console.log('ส่งแล้ว:\n' + text);
   }
 }
@@ -977,7 +998,7 @@ const COMMANDS = {
   'วันนี้':     function () { return digestText_(0, 'today').text; },
   'พรุ่งนี้':   function () { return digestText_(1, 'tomorrow').text; },
   'สัปดาห์นี้': function () { return weekText_(); },
-  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
+  'ปฏิทิน':    function () { return 'พิมพ์คำใดคำหนึ่งนี้ในกลุ่ม:\n• วันนี้\n• พรุ่งนี้\n• สัปดาห์นี้\n• แลกเวร 2 ธ.ค. มานิตา ชนกันต์\n• แลกเวร 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (อีกฝ่ายต้องพิมพ์ ตกลง ก่อนจึงย้าย)\n• ฉันคือ <ชื่อ>  (ครั้งเดียว ให้ระบบรู้ว่าใครเป็นใคร)\n\nเพิ่ม/แก้งาน วันลา ประชุม ได้ในแอปปฏิทินของเครื่อง (ปฏิทินชื่อขึ้นต้นว่า ' + CONFIG.prefix + ')'; }
 };
 
 // ── แลกเวรผ่าน LINE ─────────────────────────────────────────────────────────────
@@ -1053,35 +1074,81 @@ function moveDuties_(events, toName, ids) {
     return label;
   });
 }
-/** ทำการแลก แล้วคืนข้อความตอบกลับ */
-function swapCommand_(text) {
+/** ตรวจคำสั่งและหาเวรที่จะย้าย · คืน { error } หรือ { r, fromA, fromB, ids } */
+function planSwap_(text) {
   const today = today_();
   const names = CONFIG.people.map(function (p) { return p.name; });
   const r = parseSwap_(text, today, names);
-  if (r.error) return '❌ ' + r.error;
+  if (r.error) return { error: r.error };
+  const ids = getJson_(PROP.CAL_IDS, {});
+  const made = getJson_(PROP.ROUTINE, {});
+  const routineIds = {};
+  Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
+  const fromA = dutiesOn_(r.a, r.d1, ids, routineIds), fromB = dutiesOn_(r.b, r.d2, ids, routineIds);
+  const day = function (d) { return thaiDate_(d, { short: true, year: false }); };
+  if (!fromA.length && !fromB.length) {
+    return { error: 'ไม่พบเวรที่ระบบลงให้ ของ' + r.a + ' ' + day(r.d1) + (r.d1 === r.d2 ? ' และ' + r.b : ' และของ' + r.b + ' ' + day(r.d2)) + '\n(งานที่ลงเองในปฏิทิน ให้ย้ายเองในแอป)' };
+  }
+  if (r.d1 !== r.d2 && (!fromA.length || !fromB.length)) {
+    const none = !fromA.length ? r.a + ' ' + day(r.d1) : r.b + ' ' + day(r.d2);
+    return { error: none + ' ไม่มีเวรที่ระบบลงให้ จึงแลกสองวันไม่ได้\nถ้าต้องการให้อยู่แทนวันเดียว พิมพ์: ' + SWAP_WORD + ' <วันที่> <ชื่อเดิม> <ชื่อคนแทน>' };
+  }
+  const label = function (ev) { return hm_(ev.getStartTime()) + '–' + hm_(ev.getEndTime()) + ' ' + ev.getTitle(); };
+  const lines = [];
+  if (fromA.length) lines.push(day(r.d1) + ' · ' + r.a + ' → ' + r.b + ': ' + fromA.map(label).join(', '));
+  if (fromB.length) lines.push(day(r.d2) + ' · ' + r.b + ' → ' + r.a + ': ' + fromB.map(label).join(', '));
+  return { r: r, fromA: fromA, fromB: fromB, ids: ids, lines: lines };
+}
+const SWAP_TTL_MS = 24 * 3600 * 1000;
+const YES_WORD = 'ตกลง', NO_WORD = 'ไม่ตกลง', IAM_WORD = 'ฉันคือ';
+function pendingSwap_() {
+  const p = getJson_(PROP.SWAP_PENDING, null);
+  if (!p) return null;
+  if (new Date().getTime() - p.at > SWAP_TTL_MS) { props_().deleteProperty(PROP.SWAP_PENDING); return null; }
+  return p;
+}
+/** ขั้นขอ: ยังไม่ย้ายอะไร เก็บคำขอไว้รออีกฝ่ายตอบรับ */
+function requestSwap_(text, uid) {
+  const old = pendingSwap_();
+  if (old) return '⏳ มีคำขอแลกเวรค้างอยู่:\n' + old.lines.join('\n') + '\nให้ ' + old.need.join(' หรือ ') + ' พิมพ์ "' + YES_WORD + '" หรือ "' + NO_WORD + '" ก่อน';
+  const p = planSwap_(text);
+  if (p.error) return '❌ ' + p.error;
+  const who = getJson_(PROP.LINE_USERS, {})[uid || ''];
+  // ผู้ต้องตอบรับ = อีกฝ่ายของผู้ขอ · ถ้าไม่รู้ว่าผู้ขอเป็นใคร (ยังไม่ได้พิมพ์ "ฉันคือ …") ให้คนใดคนหนึ่งในสองท่านที่ไม่ใช่ผู้พิมพ์ตอบรับ
+  const need = who === p.r.a ? [p.r.b] : who === p.r.b ? [p.r.a] : [p.r.a, p.r.b];
+  setJson_(PROP.SWAP_PENDING, { text: text, by: uid || '', byName: who || '', need: need, lines: p.lines, at: new Date().getTime() });
+  return '⏳ ขอแลกเวร — ยังไม่ได้ย้าย\n' + p.lines.join('\n') + '\n\nรอ ' + need.join(' หรือ ') + ' พิมพ์ "' + YES_WORD + '" เพื่อตอบรับ หรือ "' + NO_WORD + '" เพื่อยกเลิก (ภายใน 24 ชม.)';
+}
+/** ขั้นตอบรับ: ต้องเป็นคนละคนกับผู้ขอ และถ้ารู้ชื่อ ต้องเป็นอีกฝ่ายของการแลก */
+function answerSwap_(yes, uid) {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(15000)) return '❌ ระบบกำลังแลกเวรรายการอื่นอยู่ ลองใหม่อีกครั้ง';
+  if (!lock.tryLock(15000)) return '❌ ระบบกำลังทำรายการอื่นอยู่ ลองใหม่อีกครั้ง';
   try {
-    const ids = getJson_(PROP.CAL_IDS, {});
-    const made = getJson_(PROP.ROUTINE, {});
-    const routineIds = {};
-    Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
-    const fromA = dutiesOn_(r.a, r.d1, ids, routineIds), fromB = dutiesOn_(r.b, r.d2, ids, routineIds);
-    const day = function (d) { return thaiDate_(d, { short: true, year: false }); };
-    if (!fromA.length && !fromB.length) {
-      return '❌ ไม่พบเวรที่ระบบลงให้ ของ' + r.a + ' ' + day(r.d1) + (r.d1 === r.d2 ? ' และ' + r.b : ' และของ' + r.b + ' ' + day(r.d2)) +
-        '\n(งานที่ลงเองในปฏิทิน ให้ย้ายเองในแอป)';
-    }
-    if (r.d1 !== r.d2 && (!fromA.length || !fromB.length)) {
-      const none = !fromA.length ? r.a + ' ' + day(r.d1) : r.b + ' ' + day(r.d2);
-      return '❌ ' + none + ' ไม่มีเวรที่ระบบลงให้ จึงแลกสองวันไม่ได้\nถ้าต้องการให้อยู่แทนวันเดียว พิมพ์: ' + SWAP_WORD + ' <วันที่> <ชื่อเดิม> <ชื่อคนแทน>';
-    }
-    const lines = ['✅ แลกเวรแล้ว'];
-    if (fromA.length) lines.push(day(r.d1) + ' · ' + r.a + ' → ' + r.b + ': ' + moveDuties_(fromA, r.b, ids).join(', '));
-    if (fromB.length) lines.push(day(r.d2) + ' · ' + r.b + ' → ' + r.a + ': ' + moveDuties_(fromB, r.a, ids).join(', '));
-    lines.push('ปฏิทินอัปเดตแล้ว · ถ้าจะยกเลิก พิมพ์คำสั่งเดิมโดยสลับชื่อ');
-    return lines.join('\n');
+    const p = pendingSwap_();
+    if (!p) return null;   // ไม่มีคำขอค้าง: "ตกลง" เป็นคำคุยธรรมดา ไม่ตอบ
+    if (!yes) { props_().deleteProperty(PROP.SWAP_PENDING); return '🚫 ยกเลิกคำขอแลกเวรแล้ว ปฏิทินไม่เปลี่ยน'; }
+    const who = getJson_(PROP.LINE_USERS, {})[uid || ''];
+    if (uid && p.by && uid === p.by) return '⏳ ผู้ขอแลกตอบรับเองไม่ได้ — รอ ' + p.need.join(' หรือ ') + ' พิมพ์ "' + YES_WORD + '"';
+    if (who && p.need.indexOf(who) < 0) return '⏳ ต้องให้ ' + p.need.join(' หรือ ') + ' เป็นผู้ตอบรับ';
+    const plan = planSwap_(p.text);   // ตรวจใหม่ ณ ตอนตอบรับ เผื่อปฏิทินเปลี่ยนไประหว่างรอ
+    props_().deleteProperty(PROP.SWAP_PENDING);
+    if (plan.error) return '❌ แลกไม่ได้แล้ว (ปฏิทินเปลี่ยนไประหว่างรอ): ' + plan.error;
+    if (plan.fromA.length) moveDuties_(plan.fromA, plan.r.b, plan.ids);
+    if (plan.fromB.length) moveDuties_(plan.fromB, plan.r.a, plan.ids);
+    return '✅ แลกเวรแล้ว' + (who ? ' (' + who + ' ตอบรับ)' : '') + '\n' + plan.lines.join('\n') + '\nปฏิทินอัปเดตแล้ว';
   } finally { lock.releaseLock(); }
+}
+/** "ฉันคือ มานิตา" — จำว่าบัญชี LINE นี้คือใคร เพื่อให้ระบบรู้ว่าใครต้องเป็นผู้ตอบรับ */
+function registerUser_(text, uid) {
+  const name = text.slice(IAM_WORD.length).trim();
+  const names = CONFIG.people.map(function (p) { return p.name; });
+  if (names.indexOf(name) < 0) return '❌ ไม่รู้จักชื่อ "' + name + '" — ใช้: ' + names.join(', ');
+  if (!uid) return '❌ LINE ไม่ส่งรหัสผู้ใช้มา จึงจำไม่ได้';
+  const users = getJson_(PROP.LINE_USERS, {});
+  Object.keys(users).forEach(function (k) { if (users[k] === name) delete users[k]; });
+  users[uid] = name;
+  setJson_(PROP.LINE_USERS, users);
+  return '👤 จำแล้ว: บัญชีนี้คือ ' + name;
 }
 
 /**
@@ -1143,12 +1210,16 @@ function handleLineEvent_(ev) {
   if (!CONFIG.line.replyCommands) return;
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !ev.replyToken) return;
   const said = String(ev.message.text || '').trim();
-  if (said.indexOf(SWAP_WORD) === 0) {   // แลกเวร … — ตอบผลหรือวิธีพิมพ์ที่ถูก (ข้อความไม่ถูกบันทึก)
-    let out;
-    try { out = swapCommand_(said); } catch (err) { out = '❌ แลกไม่สำเร็จ: ' + (err && err.message); }
-    lineReply_(ev.replyToken, out);
-    return;
-  }
+  const uid = src.userId || '';
+  let out = null, handled = true;
+  try {
+    if (said.indexOf(SWAP_WORD) === 0) out = requestSwap_(said, uid);          // ขอแลก — ยังไม่ย้าย
+    else if (said === YES_WORD) out = answerSwap_(true, uid);                  // อีกฝ่ายตอบรับ — ย้ายจริง
+    else if (said === NO_WORD) out = answerSwap_(false, uid);
+    else if (said.indexOf(IAM_WORD + ' ') === 0) out = registerUser_(said, uid);
+    else handled = false;
+  } catch (err) { out = '❌ ทำรายการไม่สำเร็จ: ' + (err && err.message); }
+  if (handled) { if (out) lineReply_(ev.replyToken, out); return; }
   const cmd = COMMANDS[said];
   if (cmd) lineReply_(ev.replyToken, cmd());           // ข้อความอื่นถูกทิ้ง ไม่บันทึก
 }

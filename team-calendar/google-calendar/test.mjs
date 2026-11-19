@@ -282,7 +282,7 @@ test("ขั้น 3: ตัดงานประจำเฉพาะครั�
   assert.deepEqual(w.erOn("2026-12-30"), ["มานิตา"]);
   assert.deepEqual(w.titlesOn("ทุกคน", "2026-12-14"), ["OPD"]);
   // ตั้งตรวจวันหยุดรายเดือนให้เอง ครั้งเดียว แม้ยังไม่ได้ตั้งค่า LINE
-  assert.deepEqual(w.triggers.map(t => [t.fn, t.monthDay, t.hour]), [["monthlyHolidayCheck", 1, 5]]);
+  assert.deepEqual(w.triggers.map(t => [t.fn, t.monthDay, t.hour]), [["holidayWatch", undefined, 5]]);
   assert.ok(new TextEncoder().encode(w.props.get("HOLIDAYS")).length < 9000);
 
   // ครม. ประกาศวันหยุดพิเศษเพิ่ม พุธ 13 ม.ค. 2570: จัดใหม่ตั้งแต่สัปดาห์นั้น ก่อนหน้าคงเดิม (รวมที่แลกเวรไว้)
@@ -313,13 +313,31 @@ test("ขั้น 3ก ดูอย่างเดียวไม่แก้�
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-31"), ["OR"]);
 
   // ตรวจรายเดือน: ไม่เปลี่ยน = เงียบ · เปลี่ยน = แจ้งเจ้าของ (throw → อีเมล) โดยไม่แตะปฏิทิน
-  w.run("monthlyHolidayCheck()");
+  w.run("holidayWatch()");
   const s2 = snap();
+  // กฎ: วันหยุดประกาศเพิ่ม (พุธ 13 ม.ค.) → งดงานประจำ เลื่อนคิวเวรพุธไปสัปดาห์ถัดไปเอง และแจ้งใน LINE รอบเช้าถัดไป
+  const before13 = w.erOn("2027-01-13"), before20 = w.erOn("2027-01-20");
+  w.run('CONFIG.extraHolidays = [{ date: "2027-01-13", name: "วันหยุดพิเศษ" }]; holidayWatch();');
+  assert.deepEqual(w.erOn("2027-01-13"), []);
+  assert.deepEqual(w.erOn("2027-01-20"), before13);                                       // คนของ 13 ม.ค. เลื่อนมา 20 ม.ค.
+  assert.deepEqual(w.erOn("2027-01-27"), before20);
+  assert.match(w.props.get("HOLIDAY_NOTICE"), /วันหยุดราชการประกาศเพิ่ม: พ\. 13 ม\.ค\. 2570 วันหยุดพิเศษ\nงดงานประจำ.*เลื่อนเวรพุธ\/พฤหัส/);
+  w.linked(); w.now = new Date("2026-11-24T06:30:00+07:00");
+  w.run("sendMorning()");
+  assert.match(w.pushes().at(-1).body.messages[0].text, /^🎌 วันหยุดราชการประกาศเพิ่ม: พ\. 13 ม\.ค\./);
+  assert.equal(w.props.get("HOLIDAY_NOTICE"), undefined);                                 // แจ้งครั้งเดียว
+  w.run("holidayWatch()");                                                                // รอบถัดไป: ไม่มีอะไรใหม่
+  // วันหยุดหายไปจากรายการ หรือเพิ่มทีเดียวมากผิดปกติ: ไม่แตะปฏิทิน แจ้งเจ้าของ
+  const s3 = snap();
+  w.run("CONFIG.extraHolidays = [];");
+  assert.throws(() => w.run("holidayWatch()"), /หายไป: 2027-01-13.*step3a_previewHolidays/);
+  w.run('CONFIG.extraHolidays = ["2027-01-13","2027-02-01","2027-02-02","2027-02-03","2027-02-04"].map(d => ({ date: d, name: "x" }));');
+  assert.throws(() => w.run("holidayWatch()"), /เพิ่ม: 2027-02-01/);
+  assert.equal(snap(), s3);
   w.run('CONFIG.extraHolidays = [{ date: "2027-01-13", name: "วันหยุดพิเศษ" }];');
-  assert.throws(() => w.run("monthlyHolidayCheck()"), /เพิ่ม: 2027-01-13.*step3a_previewHolidays/);
   w.holidayIcs = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";                                     // ไฟล์ของ Google เสีย: แจ้ง ไม่แตะปฏิทิน
-  assert.throws(() => w.run("monthlyHolidayCheck()"), /น้อยผิดปกติ/);
-  assert.equal(snap(), s2);
+  assert.throws(() => w.run("holidayWatch()"), /น้อยผิดปกติ/);
+  assert.equal(snap(), s3);
 });
 
 test("ขั้น 3: skipHolidays:false ไม่ถูกตัด · ไฟล์วันหยุดผิดปกติไม่แก้อะไร", () => {
@@ -670,7 +688,7 @@ test("แก้ตามผลตรวจโค้ด: ขั้น 3ก เต
   assert.equal(w.props.get("LINE_GROUP_ID"), undefined);
 });
 
-test("คำสั่ง LINE แลกเวร: อ่านวันที่ไทย · อยู่แทนวันเดียว · แลกสองวัน · งานที่ลงเองไม่ถูกแตะ · ข้อความผิดได้คำแนะนำ", () => {
+test("คำสั่ง LINE แลกเวร: อ่านวันที่ไทย · อยู่แทนวันเดียว · แลกสองวัน · งานที่ลงเองไม่ถูกแตะ · ข้อความผิดได้คำแนะนำ · อีกฝ่ายต้องตอบรับก่อน", () => {
   const w = makeWorld("2026-11-24T09:00:00+07:00").setup();
   const d = s => w.run(`parseThaiDate_(${JSON.stringify(s)}, "2026-11-24")`);
   assert.deepEqual(["2 ธ.ค.", "2ธค", "2 ธ.ค. 69", "2 ธ.ค. 2569", "2/12", "02/12/2569", "2026-12-02", "5 ม.ค.", "5 มี.ค.", "24 พ.ย.", "23 พ.ย.", "31 ก.พ.", "2 xx"].map(d),
@@ -678,24 +696,43 @@ test("คำสั่ง LINE แลกเวร: อ่านวันที่
 
   w.props.set("LINE_TOKEN", "tok"); w.run("step5_prepareLine()");
   const key = w.props.get("WEBHOOK_KEY"); let n = 0;
-  const say = text => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "S" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1 }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  const say = (text, uid = "Ua") => { w.run(`doPost(${JSON.stringify({ parameter: { k: key }, postData: { contents: JSON.stringify({ events: [{ type: "message", mode: "active", webhookEventId: "S" + (++n), replyToken: "r" + n, source: { type: "group", groupId: G1, userId: uid }, message: { type: "text", text } }] }) } })})`); return w.replies().at(-1).body.messages[0].text; };
+  const swap = text => { say(text, "Ua"); return say("ตกลง", "Ub"); };
   say("เชื่อมปฏิทิน " + w.props.get("LINE_LINK_CODE"));
   w.cal("มานิตา").add({ title: "สอน นศพ.", start: bkk("2026-12-02", "13:00"), end: bkk("2026-12-02", "15:00") });
 
   // อยู่แทนวันเดียว: พุธ 2 ธ.ค. เวรของมานิตา (ER + OPD ปกส.) ไปอยู่กับชนกันต์ · งานสอนที่ลงเองอยู่ที่เดิม
-  const r1 = say("แลกเวร 2 ธ.ค. มานิตา ชนกันต์");
+  const ask = say("แลกเวร 2 ธ.ค. มานิตา ชนกันต์", "Ua");
+  assert.match(ask, /^⏳ ขอแลกเวร — ยังไม่ได้ย้าย\nพ\. 2 ธ\.ค\. · มานิตา → ชนกันต์: 08:00–16:00 ER, 13:00–15:00 OPD ปกส\.\n\nรอ มานิตา หรือ ชนกันต์ พิมพ์ "ตกลง"/);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), []);                      // ขอแล้ว ยังไม่ย้าย
+  assert.match(say("ตกลง", "Ua"), /ผู้ขอแลกตอบรับเองไม่ได้/);
+  assert.match(say("แลกเวร 9 ธ.ค. ศุภศักดิ์ คงธัช", "Uc"), /มีคำขอแลกเวรค้างอยู่/);
+  assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), []);
+  const r1 = say("ตกลง", "Ub");
   assert.match(r1, /^✅ แลกเวรแล้ว\nพ\. 2 ธ\.ค\. · มานิตา → ชนกันต์: 08:00–16:00 ER, 13:00–15:00 OPD ปกส\./);
   assert.deepEqual(w.titlesOn("มานิตา", "2026-12-02"), ["สอน นศพ."]);
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), ["ER", "OPD ปกส."]);
   assert.equal(w.pushes().length, 0);                                           // ตอบด้วย reply ไม่กินโควตา
   // ยกเลิก: พิมพ์คำสั่งเดิมสลับชื่อ
-  say("แลกเวร 2 ธ.ค. ชนกันต์ มานิตา");
+  swap("แลกเวร 2 ธ.ค. ชนกันต์ มานิตา");
   assert.deepEqual(w.titlesOn("มานิตา", "2026-12-02"), ["ER", "OPD ปกส.", "สอน นศพ."]);
   assert.deepEqual(w.titlesOn("ชนกันต์", "2026-12-02"), []);
 
   // แลกสองวัน: OR อังคาร 1 ธ.ค. ของศุภศักดิ์ (รายการซ้ำ) ↔ OR ศุกร์ 4 ธ.ค. ของอดิศร — สัปดาห์อื่นไม่กระทบ
-  const r2 = say("แลกเวร 1/12 ศุภศักดิ์ 4/12 อดิศร");
-  assert.match(r2, /อ\. 1 ธ\.ค\. · ศุภศักดิ์ → อดิศร: 08:00–16:00 OR\nศ\. 4 ธ\.ค\. · อดิศร → ศุภศักดิ์: 08:00–16:00 OR/);
+  // ไม่ตกลง: ยกเลิก ปฏิทินไม่เปลี่ยน · "ตกลง" ตอนไม่มีคำขอค้างเป็นคำคุยธรรมดา บอทไม่ตอบ
+  say("แลกเวร 1/12 ศุภศักดิ์ 4/12 อดิศร", "Ua");
+  assert.match(say("ไม่ตกลง", "Ub"), /ยกเลิกคำขอแลกเวรแล้ว/);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-01"), ["OR"]);
+  const nRep = w.replies().length; say("ตกลง", "Ub"); assert.equal(w.replies().length, nRep);
+  // รู้ว่าใครเป็นใครแล้ว: ต้องเป็นอีกฝ่ายเท่านั้นที่ตอบรับ
+  assert.match(say("ฉันคือ ศุภศักดิ์", "Us"), /จำแล้ว: บัญชีนี้คือ ศุภศักดิ์/);
+  assert.match(say("ฉันคือ อดิศร", "Uo"), /อดิศร/);
+  assert.match(say("ฉันคือ คงธัช", "Uk"), /คงธัช/);
+  assert.match(say("แลกเวร 1/12 ศุภศักดิ์ 4/12 อดิศร", "Us"), /รอ อดิศร พิมพ์ "ตกลง"/);
+  assert.match(say("ตกลง", "Uk"), /ต้องให้ อดิศร เป็นผู้ตอบรับ/);
+  assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-01"), ["OR"]);
+  const r2 = say("ตกลง", "Uo");
+  assert.match(r2, /แลกเวรแล้ว \(อดิศร ตอบรับ\)\nอ\. 1 ธ\.ค\. · ศุภศักดิ์ → อดิศร: 08:00–16:00 OR\nศ\. 4 ธ\.ค\. · อดิศร → ศุภศักดิ์: 08:00–16:00 OR/);
   assert.deepEqual([w.titlesOn("ศุภศักดิ์", "2026-12-01"), w.titlesOn("อดิศร", "2026-12-01"), w.titlesOn("อดิศร", "2026-12-04"), w.titlesOn("ศุภศักดิ์", "2026-12-04")], [[], ["OR"], [], ["OR"]]);
   assert.deepEqual([w.titlesOn("ศุภศักดิ์", "2026-12-08"), w.titlesOn("อดิศร", "2026-12-11")], [["OR"], ["OR"]]);
   assert.match(w.run('formatDigest_(collectDay_("2026-12-01"), "today").text'), /🟠 อดิศร · 08:00–16:00 OR/);
@@ -709,7 +746,7 @@ test("คำสั่ง LINE แลกเวร: อ่านวันที่
   assert.deepEqual(w.titlesOn("ศุภศักดิ์", "2026-12-09"), ["ER", "OPD ปกส."]);
 
   // วันหยุดประกาศใหม่ทำให้คิวพุธต้องจัดใหม่: เวรที่แลกผ่าน LINE หลังจุดนั้นถูกจัดตามคิวใหม่ ไม่ค้างซ้อน
-  say("แลกเวร 23 ธ.ค. คงธัช อดิศร");
+  swap("แลกเวร 23 ธ.ค. คงธัช อดิศร");
   assert.deepEqual(w.erOn("2026-12-23"), ["อดิศร"]);
   w.run("step3a_previewHolidays(); step3b_applyHolidays();");                    // 16 ธ.ค. เป็นวันหยุด → คิวเลื่อน
   for (const day of ["2026-12-23", "2026-12-30", "2027-01-06"]) assert.equal(w.erOn(day).length, 1, day);
@@ -737,10 +774,10 @@ test("ขั้น 6: ตั้งเวลา 3 ตัว · รันซ้ำ
   w.linked();
   w.run("step6_startDailyLine(); step6_startDailyLine();");
   assert.deepEqual(w.triggers.map(t => [t.fn, t.hour, t.minute ?? null, t.tz]).sort(), [
-    ["monthlyHolidayCheck", 5, null, TZ], ["sendEvening", 18, 30, TZ], ["sendMorning", 6, 30, TZ]]);
-  assert.equal(w.triggers.find(t => t.fn === "monthlyHolidayCheck").monthDay, 1);
+    ["holidayWatch", 5, null, TZ], ["sendEvening", 18, 30, TZ], ["sendMorning", 6, 30, TZ]]);
+  assert.equal(w.triggers.find(t => t.fn === "holidayWatch").hour, 5);
   w.run("stopDailyLine()");
-  assert.deepEqual(w.triggers.map(t => t.fn), ["monthlyHolidayCheck"]);
+  assert.deepEqual(w.triggers.map(t => t.fn), ["holidayWatch"]);
   w.run("CONFIG.line.evening = null; step6_startDailyLine();");   // ปิดรอบเย็น
-  assert.deepEqual(w.triggers.map(t => t.fn).sort(), ["monthlyHolidayCheck", "sendMorning"]);
+  assert.deepEqual(w.triggers.map(t => t.fn).sort(), ["holidayWatch", "sendMorning"]);
 });
