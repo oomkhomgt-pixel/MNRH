@@ -981,7 +981,7 @@ test("ตั้งชื่อด้วยการแท็ก: คนเดี
 
 test("ขั้น 4: แชร์ทุกปฏิทินให้ทุกคน · ผู้ช่วยได้สิทธิ์จัดการ · ข้ามอีเมลของเจ้าของ", () => {
   const w = makeWorld().setup();
-  assert.throws(() => w.run("step4_shareCalendars()"), /ยังไม่ได้ใส่ email/);
+  assert.throws(() => w.run("step4_shareCalendars()"), /ยังไม่ได้ใส่อีเมล/);
   w.run('CONFIG.people[0].email = "Owner@Example.com"; CONFIG.people[1].email = "b@example.com"; CONFIG.people[2].email = " c@example.com "; CONFIG.deputy = "คงธัช";');
   w.run("step4_shareCalendars()");
   assert.equal(w.acl.length, 12);   // 6 ปฏิทิน × 2 คน (ไม่รวมเจ้าของ)
@@ -989,6 +989,12 @@ test("ขั้น 4: แชร์ทุกปฏิทินให้ทุก�
   assert.deepEqual([...new Set(w.acl.filter(a => a.scope.value === "b@example.com").map(a => a.role))], ["writer"]);
   assert.deepEqual([...new Set(w.acl.filter(a => a.scope.value === "c@example.com").map(a => a.role))], ["owner"]);
   assert.equal(w.acl.filter(a => a.scope.value.includes("owner@")).length, 0);
+  // อีเมลจาก Script property SHARE_EMAILS (ไม่อยู่ในโค้ด) ใช้แทนช่อง email ได้
+  const w2 = makeWorld().setup();
+  w2.props.set("SHARE_EMAILS", "มานิตา=m@example.com, คงธัช = k@example.com\nไม่มีคนนี้=x@example.com");
+  w2.run("step4_shareCalendars()");
+  assert.deepEqual([...new Set(w2.acl.map(a => a.scope.value))].sort(), ["k@example.com", "m@example.com"]);
+  assert.equal(w2.acl.length, 12);
 });
 
 test("ขั้น 6: ตั้งเวลา 3 ตัว · รันซ้ำไม่ซ้อน · หยุดได้", () => {

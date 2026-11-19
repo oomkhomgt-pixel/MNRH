@@ -808,8 +808,16 @@ function step4_shareCalendars() {
   if (typeof Calendar === 'undefined' || !Calendar.Acl) {
     throw new Error('ยังไม่ได้เปิดบริการ Google Calendar API: แถบซ้ายของหน้านี้ → Services (+) → Google Calendar API → Add แล้วรันใหม่');
   }
-  const targets = CONFIG.people.filter(function (p) { return p.email && p.email.indexOf('@') > 0; });
-  if (!targets.length) throw new Error('ยังไม่ได้ใส่ email ใน CONFIG.people — ใส่ Gmail ของแต่ละท่านแล้วรันใหม่ (ของตัวเองไม่ต้องใส่)');
+  // อีเมลอ่านจาก Script property SHARE_EMAILS ก่อน (อยู่ในบัญชีของเจ้าของ ไม่อยู่ในโค้ด จึงไม่หายตอนวางโค้ดใหม่ และไม่หลุดไปที่อื่น)
+  // รูปแบบ: มานิตา=a@gmail.com, ศุภศักดิ์=b@gmail.com  · ถ้าไม่มี ใช้ช่อง email ใน CONFIG.people
+  const fromProp = {};
+  String(props_().getProperty('SHARE_EMAILS') || '').split(/[,\n]+/).forEach(function (pair) {
+    const m = /^\s*(\S+)\s*=\s*(\S+@\S+)\s*$/.exec(pair);
+    if (m) fromProp[m[1]] = m[2];
+  });
+  const targets = CONFIG.people.map(function (p) { return { name: p.name, email: fromProp[p.name] || p.email }; })
+    .filter(function (p) { return p.email && p.email.indexOf('@') > 0; });
+  if (!targets.length) throw new Error('ยังไม่ได้ใส่อีเมล — เพิ่ม Script property ชื่อ SHARE_EMAILS เช่น "มานิตา=a@gmail.com, คงธัช=b@gmail.com" (ของตัวเองไม่ต้องใส่) แล้วรันใหม่');
   const me = Session.getEffectiveUser().getEmail().toLowerCase();
   const ids = getJson_(PROP.CAL_IDS, {});
   let n = 0;
