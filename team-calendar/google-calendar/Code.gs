@@ -1207,12 +1207,14 @@ function parseThaiDate_(text, todayYmd) {
 /** แยกคำสั่ง → { d1, a, d2, b } หรือ { error } (ฟังก์ชันล้วน) */
 function parseSwap_(text, todayYmd, names) {
   const t = String(text).replace(/\s+/g, ' ').trim();
-  const usage = 'พิมพ์แบบนี้:\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา ชนกันต์\n   (วันเดียวกัน สลับเวรของสองท่าน หรืออยู่แทน)\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (เวรคนละวัน แลกกัน)';
-  let m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) ' + DATE_RE_SRC + ' (\\S+)$').exec(t);
+  const usage = 'พิมพ์แบบนี้:\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา ชนกันต์\n   (วันเดียวกัน สลับเวรของสองท่าน หรืออยู่แทน)\n• ' + SWAP_WORD + ' 2 ธ.ค. มานิตา 9 ธ.ค. ศุภศักดิ์\n   (เวรคนละวัน แลกกัน)\n• ต่อท้ายด้วยชื่องานเพื่อแลกเฉพาะงานนั้น เช่น\n   ' + SWAP_WORD + ' 2 ธ.ค. มานิตา ชนกันต์ ER + OPD ปกส';
+  let m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) ' + DATE_RE_SRC + ' (\\S+)(?: (.+))?$').exec(t);
   let r;
-  if (m) r = { d1: m[1], a: m[2], d2: m[3], b: m[4] };
-  else if ((m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) (\\S+)$').exec(t))) r = { d1: m[1], a: m[2], d2: m[1], b: m[3] };
+  if (m) r = { d1: m[1], a: m[2], d2: m[3], b: m[4], only: m[5] || '' };
+  else if ((m = new RegExp('^' + SWAP_WORD + ' ' + DATE_RE_SRC + ' (\\S+) (\\S+)(?: (.+))?$').exec(t))) r = { d1: m[1], a: m[2], d2: m[1], b: m[3], only: m[4] || '' };
   else return { error: usage };
+  // ระบุงานต่อท้ายได้ คั่นด้วย + หรือ , เช่น "ER + OPD ปกส" หรือ "สอน" — ถ้าระบุ จะย้ายเฉพาะงานที่ชื่อตรง รวมงานที่ลงเองด้วย
+  r.only = r.only.split(/\s*[+,]\s*/).map(function (x) { return x.trim().toLowerCase(); }).filter(String);
   r.d1 = parseThaiDate_(r.d1, todayYmd); r.d2 = parseThaiDate_(r.d2, todayYmd);
   if (!r.d1 || !r.d2) return { error: 'อ่านวันที่ไม่ออก หรือเป็นวันที่ผ่านไปแล้ว\n' + usage };
   if (r.d1 < todayYmd || r.d2 < todayYmd) return { error: 'แลกได้เฉพาะวันนี้หรือวันข้างหน้า' };
@@ -1222,20 +1224,25 @@ function parseSwap_(text, todayYmd, names) {
   return r;
 }
 /** เวร/งานประจำที่สคริปต์ลงให้ ของคนนั้นในวันนั้น */
-function dutiesOn_(name, ymd, ids, routineIds) {
+function dutiesOn_(name, ymd, ids, routineIds, only) {
   const cal = ids[name] ? CalendarApp.getCalendarById(ids[name]) : null;
   if (!cal) throw new Error('เข้าปฏิทิน "' + calName_(name) + '" ไม่ได้');
   return cal.getEvents(at_(ymd, '00:00'), at_(addDays_(ymd, 1), '00:00')).filter(function (ev) {
     if (ev.isAllDayEvent() || ymd_(ev.getStartTime()) !== ymd) return false;
+    if (only && only.length) {   // ระบุชื่องาน: เลือกจากทุกรายการที่มีเวลาของวันนั้น รวมที่ลงเอง
+      const title = String(ev.getTitle() || '').toLowerCase();
+      return only.some(function (w) { return title.indexOf(w) >= 0; });
+    }
     return !!ev.getTag(ROT_TAG) || !!routineIds[ev.getId()];
   });
 }
-function moveDuties_(events, toName, ids) {
+function moveDuties_(events, toName, ids, routineIds) {
   const toCal = CalendarApp.getCalendarById(ids[toName]);
   if (!toCal) throw new Error('เข้าปฏิทิน "' + calName_(toName) + '" ไม่ได้');
   return events.map(function (ev) {
     const tag = ev.getTag(ROT_TAG);
-    const origin = !tag ? 'routine' : tag.indexOf('swap:') === 0 ? tag.slice(5) : tag;
+    // ที่มา: งานประจำรายสัปดาห์ = routine · เวรวน = rot:… · งานที่คนลงเอง = own (คำสั่งลาจะไม่ลบงาน own)
+    const origin = tag ? (tag.indexOf('swap:') === 0 ? tag.slice(5) : tag) : ((routineIds || {})[ev.getId()] ? 'routine' : 'own');
     // ลงของใหม่ก่อน แล้วค่อยลบของเดิม — ถ้าล้มกลางทาง เวรไม่หาย (อย่างมากซ้ำ ซึ่งเห็นได้)
     const made = toCal.createEvent(ev.getTitle(), ev.getStartTime(), ev.getEndTime(), ev.getLocation() ? { location: ev.getLocation() } : {});
     made.setTag(ROT_TAG, 'swap:' + origin);
@@ -1254,8 +1261,14 @@ function planSwap_(text) {
   const made = getJson_(PROP.ROUTINE, {});
   const routineIds = {};
   Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
-  const fromA = dutiesOn_(r.a, r.d1, ids, routineIds), fromB = dutiesOn_(r.b, r.d2, ids, routineIds);
+  const fromA = dutiesOn_(r.a, r.d1, ids, routineIds, r.only), fromB = dutiesOn_(r.b, r.d2, ids, routineIds, r.only);
   const day = function (d) { return thaiDate_(d, { short: true, year: false }); };
+  if (r.only.length) {
+    // ชื่องานที่ระบุต้องเจอทุกชื่อ ไม่งั้นไม่ทำอะไร (กันพิมพ์ผิดแล้วย้ายไม่ครบ)
+    const all = fromA.concat(fromB).map(function (ev) { return String(ev.getTitle() || '').toLowerCase(); });
+    const miss = r.only.filter(function (w) { return !all.some(function (t) { return t.indexOf(w) >= 0; }); });
+    if (miss.length) return { error: 'ไม่พบงานชื่อ "' + miss.join('", "') + '" ของ' + r.a + ' ' + day(r.d1) + (r.d1 === r.d2 ? ' หรือ' + r.b : ' หรือของ' + r.b + ' ' + day(r.d2)) + ' — ตรวจชื่องานในปฏิทิน' };
+  }
   if (!fromA.length && !fromB.length) {
     return { error: 'ไม่พบเวรที่ระบบลงให้ ของ' + r.a + ' ' + day(r.d1) + (r.d1 === r.d2 ? ' และ' + r.b : ' และของ' + r.b + ' ' + day(r.d2)) + '\n(งานที่ลงเองในปฏิทิน ให้ย้ายเองในแอป)' };
   }
@@ -1267,7 +1280,7 @@ function planSwap_(text) {
   const lines = [];
   if (fromA.length) lines.push(day(r.d1) + ' · ' + r.a + ' → ' + r.b + ': ' + fromA.map(label).join(', '));
   if (fromB.length) lines.push(day(r.d2) + ' · ' + r.b + ' → ' + r.a + ': ' + fromB.map(label).join(', '));
-  return { r: r, fromA: fromA, fromB: fromB, ids: ids, lines: lines };
+  return { r: r, fromA: fromA, fromB: fromB, ids: ids, lines: lines, routineIds: routineIds };
 }
 const SWAP_TTL_MS = 24 * 3600 * 1000;
 const YES_WORD = 'ตกลง', NO_WORD = 'ไม่ตกลง', IAM_WORD = 'ฉันคือ';
@@ -1303,8 +1316,8 @@ function answerSwap_(yes, uid) {
     const plan = planSwap_(p.text);   // ตรวจใหม่ ณ ตอนตอบรับ เผื่อปฏิทินเปลี่ยนไประหว่างรอ
     props_().deleteProperty(PROP.SWAP_PENDING);
     if (plan.error) return '❌ แลกไม่ได้แล้ว (ปฏิทินเปลี่ยนไประหว่างรอ): ' + plan.error;
-    if (plan.fromA.length) moveDuties_(plan.fromA, plan.r.b, plan.ids);
-    if (plan.fromB.length) moveDuties_(plan.fromB, plan.r.a, plan.ids);
+    if (plan.fromA.length) moveDuties_(plan.fromA, plan.r.b, plan.ids, plan.routineIds);
+    if (plan.fromB.length) moveDuties_(plan.fromB, plan.r.a, plan.ids, plan.routineIds);
     return '✅ แลกเวรแล้ว' + (who ? ' (' + who + ' ตอบรับ)' : '') + '\n' + plan.lines.join('\n') + '\nปฏิทินอัปเดตแล้ว';
   } finally { lock.releaseLock(); }
 }
@@ -1393,7 +1406,8 @@ function leaveCommand_(text) {
     const made = getJson_(PROP.ROUTINE, {});
     const routineIds = {};
     Object.keys(made).forEach(function (k) { routineIds[made[k].id] = 1; });
-    let title = !r.reason ? 'ลา' : r.reason.indexOf('ลา') === 0 ? r.reason : 'ลา' + r.reason;
+    // เหตุผลที่เป็นการไปประชุม/อบรม/สัมมนา/ดูงาน ใช้เป็นชื่อรายการตามที่พิมพ์ (เช่น "ประชุมวิชาการ RCOST") ไม่เติมคำว่าลา
+    let title = !r.reason ? 'ลา' : (isAbsentTitle_(r.reason) || r.reason.indexOf('ลา') === 0) ? r.reason : 'ลา' + r.reason;
     if (!isAbsentTitle_(title)) title = 'ลา ' + r.reason;
     const removed = [], cover = [], other = [];
     cal.getEvents(at_(r.d1, '00:00'), at_(addDays_(r.d2, 1), '00:00')).forEach(function (ev) {
@@ -1415,7 +1429,7 @@ function leaveCommand_(text) {
     log[leaveKey_(r)] = removed.map(function (x) { return { d: x.d, t: x.t, s: x.s, e: x.e }; });
     setJson_(PROP.LEAVE_LOG, log);
     const span = r.d1 === r.d2 ? thaiDate_(r.d1, { short: true }) : thaiDate_(r.d1, { day: false, year: false }) + ' – ' + thaiDate_(r.d2, { day: false });
-    const lines = ['🏖 ลงวันลาแล้ว: ' + r.name + ' · ' + title + ' · ' + span];
+    const lines = ['🏖 ลงว่าไม่อยู่แล้ว: ' + r.name + ' · ' + title + ' · ' + span];
     if (removed.length) { lines.push('งดงานของตัวเอง ' + removed.length + ' รายการ:'); removed.forEach(function (x) { lines.push('  ✂️ ' + x.label); }); }
     if (cover.length) { lines.push('⚠️ เวรที่ต้องหาคนแทน (ยังอยู่ในตาราง):'); cover.forEach(function (l) { lines.push('  • ' + l); }); lines.push('ใช้คำสั่ง: ' + SWAP_WORD + ' <วันที่> ' + r.name + ' <ชื่อคนแทน>'); }
     if (other.length) { lines.push('รายการที่ลงเอง ยังค้างอยู่ (จัดการเองในปฏิทิน):'); other.forEach(function (l) { lines.push('  • ' + l); }); }
